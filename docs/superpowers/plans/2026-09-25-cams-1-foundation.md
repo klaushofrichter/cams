@@ -99,6 +99,7 @@ All paths below are relative to `~/Development/cams` unless absolute.
     "build": "npm run build:server && npm run build:web",
     "build:server": "tsc -p tsconfig.json",
     "build:web": "vite build --config web/vite.config.ts",
+    "check": "tsc --noEmit -p web/tsconfig.json",
     "start": "node dist/server/server.js",
     "dev": "tsx --env-file=.env server/server.ts",
     "dev:web": "vite --config web/vite.config.ts",
@@ -1634,7 +1635,7 @@ export default defineConfig({
     "verbatimModuleSyntax": true,
     "isolatedModules": true,
     "skipLibCheck": true,
-    "types": ["svelte"]
+    "types": ["svelte", "vite/client"]
   },
   "include": ["src/**/*.ts", "src/**/*.svelte"]
 }
@@ -2204,11 +2205,11 @@ mount(Landing, { target: document.getElementById('root')! });
 
 Run:
 ```bash
-npm run build
+npm run build && npm run check
 COOKIE_SECRET=x GOOGLE_CLIENT_ID=x GOOGLE_CLIENT_SECRET=x GOOGLE_REDIRECT_URI=http://localhost:8080/auth/google/callback ALLOWED_EMAILS=klaus@klaushofrichter.net PORT=8080 node dist/server/server.js &
 sleep 1; curl -s localhost:8080/ | grep -c 'id="root"'; curl -s -o /dev/null -w '%{http_code}\n' localhost:8080/app/live; kill %1
 ```
-Expected: build succeeds with no warnings; `1`; `302`.
+Expected: build and `tsc` check succeed with no warnings or errors; `1`; `302`.
 
 - [ ] **Step 8: Commit**
 
@@ -2873,8 +2874,8 @@ mount(App, { target: document.getElementById('root')! });
 
 - [ ] **Step 6: Build and type-check**
 
-Run: `npm run build && npx vitest run`
-Expected: build succeeds with no warnings; all unit tests pass.
+Run: `npm run build && npm run check && npx vitest run`
+Expected: build and web type check succeed with no warnings; all unit tests pass.
 
 - [ ] **Step 7: Commit**
 
@@ -3331,9 +3332,10 @@ jobs:
           node-version: 26
       - run: npm ci
       - run: npm test
-      # Build every artifact in PR checks: the server and the web bundle.
-      # (svelte-check is deferred until it supports TypeScript 7.)
+      # Build every artifact in PR checks: the server, the web bundle, and a
+      # tsc type check of web/ (.svelte files wait for svelte-check TS7 support).
       - run: npm run build
+      - run: npm run check
       - run: npm audit --audit-level=high
 
   e2e:
@@ -3689,6 +3691,7 @@ Camera viewer for Reolink cameras at cams.skylar.technology. Spec: `docs/superpo
 
 - `npm test`: vitest (server tests in `test/`, web lib tests in `web/src/**/*.test.ts`)
 - `npm run build`: `tsc` for the server plus `vite build` for the web app. tsc is the only server type-checker, so run the build.
+- `npm run check`: `tsc --noEmit` over `web/` TypeScript (svelte-check doesn't support TypeScript 7 yet, so .svelte files aren't type-checked)
 - `npm run test:e2e`: Playwright. It runs the BUILT server on :8099 and reuses one already running there locally, so rebuild first.
 - `npm run dev` / `npm run dev:web`: local server and Vite dev server
 
