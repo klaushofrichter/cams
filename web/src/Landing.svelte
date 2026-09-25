@@ -8,7 +8,7 @@
   <header class="nav">
     <Logo size={30} />
     <strong>cams</strong>
-    <span class="by">by Skylar Technology LLC</span>
+    <span class="by">by <a class="company" href="https://skylar.technology">Skylar Technology LLC</a></span>
   </header>
 
   <main class="hero">
@@ -38,7 +38,7 @@
     <CameraIllustration />
   </main>
 
-  <footer>© {year} Skylar Technology LLC · Private system, authorised account only</footer>
+  <footer>© {year} <a class="company" href="https://skylar.technology">Skylar Technology LLC</a> · Private system, authorised account only</footer>
 </div>
 
 <style>
@@ -53,6 +53,8 @@
   }
   .nav { display: flex; align-items: center; gap: 10px; padding: 18px 28px; font-size: 18px; }
   .by { font-size: 13px; color: var(--muted); }
+  .company { color: inherit; text-decoration: none; border-bottom: 1px dotted currentColor; transition: color 0.15s ease; }
+  .company:hover { color: var(--accent); border-bottom-style: solid; }
   .hero {
     flex: 1;
     display: flex;

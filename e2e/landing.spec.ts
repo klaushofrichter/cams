@@ -6,6 +6,12 @@ test.describe('landing page', () => {
     await page.goto('/');
     await expect(page.getByRole('heading', { level: 1 })).toContainText('Your cameras');
     await expect(page.getByText('Skylar Technology LLC').first()).toBeVisible();
+    // Every mention of the company (header byline and footer) links to its site.
+    const company = page.getByRole('link', { name: 'Skylar Technology LLC' });
+    await expect(company).toHaveCount(2);
+    for (const link of await company.all()) {
+      await expect(link).toHaveAttribute('href', 'https://skylar.technology');
+    }
     await expect(page.getByRole('img', { name: /RLC-1224A/ })).toBeVisible();
     const login = page.getByTestId('login');
     await expect(login).toHaveAttribute('href', '/auth/google/login');
