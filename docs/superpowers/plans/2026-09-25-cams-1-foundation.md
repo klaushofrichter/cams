@@ -3838,7 +3838,7 @@ Wait for the reply before Step 4.
 - [ ] **Step 3: Owner actions (Klaus)**
 
 Ask Klaus to:
-1. Create the Squarespace A record `cams.skylar.technology` pointing to the current public IP. Check the IP with `curl -s https://api.ipify.org`.
+1. ~~Create the Squarespace A record~~ Done 2026-09-25: `cams.skylar.technology` resolves to 72.178.224.76 on 1.1.1.1 and 8.8.8.8, matching the public IP. Re-check only if the public IP has changed since.
 2. Once kube-setup confirms the namespaces exist, run `~/Development/cams/scripts/create-secrets.sh` (`! bash ~/Development/cams/scripts/create-secrets.sh`).
 3. Confirm the repo secret `KUBE_SETUP_DEPLOY_TOKEN` is set (`gh secret list --repo klaushofrichter/cams`), if kube-setup didn't set it.
 
