@@ -78,7 +78,7 @@ All paths below are relative to `~/Development/cams` unless absolute.
 ### Task 1: Project scaffold, version and `/health`
 
 **Files:**
-- Create: `package.json`, `tsconfig.json`, `vitest.config.ts`, `.env.example`, `test/setup.ts`
+- Create: `package.json`, `tsconfig.json`, `vitest.config.mts`, `.env.example`, `test/setup.ts`
 - Create: `server/version.ts`, `server/routes/health.ts`, `server/app.ts`, `server/server.ts`
 - Test: `test/health.test.ts`
 
@@ -138,9 +138,9 @@ Expected: `package-lock.json` is created; `grep '"@types/node"' package.json` sh
 }
 ```
 
-- [ ] **Step 3: Create `vitest.config.ts` and `test/setup.ts`**
+- [ ] **Step 3: Create `vitest.config.mts` and `test/setup.ts`**
 
-`vitest.config.ts`:
+`vitest.config.mts`:
 ```ts
 import { defineConfig } from 'vitest/config';
 
@@ -266,7 +266,7 @@ Expected: 2 passed; `dist/server/server.js` exists.
 - [ ] **Step 8: Commit**
 
 ```bash
-git add package.json package-lock.json tsconfig.json vitest.config.ts .env.example test server
+git add package.json package-lock.json tsconfig.json vitest.config.mts .env.example test server
 git commit -m "feat: project scaffold with /health"
 ```
 
@@ -724,6 +724,8 @@ describe('GET /auth/google/login', () => {
     expect(url.origin + url.pathname).toBe('https://accounts.google.com/o/oauth2/v2/auth');
     expect(url.searchParams.get('scope')).toBe('openid email');
     expect(url.searchParams.get('client_id')).toBe('test-client-id');
+    // Requirement: after Logout, signing in must not happen silently.
+    expect(url.searchParams.get('prompt')).toBe('select_account');
     expect(url.searchParams.get('state')).toMatch(/^[0-9a-f]{32}\.first$/);
     expect(res.headers['set-cookie'].join(';')).toMatch(/oauth_state=[0-9a-f]{32}/);
   });
@@ -813,11 +815,23 @@ describe('safeReturnPath', () => {
 });
 
 describe('GET /auth/logout', () => {
-  it('clears the session cookie and returns to the landing page', async () => {
-    const res = await request(createApp()).get('/auth/logout');
+  it('removes every app cookie, asks the browser to clear site cookies, and returns to /', async () => {
+    const res = await request(createApp())
+      .get('/auth/logout')
+      .set('Cookie', `session=abc; oauth_state=${NONCE}; return_to=%2Fapp%2Flive`);
     expect(res.status).toBe(302);
     expect(res.headers.location).toBe('/');
-    expect(res.headers['set-cookie'].join(';')).toMatch(/session=;/);
+    const cookies = res.headers['set-cookie'].join(';');
+    expect(cookies).toMatch(/session=;.*Expires=Thu, 01 Jan 1970/);
+    expect(cookies).toMatch(/oauth_state=;/);
+    expect(cookies).toMatch(/return_to=;/);
+    expect(res.headers['clear-site-data']).toBe('"cookies"');
+  });
+
+  it('leaves the old session unusable once the browser drops the cookie', async () => {
+    const app = createApp();
+    await request(app).get('/auth/logout');
+    expect((await request(app).get('/api/me')).status).toBe(401);
   });
 });
 ```
@@ -896,20 +910,23 @@ export const OAUTH_STATE_COOKIE = 'oauth_state';
 const STATE_MAX_AGE_MS = 10 * 60 * 1000;
 const NONCE_PATTERN = /^[0-9a-f]{32}$/;
 
-// 'first' lets Google use the browser's default account silently; 'reselect'
-// is the single retry with the account chooser after that account was not
-// allowed. A disallowed account on the retry gets a 403, so it cannot loop.
+// 'first' is the normal sign-in; 'reselect' is the single retry after the
+// chosen account was not allowed. A disallowed account on the retry gets a
+// 403, so it cannot loop.
 export type LoginAttempt = 'first' | 'reselect';
 
-export function buildGoogleAuthUrl(state: string, attempt: LoginAttempt): string {
+export function buildGoogleAuthUrl(state: string): string {
   const params = new URLSearchParams({
     client_id: process.env.GOOGLE_CLIENT_ID ?? '',
     redirect_uri: process.env.GOOGLE_REDIRECT_URI ?? '',
     response_type: 'code',
     scope: 'openid email',
     state,
+    // Always show Google's account chooser. Without it, a browser still
+    // signed in to Google is let straight back in after Logout, which makes
+    // Logout look like it did nothing. `attempt` only marks the retry.
+    prompt: 'select_account',
   });
-  if (attempt === 'reselect') params.set('prompt', 'select_account');
   return `${GOOGLE_AUTH_ENDPOINT}?${params.toString()}`;
 }
 
@@ -931,7 +948,7 @@ function issueNonce(req: Request, res: Response): string {
 
 export function redirectToGoogle(req: Request, res: Response, attempt: LoginAttempt): void {
   const nonce = issueNonce(req, res);
-  res.redirect(302, buildGoogleAuthUrl(`${nonce}.${attempt}`, attempt));
+  res.redirect(302, buildGoogleAuthUrl(`${nonce}.${attempt}`));
 }
 
 export function checkState(req: Request): LoginAttempt | null {
@@ -1033,8 +1050,15 @@ authRouter.get('/auth/google/callback', authRateLimit, async (req: Request, res:
   res.redirect(302, returnTo ?? '/');
 });
 
+// Logout removes every cookie this app sets, so the next visit really needs a
+// fresh Google sign-in (which always shows the account chooser, see
+// googleLogin.ts). Clear-Site-Data additionally tells supporting browsers to
+// drop all cookies for this origin; localStorage (theme, sidebar) is kept.
 authRouter.get('/auth/logout', (_req: Request, res: Response) => {
   res.clearCookie(SESSION_COOKIE, COOKIE_OPTS);
+  res.clearCookie(RETURN_COOKIE, COOKIE_OPTS);
+  clearState(res);
+  res.set('Clear-Site-Data', '"cookies"');
   res.redirect(302, '/');
 });
 ```
@@ -2971,6 +2995,8 @@ test.describe('landing page', () => {
     const res = await request.get('/auth/google/login', { maxRedirects: 0 });
     expect(res.status()).toBe(302);
     expect(res.headers().location).toContain('https://accounts.google.com/o/oauth2/v2/auth');
+    // Always the account chooser, so a logged-out user is never signed back in silently.
+    expect(new URL(res.headers().location).searchParams.get('prompt')).toBe('select_account');
   });
 
   test('has a favicon', async ({ request }) => {
@@ -3007,6 +3033,8 @@ test.describe('auth boundaries', () => {
       await page.getByTestId('logout').click();
     }
     await expect(page).toHaveURL('/');
+    // Requirement: the authentication cookie is really gone.
+    expect((await context.cookies()).map((c) => c.name)).not.toContain('session');
     await page.goto('/app/live');
     await expect(page).toHaveURL('/');
   });
