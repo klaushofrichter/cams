@@ -86,9 +86,12 @@ browser ──HTTPS──► Traefik ─► Knative ─► cams (Express 5, Node
 | Snapshot | `GET /api/cameras/:id/snapshot.jpg` | `Snap` | `<img>` / save |
 
 - **Live, and the Knative request timeout:** long responses are cut at the
-  revision timeout. The ksvc sets `timeoutSeconds` to the cluster maximum, and the
-  player reconnects seamlessly shortly before it (it prepares a second connection
-  and swaps). `quality=main` (H.265) is offered only when
+  revision timeout. This cluster (Knative Serving 1.23.0, stock defaults) caps it
+  at `max-revision-timeout-seconds` = 600, and the default is 300. So the ksvc
+  sets `timeoutSeconds: 600` explicitly, and the player reconnects seamlessly
+  every 9 minutes (it prepares a second connection and swaps). No cluster-wide
+  config change is needed. Idle timeouts are infinite at Knative and Kourier, and
+  Traefik sets no write timeout. A real test must confirm the cut comes at 600 s. `quality=main` (H.265) is offered only when
   `MediaSource.isTypeSupported` reports HEVC support.
 - **Caching:** sub clips and thumbnails are cached in an `emptyDir`, capped at
   2 GiB with LRU eviction. Everything is rebuildable, so it needs no backup.
@@ -310,6 +313,7 @@ The kube-setup session makes these changes; service sessions don't edit kube-set
 - Whether camera HTTP (port 80) can be turned off again without breaking `Download`.
 - Creating the `cams` camera user: whether a second admin account on this
   firmware has the same API rights, including settings and reboot.
-- The exact FLV reconnect window under Knative's maximum revision timeout.
+- A live stream of more than 10 minutes through the real ingress, to confirm the
+  cut comes at 600 s and the 9-minute swap is seamless.
 - Trigger-flag decoding verified against real clips of each type (person,
   vehicle, pet, motion).
