@@ -95,11 +95,14 @@ export function createMockCamera(opts: MockCameraOptions): MockCamera {
       return;
     }
     state.activeStreams++;
+    const file = createReadStream(join(FIXTURES, 'live.flv'));
+    file.on('error', () => res.destroy());
     res.on('close', () => {
       state.activeStreams--;
+      file.destroy();
     });
     res.status(200).type('video/x-flv');
-    createReadStream(join(FIXTURES, 'live.flv')).pipe(res, { end: false });
+    file.pipe(res, { end: false });
   });
 
   return { app, state };
