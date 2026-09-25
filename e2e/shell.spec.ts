@@ -117,6 +117,32 @@ test.describe('desktop sidebar', () => {
     await page.goto('/app/live');
     await expect(page.getByTestId('hamburger')).toBeHidden();
   });
+
+  test('expanded sidebar shows every icon', async ({ page }) => {
+    await page.goto('/app/live');
+    const sidebar = page.getByTestId('sidebar');
+    await expect.poll(async () => (await sidebar.boundingBox())!.width).toBe(220);
+    for (const id of ['live', 'history', 'events', 'downloads', 'settings', 'about']) {
+      const box = await sidebar.getByTestId(`nav-${id}`).locator('svg').boundingBox();
+      expect(box, `icon for ${id}`).not.toBeNull();
+      expect(box!.width, `icon width for ${id}`).toBeGreaterThanOrEqual(18);
+    }
+  });
+
+  test('collapsed sidebar still shows every icon', async ({ page }) => {
+    await page.goto('/app/live');
+    await page.getByTestId('sidebar-toggle').click();
+    const sidebar = page.getByTestId('sidebar');
+    await expect.poll(async () => (await sidebar.boundingBox())!.width).toBe(64);
+    for (const id of ['live', 'history', 'events', 'downloads', 'settings', 'about']) {
+      const box = await sidebar.getByTestId(`nav-${id}`).locator('svg').boundingBox();
+      expect(box, `icon for ${id}`).not.toBeNull();
+      expect(box!.width, `icon width for ${id}`).toBeGreaterThanOrEqual(18);
+      expect(box!.x + box!.width, `icon for ${id} inside the column`).toBeLessThanOrEqual(64);
+    }
+    const chevron = await page.getByTestId('sidebar-toggle').locator('svg').boundingBox();
+    expect(chevron!.width).toBeGreaterThanOrEqual(18);
+  });
 });
 
 test.describe('phone layout', () => {
