@@ -8,4 +8,4 @@ published as [GitHub releases](https://github.com/klaushofrichter/cams/releases)
 
 ## [Unreleased]
 
-- Landing page, Google sign-in and the app shell (sidebar, drawer, theme, camera picker).
+- Landing page: "Skylar Technology LLC" links to https://skylar.technology in the header and footer.

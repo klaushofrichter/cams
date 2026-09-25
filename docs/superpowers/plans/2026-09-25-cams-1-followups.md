@@ -11,6 +11,7 @@ None blocked the first production deploy (v2026.09.25.1). Triage per the final r
 - svelte-check once it supports TypeScript 7 (today `npm run check` is tsc over web/*.ts only; .svelte files are not type-checked).
 
 ## Hardening / polish
+- deploy-production.yml harvests `## [Unreleased]` into the release but never clears it on main (siblings do); add the reset step.
 - `jwt.verify` with explicit `algorithms: ['HS256']`.
 - `safeReturnPath` accepts dot segments (`/app/../x`) — same-origin, but escapes `/app`.
 - Clear `oauth_state` on 401 paths and `return_to` on 403.
