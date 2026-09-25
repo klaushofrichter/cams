@@ -5,6 +5,7 @@ import { TRUST_PROXY } from './trustProxy';
 import { healthRouter } from './routes/health';
 import { authRouter } from './routes/auth';
 import { apiRouter } from './routes/api';
+import { pagesRouter, webDir } from './routes/pages';
 
 export function createApp(): Express {
   const app = express();
@@ -16,5 +17,6 @@ export function createApp(): Express {
   app.use(healthRouter);
   app.use(authRouter);
   app.use(apiRouter);
+  app.use(pagesRouter(webDir()));
   return app;
 }
