@@ -1,3 +1,4 @@
+<!-- Brand artwork with fixed brand colours (matching the favicon); intentionally exempt from the theme-token rule. -->
 <!-- Drawn illustration of a turret camera like the RLC-1224A. Our own artwork,
      not a manufacturer product photo. -->
 <svg class="cam" viewBox="0 0 210 170" role="img" aria-label="Illustration of the Reolink RLC-1224A turret camera">

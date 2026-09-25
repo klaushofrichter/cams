@@ -29,16 +29,20 @@ export function pagesRouter(dir: string): Router {
 
   // Hashed bundles are immutable; everything else (favicon, manifest) revalidates.
   router.use('/assets', express.static(join(dir, 'assets'), { immutable: true, maxAge: '1y', fallthrough: false }));
-  router.use((req, res, next) => {
-    // The HTML entries are only reachable through the routes above, so the
-    // auth decision can't be bypassed by requesting the file.
-    if (req.path === '/index.html' || req.path === '/app.html') {
-      res.status(404).send('Not found');
+
+  // Public files at the web root, by exact name. An allow-list rather than
+  // express.static on the root, so the HTML entries can't be fetched past the
+  // auth decision through encoded or differently-cased names (/%61pp.html, /APP.html).
+  const PUBLIC_ROOT_FILES = new Set(['favicon.svg', 'favicon-32.png', 'apple-touch-icon.png', 'icon-512.png', 'site.webmanifest']);
+
+  router.get('/:file', (req: Request, res: Response, next) => {
+    const file = req.params.file;
+    if (typeof file === 'string' && PUBLIC_ROOT_FILES.has(file)) {
+      res.sendFile(join(dir, file));
       return;
     }
     next();
   });
-  router.use(express.static(dir, { index: false }));
 
   router.use((_req: Request, res: Response) => {
     res.status(404).type('text/plain').send('Not found');

@@ -1,3 +1,4 @@
+<!-- Brand artwork with fixed brand colours (matching the favicon); intentionally exempt from the theme-token rule. -->
 <script lang="ts">
   let { size = 28 }: { size?: number } = $props();
   const id = `lens-${Math.random().toString(36).slice(2, 8)}`;
