@@ -5,7 +5,11 @@ import { logger } from './logger';
 export interface CameraConfig {
   id: string;
   name: string;
-  host: string;
+  host: string; // IP or hostname, optionally with :port
+  protocol: 'https' | 'http';
+  // When set, the camera's TLS certificate is verified against this name
+  // (the camera is reached by IP, but its certificate is for a hostname).
+  tlsServername?: string;
   user: string;
   password: string;
 }
@@ -52,7 +56,22 @@ export function loadCameras(file: string | undefined = process.env.CAMERAS_FILE)
     }
     if (seen.has(e.id as string)) throw new Error(`camera registry: duplicate id "${e.id}"`);
     seen.add(e.id as string);
-    return { id: e.id, name: e.name, host: e.host, user: e.user, password: e.password } as CameraConfig;
+    if (e.protocol !== undefined && e.protocol !== 'https' && e.protocol !== 'http') {
+      throw new Error(`camera registry entry ${i}: protocol must be "https" or "http"`);
+    }
+    if (e.tlsServername !== undefined && (typeof e.tlsServername !== 'string' || e.tlsServername.length === 0)) {
+      throw new Error(`camera registry entry ${i}: tlsServername must be a non-empty string`);
+    }
+    const camera: CameraConfig = {
+      id: e.id as string,
+      name: e.name as string,
+      host: e.host as string,
+      protocol: (e.protocol as 'https' | 'http' | undefined) ?? 'https',
+      user: e.user as string,
+      password: e.password as string,
+    };
+    if (e.tlsServername !== undefined) camera.tlsServername = e.tlsServername as string;
+    return camera;
   });
 }
 
