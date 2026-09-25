@@ -7,17 +7,10 @@ import pinoHttp from 'pino-http';
 // output. IMPORTANT: the cluster's collector drops debug lines, so debug stays
 // in the cluster while info and above ship to Grafana Cloud. Anything
 // detailed (payloads, headers) may only ever be logged at debug.
-function makeLogger(destination?: pino.DestinationStream): pino.Logger {
-  const actualDestination = destination || pino.destination(1);
-  // If LOG_LEVEL is 'silent' (a test-only marker), use 'info' for custom
-  // destinations (like in tests) so test streams still see output.
-  let logLevel: string | number = process.env.LOG_LEVEL || 'info';
-  if (logLevel === 'silent') {
-    logLevel = destination ? 'info' : 'trace';
-  }
+function makeLogger(destination: pino.DestinationStream = pino.destination(1)): pino.Logger {
   return pino(
-    { level: logLevel, base: undefined, timestamp: pino.stdTimeFunctions.epochTime },
-    actualDestination
+    { level: process.env.LOG_LEVEL || 'info', base: undefined, timestamp: pino.stdTimeFunctions.epochTime },
+    destination
   );
 }
 
