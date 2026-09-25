@@ -91,7 +91,8 @@ browser ──HTTPS──► Traefik ─► Knative ─► cams (Express 5, Node
   sets `timeoutSeconds: 600` explicitly, and the player reconnects seamlessly
   every 9 minutes (it prepares a second connection and swaps). No cluster-wide
   config change is needed. Idle timeouts are infinite at Knative and Kourier, and
-  Traefik sets no write timeout. A real test must confirm the cut comes at 600 s. `quality=main` (H.265) is offered only when
+  Traefik sets no write timeout. A real test must confirm the cut comes at 600 s.
+  `quality=main` (H.265) is offered only when
   `MediaSource.isTypeSupported` reports HEVC support.
 - **Caching:** sub clips and thumbnails are cached in an `emptyDir`, capped at
   2 GiB with LRU eviction. Everything is rebuildable, so it needs no backup.
@@ -282,7 +283,7 @@ The kube-setup session makes these changes; service sessions don't edit kube-set
 
 - **Namespace `cams`:**
   - The ksvc with `min-scale`/`max-scale` 1, the non-root securityContext and a
-    raised `timeoutSeconds`.
+    `timeoutSeconds: 600`.
   - `envFrom` Secret `cams-oauth`, and Secret `cams-cameras` mounted as a file.
   - An `emptyDir` cache of 2 GiB and PVC `cams-data` (64 Mi).
   - `DomainMapping` plus `ClusterDomainClaim` for `cams.skylar.technology`.
