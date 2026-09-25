@@ -135,6 +135,12 @@ returns ISO strings with offsets.
   - `/app/*` returns 302 to `/`.
   - `/api/*` returns 401 JSON.
   - Authenticated responses are `Cache-Control: no-store`.
+- **Logout** removes every cookie the app sets (session, OAuth state, return path). No
+  `Clear-Site-Data` header: browsers apply it to the whole `skylar.technology` domain and would
+  sign the user out of every sibling service too. Sign-in always shows Google's account chooser
+  (`prompt=select_account`), so after Logout the user must actively sign in again rather than
+  being let back in silently by an existing Google session. (Signing out of Google itself is out
+  of scope.)
 - **CSRF:** kauf-server's same-origin check on every non-GET API call.
 - **`trust proxy`:** the cluster CIDR list `['loopback','10.42.0.0/16','10.43.0.0/16']`.
 - **Rate limits:** on the auth callback and the API (IP-keyed); media routes get a
