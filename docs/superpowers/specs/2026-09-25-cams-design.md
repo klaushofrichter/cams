@@ -282,7 +282,7 @@ The `klaushofrichter/cams` repo is public, and follows kube-setup's
 The kube-setup session makes these changes; service sessions don't edit kube-setup.
 
 - **Namespace `cams`:**
-  - The ksvc with `min-scale`/`max-scale` 1, the non-root securityContext and a
+  - The ksvc with `min-scale`/`max-scale` 1, the non-root securityContext and
     `timeoutSeconds: 600`.
   - `envFrom` Secret `cams-oauth`, and Secret `cams-cameras` mounted as a file.
   - An `emptyDir` cache of 2 GiB and PVC `cams-data` (64 Mi).
