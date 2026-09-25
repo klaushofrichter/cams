@@ -1,0 +1,185 @@
+name: Deploy production
+
+on:
+  push:
+    branches: [production]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  packages: write
+
+jobs:
+  deploy:
+    runs-on: [self-hosted, k3s]
+    steps:
+      - name: Refuse to deploy anything but production
+        if: github.ref != 'refs/heads/production'
+        run: |
+          echo "::error::deploys run from production only (got ${GITHUB_REF})"
+          exit 1
+
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Install kubectl and configure in-cluster access
+        run: |
+          set -euo pipefail
+          if ! command -v kubectl >/dev/null 2>&1; then
+            curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
+            chmod +x kubectl
+            sudo mv kubectl /usr/local/bin/kubectl
+          fi
+          SA_DIR=/var/run/secrets/kubernetes.io/serviceaccount
+          kubectl config set-cluster in-cluster --server=https://kubernetes.default.svc --certificate-authority="${SA_DIR}/ca.crt"
+          kubectl config set-credentials deploy-sa --token="$(cat "${SA_DIR}/token")"
+          kubectl config set-context in-cluster --cluster=in-cluster --user=deploy-sa --namespace=cams
+          kubectl config use-context in-cluster
+
+      - name: Generate the version
+        id: ver
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          DATE=$(TZ=America/Chicago date +%Y.%m.%d)
+          # Own assignment so a gh failure fails the step instead of reading as
+          # "no releases today" and reusing a shipped version.
+          RELEASES=$(gh release list --repo "$GITHUB_REPOSITORY" --limit 200 --json tagName -q '.[].tagName')
+          TODAY=$(printf '%s\n' "$RELEASES" | grep -c "^v${DATE}\." || true)
+          VERSION="${DATE}.$((TODAY + 1))"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "Releasing v$VERSION"
+
+      - uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: docker/build-push-action@v7
+        with:
+          context: .
+          push: true
+          build-args: |
+            APP_VERSION=${{ steps.ver.outputs.version }}
+          tags: |
+            ghcr.io/klaushofrichter/cams:${{ github.sha }}
+            ghcr.io/klaushofrichter/cams:v${{ steps.ver.outputs.version }}
+            ghcr.io/klaushofrichter/cams:latest
+
+      - name: Prune old Docker images
+        run: docker system prune -af --filter "until=168h" || true
+
+      - name: Update kube-setup manifest and deploy
+        env:
+          KUBE_SETUP_DEPLOY_TOKEN: ${{ secrets.KUBE_SETUP_DEPLOY_TOKEN }}
+          SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          rm -rf /tmp/kube-setup-deploy
+          git clone "https://x-access-token:${KUBE_SETUP_DEPLOY_TOKEN}@github.com/klaushofrichter/kube-setup.git" /tmp/kube-setup-deploy
+          cd /tmp/kube-setup-deploy
+          M=manifests/cams/cams-ksvc.yaml
+          sed -i "s|image: ghcr.io/klaushofrichter/cams:.*|image: ghcr.io/klaushofrichter/cams:${SHA}|" "$M"
+          # A silently no-op sed would commit an unchanged manifest and let git
+          # drift from the cluster while reporting success.
+          grep -q "image: ghcr.io/klaushofrichter/cams:${SHA}$" "$M" \
+            || { echo "::error::manifest image line did not update to ${SHA}"; exit 1; }
+          git config user.name "cams-deploy-bot"
+          git config user.email "actions@users.noreply.github.com"
+          git add "$M"
+          if git diff --cached --quiet; then
+            echo "Manifest already at ${SHA}; nothing to commit."
+          else
+            git commit -m "Deploy cams ${SHA}"
+            git push   # push before apply, always
+          fi
+          kubectl apply -f "$M"
+          rm -rf /tmp/kube-setup-deploy
+
+      - name: Verify rollout
+        run: |
+          set -euo pipefail
+          kubectl wait --for=condition=Ready ksvc/cams -n cams --timeout=180s
+          kubectl get ksvc cams -n cams
+
+      # curl, not Playwright: a browser OOM-kills this runner. The full
+      # Playwright suite ran on GitHub's runners before this merge.
+      - name: Smoke-test the public endpoints
+        id: smoke
+        env:
+          VERSION: ${{ steps.ver.outputs.version }}
+        run: |
+          set -euo pipefail
+          BASE=https://cams.skylar.technology
+          # Polled until the served version matches: Knative can answer from
+          # the previous revision for a moment after Ready.
+          code=""; served=""; ok=""
+          for i in $(seq 1 10); do
+            code=$(curl -s -o /tmp/health.json -w "%{http_code}" "$BASE/health" || true)
+            if [ "$code" = "200" ]; then
+              served=$(grep -o '"version":"[^"]*"' /tmp/health.json | head -1 | cut -d'"' -f4 || true)
+              if [ "$served" = "$VERSION" ]; then ok=1; echo "health ok, serving ${served}"; break; fi
+              echo "still serving ${served:-unknown}, waiting for ${VERSION} (${i}/10)"
+            else
+              echo "health not ready (HTTP ${code}), retry ${i}/10"
+            fi
+            sleep 6
+          done
+          [ -n "$ok" ] || { echo "::error::/health never reported ${VERSION} (last HTTP ${code:-none}, version ${served:-none})"; exit 1; }
+          landing=$(curl -s -o /tmp/landing.html -w "%{http_code}" "$BASE/")
+          [ "$landing" = "200" ] || { echo "::error::landing page returned ${landing}"; exit 1; }
+          grep -q 'id="root"' /tmp/landing.html || { echo "::error::landing page HTML missing its root element"; exit 1; }
+          app=$(curl -s -o /dev/null -w "%{http_code}" "$BASE/app/live")
+          [ "$app" = "302" ] || { echo "::error::signed-out /app/live returned ${app}, expected 302 (auth not enforced?)"; exit 1; }
+          api=$(curl -s -o /dev/null -w "%{http_code}" "$BASE/api/me")
+          [ "$api" = "401" ] || { echo "::error::signed-out /api/me returned ${api}, expected 401"; exit 1; }
+          {
+            echo "served_version=$served"
+            echo "landing_code=$landing"
+            echo "app_code=$app"
+            echo "api_code=$api"
+            echo "base=$BASE"
+            echo "checked_at=$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Tag the release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ steps.ver.outputs.version }}
+          SERVED: ${{ steps.smoke.outputs.served_version }}
+          LANDING: ${{ steps.smoke.outputs.landing_code }}
+          APP: ${{ steps.smoke.outputs.app_code }}
+          API: ${{ steps.smoke.outputs.api_code }}
+          BASE: ${{ steps.smoke.outputs.base }}
+          CHECKED_AT: ${{ steps.smoke.outputs.checked_at }}
+        run: |
+          set -euo pipefail
+          TAG="v${VERSION}"
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "$TAG already released - skipping."; exit 0
+          fi
+          : > /tmp/notes.md
+          awk '/^## \[Unreleased\]/ { grab = 1; next } grab && /^## / { exit } grab { print }' CHANGELOG.md \
+            | sed '/^[[:space:]]*$/d' > /tmp/curated.md
+          if [ -s /tmp/curated.md ]; then cat /tmp/curated.md >> /tmp/notes.md; printf '\n' >> /tmp/notes.md; fi
+          PREV=$(gh release list --repo "$GITHUB_REPOSITORY" --limit 1 --json tagName -q '.[0].tagName' 2>/dev/null || true)
+          printf '### Changes\n\n' >> /tmp/notes.md
+          if [ -n "$PREV" ] && git rev-parse "$PREV" >/dev/null 2>&1; then
+            git log --no-merges --pretty='- %s' "${PREV}..HEAD" >> /tmp/notes.md
+            printf '\n**Full diff**: %s/compare/%s...%s\n' "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY" "$PREV" "$TAG" >> /tmp/notes.md
+          else
+            git log --no-merges --pretty='- %s' -20 >> /tmp/notes.md
+          fi
+          printf '\n### Verified at release\n\n' >> /tmp/notes.md
+          printf -- '- Rollout: `ksvc/cams` reached Ready\n' >> /tmp/notes.md
+          printf -- '- `GET %s/health` -> 200, reported version `%s`, matching this build\n' "$BASE" "$SERVED" >> /tmp/notes.md
+          printf -- '- `GET %s/` -> %s (landing page)\n' "$BASE" "$LANDING" >> /tmp/notes.md
+          printf -- '- `GET %s/app/live` signed out -> %s (auth enforced)\n' "$BASE" "$APP" >> /tmp/notes.md
+          printf -- '- `GET %s/api/me` signed out -> %s\n' "$BASE" "$API" >> /tmp/notes.md
+          printf -- '- Checked at %s by [run %s](%s/%s/actions/runs/%s)\n' "$CHECKED_AT" "$GITHUB_RUN_ID" "$GITHUB_SERVER_URL" "$GITHUB_REPOSITORY" "$GITHUB_RUN_ID" >> /tmp/notes.md
+          printf '\nImage: `ghcr.io/klaushofrichter/cams:%s`\n' "$TAG" >> /tmp/notes.md
+          gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --title "$TAG" --notes-file /tmp/notes.md
+          echo "Released $TAG"
