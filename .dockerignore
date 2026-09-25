@@ -1,0 +1,12 @@
+node_modules
+dist
+test
+e2e
+test-results
+playwright-report
+.git
+.github
+.env
+*.md
+!CHANGELOG.md
+docs
