@@ -75,14 +75,17 @@ authRouter.get('/auth/google/callback', authRateLimit, async (req: Request, res:
   res.redirect(302, returnTo ?? '/');
 });
 
-// Logout removes every cookie this app sets, so the next visit really needs a
-// fresh Google sign-in (which always shows the account chooser, see
-// googleLogin.ts). Clear-Site-Data additionally tells supporting browsers to
-// drop all cookies for this origin; localStorage (theme, sidebar) is kept.
+// Logout clears exactly the three cookies this app sets (session, return_to,
+// oauth_state), with the same attributes they were set with, so the next
+// visit really needs a fresh Google sign-in (which always shows the account
+// chooser, see googleLogin.ts). localStorage (theme, sidebar) is kept.
+//
+// Clear-Site-Data is deliberately not used here: it applies to the whole
+// registrable domain, not just this origin, so it would also sign the user
+// out of every other *.skylar.technology service sharing the browser.
 authRouter.get('/auth/logout', (_req: Request, res: Response) => {
   res.clearCookie(SESSION_COOKIE, COOKIE_OPTS);
   res.clearCookie(RETURN_COOKIE, COOKIE_OPTS);
   clearState(res);
-  res.set('Clear-Site-Data', '"cookies"');
   res.redirect(302, '/');
 });

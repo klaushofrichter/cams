@@ -20,7 +20,8 @@ export function buildGoogleAuthUrl(state: string): string {
     state,
     // Always show Google's account chooser. Without it, a browser still
     // signed in to Google is let straight back in after Logout, which makes
-    // Logout look like it did nothing. `attempt` only marks the retry.
+    // Logout look like it did nothing. The attempt marker travels inside
+    // `state` (see redirectToGoogle), not as a parameter here.
     prompt: 'select_account',
   });
   return `${GOOGLE_AUTH_ENDPOINT}?${params.toString()}`;
@@ -51,6 +52,7 @@ export function checkState(req: Request): LoginAttempt | null {
   const cookie = req.cookies?.[OAUTH_STATE_COOKIE];
   const state = req.query.state;
   if (typeof cookie !== 'string' || typeof state !== 'string') return null;
+  if (!NONCE_PATTERN.test(cookie)) return null;
   const dot = state.lastIndexOf('.');
   if (dot === -1) return null;
   const nonce = state.slice(0, dot);

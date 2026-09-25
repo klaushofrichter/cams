@@ -64,6 +64,14 @@ describe('GET /auth/google/callback', () => {
     expect(res.body).toEqual({ error: 'invalid state' });
   });
 
+  it('rejects an empty nonce cookie paired with an empty state', async () => {
+    const res = await request(createApp())
+      .get('/auth/google/callback?code=c&state=.first')
+      .set('Cookie', 'oauth_state=');
+    expect(res.status).toBe(401);
+    expect(res.body).toEqual({ error: 'invalid state' });
+  });
+
   it('rejects a missing code', async () => {
     const res = await request(createApp()).get(`/auth/google/callback?state=${NONCE}.first`).set('Cookie', stateCookie);
     expect(res.status).toBe(401);
@@ -126,7 +134,7 @@ describe('safeReturnPath', () => {
 });
 
 describe('GET /auth/logout', () => {
-  it('removes every app cookie, asks the browser to clear site cookies, and returns to /', async () => {
+  it('removes every app cookie and returns to /, without a domain-wide Clear-Site-Data header', async () => {
     const res = await request(createApp())
       .get('/auth/logout')
       .set('Cookie', `session=abc; oauth_state=${NONCE}; return_to=%2Fapp%2Flive`);
@@ -136,7 +144,9 @@ describe('GET /auth/logout', () => {
     expect(cookies).toMatch(/session=;.*Expires=Thu, 01 Jan 1970/);
     expect(cookies).toMatch(/oauth_state=;/);
     expect(cookies).toMatch(/return_to=;/);
-    expect(res.headers['clear-site-data']).toBe('"cookies"');
+    // Clear-Site-Data applies to the whole registrable domain, which would
+    // sign the user out of every *.skylar.technology service. Not used.
+    expect(res.headers['clear-site-data']).toBeUndefined();
   });
 
   it('leaves the old session unusable once the browser drops the cookie', async () => {

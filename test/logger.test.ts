@@ -50,4 +50,29 @@ describe('httpLogger', () => {
       process.env.LOG_LEVEL = prevLogLevel;
     }
   });
+
+  it('logs the full originalUrl for a route mounted under a sub-router', async () => {
+    const prevLogLevel = process.env.LOG_LEVEL;
+    try {
+      process.env.LOG_LEVEL = 'info';
+
+      const lines: string[] = [];
+      const sink = new Writable({
+        write(chunk, _enc, cb) {
+          lines.push(chunk.toString());
+          cb();
+        },
+      });
+      const app = express();
+      app.use(createHttpLogger(sink));
+      const sub = express.Router();
+      sub.get('/thing', (_req, res) => res.json({ ok: true }));
+      app.use('/api', sub);
+      await request(app).get('/api/thing');
+      const entry = JSON.parse(lines[0]);
+      expect(entry.path).toBe('/api/thing');
+    } finally {
+      process.env.LOG_LEVEL = prevLogLevel;
+    }
+  });
 });

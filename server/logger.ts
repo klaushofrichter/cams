@@ -39,7 +39,7 @@ function flatten(
     kind: 'api_request',
     reqId: req.id as string,
     method: req.method,
-    path: (req.url || '').split('?')[0],
+    path: ((req as { originalUrl?: string }).originalUrl ?? req.url ?? '').split('?')[0],
     status: res.statusCode,
   };
 }
@@ -54,7 +54,7 @@ export function createHttpLogger(destination?: pino.DestinationStream) {
       remove: true,
     },
     customLogLevel: (req: IncomingMessage, res: ServerResponse, err?: Error) =>
-      err ? 'error' : levelFor(res.statusCode, req.url || ''),
+      err ? 'error' : levelFor(res.statusCode, (req as { originalUrl?: string }).originalUrl ?? req.url ?? ''),
     customSuccessMessage: () => 'api_request',
     customErrorMessage: () => 'api_request',
     customAttributeKeys: { responseTime: 'durationMs' },
