@@ -135,8 +135,9 @@ returns ISO strings with offsets.
   - `/app/*` returns 302 to `/`.
   - `/api/*` returns 401 JSON.
   - Authenticated responses are `Cache-Control: no-store`.
-- **Logout** removes every cookie the app sets (session, OAuth state, return path) and sends
-  `Clear-Site-Data: "cookies"`. Sign-in always shows Google's account chooser
+- **Logout** removes every cookie the app sets (session, OAuth state, return path). No
+  `Clear-Site-Data` header: browsers apply it to the whole `skylar.technology` domain and would
+  sign the user out of every sibling service too. Sign-in always shows Google's account chooser
   (`prompt=select_account`), so after Logout the user must actively sign in again rather than
   being let back in silently by an existing Google session. (Signing out of Google itself is out
   of scope.)
