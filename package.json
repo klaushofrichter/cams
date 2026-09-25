@@ -8,11 +8,11 @@
   "scripts": {
     "build": "npm run build:server && npm run build:web",
     "build:server": "tsc -p tsconfig.json",
-    "build:web": "vite build --config web/vite.config.ts",
+    "build:web": "vite build --config web/vite.config.mts",
     "check": "svelte-check --tsconfig web/tsconfig.json --fail-on-warnings",
     "start": "node dist/server/server.js",
     "dev": "tsx --env-file=.env server/server.ts",
-    "dev:web": "vite --config web/vite.config.ts",
+    "dev:web": "vite --config web/vite.config.mts",
     "test": "vitest run",
     "test:e2e": "playwright test",
     "icons": "node scripts/gen-icons.mjs"
