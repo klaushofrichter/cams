@@ -9,11 +9,14 @@
   import Settings from './pages/Settings.svelte';
   import About from './pages/About.svelte';
   import { initRouter, route } from './lib/router';
-  import { cameras, drawerOpen, me, selectedCameraId, type CameraSummary, type Me } from './lib/stores';
+  import { cameras, drawerOpen, me, selectedCameraId, theme, type CameraSummary, type Me } from './lib/stores';
   import { getJson, UnauthorizedError } from './lib/api';
   import { duration } from './lib/motion';
+  import { currentTheme } from './lib/theme';
 
   let loadError = $state('');
+  let drawerPanelEl: HTMLDivElement | undefined = $state();
+  let drawerWasOpen = false;
 
   async function load() {
     try {
@@ -27,11 +30,24 @@
   }
 
   onMount(() => {
+    theme.set(currentTheme());
     const stop = initRouter();
     void load();
     const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') drawerOpen.set(false); };
     addEventListener('keydown', onKey);
     return () => { stop(); removeEventListener('keydown', onKey); };
+  });
+
+  // Move focus into the drawer when it opens, and back to the hamburger
+  // button when it closes (Escape, backdrop, close button or navigation).
+  $effect(() => {
+    const isOpen = $drawerOpen;
+    if (isOpen && !drawerWasOpen) {
+      drawerPanelEl?.querySelector<HTMLElement>('[data-testid^="nav-"]')?.focus();
+    } else if (!isOpen && drawerWasOpen) {
+      document.querySelector<HTMLElement>('[data-testid="hamburger"]')?.focus();
+    }
+    drawerWasOpen = isOpen;
   });
 </script>
 
@@ -52,7 +68,14 @@
 
   {#if $drawerOpen}
     <button class="backdrop" aria-label="Close menu" transition:fade={{ duration: duration(150) }} onclick={() => drawerOpen.set(false)}></button>
-    <div class="drawer-panel" transition:fly={{ x: -280, duration: duration(220) }}>
+    <div
+      class="drawer-panel"
+      role="dialog"
+      aria-modal="true"
+      aria-label="Menu"
+      bind:this={drawerPanelEl}
+      transition:fly={{ x: -280, duration: duration(220) }}
+    >
       <button class="close" aria-label="Close menu" onclick={() => drawerOpen.set(false)}><Icon name="close" /></button>
       <Sidebar drawer />
     </div>
@@ -73,7 +96,7 @@
     color: var(--muted); box-shadow: var(--shadow);
   }
   .error { padding: 12px 16px; margin-bottom: 16px; border-radius: 10px; background: color-mix(in srgb, var(--danger) 15%, transparent); color: var(--text); }
-  .backdrop { position: fixed; inset: 0; background: rgba(3, 8, 18, 0.55); border: 0; z-index: 30; }
+  .backdrop { position: fixed; inset: 0; background: var(--scrim); border: 0; z-index: 30; }
   .drawer-panel { position: fixed; top: 0; bottom: 0; left: 0; z-index: 31; background: var(--chrome); box-shadow: var(--shadow); padding-top: 48px; }
   .close { position: absolute; top: 10px; right: 10px; width: 36px; height: 36px; display: grid; place-items: center; border: 0; background: transparent; cursor: pointer; }
   @media (max-width: 767px) {

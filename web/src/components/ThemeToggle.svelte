@@ -1,20 +1,17 @@
 <script lang="ts">
-  import { onMount } from 'svelte';
   import Icon from './Icon.svelte';
-  import { currentTheme, toggleTheme, type Theme } from '../lib/theme';
-
-  let theme = $state<Theme>('dark');
-  onMount(() => { theme = currentTheme(); });
+  import { toggleTheme } from '../lib/theme';
+  import { theme } from '../lib/stores';
 </script>
 
 <button
   class="icon-btn"
   data-testid="theme-toggle"
-  onclick={() => (theme = toggleTheme())}
-  aria-label={theme === 'dark' ? 'Switch to light theme' : 'Switch to dark theme'}
-  title={theme === 'dark' ? 'Light theme' : 'Dark theme'}
+  onclick={() => theme.set(toggleTheme())}
+  aria-label={$theme === 'dark' ? 'Switch to light theme' : 'Switch to dark theme'}
+  title={$theme === 'dark' ? 'Light theme' : 'Dark theme'}
 >
-  <Icon name={theme === 'dark' ? 'sun' : 'moon'} />
+  <Icon name={$theme === 'dark' ? 'sun' : 'moon'} />
 </button>
 
 <style>

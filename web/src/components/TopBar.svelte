@@ -36,7 +36,7 @@
   .version:hover { opacity: 1; color: var(--accent); text-decoration: underline; }
   .logout {
     display: inline-flex; align-items: center; gap: 6px; padding: 7px 14px; border-radius: 10px;
-    background: var(--grad); color: #fff; font-weight: 600; font-size: 14px; text-decoration: none;
+    background: var(--grad); color: var(--on-grad); font-weight: 600; font-size: 14px; text-decoration: none;
     transition: filter 0.15s ease, transform 0.15s ease;
   }
   .logout:hover { filter: brightness(1.1); transform: translateY(-1px); }

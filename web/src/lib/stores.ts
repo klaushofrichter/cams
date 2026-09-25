@@ -1,4 +1,5 @@
 import { writable, type Writable } from 'svelte/store';
+import type { Theme } from './theme';
 
 export interface Me {
   email: string;
@@ -36,3 +37,4 @@ export const drawerOpen = writable(false);
 export const me = writable<Me | null>(null);
 export const cameras = writable<CameraSummary[]>([]);
 export const selectedCameraId = writable<string | null>(null);
+export const theme = writable<Theme>('dark');

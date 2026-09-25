@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { get } from 'svelte/store';
-import { persistedBoolean } from './stores';
+import { persistedBoolean, theme } from './stores';
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -27,5 +27,22 @@ describe('persistedBoolean', () => {
     expect(get(s)).toBe(false);
     expect(() => s.set(true)).not.toThrow();
     expect(get(s)).toBe(true);
+  });
+});
+
+// Review item 2: a single shared store keeps every ThemeToggle instance
+// (top bar, drawer) in sync, instead of each keeping its own local state.
+describe('theme store', () => {
+  it('is shared: setting it updates every subscriber', () => {
+    expect(get(theme)).toBe('dark');
+    const seen: string[] = [];
+    const unsubA = theme.subscribe((v) => seen.push(`a:${v}`));
+    const unsubB = theme.subscribe((v) => seen.push(`b:${v}`));
+    theme.set('light');
+    expect(get(theme)).toBe('light');
+    expect(seen).toContain('a:light');
+    expect(seen).toContain('b:light');
+    unsubA();
+    unsubB();
   });
 });
