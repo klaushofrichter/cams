@@ -23,17 +23,23 @@ test('theme toggle switches colours and scrollbars, and persists', async ({ page
       scrollbar: getComputedStyle(document.documentElement).scrollbarColor,
     }));
   const before = await read();
+  // before.theme is null until the app's own onMount runs (no data-theme
+  // attribute set yet), so derive the actually-rendered starting theme from
+  // the same signal the app itself uses (prefers-color-scheme), rather than
+  // hard-coding an assumption about it. playwright.config.ts pins
+  // colorScheme to 'light', so this normally resolves to 'light', but
+  // deriving it keeps the assertion honest about what it depends on.
+  const startTheme =
+    before.theme ?? (await page.evaluate(() => (matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark')));
+  const expectedTheme = startTheme === 'dark' ? 'light' : 'dark';
   if (testInfo.project.name === 'phone') {
     await page.getByTestId('hamburger').click();
     await page.getByTestId('drawer').getByTestId('theme-toggle').click();
   } else {
     await page.getByTestId('theme-toggle').click();
   }
-  // Playwright's default colorScheme is 'light' (unset by the desktop/phone
-  // projects below), so the app already renders light via the
-  // prefers-color-scheme media query before any explicit choice is made; the
-  // first toggle click therefore flips it to 'dark'.
-  await expect.poll(async () => (await read()).theme).toBe('dark');
+  // The toggle flips away from the starting theme, whatever it was.
+  await expect.poll(async () => (await read()).theme).toBe(expectedTheme);
   // body background-color has a 0.25s CSS transition (theme.css), so read it
   // via expect.poll too instead of racing the transition right after the
   // dataset attribute flips.
@@ -41,7 +47,7 @@ test('theme toggle switches colours and scrollbars, and persists', async ({ page
   const after = await read();
   expect(after.scrollbar).not.toBe(before.scrollbar);
   await page.reload();
-  expect((await read()).theme).toBe('dark');
+  expect((await read()).theme).toBe(expectedTheme);
 });
 
 test('navigation reaches every page and keeps the URL in sync', async ({ page }, testInfo) => {

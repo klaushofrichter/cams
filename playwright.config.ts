@@ -10,6 +10,9 @@ export default defineConfig({
     baseURL: `http://localhost:${E2E_PORT}`,
     timezoneId: 'America/Chicago',
     trace: 'retain-on-failure',
+    // Pinned so the theme specs have a deterministic starting theme instead
+    // of relying on Playwright's implicit default.
+    colorScheme: 'light',
   },
   projects: [
     { name: 'desktop', use: { ...devices['Desktop Chrome'], viewport: { width: 1440, height: 900 } } },
