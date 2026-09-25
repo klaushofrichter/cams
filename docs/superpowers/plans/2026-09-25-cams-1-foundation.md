@@ -1855,7 +1855,7 @@ git commit -m "feat: Svelte/Vite scaffold, Midnight Steel theme tokens, Lens mar
 - Test: `test/pages.test.ts`
 
 **Interfaces:**
-- Consumes: `currentUser`, `requireAuthPage`, `noStore` (Task 3).
+- Consumes: `currentUser`, `requireAuthPage`, `noStore` (Task 3); `createApiRateLimit` (Task 4).
 - Produces:
   - `pagesRouter(webDir: string): Router`.
   - `webDir()` resolves `process.env.WEB_DIST` or `dist/web` next to the compiled server.
