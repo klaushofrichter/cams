@@ -68,7 +68,7 @@ The spec is split into four plans that each end in a working, deployed app. Plan
 ## Preconditions (already done, do not redo)
 
 - The repo `klaushofrichter/cams` exists (public). The local clone is `~/Development/cams` on branch `main`, containing only `.gitignore` and `docs/`.
-- The Google OAuth client "cams" exists in project `1004218987196` with the redirect URI `https://cams.skylar.technology/auth/google/callback`. Its ID and secret are in `~/Development/reolink/.env` as `GOOGLE_OAUTH_CLIENT_ID` and `GOOGLE_OAUTH_CLIENT_SECRET`. The runner PAT is there as `CAMS_GITHUB_PAT`.
+- The Google OAuth client "cams" exists in project `1004218987196` with the redirect URI `https://cams.skylar.technology/auth/google/callback`. Its ID and secret are in `~/Development/reolink/.env` as `GOOGLE_OAUTH_CLIENT_ID` and `GOOGLE_OAUTH_CLIENT_SECRET`. The runner PAT is there as `CAMS_GITHUB_PAT`, and the allow-list as `ALLOWED_EMAILS=klaus@klaushofrichter.net`.
 - Kubeconfig for the cluster: `~/.kube/k3s-config`.
 
 All paths below are relative to `~/Development/cams` unless absolute.
@@ -3759,7 +3759,7 @@ Expected: `["test","e2e","codeql"]`. `enforce_admins: false` is deliberate: admi
 **Interfaces:**
 - Consumes:
   - The image `ghcr.io/klaushofrichter/cams` (Task 11).
-  - `~/Development/reolink/.env`, which holds `GOOGLE_OAUTH_CLIENT_ID`, `GOOGLE_OAUTH_CLIENT_SECRET` and `CAMS_GITHUB_PAT`.
+  - `~/Development/reolink/.env`, which holds `GOOGLE_OAUTH_CLIENT_ID`, `GOOGLE_OAUTH_CLIENT_SECRET`, `CAMS_GITHUB_PAT` and `ALLOWED_EMAILS` (comma-separated; the script copies it into the Secret as-is).
 - Produces: the `cams-oauth` Secret in namespace `cams`, the `runner-pat` Secret (key `token`) in `cams-runner`, and a live deployment.
 
 - [ ] **Step 1: Write `scripts/create-secrets.sh`**
@@ -3776,6 +3776,7 @@ set -a; . "$ENV_FILE"; set +a
 : "${GOOGLE_OAUTH_CLIENT_ID:?missing in $ENV_FILE}"
 : "${GOOGLE_OAUTH_CLIENT_SECRET:?missing in $ENV_FILE}"
 : "${CAMS_GITHUB_PAT:?missing in $ENV_FILE}"
+: "${ALLOWED_EMAILS:?missing in $ENV_FILE}"
 
 # Keep an existing COOKIE_SECRET so re-running doesn't sign everyone out.
 existing=$(kubectl -n cams get secret cams-oauth -o jsonpath='{.data.COOKIE_SECRET}' 2>/dev/null | base64 -d || true)
@@ -3785,7 +3786,7 @@ kubectl -n cams create secret generic cams-oauth \
   --from-literal=GOOGLE_CLIENT_ID="$GOOGLE_OAUTH_CLIENT_ID" \
   --from-literal=GOOGLE_CLIENT_SECRET="$GOOGLE_OAUTH_CLIENT_SECRET" \
   --from-literal=GOOGLE_REDIRECT_URI="https://cams.skylar.technology/auth/google/callback" \
-  --from-literal=ALLOWED_EMAILS="klaus@klaushofrichter.net" \
+  --from-literal=ALLOWED_EMAILS="$ALLOWED_EMAILS" \
   --from-literal=COOKIE_SECRET="$COOKIE_SECRET" \
   --dry-run=client -o yaml | kubectl apply -f -
 
