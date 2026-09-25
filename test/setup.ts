@@ -5,3 +5,9 @@ process.env.GOOGLE_CLIENT_ID ??= 'test-client-id';
 process.env.GOOGLE_CLIENT_SECRET ??= 'test-client-secret';
 process.env.GOOGLE_REDIRECT_URI ??= 'http://localhost:8080/auth/google/callback';
 process.env.ALLOWED_EMAILS ??= 'klaus@klaushofrichter.net';
+
+import { beforeEach } from 'vitest';
+import { resetRateLimits } from '../server/middleware/rateLimit';
+
+// Limiters are module-level, so counters would otherwise leak between tests.
+beforeEach(() => resetRateLimits());

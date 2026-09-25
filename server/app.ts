@@ -3,6 +3,7 @@ import cookieParser from 'cookie-parser';
 import { httpLogger } from './logger';
 import { TRUST_PROXY } from './trustProxy';
 import { healthRouter } from './routes/health';
+import { authRouter } from './routes/auth';
 
 export function createApp(): Express {
   const app = express();
@@ -12,5 +13,6 @@ export function createApp(): Express {
   app.use(express.json());
   app.use(cookieParser());
   app.use(healthRouter);
+  app.use(authRouter);
   return app;
 }
