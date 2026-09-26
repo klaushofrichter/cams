@@ -45,10 +45,17 @@ export function secondsIntoDay(iso: string, date: string): number {
   return (new Date(iso).getTime() - new Date(y, m - 1, d).getTime()) / 1000;
 }
 
-export function timelineWindow(zoom: Zoom, centerSec: number): { start: number; end: number } {
-  if (zoom === 24) return { start: 0, end: 86400 };
+export function dayLength(date: string): number {
+  const next = addDays(date, 1);
+  const [y1, m1, d1] = date.split('-').map(Number);
+  const [y2, m2, d2] = next.split('-').map(Number);
+  return (new Date(y2, m2 - 1, d2).getTime() - new Date(y1, m1 - 1, d1).getTime()) / 1000;
+}
+
+export function timelineWindow(zoom: Zoom, centerSec: number, daySec = 86400): { start: number; end: number } {
+  if (zoom === 24) return { start: 0, end: daySec };
   const span = zoom * 3600;
-  const start = Math.min(Math.max(0, centerSec - span / 2), 86400 - span);
+  const start = Math.min(Math.max(0, centerSec - span / 2), daySec - span);
   return { start, end: start + span };
 }
 
@@ -108,11 +115,11 @@ export function formatClock(iso: string): string {
 }
 
 const cam = (id: string) => encodeURIComponent(id);
-export const eventsUrl = (c: string, date: string) => `/api/cameras/${cam(c)}/events?date=${date}`;
-export const daysUrl = (c: string, month: string) => `/api/cameras/${cam(c)}/days?month=${month}`;
-export const videoUrl = (c: string, id: string) => `/api/cameras/${cam(c)}/clips/${id}/video`;
-export const thumbUrl = (c: string, id: string) => `/api/cameras/${cam(c)}/clips/${id}/thumb.jpg`;
-export const downloadUrl = (c: string, id: string, q: 'sub' | 'main') => `/api/cameras/${cam(c)}/clips/${id}/download?quality=${q}`;
+export const eventsUrl = (c: string, date: string) => `/api/cameras/${cam(c)}/events?date=${encodeURIComponent(date)}`;
+export const daysUrl = (c: string, month: string) => `/api/cameras/${cam(c)}/days?month=${encodeURIComponent(month)}`;
+export const videoUrl = (c: string, id: string) => `/api/cameras/${cam(c)}/clips/${encodeURIComponent(id)}/video`;
+export const thumbUrl = (c: string, id: string) => `/api/cameras/${cam(c)}/clips/${encodeURIComponent(id)}/thumb.jpg`;
+export const downloadUrl = (c: string, id: string, q: 'sub' | 'main') => `/api/cameras/${cam(c)}/clips/${encodeURIComponent(id)}/download?quality=${q}`;
 
 export function parseCursor(params: URLSearchParams, today: string): { cam: string | null; cursor: Cursor; filter: Filter } {
   const date = params.get('date') ?? '';
@@ -150,7 +157,16 @@ export function saveCursor(c: string, cursor: Cursor): void {
 export function loadCursor(): { cam: string; cursor: Cursor } | null {
   try {
     const raw = sessionStorage.getItem(CURSOR_KEY);
-    return raw ? (JSON.parse(raw) as { cam: string; cursor: Cursor }) : null;
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as { cam?: unknown; cursor?: { date?: unknown; clipId?: unknown; offsetSec?: unknown } };
+    const cam = parsed.cam;
+    const c = parsed.cursor;
+    if (typeof cam !== 'string' || cam.length === 0 || !c) return null;
+    const { date, clipId, offsetSec } = c;
+    if (typeof date !== 'string' || !DATE.test(date)) return null;
+    if (clipId !== null && (typeof clipId !== 'string' || !CLIP.test(clipId))) return null;
+    if (typeof offsetSec !== 'number' || !Number.isFinite(offsetSec) || offsetSec < 0) return null;
+    return { cam, cursor: { date, clipId, offsetSec: Math.floor(offsetSec) } };
   } catch {
     return null;
   }
