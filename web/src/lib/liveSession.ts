@@ -28,6 +28,7 @@ export class LiveSession {
   private attempt = 0;
   private timer: ReturnType<typeof setTimeout> | null = null;
   private stopped = false;
+  private reconnecting = false;
 
   constructor(
     private readonly videos: [HTMLVideoElement, HTMLVideoElement],
@@ -66,11 +67,16 @@ export class LiveSession {
     if (!slot) return;
     this.slots[i] = null;
     this.videos[i].removeEventListener('playing', slot.onPlaying);
-    slot.player.destroy();
+    try {
+      slot.player.destroy();
+    } catch {
+      // player already broken; nothing to release
+    }
   }
 
   private launch(i: 0 | 1): void {
     this.drop(i);
+    if (i === this.active) this.reconnecting = false;
     const player = this.factory(this.url);
     const slot: Slot = { player, onPlaying: () => this.playing(i, slot) };
     this.slots[i] = slot;
@@ -87,6 +93,7 @@ export class LiveSession {
     const other = (1 - i) as 0 | 1;
     this.active = i;
     this.attempt = 0;
+    this.reconnecting = false;
     this.onActive(i);
     this.drop(other);
     this.onState('playing');
@@ -96,12 +103,19 @@ export class LiveSession {
   private failed(i: 0 | 1, slot: Slot): void {
     if (this.stopped || this.slots[i] !== slot) return; // stale player
     this.drop(i);
-    const activeAlive = i !== this.active && this.slots[this.active] !== null;
-    if (activeAlive) {
-      this.schedule(STANDBY_RETRY_MS, () => this.launch(i));
+    if (i !== this.active) {
+      // Standby failure. If the active stream is still alive, just retry the
+      // swap later. If the active is dead, its own reconnect is already
+      // pending (or about to be scheduled by its own failed() call) — don't
+      // steal that timer or double-count the backoff attempt.
+      const activeAlive = this.slots[this.active] !== null;
+      if (activeAlive) {
+        this.schedule(STANDBY_RETRY_MS, () => this.launch(i));
+      }
       return;
     }
     this.onState('reconnecting');
+    this.reconnecting = true;
     const delay = retryDelayMs(this.attempt++);
     this.schedule(delay, () => this.launch(i));
   }

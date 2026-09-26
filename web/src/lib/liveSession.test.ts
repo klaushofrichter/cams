@@ -6,11 +6,15 @@ import { SWAP_AFTER_MS } from './live';
 class FakePlayer implements Player {
   video: HTMLVideoElement | null = null;
   destroyed = false;
+  throwOnDestroy = false;
   failure: (() => void) | null = null;
   attach(v: HTMLVideoElement) { this.video = v; }
   load() {}
   play() {}
-  destroy() { this.destroyed = true; }
+  destroy() {
+    this.destroyed = true;
+    if (this.throwOnDestroy) throw new Error('destroy failed');
+  }
   onFailure(cb: () => void) { this.failure = cb; }
   // Test helpers
   startPlaying() { this.video!.dispatchEvent(new Event('playing')); }
@@ -128,6 +132,51 @@ describe('LiveSession', () => {
     players[0].fail(); // late error from the destroyed player
     expect(states.at(-1)).toBe('playing');
     expect(players).toHaveLength(2);
+    s.stop();
+  });
+
+  // Review fix 1a: drop() must not abort when destroy() throws.
+  it('recovers when the active player throws from destroy()', () => {
+    const s = session();
+    s.start();
+    players[0].startPlaying();
+    players[0].throwOnDestroy = true;
+    players[0].fail();
+    expect(states.at(-1)).toBe('reconnecting');
+    vi.advanceTimersByTime(999);
+    expect(players).toHaveLength(1);
+    vi.advanceTimersByTime(1);
+    expect(players).toHaveLength(2);
+    s.stop();
+  });
+
+  // Review fix 1b: stop() must destroy every slot even if one throws.
+  it('stop() destroys every player even if one destroy() throws', () => {
+    const s = session();
+    s.start();
+    players[0].startPlaying();
+    vi.advanceTimersByTime(SWAP_AFTER_MS); // both slots now populated
+    players[0].throwOnDestroy = true;
+    expect(() => s.stop()).not.toThrow();
+    expect(players[1].destroyed).toBe(true);
+  });
+
+  // Review fix 2: a late standby failure must not steal the active's pending reconnect timer.
+  it('does not lose the active reconnect when the standby fails too', () => {
+    const s = session();
+    s.start();
+    players[0].startPlaying();
+    vi.advanceTimersByTime(SWAP_AFTER_MS); // standby (players[1]) launched
+    players[0].fail(); // active fails: reconnect for index 0 scheduled at 1000ms
+    players[1].fail(); // standby fails late; must not overwrite the pending timer
+    vi.advanceTimersByTime(1000);
+    expect(players).toHaveLength(3);
+    expect(players[2].video).toBe(videos[0]);
+    players[2].fail();
+    vi.advanceTimersByTime(1999);
+    expect(players).toHaveLength(3);
+    vi.advanceTimersByTime(1);
+    expect(players).toHaveLength(4);
     s.stop();
   });
 });
