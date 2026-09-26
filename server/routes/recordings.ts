@@ -87,7 +87,7 @@ recordingsRouter.get('/api/cameras/:id/clips/:clipId/video', async (req, res, ne
           // A client abort surfaces here too (headers already sent, or the
           // write failed with ECONNABORTED): there's nothing left to answer,
           // so just resolve instead of rejecting into fail()'s error path.
-          if (err && !res.headersSent) reject(err);
+          if (err && !res.headersSent && !req.destroyed && (err as NodeJS.ErrnoException).code !== 'ECONNABORTED') reject(err);
           else resolve();
         });
       }),
@@ -112,7 +112,7 @@ recordingsRouter.get('/api/cameras/:id/clips/:clipId/thumb.jpg', async (req, res
     await getRecordings().withThumbnail(id, clipId, (path) =>
       new Promise<void>((resolve, reject) => {
         res.type('image/jpeg').sendFile(path, (err) => {
-          if (err && !res.headersSent) reject(err);
+          if (err && !res.headersSent && !req.destroyed && (err as NodeJS.ErrnoException).code !== 'ECONNABORTED') reject(err);
           else resolve();
         });
       }),

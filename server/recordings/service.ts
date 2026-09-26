@@ -4,6 +4,7 @@ import { tmpdir } from 'os';
 import { join } from 'path';
 import { pipeline } from 'stream/promises';
 import { getClient } from '../reolink/clients';
+import { CameraError } from '../reolink/client';
 import { Semaphore } from '../reolink/semaphore';
 import { clipIdOf, clipTimes, CLIP_ID, parseClipName, ParsedClip, Trigger } from './clipNames';
 import { DiskCache } from './cache';
@@ -39,6 +40,7 @@ const MONTH_TTL = 300_000;
 // downloadTask), and overlapping downloads left it refusing all of them
 // until a power cycle.
 const TRANSFERS_PER_CAMERA = 1;
+const DOWNLOAD_RETRY_DELAY_MS = Number(process.env.DOWNLOAD_RETRY_DELAY_MS) || 1000;
 const RECENT_WINDOW_MS = 24 * 60 * 60 * 1000;
 
 function cameraToday(offsetMinutes: number, now: number): string {
@@ -84,6 +86,20 @@ export function pickStream(
   const served: 'sub' | 'main' = requested ? quality : quality === 'main' ? 'sub' : 'main';
   const name = requested ?? (quality === 'main' ? names.sub : names.main);
   return name ? { name, served } : null;
+}
+
+// A clip still being written is listed with end time 000000. Only a clip
+// that starts in the last minutes before midnight can really end at 000000.
+export function isStillRecording(p: ParsedClip): boolean {
+  return p.end === '000000' && p.start < '235500';
+}
+
+// End of a clip in seconds after its start day's midnight (past 86400 when
+// it runs into the next day), for comparing copies of one event.
+function clipSpanEnd(p: ParsedClip): number {
+  const secs = (t: string) => Number(t.slice(0, 2)) * 3600 + Number(t.slice(2, 4)) * 60 + Number(t.slice(4, 6));
+  const end = secs(p.end);
+  return end < secs(p.start) ? end + 86400 : end;
 }
 
 export class RecordingsService {
@@ -176,19 +192,25 @@ export class RecordingsService {
     if (inflight) return inflight;
     const work = (async () => {
       const [sub, main] = await Promise.all([client.searchDay(date, 'sub'), client.searchDay(date, 'main')]);
-      const byId = new Map<string, { parsed: ParsedClip; sub?: { name: string; size: number }; main?: { name: string; size: number } }>();
+      // Keyed by start time: the firmware can end an event's main-stream copy
+      // a few seconds after its sub-stream copy (065221_065224 vs
+      // 065221_065226), so both halves of one event share only the start.
+      const byStart = new Map<string, { parsed: ParsedClip; sub?: { name: string; size: number }; main?: { name: string; size: number } }>();
       for (const [stream, files] of [['sub', sub], ['main', main]] as const) {
         for (const f of files) {
           const parsed = parseClipName(f.name);
-          if (!parsed || parsed.date !== date) continue;
-          const id = clipIdOf(parsed);
-          const entry = byId.get(id) ?? { parsed };
+          if (!parsed || parsed.date !== date || isStillRecording(parsed)) continue;
+          const entry = byStart.get(parsed.start) ?? { parsed };
           entry[stream] = f;
-          // The main stream's flags are authoritative for triggers when both exist.
-          if (stream === 'main') entry.parsed = { ...parsed, triggers: parsed.triggers.length ? parsed.triggers : entry.parsed.triggers };
-          byId.set(id, entry);
+          // The longer copy decides the event's end; the main stream's flags
+          // are authoritative for triggers when both exist.
+          const end = clipSpanEnd(entry.parsed) >= clipSpanEnd(parsed) ? entry.parsed.end : parsed.end;
+          const triggers = stream === 'main' && parsed.triggers.length ? parsed.triggers : entry.parsed.triggers.length ? entry.parsed.triggers : parsed.triggers;
+          entry.parsed = { ...entry.parsed, end, triggers };
+          byStart.set(parsed.start, entry);
         }
       }
+      const byId = new Map([...byStart.values()].map((e) => [clipIdOf(e.parsed), e] as const));
       const events: EventClip[] = [...byId.entries()]
         .map(([id, e]) => ({
           id,
@@ -229,6 +251,18 @@ export class RecordingsService {
   // pinned BEFORE fill() starts and unpinned only once `use` is done, so a
   // concurrent evict() from another key filling at the same time can never
   // remove this file out from under a reader.
+  // The camera occasionally resets a Download before sending anything, and
+  // the same request succeeds moments later: retry that case once.
+  private async downloadWithRetry(cameraId: string, name: string, signal?: AbortSignal): Promise<IncomingMessage> {
+    try {
+      return await this.client(cameraId).download(name, signal);
+    } catch (err) {
+      if (!(err instanceof CameraError) || err.code !== 'camera_offline' || signal?.aborted) throw err;
+      await new Promise((r) => setTimeout(r, DOWNLOAD_RETRY_DELAY_MS));
+      return this.client(cameraId).download(name, signal);
+    }
+  }
+
   async withClip<T>(cameraId: string, clipId: string, use: (path: string) => Promise<T>): Promise<T> {
     const { sub } = await this.names(cameraId, clipId);
     if (!sub) throw new RecordingError('unknown_clip', 'clip has no sub stream');
@@ -237,7 +271,7 @@ export class RecordingsService {
     try {
       const path = await this.cache.fill(key, (tmp) =>
         this.gate(cameraId).run(async () => {
-          const res = await this.client(cameraId).download(sub);
+          const res = await this.downloadWithRetry(cameraId, sub);
           await pipeline(res, createWriteStream(tmp));
         }),
       );
@@ -303,7 +337,7 @@ export class RecordingsService {
     await ready;
     let stream: IncomingMessage;
     try {
-      stream = await this.client(cameraId).download(name, signal);
+      stream = await this.downloadWithRetry(cameraId, name, signal);
     } catch (err) {
       release();
       throw err;
