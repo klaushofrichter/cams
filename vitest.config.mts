@@ -18,6 +18,7 @@ export default defineConfig({
           include: ['test/**/*.test.ts', 'web/src/**/*.test.ts'],
           exclude: ['web/src/components/**/*.test.ts', 'web/src/pages/**/*.test.ts'],
           setupFiles: ['./test/setup.ts'],
+          globalSetup: ['./test/camera/warm.ts'],
           env: { LOG_LEVEL: 'silent', DOWNLOAD_RETRY_DELAY_MS: '20', TZ: 'America/Chicago' },
         },
       },
