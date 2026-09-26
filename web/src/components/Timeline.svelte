@@ -7,6 +7,7 @@
     selectedId,
     onpick,
     onstep,
+    onedge,
     compact = false,
     testid = 'timeline',
   }: {
@@ -15,6 +16,7 @@
     selectedId: string | null;
     onpick: (sec: number) => void;
     onstep: (dir: -1 | 1) => void;
+    onedge: (edge: 'start' | 'end') => void;
     compact?: boolean;
     testid?: string;
   } = $props();
@@ -49,6 +51,12 @@
     } else if (e.key === 'ArrowRight') {
       e.preventDefault();
       onstep(1);
+    } else if (e.key === 'Home') {
+      e.preventDefault();
+      onedge('start');
+    } else if (e.key === 'End') {
+      e.preventDefault();
+      onedge('end');
     }
   }
 </script>

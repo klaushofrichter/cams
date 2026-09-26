@@ -25,14 +25,20 @@
   let loading = $state(true);
   let failed = $state(false);
   let eventsRequest = 0;
+  let clipPlayer: { seek: (sec: number) => void } | undefined = $state();
 
   // The URL is the source of truth; with none (e.g. a sidebar link), the
-  // last cursor of this session is restored.
+  // last cursor of this session is restored -- but only when it agrees with
+  // whatever camera is already selected elsewhere in the app (the header
+  // picker), or there's no picker preference yet (a cold load). Otherwise a
+  // session remembered from a previous camera would silently override a
+  // camera just picked on another page.
   const parsed = $derived.by(() => {
     const p = parseCursor($route.params, today);
     if (!$route.params.has('date') && !$route.params.has('clip')) {
       const saved = loadCursor();
-      if (saved && (!p.cam || saved.cam === p.cam)) return { ...p, cam: saved.cam, cursor: saved.cursor };
+      const agrees = p.cam ? saved?.cam === p.cam : $selectedCameraId === null || saved?.cam === $selectedCameraId;
+      if (saved && agrees) return { ...p, cam: saved.cam, cursor: saved.cursor };
     }
     return p;
   });
@@ -68,19 +74,33 @@
   }
 
   // Keep the picker and the page's camera in step, in both directions,
-  // without looping: each effect tracks only the one signal that should
-  // drive it (urlCam, $selectedCameraId), reading everything else through
-  // untrack so it isn't re-run by its own side effect.
+  // without looping: each effect tracks only the signals that should drive
+  // it, reading everything else through untrack so it isn't re-run by its
+  // own side effect.
+  //
+  // URL -> store: must track $cameras too (not just untrack-read it),
+  // otherwise a cold load or deep link (Recordings mounts before the
+  // camera list has loaded) never re-checks once the list arrives, and
+  // App's own default-selection (list[0]) is left standing instead of the
+  // URL's camera.
   $effect(() => {
     const p = urlCam;
+    const list = $cameras;
     untrack(() => {
-      if (p && p !== $selectedCameraId && $cameras.some((c) => c.id === p)) selectedCameraId.set(p);
+      if (p && p !== $selectedCameraId && list.some((c) => c.id === p)) selectedCameraId.set(p);
     });
   });
+  // Store -> URL: the very first value the store takes (null -> whatever
+  // App or the effect above sets it to) is initialisation, not a picker
+  // action, so it must not be treated as "the user switched cameras" --
+  // only a later, real change away from a non-null value should navigate.
+  let prevSel: string | null = null;
   $effect(() => {
     const sel = $selectedCameraId;
+    const prev = prevSel;
+    prevSel = sel;
     untrack(() => {
-      if (sel && sel !== cam && $cameras.some((c) => c.id === sel)) switchCamera(sel);
+      if (prev !== null && sel && sel !== prev && sel !== cam && $cameras.some((c) => c.id === sel)) switchCamera(sel);
     });
   });
 
@@ -140,12 +160,31 @@
 
   function pickSecond(sec: number) {
     const e = clipAtSecond(events, cursor.date, sec);
-    if (e) go({ clipId: e.id, offsetSec: Math.max(0, Math.floor(sec - secondsIntoDay(e.start, cursor.date))) });
+    if (!e) return;
+    const offsetSec = Math.max(0, Math.floor(sec - secondsIntoDay(e.start, cursor.date)));
+    go({ clipId: e.id, offsetSec });
+    // The clicked second may round to the one already applied, in which
+    // case the URL (and so the startAt prop) doesn't change and the player
+    // wouldn't otherwise re-seek; seek it directly whenever the picked clip
+    // is the one already loaded.
+    if (e.id === cursor.clipId) clipPlayer?.seek(offsetSec);
   }
 
   function step(dir: -1 | 1) {
     const n = selected && neighbour(visible, selected.id, dir);
-    if (n) go({ clipId: n.id, offsetSec: 0 });
+    if (n) {
+      go({ clipId: n.id, offsetSec: 0 });
+      return;
+    }
+    // Nothing to step from (no clip selected, or the selection is filtered
+    // out of the visible list): land on an edge instead of doing nothing.
+    jumpToEdge(dir === 1 ? 'start' : 'end');
+  }
+
+  function jumpToEdge(edge: 'start' | 'end') {
+    if (visible.length === 0) return;
+    const target = edge === 'start' ? visible[0] : visible[visible.length - 1];
+    go({ clipId: target.id, offsetSec: 0 });
   }
 </script>
 
@@ -161,6 +200,7 @@
     <div class="workspace" data-panel={panel}>
       <div class="main">
         <ClipPlayer
+          bind:this={clipPlayer}
           src={selected ? videoUrl(cam, selected.id) : null}
           startAt={cursor.offsetSec}
           hasPrev={!!(selected && neighbour(visible, selected.id, -1))}
@@ -178,7 +218,7 @@
         {:else if events.length === 0}
           <p class="note" data-testid="no-recordings">No recordings on {cursor.date}.</p>
         {:else}
-          <Timeline {events} date={cursor.date} selectedId={cursor.clipId} onpick={pickSecond} onstep={step} />
+          <Timeline {events} date={cursor.date} selectedId={cursor.clipId} onpick={pickSecond} onstep={step} onedge={jumpToEdge} />
         {/if}
       </div>
 

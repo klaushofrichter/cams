@@ -28,6 +28,27 @@
   let current = $state(0);
   let loadedSrc: string | null = null;
   let appliedStart = 0;
+  // Lives outside the effect (rather than being created fresh on every run)
+  // so a seek that arrives before metadata has loaded can replace the
+  // pending listener instead of racing it.
+  let controller: AbortController | null = null;
+
+  // Arms a one-shot 'loadedmetadata' listener that seeks to `at` (and, when
+  // `autoplay`, starts playback). Aborts whatever listener was previously
+  // pending first, so re-arming (a fresh seek before metadata has loaded)
+  // supersedes it rather than racing it.
+  function armMetadataSeek(v: HTMLVideoElement, at: number, autoplay: boolean) {
+    controller?.abort();
+    controller = new AbortController();
+    v.addEventListener(
+      'loadedmetadata',
+      () => {
+        if (at > 0 && at < v.duration) v.currentTime = at;
+        if (autoplay) void v.play().catch(() => (playing = false));
+      },
+      { once: true, signal: controller.signal },
+    );
+  }
 
   // Handles the src cycling through A -> null -> A (a video element is
   // destroyed and recreated when the player is hidden and shown again): the
@@ -38,6 +59,8 @@
       loadedSrc = null;
       current = 0;
       playing = false;
+      controller?.abort();
+      controller = null;
       return;
     }
     if (!video) {
@@ -49,7 +72,15 @@
       // without reloading the source.
       if (startAt !== appliedStart) {
         appliedStart = startAt;
-        video.currentTime = startAt;
+        if (video.readyState < 1) {
+          // Metadata hasn't loaded yet: setting currentTime now would be
+          // silently ignored, and the load branch's own pending listener
+          // would otherwise apply its stale target once metadata arrives.
+          // Re-arm with the latest target instead.
+          armMetadataSeek(video, startAt, false);
+        } else {
+          video.currentTime = startAt;
+        }
       }
       return;
     }
@@ -58,19 +89,19 @@
     current = 0;
     playing = false;
     const v = video;
-    const at = startAt;
-    const controller = new AbortController();
     v.src = src;
-    v.addEventListener(
-      'loadedmetadata',
-      () => {
-        if (at > 0 && at < v.duration) v.currentTime = at;
-        void v.play().catch(() => (playing = false));
-      },
-      { once: true, signal: controller.signal },
-    );
-    return () => controller.abort();
+    armMetadataSeek(v, startAt, true);
   });
+
+  // Exposed so the page can seek a clip that's already loaded even when the
+  // computed second is identical to the last one (the URL then doesn't
+  // change, so the startAt prop wouldn't otherwise re-trigger a seek).
+  export function seek(sec: number) {
+    if (!video) return;
+    appliedStart = sec;
+    if (video.readyState < 1) armMetadataSeek(video, sec, false);
+    else video.currentTime = sec;
+  }
 
   function toggle() {
     if (!video) return;
