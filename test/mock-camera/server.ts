@@ -15,6 +15,7 @@ export interface MockCameraOptions {
 
 export interface MockState {
   logins: number;
+  loginAttempts: number;
   activeStreams: number;
   offline: boolean;
   revokeTokens(): void;
@@ -32,6 +33,7 @@ export function createMockCamera(opts: MockCameraOptions): MockCamera {
   const tokens = new Set<string>();
   const state: MockState = {
     logins: 0,
+    loginAttempts: 0,
     activeStreams: 0,
     offline: false,
     revokeTokens: () => tokens.clear(),
@@ -46,6 +48,7 @@ export function createMockCamera(opts: MockCameraOptions): MockCamera {
     const cmd = String(req.query.cmd ?? '');
     const param = Array.isArray(req.body) ? req.body[0]?.param : undefined;
     if (cmd === 'Login') {
+      state.loginAttempts++;
       const u = param?.User;
       if (u?.userName !== opts.user || u?.password !== opts.password) {
         res.json([{ cmd, code: 1, error: { detail: 'login failed', rspCode: -7 } }]);

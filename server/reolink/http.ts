@@ -21,6 +21,16 @@ export class TimeoutError extends Error {
   }
 }
 
+// Distinguished from a network failure: the camera answered, but the body
+// exceeded the configured limit. Callers map this to camera_error, not
+// camera_offline.
+export class ResponseTooLargeError extends Error {
+  constructor() {
+    super('camera response too large');
+    this.name = 'ResponseTooLargeError';
+  }
+}
+
 function splitHost(host: string): { hostname: string; port?: number } {
   const i = host.lastIndexOf(':');
   if (i > 0 && /^\d+$/.test(host.slice(i + 1))) return { hostname: host.slice(0, i), port: Number(host.slice(i + 1)) };
@@ -66,7 +76,7 @@ export async function readBody(res: IncomingMessage, limit = 2 * 1024 * 1024): P
     size += (chunk as Buffer).length;
     if (size > limit) {
       res.destroy();
-      throw new Error('camera response too large');
+      throw new ResponseTooLargeError();
     }
     chunks.push(chunk as Buffer);
   }
