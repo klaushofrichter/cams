@@ -14,6 +14,9 @@ export interface MockCameraOptions {
   // Delays the /flv response by this many ms, to let tests disconnect while
   // the client's openLive() call is still pending.
   flvDelayMs?: number;
+  // Delays sending the Download body by this many ms, to let tests abort a
+  // download while it's still in flight.
+  downloadDelayMs?: number;
   clips?: MockClip[];
 }
 
@@ -52,6 +55,9 @@ export interface MockState {
   // Forcibly ends every open /flv connection, simulating a camera-side drop
   // (reset, reboot) rather than the viewer leaving.
   dropStreams(): void;
+  // Forcibly ends every open Download response, simulating the camera
+  // dropping the connection mid-transfer.
+  dropDownloads(): void;
 }
 
 export interface MockCamera {
@@ -117,6 +123,7 @@ function liveFixture(): { header: Buffer; tags: FlvTag[] } {
 export function createMockCamera(opts: MockCameraOptions): MockCamera {
   const tokens = new Set<string>();
   const activeResponses = new Set<Response>();
+  const activeDownloadResponses = new Set<Response>();
   const state: MockState = {
     logins: 0,
     loginAttempts: 0,
@@ -129,6 +136,9 @@ export function createMockCamera(opts: MockCameraOptions): MockCamera {
     revokeTokens: () => tokens.clear(),
     dropStreams: () => {
       for (const res of activeResponses) res.destroy(new Error('mock camera dropped the stream'));
+    },
+    dropDownloads: () => {
+      for (const res of activeDownloadResponses) res.destroy(new Error('mock camera dropped the download'));
     },
   };
   const app = express();
@@ -220,10 +230,19 @@ export function createMockCamera(opts: MockCameraOptions): MockCamera {
       const stream = /\/RecM/.test(source) ? 'main' : 'sub';
       state.downloads++;
       state.activeDownloads++;
+      activeDownloadResponses.add(res);
       res.on('close', () => {
         state.activeDownloads--;
+        activeDownloadResponses.delete(res);
       });
-      res.type('video/mp4').sendFile(join(FIXTURES, `clip-${stream}.mp4`));
+      const send = () => {
+        // The client may already have disconnected during the (optional)
+        // delay below; don't try to serve a file to a closed response.
+        if (res.destroyed || res.writableEnded) return;
+        res.type('video/mp4').sendFile(join(FIXTURES, `clip-${stream}.mp4`));
+      };
+      if (opts.downloadDelayMs) setTimeout(send, opts.downloadDelayMs);
+      else send();
       return;
     }
     if (req.query.cmd !== 'Snap' || !valid(req)) {

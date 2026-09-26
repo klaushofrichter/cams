@@ -1,8 +1,9 @@
 import { Router, Request, Response, NextFunction } from 'express';
+import { pipeline } from 'stream/promises';
 import { getCamera } from '../cameraRegistry';
 import { CameraError } from '../reolink/client';
 import { logger } from '../logger';
-import { CLIP_ID, DATE } from '../recordings/clipNames';
+import { CLIP_ID, isRealDate, isRealMonth } from '../recordings/clipNames';
 import { getRecordings, RecordingError } from '../recordings/service';
 
 export const recordingsRouter = Router();
@@ -46,7 +47,7 @@ recordingsRouter.get('/api/cameras/:id/days', async (req, res, next) => {
   const id = camera(req, res);
   if (!id) return;
   const month = String(req.query.month ?? '');
-  if (!/^\d{4}-\d{2}$/.test(month)) {
+  if (!isRealMonth(month)) {
     res.status(400).json({ error: 'bad_request' });
     return;
   }
@@ -61,7 +62,7 @@ recordingsRouter.get('/api/cameras/:id/events', async (req, res, next) => {
   const id = camera(req, res);
   if (!id) return;
   const date = String(req.query.date ?? '');
-  if (!DATE.test(date)) {
+  if (!isRealDate(date)) {
     res.status(400).json({ error: 'bad_request' });
     return;
   }
@@ -78,12 +79,19 @@ recordingsRouter.get('/api/cameras/:id/clips/:clipId/video', async (req, res, ne
   if (!id || !clipId) return;
   const rec = getRecordings();
   try {
-    const path = await rec.clipFile(id, clipId);
-    const key = rec.videoKey(id, clipId);
-    // Review focus 4: the file can't be evicted while it's being served.
-    await rec.pinned(key, () => new Promise<void>((resolve) => {
-      res.sendFile(path, { headers: { 'Content-Type': 'video/mp4' } }, () => resolve());
-    }));
+    // Review focus: the file is pinned from before fill() starts (inside
+    // withClip), so it can never be evicted while it's being served here.
+    await rec.withClip(id, clipId, (path) =>
+      new Promise<void>((resolve, reject) => {
+        res.sendFile(path, { headers: { 'Content-Type': 'video/mp4' } }, (err) => {
+          // A client abort surfaces here too (headers already sent, or the
+          // write failed with ECONNABORTED): there's nothing left to answer,
+          // so just resolve instead of rejecting into fail()'s error path.
+          if (err && !res.headersSent) reject(err);
+          else resolve();
+        });
+      }),
+    );
   } catch (err) {
     fail(err, id, res, next);
   }
@@ -94,7 +102,12 @@ recordingsRouter.get('/api/cameras/:id/clips/:clipId/thumb.jpg', async (req, res
   const clipId = id && clip(req, res);
   if (!id || !clipId) return;
   try {
-    res.type('image/jpeg').sendFile(await getRecordings().thumbnail(id, clipId));
+    // Set Content-Type only once thumbnail() has actually succeeded: Express's
+    // res.json() (used by fail() below) skips setting Content-Type when one
+    // is already present, so setting it to image/jpeg up front would leave a
+    // thumbnail_unavailable error body mislabeled as an image.
+    const path = await getRecordings().thumbnail(id, clipId);
+    res.type('image/jpeg').sendFile(path);
   } catch (err) {
     fail(err, id, res, next);
   }
@@ -104,19 +117,40 @@ recordingsRouter.get('/api/cameras/:id/clips/:clipId/download', async (req, res,
   const id = camera(req, res);
   const clipId = id && clip(req, res);
   if (!id || !clipId) return;
-  const quality = req.query.quality === 'main' ? 'main' : 'sub';
+  const q = req.query.quality;
+  if (q !== undefined && q !== 'sub' && q !== 'main') {
+    res.status(400).json({ error: 'bad_request' });
+    return;
+  }
+  const quality = q === 'main' ? 'main' : 'sub';
+  // Registered before openDownload() is called, so an abort mid-acquire (a
+  // camera slot still queued) or mid-transfer both cancel cleanly rather
+  // than leaking the slot or crashing on an unhandled stream error.
+  const abort = new AbortController();
+  const onClose = () => abort.abort();
+  req.on('close', onClose);
+  res.on('close', onClose);
   try {
-    const { stream, filename, release } = await getRecordings().openDownload(id, clipId, quality);
-    res.on('close', () => {
+    const { stream, filename, size } = await getRecordings().openDownload(id, clipId, quality, abort.signal);
+    if (abort.signal.aborted) {
       stream.destroy();
-      release();
-    });
+      return;
+    }
     res.status(200).set({
       'Content-Type': 'video/mp4',
       'Content-Disposition': `attachment; filename="${filename}"`,
+      ...(size != null ? { 'Content-Length': String(size) } : {}),
     });
-    stream.pipe(res);
+    await pipeline(stream, res);
   } catch (err) {
+    // A viewer disconnect or a camera drop both end up here (pipeline()
+    // destroys both sides of the pipe on either failure); the abort signal
+    // tells the two apart. A disconnect is the ordinary, quiet way a
+    // download stops - nothing to answer.
+    if (abort.signal.aborted) return;
     fail(err, id, res, next);
+  } finally {
+    req.off('close', onClose);
+    res.off('close', onClose);
   }
 });

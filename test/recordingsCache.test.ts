@@ -1,11 +1,22 @@
-import { describe, expect, it } from 'vitest';
-import { mkdtempSync, readdirSync, statSync, writeFileSync } from 'fs';
+import { afterAll, describe, expect, it } from 'vitest';
+import { mkdtempSync, readdirSync, rmSync, statSync, writeFileSync } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
 import { DiskCache } from '../server/recordings/cache';
 
-const dir = () => mkdtempSync(join(tmpdir(), 'cams-cache-'));
+// Fix round 1, item 11: clean up this file's own mkdtemp dirs rather than
+// leaving them under the system tmpdir forever.
+const dirs: string[] = [];
+const dir = () => {
+  const d = mkdtempSync(join(tmpdir(), 'cams-cache-'));
+  dirs.push(d);
+  return d;
+};
 const bytes = (n: number) => async (tmp: string) => writeFileSync(tmp, Buffer.alloc(n, 1));
+
+afterAll(() => {
+  for (const d of dirs) rmSync(d, { recursive: true, force: true });
+});
 
 describe('DiskCache', () => {
   it('fills once and serves from disk afterwards', async () => {
@@ -57,5 +68,36 @@ describe('DiskCache', () => {
   it('rejects keys that could escape the cache directory', () => {
     const cache = new DiskCache(dir(), 100);
     for (const key of ['../x', 'a/b', '', '.hidden']) expect(() => cache.path(key)).toThrow();
+  });
+
+  // Fix round 1, item 4: pinned before fill() is even called, so there is
+  // never a window (between fill() resolving and the caller pinning it)
+  // where a concurrent evict() could remove the file.
+  it('never evicts a key that was pinned before its fill started', async () => {
+    const d = dir();
+    const cache = new DiskCache(d, 250); // room for two 100-byte files, not three
+    cache.pin('a');
+    await cache.fill('a', bytes(100));
+    await new Promise((r) => setTimeout(r, 15));
+    await cache.fill('b', bytes(100));
+    await new Promise((r) => setTimeout(r, 15));
+    // Forces an eviction pass with all three present: 'a' is the oldest but
+    // pinned, so 'b' (the next-oldest, unpinned) must be evicted instead.
+    await cache.fill('c', bytes(100));
+    expect(await cache.has('a')).toBe(true);
+    expect(await cache.has('b')).toBe(false);
+    expect(await cache.has('c')).toBe(true);
+    cache.unpin('a');
+  });
+
+  // Fix round 1, item 7: a *.tmp-* file can only be left behind by a
+  // process that crashed mid-fill; the next process to use this directory
+  // clears it out on first use.
+  it('removes orphaned .tmp- files left behind by a previous process', async () => {
+    const d = dir();
+    writeFileSync(join(d, 'stale.mp4.tmp-999-123456'), 'leftover');
+    const cache = new DiskCache(d, 10_000);
+    await cache.fill('a', bytes(3));
+    expect(readdirSync(d).sort()).toEqual(['a']);
   });
 });

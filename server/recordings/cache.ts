@@ -22,8 +22,18 @@ export class DiskCache {
     return join(this.dir, key);
   }
 
+  // A stray *.tmp-* file can only be a leftover from a process that crashed
+  // mid-fill: every in-flight fill of this process starts after ensureDir()
+  // and cleans up its own temp file on success or failure, so any tmp file
+  // seen here predates this process entirely.
   private ensureDir(): Promise<void> {
-    this.ready ??= fs.mkdir(this.dir, { recursive: true }).then(() => undefined);
+    this.ready ??= (async () => {
+      await fs.mkdir(this.dir, { recursive: true });
+      const names = await fs.readdir(this.dir).catch(() => []);
+      await Promise.all(
+        names.filter((n) => n.includes('.tmp-')).map((n) => fs.rm(join(this.dir, n), { force: true })),
+      );
+    })();
     return this.ready;
   }
 

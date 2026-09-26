@@ -18,6 +18,21 @@ export interface TimeInfo {
 export const CLIP_ID = /^\d{8}-\d{6}-\d{6}$/;
 export const DATE = /^\d{4}-\d{2}-\d{2}$/;
 
+// The regex lets through calendar nonsense like 2026-13-40 or 2026-02-30;
+// this rejects that by round-tripping through UTC Date and checking the
+// components survived unchanged.
+export function isRealDate(date: string): boolean {
+  if (!DATE.test(date)) return false;
+  const d = new Date(`${date}T00:00:00Z`);
+  return !Number.isNaN(d.getTime()) && d.toISOString().slice(0, 10) === date;
+}
+
+export function isRealMonth(month: string): boolean {
+  if (!/^\d{4}-\d{2}$/.test(month)) return false;
+  const mon = Number(month.slice(5, 7));
+  return mon >= 1 && mon <= 12;
+}
+
 // RecS0A_DST20260925_125653_125718_0_55148080000000_927C9.mp4
 // stream, name version, optional DST, date, start, end, optional animal
 // type, flags (hex), size (hex). Anything else is not a clip we know.

@@ -1,5 +1,14 @@
 import { describe, expect, it } from 'vitest';
-import { clipIdOf, clipTimes, CLIP_ID, decodeTriggers, parseClipName, timeInfoFromGetTime } from '../server/recordings/clipNames';
+import {
+  clipIdOf,
+  clipTimes,
+  CLIP_ID,
+  decodeTriggers,
+  isRealDate,
+  isRealMonth,
+  parseClipName,
+  timeInfoFromGetTime,
+} from '../server/recordings/clipNames';
 
 const SUB = '/mnt/sda/Mp4Record/2026-09-25/RecS0A_DST20260925_125653_125718_0_55148080000000_927C9.mp4';
 const MAIN = '/mnt/sda/Mp4Record/2026-09-25/RecM0A_DST20260925_121100_121119_0_7B288280000000_10BF000.mp4';
@@ -99,5 +108,41 @@ describe('clipTimes', () => {
       stdOffsetMinutes: 60,
       dstOffsetMinutes: 0,
     });
+  });
+});
+
+// Fix round 1, item 10: the regex alone lets calendar nonsense through.
+describe('isRealDate', () => {
+  it('accepts real calendar dates', () => {
+    expect(isRealDate('2026-09-25')).toBe(true);
+    expect(isRealDate('2024-02-29')).toBe(true); // leap year
+  });
+
+  it('rejects a well-formed but non-existent date', () => {
+    expect(isRealDate('2026-13-01')).toBe(false);
+    expect(isRealDate('2026-02-30')).toBe(false);
+    expect(isRealDate('2023-02-29')).toBe(false); // not a leap year
+  });
+
+  it('rejects anything not matching the shape at all', () => {
+    expect(isRealDate('2026-9-1')).toBe(false);
+    expect(isRealDate('')).toBe(false);
+  });
+});
+
+describe('isRealMonth', () => {
+  it('accepts real months', () => {
+    expect(isRealMonth('2026-01')).toBe(true);
+    expect(isRealMonth('2026-12')).toBe(true);
+  });
+
+  it('rejects a well-formed but out-of-range month', () => {
+    expect(isRealMonth('2026-13')).toBe(false);
+    expect(isRealMonth('2026-00')).toBe(false);
+  });
+
+  it('rejects anything not matching the shape at all', () => {
+    expect(isRealMonth('202609')).toBe(false);
+    expect(isRealMonth('')).toBe(false);
   });
 });
