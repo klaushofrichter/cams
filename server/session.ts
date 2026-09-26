@@ -14,12 +14,13 @@ function getCookieSecret(): string {
 }
 
 export function signSession(email: string): string {
-  return jwt.sign({ email }, getCookieSecret(), { expiresIn: '7d' });
+  return jwt.sign({ email }, getCookieSecret(), { algorithm: 'HS256', expiresIn: '7d' });
 }
 
 export function verifySession(token: string): SessionPayload | null {
   try {
-    const decoded = jwt.verify(token, getCookieSecret());
+    // Pinned: a token signed with any other algorithm is not a session.
+    const decoded = jwt.verify(token, getCookieSecret(), { algorithms: ['HS256'] });
     if (typeof decoded === 'object' && decoded !== null && typeof (decoded as { email?: unknown }).email === 'string') {
       return { email: (decoded as { email: string }).email };
     }

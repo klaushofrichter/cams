@@ -4,6 +4,10 @@ on:
   pull_request:
     branches: [main, production]
 
+# Least privilege for the PR checks; the codeql job asks for more itself.
+permissions:
+  contents: read
+
 jobs:
   test:
     runs-on: ubuntu-latest

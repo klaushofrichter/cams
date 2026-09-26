@@ -120,6 +120,19 @@ describe('GET /auth/google/callback', () => {
   });
 });
 
+describe('cancelled Google sign-in', () => {
+  // Review focus 3 (Plan 5): Google redirects back with ?error=access_denied
+  // when the user cancels; that must land on the start page, not raw JSON.
+  it.each(['access_denied', 'interaction_required'])('redirects ?error=%s to / and clears the state cookie', async (error) => {
+    const res = await request(createApp())
+      .get(`/auth/google/callback?error=${error}&state=${NONCE}.first`)
+      .set('Cookie', stateCookie);
+    expect(res.status).toBe(302);
+    expect(res.headers.location).toBe('/');
+    expect(res.headers['set-cookie'].join(';')).toMatch(/oauth_state=;/);
+  });
+});
+
 describe('safeReturnPath', () => {
   it.each([
     ['/app/live', '/app/live'],
@@ -127,7 +140,8 @@ describe('safeReturnPath', () => {
     ['/app', '/app'],
   ])('accepts %s', (input, expected) => expect(safeReturnPath(input)).toBe(expected));
 
-  it.each(['//evil.example', '/\\evil.example', 'https://evil.example/app', '/application', '/apps', '/app//evil', '', undefined, 42])(
+  it.each(['//evil.example', '/\\evil.example', 'https://evil.example/app', '/application', '/apps', '/app//evil', '', undefined, 42,
+    '/app/../x', '/app/./live', '/app/..', '/app/%2e%2e/x', '/app/%2E%2e/x', '/app/.%2e/x', '/app/live/../../x'])(
     'rejects %s',
     (input) => expect(safeReturnPath(input)).toBeNull()
   );
