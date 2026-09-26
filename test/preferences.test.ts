@@ -38,6 +38,9 @@ describe('preferences', () => {
     [{ defaultCamera: 'nope' }],
     [{ theme: 'dark' }],
     [{ liveKeepAlive: 45 }],
+    [{ toString: 'x' }],
+    [{ constructor: 'x' }],
+    [JSON.parse('{"__proto__":{"polluted":true}}')],
     [{ liveKeepAlive: -1 }],
   ])('rejects %j', async (body) => {
     const res = await request(createApp()).put('/api/preferences').set('Cookie', klaus).send(body);
@@ -49,6 +52,35 @@ describe('preferences', () => {
       request(createApp()).put('/api/preferences').set('Cookie', klaus).send({ defaultCamera });
     expect((await put('cam1')).body.defaultCamera).toBe('cam1');
     expect((await put(null)).body.defaultCamera).toBeNull();
+  });
+
+  it('drops stored fields that are unknown or no longer valid', async () => {
+    const { writeFileSync } = await import('fs');
+    writeFileSync(
+      process.env.PREFS_FILE!,
+      JSON.stringify({ 'klaus@klaushofrichter.net': { liveQuality: 'nonsense', timelineZoom: 6, extraOldField: 'legacy', defaultCamera: 'removed-cam' } }),
+    );
+    const res = await request(createApp()).get('/api/preferences').set('Cookie', klaus);
+    expect(res.body).toEqual({ ...DEFAULT_PREFERENCES, timelineZoom: 6 });
+  });
+
+  it('leaves no temp file behind when a save fails', async () => {
+    const { mkdtempSync, readdirSync } = await import('fs');
+    const { tmpdir } = await import('os');
+    const { join } = await import('path');
+    const { savePreferences } = await import('../server/preferences');
+    const dir = mkdtempSync(join(tmpdir(), 'cams-prefs-fail-'));
+    const saved = process.env.PREFS_FILE;
+    process.env.PREFS_FILE = dir; // a directory: the rename onto it fails
+    try {
+      await expect(savePreferences('klaus@klaushofrichter.net', { timelineZoom: 6 })).rejects.toThrow();
+      expect(readdirSync(join(dir, '..')).filter((n) => n.startsWith(`${dir.split('/').pop()}.tmp-`))).toEqual([]);
+    } finally {
+      process.env.PREFS_FILE = saved;
+      rmSync(dir, { recursive: true, force: true });
+    }
+    // a later save still works
+    await expect(savePreferences('klaus@klaushofrichter.net', { timelineZoom: 1 })).resolves.toMatchObject({ timelineZoom: 1 });
   });
 
   it('survives a corrupted file by falling back to defaults', async () => {

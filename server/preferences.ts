@@ -29,8 +29,21 @@ async function readAll(): Promise<Record<string, Partial<Preferences>>> {
   }
 }
 
+// What's stored may come from an older version or a hand edit: keep only
+// known fields whose values are still valid (a removed camera, for one).
+function sanitize(stored: unknown): Partial<Preferences> {
+  const out: Record<string, unknown> = {};
+  if (typeof stored !== 'object' || stored === null || Array.isArray(stored)) return out;
+  for (const k of Object.keys(DEFAULT_PREFERENCES)) {
+    if (!Object.prototype.hasOwnProperty.call(stored, k)) continue;
+    const v = (stored as Record<string, unknown>)[k];
+    if (validatePreferencesPatch({ [k]: v }).ok) out[k] = v;
+  }
+  return out as Partial<Preferences>;
+}
+
 export async function getPreferences(email: string): Promise<Preferences> {
-  return { ...DEFAULT_PREFERENCES, ...((await readAll())[email.toLowerCase()] ?? {}) };
+  return { ...DEFAULT_PREFERENCES, ...sanitize((await readAll())[email.toLowerCase()]) };
 }
 
 // Writes are serialized and atomic (temp file + rename in the same
@@ -42,12 +55,17 @@ export function savePreferences(email: string, patch: Partial<Preferences>): Pro
   const run = writing.then(async () => {
     const all = await readAll();
     const key = email.toLowerCase();
-    const next = { ...DEFAULT_PREFERENCES, ...(all[key] ?? {}), ...patch };
+    const next = { ...DEFAULT_PREFERENCES, ...sanitize(all[key]), ...patch };
     all[key] = next;
     await fs.mkdir(dirname(file()), { recursive: true });
     const tmp = `${file()}.tmp-${randomBytes(6).toString('hex')}`;
-    await fs.writeFile(tmp, JSON.stringify(all, null, 2));
-    await fs.rename(tmp, file());
+    try {
+      await fs.writeFile(tmp, JSON.stringify(all, null, 2));
+      await fs.rename(tmp, file());
+    } catch (err) {
+      await fs.rm(tmp, { force: true });
+      throw err;
+    }
     return next;
   });
   writing = run.catch(() => undefined);
@@ -58,7 +76,8 @@ export function validatePreferencesPatch(body: unknown): { ok: true; patch: Part
   if (typeof body !== 'object' || body === null || Array.isArray(body)) return { ok: false, details: ['body must be an object'] };
   const b = body as Record<string, unknown>;
   const details: string[] = [];
-  for (const k of Object.keys(b)) if (!(k in DEFAULT_PREFERENCES)) details.push(`${k}: unknown field`);
+  // Own keys only: `in` would accept inherited names such as 'toString'.
+  for (const k of Object.keys(b)) if (!Object.prototype.hasOwnProperty.call(DEFAULT_PREFERENCES, k)) details.push(`${k}: unknown field`);
   if ('defaultCamera' in b && b.defaultCamera !== null && !(typeof b.defaultCamera === 'string' && getCamera(b.defaultCamera))) details.push('defaultCamera: a configured camera id or null');
   if ('liveQuality' in b && b.liveQuality !== 'sub' && b.liveQuality !== 'main') details.push('liveQuality: sub or main');
   if ('eventFilter' in b && !['all', 'person', 'vehicle', 'pet', 'motion'].includes(b.eventFilter as string)) details.push('eventFilter: all, person, vehicle, pet or motion');
