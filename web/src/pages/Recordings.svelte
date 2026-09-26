@@ -261,9 +261,9 @@
           {/each}
         </div>
         {#if panel === 'downloads'}
-          <DownloadList cameraId={cam} {events} selectedId={cursor.clipId} />
+          <DownloadList cameraId={cam} {events} date={cursor.date} selectedId={cursor.clipId} />
         {:else}
-          <EventList cameraId={cam} events={visible} {filter} selectedId={cursor.clipId}
+          <EventList cameraId={cam} events={visible} {filter} date={cursor.date} selectedId={cursor.clipId}
             onfilter={(f) => go({}, { filter: f })}
             onselect={(e) => go({ clipId: e.id, offsetSec: 0 })} />
         {/if}

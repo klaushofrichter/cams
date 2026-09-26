@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
-  addDays, clipAtSecond, cursorSearch, dayLength, dayStartMs, downloadUrl, filterEvents, formatBytes, layoutSegments,
+  addDays, clipAtSecond, cursorSearch, dayLength, dayStartMs, downloadUrl, filterEvents, formatBytes, groupByHour, layoutSegments,
   loadCursor, neighbour, parseCursor, saveCursor, secondsIntoDay, thumbUrl, tickLabel, timelineWindow, videoUrl,
   type EventClip,
 } from './recordings';
@@ -182,5 +182,25 @@ describe('tick labels use real local time', () => {
 
   it('knows local midnight', () => {
     expect(new Date(dayStartMs('2026-09-26')).toISOString()).toBe('2026-09-26T05:00:00.000Z');
+  });
+});
+
+describe('groupByHour', () => {
+  it('groups by local hour, in order, skipping empty hours', () => {
+    const g = groupByHour(events, DAY); // the three fixtures at 08:15, 12:05, 17:45
+    expect(g.map((x) => [x.hour, x.label, x.events.length])).toEqual([
+      [8, '08:00–09:00', 1],
+      [12, '12:00–13:00', 1],
+      [17, '17:00–18:00', 1],
+    ]);
+  });
+
+  it('keeps a busy hour together', () => {
+    const many = Array.from({ length: 25 }, (_, i) =>
+      E(`20260925-1400${String(i).padStart(2, '0')}-1400${String(i + 1).padStart(2, '0')}`, `${DAY}T14:00:${String(i).padStart(2, '0')}-05:00`, `${DAY}T14:00:${String(i + 1).padStart(2, '0')}-05:00`, ['motion']),
+    );
+    const g = groupByHour(many, DAY);
+    expect(g).toHaveLength(1);
+    expect(g[0].events).toHaveLength(25);
   });
 });

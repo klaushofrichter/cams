@@ -165,6 +165,25 @@ export function tickLabel(date: string, sec: number, locale?: string): string {
   return new Intl.DateTimeFormat(locale, { hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).format(new Date(dayStartMs(date) + sec * 1000));
 }
 
+export interface HourGroup {
+  hour: number;
+  label: string;
+  events: EventClip[];
+}
+export const COLLAPSE_OVER = 10;
+
+export function groupByHour(events: EventClip[], date: string): HourGroup[] {
+  const groups = new Map<number, EventClip[]>();
+  for (const e of events) {
+    const hour = new Date(e.start).getHours();
+    if (!groups.has(hour)) groups.set(hour, []);
+    groups.get(hour)!.push(e);
+  }
+  return [...groups.entries()]
+    .sort(([a], [b]) => a - b)
+    .map(([hour, list]) => ({ hour, label: `${tickLabel(date, hour * 3600)}–${tickLabel(date, (hour + 1) * 3600)}`, events: list }));
+}
+
 export function loadCursor(): { cam: string; cursor: Cursor } | null {
   try {
     const raw = sessionStorage.getItem(CURSOR_KEY);

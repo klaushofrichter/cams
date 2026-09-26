@@ -234,6 +234,12 @@ test('ArrowRight with no clip selected selects the first clip', async ({ page })
   await expect(page).toHaveURL(/clip=\d{8}-081510-081535/);
 });
 
+test('events are grouped by hour and a busy hour starts collapsed', async ({ page }) => {
+  await page.goto('/app/recordings?panel=events');
+  await expect(page.getByTestId('hour-group')).toHaveCount(4); // 08, 09, 12, 17 in the mock
+  await expect(page.getByTestId('hour-count').first()).toHaveText('1 event');
+});
+
 // Isolated in its own describe: page.clock.install() replaces the page's
 // timers wholesale, which is risky alongside the other tests' real video
 // playback (mpegts.js and <video> rely on real timers/rAF).
