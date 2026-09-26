@@ -20,7 +20,13 @@ export interface MockState {
   logins: number;
   loginAttempts: number;
   activeStreams: number;
+  // GetDevInfo calls answered with a valid token (the client uses GetDevInfo
+  // to check its session after a reset /flv connection).
+  devInfoCalls: number;
   offline: boolean;
+  // Resets every /flv connection, even one with a valid token, like a camera
+  // whose stream service is broken rather than one that rejects the token.
+  rejectAllStreams: boolean;
   revokeTokens(): void;
   // Forcibly ends every open /flv connection, simulating a camera-side drop
   // (reset, reboot) rather than the viewer leaving.
@@ -34,6 +40,9 @@ export interface MockCamera {
 
 const FIXTURES = join(__dirname, 'fixtures');
 const notLoggedIn = (cmd: string) => [{ cmd, code: 1, error: { detail: 'please login first', rspCode: -6 } }];
+// What real firmware (RLC-1224A, v3.2.0.6011) answers a GET with a bad token:
+// HTTP 200, Content-Type text/html, and this JSON as the body text.
+const NOT_LOGGED_IN_GET_BODY = '[{"code":1,"error":{"rspCode":-6,"detail":"please login first"}}]';
 
 export function createMockCamera(opts: MockCameraOptions): MockCamera {
   const tokens = new Set<string>();
@@ -42,7 +51,9 @@ export function createMockCamera(opts: MockCameraOptions): MockCamera {
     logins: 0,
     loginAttempts: 0,
     activeStreams: 0,
+    devInfoCalls: 0,
     offline: false,
+    rejectAllStreams: false,
     revokeTokens: () => tokens.clear(),
     dropStreams: () => {
       for (const res of activeResponses) res.destroy(new Error('mock camera dropped the stream'));
@@ -86,6 +97,7 @@ export function createMockCamera(opts: MockCameraOptions): MockCamera {
       return;
     }
     if (cmd === 'GetDevInfo') {
+      state.devInfoCalls++;
       res.json([
         {
           cmd,
@@ -100,7 +112,7 @@ export function createMockCamera(opts: MockCameraOptions): MockCamera {
 
   app.get('/cgi-bin/api.cgi', (req: Request, res: Response) => {
     if (req.query.cmd !== 'Snap' || !valid(req)) {
-      res.json(notLoggedIn(String(req.query.cmd ?? '')));
+      res.status(200).type('text/html').send(NOT_LOGGED_IN_GET_BODY);
       return;
     }
     res.type('image/jpeg').sendFile(join(FIXTURES, 'snapshot.jpg'));
@@ -109,8 +121,10 @@ export function createMockCamera(opts: MockCameraOptions): MockCamera {
   // Streams the fixture once and then keeps the connection open, like a live
   // camera that never ends a stream on its own.
   app.get('/flv', (req: Request, res: Response) => {
-    if (!valid(req)) {
-      res.status(403).end();
+    // Real firmware sends no HTTP response at all for a bad token: it just
+    // closes the connection, so the client sees ECONNRESET / "socket hang up".
+    if (state.rejectAllStreams || !valid(req)) {
+      req.socket.destroy();
       return;
     }
     const start = () => {

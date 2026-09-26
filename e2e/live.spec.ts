@@ -36,6 +36,7 @@ test('an unreachable camera shows the offline banner with retry', async ({ page 
   await page.goto('/app/live');
   await page.getByTestId('camera-picker').selectOption('garage');
   await expect(page.getByTestId('offline-banner')).toContainText('Garage is offline');
+  await expect(page.getByTestId('offline-reason')).toHaveText('The camera could not be reached.');
   await page.getByTestId('retry').click();
   await expect(page.getByTestId('offline-banner')).toBeVisible();
   await expect(page.getByTestId('live-video')).toHaveCount(0);

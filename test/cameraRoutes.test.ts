@@ -162,6 +162,9 @@ describe('camera routes', () => {
       req.on('error', () => {
         /* expected: we destroy this request ourselves below */
       });
+      // The request must actually have reached the route (slot taken) before
+      // the disconnect, or this test could pass without testing anything.
+      await waitFor(() => liveStreamCount('cam1') === 1);
       await new Promise((r) => setTimeout(r, 50));
       req.destroy();
       // Well under flvDelayMs: only passes if the disconnect releases the

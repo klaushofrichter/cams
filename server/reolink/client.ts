@@ -165,36 +165,65 @@ export class ReolinkClient {
 
   // Real firmware limits concurrent sessions and never gets a Logout when we
   // drop a token, so we only clear it when the response actually says the
-  // token is bad: a 403 (FLV) or a JSON body with rspCode -6 (Snap). A
-  // connection error never clears the token - the camera may just be briefly
-  // unreachable - and any other unexpected response is reported as-is,
-  // without spending a second login on a problem re-login can't fix.
-  private async isAuthRejection(res: IncomingMessage, contentType: string): Promise<boolean> {
+  // token is bad: a 403, or a 200 whose body is a rspCode -6 reply. Real
+  // firmware (RLC-1224A v3.2.0.6011) sends that body for Snap as text/html,
+  // not application/json, so the content type is deliberately ignored. A
+  // connection error never clears the token here - the camera may just be
+  // briefly unreachable - and any other unexpected response is reported
+  // as-is, without spending a second login on a problem re-login can't fix.
+  private async isAuthRejection(res: IncomingMessage): Promise<boolean> {
     if (res.statusCode === 403) {
       res.resume();
       return true;
     }
-    if (res.statusCode === 200 && contentType.includes('application/json')) {
-      let body: Buffer;
-      try {
-        body = await readBody(res, 64 * 1024);
-      } catch {
-        return false;
-      }
-      try {
-        const parsed: unknown = JSON.parse(body.toString('utf8'));
-        const rspCode = Array.isArray(parsed) ? (parsed[0] as ReolinkReply | undefined)?.error?.rspCode : undefined;
-        return rspCode === -6;
-      } catch {
-        return false;
-      }
+    if (res.statusCode !== 200) {
+      res.resume();
+      return false;
     }
-    res.resume();
-    return false;
+    let body: Buffer;
+    try {
+      // readBody() destroys the response itself if it exceeds the limit.
+      body = await readBody(res, 64 * 1024);
+    } catch {
+      res.destroy();
+      return false;
+    }
+    try {
+      const parsed: unknown = JSON.parse(body.toString('utf8'));
+      const rspCode = Array.isArray(parsed) ? (parsed[0] as ReolinkReply | undefined)?.error?.rspCode : undefined;
+      return rspCode === -6;
+    } catch {
+      return false;
+    }
   }
 
-  // GET endpoints (Snap, FLV) answer an invalid token with a 403 or a JSON
-  // "please login first" body instead of an rspCode on a normal reply.
+  // Real firmware answers /flv with an invalid token by closing the
+  // connection before sending any response headers (ECONNRESET / "socket
+  // hang up"), exactly what a camera with a broken stream service would do.
+  // Timeouts, refused or unreachable connections, aborts and TLS failures
+  // are not this signal. openRequest() only rejects before the response
+  // headers arrive, so any error from it qualifies on that count.
+  private static isResetBeforeHeaders(err: unknown): boolean {
+    if (!(err instanceof Error)) return false;
+    const code = (err as NodeJS.ErrnoException).code ?? '';
+    if (err.name === 'AbortError' || code === 'ABORT_ERR' || isTlsCertError(code) || /TLS/.test(err.message)) return false;
+    return code === 'ECONNRESET' || /socket hang up/i.test(err.message);
+  }
+
+  // After a reset /flv open: is the token still good? GetDevInfo goes
+  // through command(), which clears the token on rspCode -6 and logs in once
+  // (honouring the login back-off). Returns normally only if that produced a
+  // different token worth one more open; otherwise it throws.
+  private async revalidateAfterReset(usedToken: string): Promise<void> {
+    await this.command('GetDevInfo'); // a CameraError from here is rethrown as-is
+    if (!this.token || this.token.value === usedToken) {
+      throw new CameraError('camera_offline', 'live stream connection reset by camera; session is valid');
+    }
+  }
+
+  // GET endpoints (Snap, FLV) don't report an invalid token with an rspCode
+  // on a normal reply: Snap answers 200 with a rspCode -6 body, FLV closes
+  // the connection without a response (see isResetBeforeHeaders).
   private async getWithToken(buildPath: (token: string) => string, accept: RegExp, signal?: AbortSignal): Promise<IncomingMessage> {
     for (let attempt = 0; attempt < 2; attempt++) {
       const token = await this.getToken();
@@ -203,6 +232,11 @@ export class ReolinkClient {
         res = await openRequest(this.target, buildPath(encodeURIComponent(token)), { timeoutMs: this.timeoutMs, signal });
       } catch (err) {
         if (signal?.aborted) throw err;
+        if (attempt === 0 && ReolinkClient.isResetBeforeHeaders(err)) {
+          await this.revalidateAfterReset(token);
+          if (signal?.aborted) throw err;
+          continue;
+        }
         throw classifyNetworkError(err);
       }
       const contentType = String(res.headers['content-type'] ?? '');
@@ -211,7 +245,7 @@ export class ReolinkClient {
         res.resume();
         throw new CameraError('camera_offline', 'camera unavailable (HTTP 503)');
       }
-      if (await this.isAuthRejection(res, contentType)) {
+      if (await this.isAuthRejection(res)) {
         this.clearTokenIfCurrent(token);
         if (attempt === 0) continue;
         throw new CameraError('camera_auth_failed', 'token rejected after re-login');
@@ -249,7 +283,7 @@ export class ReolinkClient {
         res.resume();
         throw new CameraError('camera_offline', 'camera unavailable (HTTP 503)');
       }
-      if (await this.isAuthRejection(res, contentType)) return { ok: false };
+      if (await this.isAuthRejection(res)) return { ok: false };
       throw new CameraError('camera_error', `unexpected response (HTTP ${res.statusCode})`);
     });
   }

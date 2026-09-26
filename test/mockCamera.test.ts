@@ -39,6 +39,14 @@ describe('mock camera', () => {
     expect(res.body.subarray(0, 2).toString('hex')).toBe('ffd8');
   });
 
+  it('answers a snapshot with a bad token like real firmware: 200, text/html, rspCode -6 body', async () => {
+    const { app } = createMockCamera(creds);
+    const res = await request(app).get('/cgi-bin/api.cgi?cmd=Snap&channel=0&rs=x&token=nope');
+    expect(res.status).toBe(200);
+    expect(res.headers['content-type']).toMatch(/^text\/html/);
+    expect(JSON.parse(res.text)[0].error.rspCode).toBe(-6);
+  });
+
   it('refuses all requests while "offline"', async () => {
     const { app, state } = createMockCamera(creds);
     state.offline = true;
@@ -63,13 +71,16 @@ describe('mock camera', () => {
     try {
       const token = (await login(app)).body[0].value.Token.name;
 
-      const bad = await new Promise<number>((resolve) => {
-        http.get(`http://127.0.0.1:${port}/flv?port=1935&app=bcs&stream=channel0_sub.bcs&token=nope`, (res) => {
-          resolve(res.statusCode ?? 0);
-          res.resume();
-        });
+      // Like real firmware: no HTTP response for a bad token, just a reset.
+      const bad = await new Promise<string>((resolve) => {
+        http
+          .get(`http://127.0.0.1:${port}/flv?port=1935&app=bcs&stream=channel0_sub.bcs&token=nope`, (res) => {
+            resolve(`HTTP ${res.statusCode}`);
+            res.resume();
+          })
+          .on('error', (err: NodeJS.ErrnoException) => resolve(err.code ?? err.message));
       });
-      expect(bad).toBe(403);
+      expect(bad).toBe('ECONNRESET');
 
       const res = await new Promise<http.IncomingMessage>((resolve) => {
         http.get(`http://127.0.0.1:${port}/flv?port=1935&app=bcs&stream=channel0_sub.bcs&token=${token}`, resolve);

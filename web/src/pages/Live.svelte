@@ -69,6 +69,15 @@
     void container?.requestFullscreen?.().catch(() => {});
   }
 
+  // One explanation per error code: camera_error covers things re-trying
+  // won't fix (a certificate problem, an unexpected answer), so it points at
+  // the server logs instead of suggesting the camera is simply unreachable.
+  function offlineReason(code: string | undefined): string {
+    if (code === 'camera_offline') return 'The camera could not be reached.';
+    if (code === 'camera_auth_failed') return 'Signing in to the camera failed.';
+    return 'The camera answered with an error (for example a certificate problem). Check the server logs.';
+  }
+
   const stamp = () => new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-');
 </script>
 
@@ -89,7 +98,7 @@
   {:else if status && !status.online}
     <div class="offline" data-testid="offline-banner" role="alert">
       <strong>{camera.name} is offline.</strong>
-      <span>The camera could not be reached{status.error === 'camera_auth_failed' ? ' (sign-in to the camera failed)' : ''}.</span>
+      <span data-testid="offline-reason">{offlineReason(status.error)}</span>
       <button data-testid="retry" disabled={checking} onclick={() => checkStatus(camera.id)}>
         <Icon name="refresh" size={16} /> {checking ? 'Checking…' : 'Retry'}
       </button>

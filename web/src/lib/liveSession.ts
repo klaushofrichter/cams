@@ -28,7 +28,6 @@ export class LiveSession {
   private attempt = 0;
   private timer: ReturnType<typeof setTimeout> | null = null;
   private stopped = false;
-  private reconnecting = false;
 
   constructor(
     private readonly videos: [HTMLVideoElement, HTMLVideoElement],
@@ -76,7 +75,6 @@ export class LiveSession {
 
   private launch(i: 0 | 1): void {
     this.drop(i);
-    if (i === this.active) this.reconnecting = false;
     const player = this.factory(this.url);
     const slot: Slot = { player, onPlaying: () => this.playing(i, slot) };
     this.slots[i] = slot;
@@ -93,7 +91,6 @@ export class LiveSession {
     const other = (1 - i) as 0 | 1;
     this.active = i;
     this.attempt = 0;
-    this.reconnecting = false;
     this.onActive(i);
     this.drop(other);
     this.onState('playing');
@@ -115,7 +112,6 @@ export class LiveSession {
       return;
     }
     this.onState('reconnecting');
-    this.reconnecting = true;
     const delay = retryDelayMs(this.attempt++);
     this.schedule(delay, () => this.launch(i));
   }

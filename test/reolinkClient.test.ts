@@ -98,7 +98,8 @@ describe('ReolinkClient', () => {
   });
 
   // Review Important 4: careful re-login for GET endpoints (Snap/FLV) -
-  // only a 403 or a JSON rspCode -6 body justifies clearing the token.
+  // only a 403 or a rspCode -6 body (whatever its content type) justifies
+  // clearing the token.
   it('re-logs in once for a snapshot when the token is revoked', async () => {
     const client = new ReolinkClient(cam);
     await client.snapshot();
@@ -167,6 +168,53 @@ describe('ReolinkClient', () => {
       // (c) the camera isn't left wedged: a normal call still works.
       const status = await withDeadline(client.status());
       expect(status.model).toBe('RLC-1224A');
+    });
+  });
+
+  // Final review Critical 1: how the real firmware (RLC-1224A v3.2.0.6011)
+  // reports a rejected token on its GET endpoints. Snap answers HTTP 200
+  // text/html with a rspCode -6 JSON body; /flv resets the connection
+  // without any HTTP response. Both must recover with exactly one re-login.
+  describe('token rejection as the real firmware reports it', () => {
+    it('snapshot recovers from a text/html rspCode -6 reply with exactly one re-login', async () => {
+      const client = new ReolinkClient(cam);
+      await client.status();
+      const attemptsBefore = state.loginAttempts;
+      state.revokeTokens();
+      const snap = await withDeadline(client.snapshot());
+      expect(snap.subarray(0, 2).toString('hex')).toBe('ffd8');
+      expect(state.loginAttempts - attemptsBefore).toBe(1);
+    });
+
+    it('openLive recovers from a reset /flv connection with exactly one re-login', async () => {
+      const client = new ReolinkClient(cam);
+      await client.status();
+      const attemptsBefore = state.loginAttempts;
+      state.revokeTokens();
+      const ac = new AbortController();
+      const stream = await withDeadline(client.openLive('sub', ac.signal));
+      try {
+        const first: Buffer = await withDeadline(new Promise((resolve) => stream.once('data', resolve)));
+        expect(first.subarray(0, 3).toString()).toBe('FLV');
+        expect(state.loginAttempts - attemptsBefore).toBe(1);
+      } finally {
+        ac.abort();
+      }
+    });
+
+    it('openLive reports camera_offline without a re-login when /flv resets even with a valid token', async () => {
+      const client = new ReolinkClient(cam);
+      await client.status();
+      const attemptsBefore = state.loginAttempts;
+      const devInfoBefore = state.devInfoCalls;
+      state.rejectAllStreams = true;
+      await expect(withDeadline(client.openLive('sub', new AbortController().signal))).rejects.toMatchObject({
+        code: 'camera_offline',
+      });
+      expect(state.loginAttempts - attemptsBefore).toBe(0);
+      // The session was validated once (GetDevInfo), and the open wasn't retried
+      // with the same token.
+      expect(state.devInfoCalls - devInfoBefore).toBe(1);
     });
   });
 
