@@ -11,6 +11,9 @@ export interface MockCameraOptions {
   password: string;
   model?: string;
   firmware?: string;
+  // Delays the /flv response by this many ms, to let tests disconnect while
+  // the client's openLive() call is still pending.
+  flvDelayMs?: number;
 }
 
 export interface MockState {
@@ -19,6 +22,9 @@ export interface MockState {
   activeStreams: number;
   offline: boolean;
   revokeTokens(): void;
+  // Forcibly ends every open /flv connection, simulating a camera-side drop
+  // (reset, reboot) rather than the viewer leaving.
+  dropStreams(): void;
 }
 
 export interface MockCamera {
@@ -31,12 +37,16 @@ const notLoggedIn = (cmd: string) => [{ cmd, code: 1, error: { detail: 'please l
 
 export function createMockCamera(opts: MockCameraOptions): MockCamera {
   const tokens = new Set<string>();
+  const activeResponses = new Set<Response>();
   const state: MockState = {
     logins: 0,
     loginAttempts: 0,
     activeStreams: 0,
     offline: false,
     revokeTokens: () => tokens.clear(),
+    dropStreams: () => {
+      for (const res of activeResponses) res.destroy(new Error('mock camera dropped the stream'));
+    },
   };
   const app = express();
   app.use((_req, res, next) => (state.offline ? res.status(503).end() : next()));
@@ -97,15 +107,27 @@ export function createMockCamera(opts: MockCameraOptions): MockCamera {
       res.status(403).end();
       return;
     }
-    state.activeStreams++;
-    const file = createReadStream(join(FIXTURES, 'live.flv'));
-    file.on('error', () => res.destroy());
-    res.on('close', () => {
-      state.activeStreams--;
-      file.destroy();
-    });
-    res.status(200).type('video/x-flv');
-    file.pipe(res, { end: false });
+    const start = () => {
+      // The client may already have disconnected during the (optional)
+      // delay above; don't count or serve a stream nobody is waiting for.
+      if (res.destroyed || res.writableEnded) return;
+      state.activeStreams++;
+      activeResponses.add(res);
+      const file = createReadStream(join(FIXTURES, 'live.flv'));
+      file.on('error', () => res.destroy());
+      res.on('close', () => {
+        state.activeStreams--;
+        activeResponses.delete(res);
+        file.destroy();
+      });
+      res.status(200).type('video/x-flv');
+      file.pipe(res, { end: false });
+    };
+    if (opts.flvDelayMs) {
+      setTimeout(start, opts.flvDelayMs);
+    } else {
+      start();
+    }
   });
 
   return { app, state };

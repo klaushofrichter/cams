@@ -24,16 +24,25 @@ function cameraId(req: Request, res: Response): string | undefined {
 }
 
 function sendCameraError(err: unknown, cameraIdValue: string, res: Response, next: NextFunction): void {
+  // Headers already went out: no matter what kind of error this is, a JSON
+  // body can no longer be sent and next(err) would try to send one anyway.
+  if (res.headersSent) {
+    res.destroy();
+    return;
+  }
   if (!(err instanceof CameraError)) {
     next(err);
     return;
   }
   logger.warn({ cameraId: cameraIdValue, code: err.code, message: err.message }, 'camera_request_failed');
-  if (res.headersSent) {
-    res.destroy();
-    return;
-  }
   res.status(err.code === 'camera_error' ? 502 : 503).json({ error: err.code });
+}
+
+// A best-effort label for a stream failure's log line: never the full
+// message (which could carry a URL), just the error's code or name.
+function errorDetail(err: unknown): string {
+  if (err instanceof Error) return (err as NodeJS.ErrnoException).code ?? err.name;
+  return 'unknown';
 }
 
 camerasRouter.get('/api/cameras/:id/status', async (req: Request, res: Response, next: NextFunction) => {
@@ -71,25 +80,44 @@ camerasRouter.get('/api/cameras/:id/live', async (req: Request, res: Response, n
   liveCounts.set(id, liveStreamCount(id) + 1);
   const abort = new AbortController();
   let released = false;
+  // Once piping starts, a failure on either side of the pipe destroys the
+  // other side too (that's what stream.pipeline() is for), so both a viewer
+  // disconnect and a camera drop end up closing both `res` and `upstream`.
+  // Whichever side's failure happens FIRST is the true cause; `cause` latches
+  // on the first of the two events below and is left alone by the second
+  // (which is just the automatic, resulting cleanup).
+  let cause: 'viewer' | 'camera' | undefined;
   const release = () => {
     if (released) return;
     released = true;
     abort.abort();
     liveCounts.set(id, Math.max(0, liveStreamCount(id) - 1));
   };
-  res.on('close', release);
+  res.on('close', () => {
+    if (cause === undefined && !res.writableFinished) cause = 'viewer';
+    release();
+  });
   try {
     const upstream = await getClient(id)!.openLive(quality, abort.signal);
     if (abort.signal.aborted) {
       upstream.destroy();
       return;
     }
+    upstream.once('error', () => {
+      if (cause === undefined) cause = 'camera';
+    });
     res.status(200).set({ 'Content-Type': 'video/x-flv', 'X-Accel-Buffering': 'no' });
     res.flushHeaders();
     await pipeline(upstream, res);
   } catch (err) {
-    // The viewer closing the tab ends the pipeline with a premature-close
-    // error; that is the normal way a live stream stops.
+    // Headers already sent and the camera's own connection is what failed
+    // first: log it. A viewer disconnect (cause === 'viewer', or no upstream
+    // ever opened) is the normal, quiet way a live stream stops.
+    if (res.headersSent && cause === 'camera') {
+      logger.warn({ cameraId: id, code: 'stream_interrupted', message: errorDetail(err) }, 'camera_stream_failed');
+      res.destroy();
+      return;
+    }
     if (abort.signal.aborted) return;
     sendCameraError(err, id, res, next);
   } finally {
