@@ -258,3 +258,15 @@ test.describe('today auto-refresh', () => {
     await expect(page.locator('[data-testid="event-card"][aria-current="true"]')).toHaveAttribute('data-clip-id', /-093000-093020$/);
   });
 });
+
+// Plan 5: a camera that refuses every recording download (the real camera
+// since 2026-09-26). After a few refused thumbnails the server's breaker
+// opens, and Recordings says so instead of showing silent black boxes.
+test('a camera that refuses downloads gets a clear banner', async ({ page }) => {
+  await page.goto('/app/recordings?cam=shed&panel=events');
+  await expect(page.getByTestId('event-card').first()).toBeVisible();
+  // Lazy thumbnails load once visible; their 503s trigger a re-check.
+  await expect(page.getByTestId('recordings-unavailable')).toBeVisible({ timeout: 30_000 });
+  await expect(page.getByTestId('recordings-unavailable')).toContainText('camera-side problem');
+});
+

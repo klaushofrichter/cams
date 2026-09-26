@@ -11,6 +11,8 @@
     onauto,
     ontime,
     downloadHref,
+    unavailable = false,
+    onvideoerror,
   }: {
     src: string | null;
     startAt?: number;
@@ -21,6 +23,8 @@
     onauto?: () => void;
     ontime: (sec: number) => void;
     downloadHref: string | null;
+    unavailable?: boolean;
+    onvideoerror?: () => void;
   } = $props();
 
   let video: HTMLVideoElement | undefined = $state();
@@ -132,10 +136,15 @@
         ontime(current);
       }}
       onended={() => hasNext && (onauto ?? onnext)()}
-      onerror={() => (videoError = true)}
+      onerror={() => {
+        videoError = true;
+        onvideoerror?.();
+      }}
     ></video>
     {#if videoError}
-      <p class="note" data-testid="clip-error" role="alert">This recording could not be loaded.</p>
+      <p class="note" data-testid="clip-error" role="alert">
+        {unavailable ? "The camera isn't serving recordings right now." : 'This recording could not be loaded.'}
+      </p>
     {/if}
   {:else}
     <div class="empty">Select a recording on the timeline or in the list.</div>

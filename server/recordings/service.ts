@@ -21,7 +21,7 @@ export interface EventClip {
 }
 
 export class RecordingError extends Error {
-  constructor(readonly code: 'unknown_clip' | 'thumbnail_unavailable', message: string) {
+  constructor(readonly code: 'unknown_clip' | 'thumbnail_unavailable' | 'recordings_unavailable', message: string) {
     super(message);
     this.name = 'RecordingError';
   }
@@ -40,6 +40,8 @@ const MONTH_TTL = 300_000;
 // downloadTask), and overlapping downloads left it refusing all of them
 // until a power cycle.
 const TRANSFERS_PER_CAMERA = 1;
+const BREAKER_FAILURES = 3;
+const RECORDINGS_PROBE_MS = () => Number(process.env.RECORDINGS_PROBE_MS) || 60_000;
 const DOWNLOAD_RETRY_DELAY_MS = Number(process.env.DOWNLOAD_RETRY_DELAY_MS) || 1000;
 const RECENT_WINDOW_MS = 24 * 60 * 60 * 1000;
 
@@ -264,13 +266,52 @@ export class RecordingsService {
   // The camera occasionally resets a Download before sending anything, and
   // the same request succeeds moments later: retry that case once.
   private async downloadWithRetry(cameraId: string, name: string, signal?: AbortSignal): Promise<IncomingMessage> {
+    this.guard(cameraId);
     try {
-      return await this.client(cameraId).download(name, signal);
+      let res: IncomingMessage;
+      try {
+        res = await this.client(cameraId).download(name, signal);
+      } catch (err) {
+        if (!(err instanceof CameraError) || err.code !== 'camera_offline' || signal?.aborted) throw err;
+        await new Promise((r) => setTimeout(r, DOWNLOAD_RETRY_DELAY_MS));
+        res = await this.client(cameraId).download(name, signal);
+      }
+      this.health.delete(cameraId);
+      return res;
     } catch (err) {
-      if (!(err instanceof CameraError) || err.code !== 'camera_offline' || signal?.aborted) throw err;
-      await new Promise((r) => setTimeout(r, DOWNLOAD_RETRY_DELAY_MS));
-      return this.client(cameraId).download(name, signal);
+      if (err instanceof CameraError && err.code === 'camera_offline' && !signal?.aborted) this.noteRefused(cameraId);
+      throw err;
     }
+  }
+
+  // Download health: a camera can refuse every recording download while its
+  // API, live view and search keep working (RLC-1224A, 2026-09-26). After
+  // BREAKER_FAILURES refusals in a row, clip transfers answer
+  // recordings_unavailable at once instead of queueing more refused
+  // transfers; one probe per RECORDINGS_PROBE_MS is let through, and a
+  // success closes the breaker.
+  private readonly health = new Map<string, { failures: number; lastProbeAt: number }>();
+
+  private noteRefused(cameraId: string): void {
+    const h = this.health.get(cameraId) ?? { failures: 0, lastProbeAt: 0 };
+    h.failures++;
+    h.lastProbeAt = Date.now();
+    this.health.set(cameraId, h);
+  }
+
+  // Runs inside the transfer slot, right before a camera download, so
+  // requests queued before the breaker opened are refused too.
+  private guard(cameraId: string): void {
+    const h = this.health.get(cameraId);
+    if (!h || h.failures < BREAKER_FAILURES) return;
+    if (Date.now() - h.lastProbeAt < RECORDINGS_PROBE_MS()) {
+      throw new RecordingError('recordings_unavailable', 'the camera is refusing recording downloads');
+    }
+    h.lastProbeAt = Date.now(); // this request is the probe
+  }
+
+  downloadsState(cameraId: string): 'ok' | 'unavailable' {
+    return (this.health.get(cameraId)?.failures ?? 0) >= BREAKER_FAILURES ? 'unavailable' : 'ok';
   }
 
   // `priority` 'high' is for someone waiting to watch the clip; thumbnails

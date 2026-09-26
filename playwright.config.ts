@@ -50,6 +50,9 @@ export default defineConfig({
   webServer: [
     { command: 'npx tsx test/mock-camera/cli.ts', port: 8098, reuseExistingServer: !process.env.CI },
     { command: 'npx tsx test/mock-camera/cli.ts', port: 8097, reuseExistingServer: !process.env.CI, env: { MOCK_CAMERA_PORT: '8097', MOCK_SETTINGS_FAILURES: 'SetWhiteLed' } },
+    // A third mock on 8096 backs "Shed" and refuses every recording download,
+    // like the real RLC-1224A since 2026-09-26 (Plan 5 breaker and banner).
+    { command: 'npx tsx test/mock-camera/cli.ts', port: 8096, reuseExistingServer: !process.env.CI, env: { MOCK_CAMERA_PORT: '8096', MOCK_DROP_DOWNLOADS: '1000000' } },
     { command: 'npm start', port: E2E_PORT, reuseExistingServer: !process.env.CI, env: E2E_ENV },
   ],
   globalSetup: require.resolve('./e2e/global-setup'),

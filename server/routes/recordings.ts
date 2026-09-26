@@ -67,7 +67,8 @@ recordingsRouter.get('/api/cameras/:id/events', async (req, res, next) => {
     return;
   }
   try {
-    res.json({ date, events: await getRecordings().events(id, date) });
+    const rec = getRecordings();
+    res.json({ date, events: await rec.events(id, date), downloads: rec.downloadsState(id) });
   } catch (err) {
     fail(err, id, res, next);
   }
