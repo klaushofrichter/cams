@@ -7,10 +7,11 @@
   import { QUALITY_KEY, snapshotUrl, supportsHevc, type Quality } from '../lib/live';
   import type { PlayerState } from '../lib/liveSession';
   import { enterFullscreen } from '../lib/fullscreen';
-  import { clipAtSecond, cursorSearch, eventsUrl, localDate, saveCursor, secondsIntoDay, type EventClip } from '../lib/recordings';
+  import { clipAtSecond, cursorSearch, eventsUrl, saveCursor, secondsIntoDay, type EventClip } from '../lib/recordings';
   import { navigate } from '../lib/router';
   import { pref } from '../lib/preferences';
   import { now } from '../lib/clock';
+  import { createTodayRefresher, todayDate } from '../lib/refresh';
 
   interface CameraStatus {
     id: string;
@@ -71,29 +72,49 @@
   // it times out, for a timeline that has nothing to show anyway. A
   // request-sequence guard (like checkStatus above) drops a late response
   // from a camera that's since been switched away from.
-  const today = localDate(new Date());
   let todayEvents: EventClip[] = $state([]);
   let eventsSeq = 0;
+  let refreshTick = $state(0);
+  let updatedAt: Date | null = $state(null);
+  let lastEventsKey = '';
   $effect(() => {
     const id = $selectedCameraId;
     const online = status?.online === true;
-    todayEvents = [];
-    if (!id || !online) return;
+    void refreshTick;
+    if (!id || !online) {
+      todayEvents = [];
+      lastEventsKey = '';
+      return;
+    }
+    // A refresh (same camera, triggered by the today-refresher) must not
+    // clear the mini timeline, and a failure leaves the old list in place.
+    const isRefresh = id === lastEventsKey;
+    lastEventsKey = id;
     const seq = ++eventsSeq;
-    getJson<{ events: EventClip[] }>(eventsUrl(id, today))
+    if (!isRefresh) todayEvents = [];
+    getJson<{ events: EventClip[] }>(eventsUrl(id, $todayDate))
       .then((r) => {
-        if (seq === eventsSeq) todayEvents = r.events;
+        if (seq !== eventsSeq) return;
+        todayEvents = r.events;
+        updatedAt = new Date();
       })
       .catch(() => {});
+  });
+
+  // Refreshes the mini timeline every minute while the tab is visible, and
+  // once more when it becomes visible again.
+  $effect(() => {
+    const r = createTodayRefresher({ isToday: () => true, refresh: () => refreshTick++ });
+    return () => r.stop();
   });
 
   // Clicking (or arrow-stepping to) a point on the mini timeline opens the
   // full Recordings workspace at that clip.
   function openRecording(sec: number) {
     const id = $selectedCameraId;
-    const e = clipAtSecond(todayEvents, today, sec);
+    const e = clipAtSecond(todayEvents, $todayDate, sec);
     if (!id || !e) return;
-    const c = { date: today, clipId: e.id, offsetSec: 0 };
+    const c = { date: $todayDate, clipId: e.id, offsetSec: 0 };
     saveCursor(id, c);
     navigate(`/app/recordings${cursorSearch(id, c, 'history', 'all')}`);
   }
@@ -104,7 +125,7 @@
   function jumpToEdge(edge: 'start' | 'end') {
     if (!todayEvents.length) return;
     const target = edge === 'start' ? todayEvents[0] : todayEvents[todayEvents.length - 1];
-    openRecording(secondsIntoDay(target.start, today));
+    openRecording(secondsIntoDay(target.start, $todayDate));
   }
   function stepEvent(dir: -1 | 1) {
     jumpToEdge(dir === 1 ? 'start' : 'end');
@@ -180,15 +201,16 @@
         {#if todayEvents.length}
           <Timeline
             events={todayEvents}
-            date={today}
+            date={$todayDate}
             selectedId={null}
             onpick={openRecording}
             onstep={stepEvent}
             onedge={jumpToEdge}
             compact
             legend
-            now={secondsIntoDay(new Date($now).toISOString(), today)}
+            now={secondsIntoDay(new Date($now).toISOString(), $todayDate)}
             testid="live-timeline"
+            {updatedAt}
           />
         {:else}
           <span class="none">No recordings yet today.</span>

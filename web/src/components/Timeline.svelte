@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { dayLength, layoutSegments, localDate, secondsIntoDay, tickLabel, timelineWindow, type EventClip, type Zoom } from '../lib/recordings';
+  import { dayLength, formatClock, layoutSegments, localDate, secondsIntoDay, tickLabel, timelineWindow, type EventClip, type Zoom } from '../lib/recordings';
   import { pref } from '../lib/preferences';
   import { timeZoneLabel } from '../lib/clock';
 
@@ -14,6 +14,7 @@
     testid = 'timeline',
     legend = false,
     now = null,
+    updatedAt = null,
   }: {
     events: EventClip[];
     date: string;
@@ -25,6 +26,7 @@
     testid?: string;
     legend?: boolean;
     now?: number | null;
+    updatedAt?: Date | null;
   } = $props();
 
   let zoom: Zoom = $state(pref('timelineZoom') ?? 24);
@@ -98,7 +100,9 @@
     <div class="ticks legend-ticks">
       {#each legendTicks as t (t.left)}<span style={`left:${t.left}%`}>{t.label}</span>{/each}
     </div>
-    <p class="caption" data-testid="live-timeline-legend">{captionText}</p>
+    <p class="caption" data-testid="live-timeline-legend">
+      {captionText}{#if updatedAt}, <span data-testid="live-timeline-updated">updated {formatClock(updatedAt.toISOString())}</span>{/if}
+    </p>
   {/if}
 </div>
 

@@ -233,3 +233,22 @@ test('ArrowRight with no clip selected selects the first clip', async ({ page })
   await page.keyboard.press('ArrowRight');
   await expect(page).toHaveURL(/clip=\d{8}-081510-081535/);
 });
+
+// Isolated in its own describe: page.clock.install() replaces the page's
+// timers wholesale, which is risky alongside the other tests' real video
+// playback (mpegts.js and <video> rely on real timers/rAF).
+test.describe('today auto-refresh', () => {
+  test('today refreshes on its own and keeps the selection', async ({ page }) => {
+    await page.clock.install();
+    await page.goto('/app/recordings?panel=events');
+    await expect(page.getByTestId('event-card')).toHaveCount(4);
+    await page.getByTestId('event-card').nth(1).click();
+    const first = await page.getByTestId('events-updated').textContent();
+    const requests: string[] = [];
+    page.on('request', (r) => r.url().includes('/events?') && requests.push(r.url()));
+    await page.clock.runFor(61_000);
+    await expect.poll(() => requests.length).toBeGreaterThan(0);
+    await expect(page.getByTestId('events-updated')).not.toHaveText(first!);
+    await expect(page.locator('[data-testid="event-card"][aria-current="true"]')).toHaveAttribute('data-clip-id', /-093000-093020$/);
+  });
+});

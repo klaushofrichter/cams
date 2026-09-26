@@ -13,8 +13,9 @@
     neighbour, parseCursor, saveCursor, secondsIntoDay, videoUrl, type Cursor, type EventClip, type Filter,
   } from '../lib/recordings';
   import { preferences } from '../lib/preferences';
+  import { createTodayRefresher, todayDate } from '../lib/refresh';
+  import { formatNow } from '../lib/clock';
 
-  const today = localDate(new Date());
   const TABS: { id: Panel; label: string }[] = [
     { id: 'history', label: 'History' },
     { id: 'events', label: 'Events' },
@@ -26,6 +27,9 @@
   let loading = $state(true);
   let failed = $state(false);
   let eventsRequest = 0;
+  let refreshTick = $state(0);
+  let updatedAt: Date | null = $state(null);
+  let lastKey = '';
   let clipPlayer: { seek: (sec: number) => void } | undefined = $state();
 
   // The URL is the source of truth; with none (e.g. a sidebar link), the
@@ -35,7 +39,7 @@
   // session remembered from a previous camera would silently override a
   // camera just picked on another page.
   const parsed = $derived.by(() => {
-    const p = parseCursor($route.params, today);
+    const p = parseCursor($route.params, $todayDate);
     if (!$route.params.has('date') && !$route.params.has('clip')) {
       const saved = loadCursor();
       const agrees = p.cam ? saved?.cam === p.cam : $selectedCameraId === null || saved?.cam === $selectedCameraId;
@@ -127,11 +131,20 @@
   $effect(() => {
     const c = cam;
     const d = date;
+    void refreshTick;
     if (!c) return;
+    // A refresh (same cam and date, triggered by the today-refresher) must
+    // not clear the list, show the skeleton, or surface an error: the old
+    // list stays on screen and a failure is silently ignored.
+    const key = `${c}|${d}`;
+    const isRefresh = key === lastKey;
+    lastKey = key;
     const seq = ++eventsRequest;
-    loading = true;
-    failed = false;
-    events = [];
+    if (!isRefresh) {
+      loading = true;
+      failed = false;
+      events = [];
+    }
     const month = d.slice(0, 7);
     const prevMonth = addDays(`${month}-01`, -1).slice(0, 7);
     const dayFetches: Promise<{ days: string[] }>[] = [
@@ -139,7 +152,7 @@
     ];
     // Only needed when browsing a past month, so day-next can cross into a
     // month that isn't otherwise loaded.
-    if (month < today.slice(0, 7)) {
+    if (month < $todayDate.slice(0, 7)) {
       const nextMonth = addDays(`${month}-01`, 32).slice(0, 7);
       dayFetches.push(getJson<{ days: string[] }>(daysUrl(c, nextMonth)).catch(() => ({ days: [] })));
     }
@@ -148,13 +161,22 @@
         if (seq !== eventsRequest) return;
         events = e.events;
         days = [...new Set([...d0.days, ...rest.flatMap((r) => r.days)])].sort();
+        updatedAt = new Date();
       })
       .catch(() => {
-        if (seq === eventsRequest) failed = true;
+        if (seq === eventsRequest && !isRefresh) failed = true;
       })
       .finally(() => {
-        if (seq === eventsRequest) loading = false;
+        if (seq === eventsRequest && !isRefresh) loading = false;
       });
+  });
+
+  // Refreshes today's events and the days list on its own: every minute
+  // while the tab is visible, and once more when it becomes visible again
+  // (if enough time has passed). Never touches a past day.
+  $effect(() => {
+    const r = createTodayRefresher({ isToday: () => date === $todayDate, refresh: () => refreshTick++ });
+    return () => r.stop();
   });
 
   let lastT = 0;
@@ -200,7 +222,8 @@
 <section class="page">
   <header class="head">
     <h1 data-testid="page-title">Recordings</h1>
-    {#if cam}<DayPicker date={cursor.date} {days} {today} onchange={(d) => go({ date: d, clipId: null, offsetSec: 0 })} />{/if}
+    {#if cam}<DayPicker date={cursor.date} {days} today={$todayDate} onchange={(d) => go({ date: d, clipId: null, offsetSec: 0 })} />{/if}
+    {#if cam && date === $todayDate && updatedAt}<span class="updated" data-testid="events-updated">Updated {formatNow(updatedAt)}</span>{/if}
   </header>
 
   {#if !cam}
@@ -252,6 +275,7 @@
 <style>
   .head { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 14px; }
   .head h1 { margin: 0; }
+  .updated { color: var(--muted); font-size: 12px; }
   .workspace { display: grid; grid-template-columns: minmax(0, 1fr) 340px; gap: 18px; align-items: start; }
   .main { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
   .side { display: flex; flex-direction: column; gap: 10px; max-height: calc(100vh - 170px); overflow: auto; }
