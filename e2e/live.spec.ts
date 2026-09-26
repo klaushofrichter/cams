@@ -19,6 +19,22 @@ test.beforeEach(async ({ context, baseURL, page }) => {
     else buffered.push(line);
   });
   page.on('pageerror', (err) => console.log(`[pageerror] ${stamp()} ${err.message}`));
+  // Chrome's own media pipeline log (what chrome://media-internals shows):
+  // decoder and renderer choices, errors, and why playback did not start.
+  const cdp = await context.newCDPSession(page);
+  cdp.on('Media.playerMessagesLogged', ({ messages }) => {
+    for (const m of messages) buffered.push(`[media-internals ${m.level}] ${stamp()} ${m.message}`);
+  });
+  cdp.on('Media.playerErrorsRaised', ({ errors }) => {
+    for (const e of errors) console.log(`[media-internals error] ${stamp()} ${JSON.stringify(e)}`);
+  });
+  cdp.on('Media.playerEventsAdded', ({ events }) => {
+    for (const e of events) buffered.push(`[media-internals event] ${stamp()} ${e.value}`);
+  });
+  cdp.on('Media.playerPropertiesChanged', ({ properties }) => {
+    for (const p of properties) buffered.push(`[media-internals prop] ${stamp()} ${p.name}=${p.value}`);
+  });
+  await cdp.send('Media.enable');
   await page.addInitScript((events: string[]) => {
     for (const type of events) {
       document.addEventListener(
@@ -39,7 +55,7 @@ test.beforeEach(async ({ context, baseURL, page }) => {
 });
 
 test.afterEach(async ({}, testInfo) => {
-  if (testInfo.status !== testInfo.expectedStatus && buffered.length) {
+  if ((testInfo.status !== testInfo.expectedStatus || process.env.DUMP_BROWSER_LOG) && buffered.length) {
     console.log(`--- browser log for "${testInfo.title}" ---\n${buffered.join('\n')}`);
   }
 });
