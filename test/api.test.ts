@@ -23,7 +23,7 @@ describe('/api', () => {
   });
 
   it('GET /api/cameras lists configured cameras without credentials', async () => {
-    setCameras([{ id: 'cam1', name: 'Den', host: '10.0.0.5', user: 'cams', password: 'pw' }]);
+    setCameras([{ id: 'cam1', name: 'Den', host: '10.0.0.5', protocol: 'https', user: 'cams', password: 'pw' }]);
     const res = await request(createApp()).get('/api/cameras').set('Cookie', auth);
     expect(res.body).toEqual([{ id: 'cam1', name: 'Den' }]);
     expect(JSON.stringify(res.body)).not.toContain('pw');
