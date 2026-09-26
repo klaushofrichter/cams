@@ -107,6 +107,14 @@ describe('settings API', () => {
     expect(state.reboots).toBe(1);
   });
 
+  it('reports a reboot as sent but unconfirmed when the camera drops the connection', async () => {
+    await start({ rebootDropsConnection: true });
+    const res = await request(createApp()).post('/api/cameras/cam1/reboot').set('Cookie', auth).send({ confirm: 'reboot' });
+    expect(res.status).toBe(202);
+    expect(res.body).toEqual({ ok: true, confirmed: false });
+    expect(state.reboots).toBe(1);
+  });
+
   it('lists cameras with a LAN web UI link built from the host without its port', async () => {
     const res = await request(createApp()).get('/api/cameras').set('Cookie', auth);
     expect(res.body).toEqual([{ id: 'cam1', name: 'Den', webUiUrl: 'https://127.0.0.1/' }]);

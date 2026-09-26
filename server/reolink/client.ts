@@ -4,7 +4,7 @@ import { IncomingMessage } from 'node:http';
 import type { CameraConfig } from '../cameraRegistry';
 import { logger } from '../logger';
 import { TimeInfo, timeInfoFromGetTime } from '../recordings/clipNames';
-import { CameraTarget, openRequest, readBody, ResponseTooLargeError } from './http';
+import { CameraTarget, openRequest, readBody, ResponseTooLargeError, splitHost } from './http';
 import { Semaphore } from './semaphore';
 
 export type CameraErrorCode = 'camera_offline' | 'camera_auth_failed' | 'camera_error';
@@ -170,22 +170,31 @@ export class ReolinkClient {
   // GetCertificateInfo only says whether a custom one is installed.
   async cameraCertificate(): Promise<{ subject: string; issuer: string; validTo: string } | null> {
     if (this.cam.protocol !== 'https') return null;
-    const [host, port] = this.cam.host.split(':');
+    // Same host parsing as requests (bracketed IPv6 included). This only
+    // reads the certificate for display: nothing is sent, and it runs outside
+    // the API gate because it opens no camera session.
+    const { hostname, port } = splitHost(this.cam.host);
+    const host = hostname.replace(/^\[(.*)\]$/, '$1');
     return new Promise((resolve) => {
-      const socket = tlsConnect(
-        { host, port: Number(port) || 443, servername: this.cam.tlsServername, rejectUnauthorized: false, timeout: this.timeoutMs },
-        () => {
-          const c = socket.getPeerCertificate();
-          socket.end();
-          if (!c || !c.valid_to) return resolve(null);
-          resolve({ subject: String(c.subject?.CN ?? ''), issuer: String(c.issuer?.O ?? c.issuer?.CN ?? ''), validTo: new Date(c.valid_to).toISOString() });
-        },
-      );
-      socket.on('error', () => resolve(null));
-      socket.on('timeout', () => {
+      let done = false;
+      const finish = (v: { subject: string; issuer: string; validTo: string } | null) => {
+        if (done) return;
+        done = true;
+        clearTimeout(timer);
         socket.destroy();
-        resolve(null);
+        resolve(v);
+      };
+      const socket = tlsConnect({ host, port: port ?? 443, servername: this.cam.tlsServername, rejectUnauthorized: false }, () => {
+        const c = socket.getPeerCertificate();
+        const t = c?.valid_to ? Date.parse(c.valid_to) : NaN;
+        // A throw here would be an uncaught exception in a socket listener.
+        if (!c || Number.isNaN(t)) return finish(null);
+        finish({ subject: String(c.subject?.CN ?? ''), issuer: String(c.issuer?.O ?? c.issuer?.CN ?? ''), validTo: new Date(t).toISOString() });
       });
+      // The socket's idle timeout doesn't cover a stalled handshake: an
+      // explicit deadline does.
+      const timer = setTimeout(() => finish(null), this.timeoutMs);
+      socket.on('error', () => finish(null));
     });
   }
 

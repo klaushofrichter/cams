@@ -30,6 +30,8 @@ export interface MockCameraOptions {
   ignoreWrites?: string[];
   // How long a Reboot keeps the mock "offline" (default 50 ms).
   rebootMs?: number;
+  // Firmware may go down before answering Reboot: drop the connection instead.
+  rebootDropsConnection?: boolean;
 }
 
 export interface MockClip {
@@ -379,6 +381,11 @@ export function createMockCamera(opts: MockCameraOptions): MockCamera {
     if (cmd === 'Reboot') {
       state.reboots++;
       state.offline = true;
+      if (opts.rebootDropsConnection) {
+        setTimeout(() => (state.offline = false), opts.rebootMs ?? 50);
+        req.socket.destroy();
+        return;
+      }
       setTimeout(() => (state.offline = false), opts.rebootMs ?? 50);
       res.json([{ cmd, code: 0, value: { rspCode: 200 } }]);
       return;

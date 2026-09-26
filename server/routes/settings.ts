@@ -8,6 +8,7 @@ import {
   SettingsCommand, validateDetectionPatch, validateImagePatch,
 } from '../reolink/settings';
 import { logger } from '../logger';
+import { currentUser } from '../middleware/requireAuth';
 
 export const settingsRouter = Router();
 
@@ -62,7 +63,7 @@ settingsRouter.get('/api/cameras/:id/settings', async (req, res, next) => {
 settingsRouter.put('/api/cameras/:id/settings/:section', async (req, res, next) => {
   const section = String(req.params.section);
   if (section !== 'detection' && section !== 'image') {
-    res.status(404).json({ error: 'not_found' });
+    res.status(404).json({ error: 'not found' });
     return;
   }
   const c = cameraOr404(req, res);
@@ -107,11 +108,19 @@ settingsRouter.post('/api/cameras/:id/reboot', async (req, res, next) => {
     res.status(400).json({ error: 'bad_request' });
     return;
   }
+  const by = currentUser(req)?.email;
   try {
     await c.client.command('Reboot', {});
-    logger.info({ cameraId: c.cam.id }, 'camera_reboot_requested');
+    logger.info({ cameraId: c.cam.id, by }, 'camera_reboot_requested');
     res.json({ ok: true });
   } catch (err) {
+    // The camera may drop the connection as it goes down, before answering.
+    // The command was sent, so report it as sent but unconfirmed.
+    if (err instanceof CameraError && err.code === 'camera_offline') {
+      logger.info({ cameraId: c.cam.id, by }, 'camera_reboot_unconfirmed');
+      res.status(202).json({ ok: true, confirmed: false });
+      return;
+    }
     fail(err, c.cam.id, res, next);
   }
 });

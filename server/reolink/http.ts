@@ -31,7 +31,7 @@ export class ResponseTooLargeError extends Error {
   }
 }
 
-function splitHost(host: string): { hostname: string; port?: number } {
+export function splitHost(host: string): { hostname: string; port?: number } {
   const i = host.lastIndexOf(':');
   if (i > 0 && /^\d+$/.test(host.slice(i + 1))) return { hostname: host.slice(0, i), port: Number(host.slice(i + 1)) };
   return { hostname: host };
