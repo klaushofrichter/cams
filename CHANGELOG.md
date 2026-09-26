@@ -8,3 +8,5 @@ published as [GitHub releases](https://github.com/klaushofrichter/cams/releases)
 
 ## [Unreleased]
 
+
+- Fix: recordings list failed on the real camera (the firmware rejects concurrent Search requests with rspCode -54); searches now run one at a time per camera.
