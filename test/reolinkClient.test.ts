@@ -11,6 +11,16 @@ let server: Server;
 let state: MockState;
 let cam: CameraConfig;
 
+// Guards a regression test against a permanent hang: on the pre-fix
+// deadlock, the awaited promise never settles, so without this the test
+// runner itself would hang forever instead of failing.
+function withDeadline<T>(p: Promise<T>, ms = 3000): Promise<T> {
+  return Promise.race([
+    p,
+    new Promise<T>((_, reject) => setTimeout(() => reject(new Error('deadlock')), ms)),
+  ]);
+}
+
 beforeEach(async () => {
   const mock = createMockCamera({ user: 'u', password: 'p' });
   state = mock.state;
@@ -131,6 +141,33 @@ describe('ReolinkClient', () => {
     await Promise.all([client.snapshot(), client.snapshot(), client.snapshot(), client.status()]);
 
     expect(counter.peak).toBe(1);
+  });
+
+  // Critical (round 2): snapshot() held a gate slot while getToken()'s
+  // login also needed the gate, deadlocking permanently. getToken() must
+  // run outside the gate.
+  describe('snapshot does not deadlock on the concurrency gate', () => {
+    it('a fresh client with maxConcurrent 1 can snapshot with no priming', async () => {
+      const client = new ReolinkClient(cam, { maxConcurrent: 1 });
+      const snap = await withDeadline(client.snapshot());
+      expect(snap.subarray(0, 2).toString('hex')).toBe('ffd8');
+    });
+
+    it('two concurrent snapshots after a token revoke both succeed with exactly one re-login, and the client stays usable', async () => {
+      const client = new ReolinkClient(cam);
+      await client.status();
+      const attemptsBefore = state.loginAttempts;
+      state.revokeTokens();
+
+      const [snap1, snap2] = await withDeadline(Promise.all([client.snapshot(), client.snapshot()]));
+      expect(snap1.subarray(0, 2).toString('hex')).toBe('ffd8');
+      expect(snap2.subarray(0, 2).toString('hex')).toBe('ffd8');
+      expect(state.loginAttempts - attemptsBefore).toBe(1);
+
+      // (c) the camera isn't left wedged: a normal call still works.
+      const status = await withDeadline(client.status());
+      expect(status.model).toBe('RLC-1224A');
+    });
   });
 
   it('opens a live FLV stream and closes it when aborted', async () => {

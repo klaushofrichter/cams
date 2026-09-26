@@ -41,9 +41,9 @@ const DEFAULT_TIMEOUT_MS = 10_000;
 // certificate or tlsServername.
 function isTlsCertError(code: string): boolean {
   // UNABLE_TO_VERIFY_LEAF_SIGNATURE is a certificate-verification failure
-  // too, but its code contains neither "ERR_TLS_" nor "CERT" - catch it (and
-  // siblings like SELF_SIGNED_CERT_IN_CHAIN's signature-related relatives)
-  // via "SIGNATURE" as well.
+  // too, but its code contains neither "ERR_TLS_" nor "CERT" - catch it via
+  // "SIGNATURE" as well. (SELF_SIGNED_CERT_IN_CHAIN and other *_CERT_*
+  // codes already match the CERT check above.)
   return code.startsWith('ERR_TLS_') || code.includes('CERT') || code.includes('SIGNATURE');
 }
 
@@ -221,22 +221,49 @@ export class ReolinkClient {
     throw new CameraError('camera_auth_failed', 'token rejected after re-login');
   }
 
-  async snapshot(): Promise<Buffer> {
-    // The whole request - open plus body read - stays inside the
-    // concurrency gate: a snapshot download is a real load on the camera,
-    // not a quick JSON round trip.
+  // One Snap attempt with an already-acquired token: open, check the
+  // response and read the body, all inside the concurrency gate (a snapshot
+  // download is a real load on the camera, not a quick JSON round trip).
+  // getToken() must NOT be called from in here: it can call login(), which
+  // itself needs a gate slot via post(), and a slot this attempt is already
+  // holding can't be re-acquired - that deadlocked permanently.
+  private async snapshotAttempt(token: string): Promise<{ ok: true; body: Buffer } | { ok: false }> {
     return this.gate.run(async () => {
-      const res = await this.getWithToken(
-        (t) => `/cgi-bin/api.cgi?cmd=Snap&channel=0&rs=${randomBytes(6).toString('hex')}&token=${t}`,
-        /^image\/jpeg/,
-      );
+      const path = `/cgi-bin/api.cgi?cmd=Snap&channel=0&rs=${randomBytes(6).toString('hex')}&token=${encodeURIComponent(token)}`;
+      let res: IncomingMessage;
       try {
-        return await readBody(res, 8 * 1024 * 1024);
+        res = await openRequest(this.target, path, { timeoutMs: this.timeoutMs });
       } catch (err) {
-        if (err instanceof ResponseTooLargeError) throw new CameraError('camera_error', 'snapshot too large');
         throw classifyNetworkError(err);
       }
+      const contentType = String(res.headers['content-type'] ?? '');
+      if (res.statusCode === 200 && /^image\/jpeg/.test(contentType)) {
+        try {
+          return { ok: true, body: await readBody(res, 8 * 1024 * 1024) };
+        } catch (err) {
+          if (err instanceof ResponseTooLargeError) throw new CameraError('camera_error', 'snapshot too large');
+          throw classifyNetworkError(err);
+        }
+      }
+      if (res.statusCode === 503) {
+        res.resume();
+        throw new CameraError('camera_offline', 'camera unavailable (HTTP 503)');
+      }
+      if (await this.isAuthRejection(res, contentType)) return { ok: false };
+      throw new CameraError('camera_error', `unexpected response (HTTP ${res.statusCode})`);
     });
+  }
+
+  async snapshot(): Promise<Buffer> {
+    for (let attempt = 0; attempt < 2; attempt++) {
+      const token = await this.getToken();
+      const outcome = await this.snapshotAttempt(token);
+      if (outcome.ok) return outcome.body;
+      this.clearTokenIfCurrent(token);
+      if (attempt === 0) continue;
+      throw new CameraError('camera_auth_failed', 'token rejected after re-login');
+    }
+    throw new CameraError('camera_auth_failed', 'token rejected after re-login');
   }
 
   async openLive(quality: 'sub' | 'main', signal: AbortSignal): Promise<IncomingMessage> {
