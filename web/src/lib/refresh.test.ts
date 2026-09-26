@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { createTodayRefresher } from './refresh';
+import { createTodayRefresher, todayDate } from './refresh';
 
 afterEach(() => vi.useRealTimers());
 
@@ -24,9 +24,10 @@ describe('createTodayRefresher', () => {
   it('never refreshes a past day', () => {
     vi.useFakeTimers();
     const refresh = vi.fn();
-    createTodayRefresher({ isToday: () => false, refresh, intervalMs: 1000 }).stop;
+    const r = createTodayRefresher({ isToday: () => false, refresh, intervalMs: 1000 });
     vi.advanceTimersByTime(5000);
     expect(refresh).not.toHaveBeenCalled();
+    r.stop();
   });
 
   it('pauses while hidden and catches up when the tab comes back', () => {
@@ -39,5 +40,25 @@ describe('createTodayRefresher', () => {
     setHidden(false);
     expect(refresh).toHaveBeenCalledTimes(1);
     r.stop();
+  });
+});
+
+describe('todayDate', () => {
+  // Fix round 1, item 5: with no subscribers, the readable store's start
+  // function doesn't rerun until someone subscribes again, so its value
+  // otherwise stays whatever it was on the LAST subscribe -- stale once the
+  // wall clock has since crossed midnight while nobody was listening.
+  it('holds the new day when resubscribed after being idle across a day boundary', () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date(2026, 0, 15, 23, 55));
+    const unsub1 = todayDate.subscribe(() => {});
+    unsub1(); // no subscribers left: the store's start() stops running
+
+    vi.setSystemTime(new Date(2026, 0, 16, 0, 5)); // idle across midnight
+
+    let value = '';
+    const unsub2 = todayDate.subscribe((v) => (value = v));
+    expect(value).toBe('2026-01-16');
+    unsub2();
   });
 });

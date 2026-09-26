@@ -93,10 +93,13 @@
       lastEventsKey = '';
       return;
     }
-    // A refresh (same camera, triggered by the today-refresher) must not
-    // clear the mini timeline, and a failure leaves the old list in place.
-    const isRefresh = id === lastEventsKey;
-    lastEventsKey = id;
+    // Keyed by camera AND today's date: at local midnight this makes the
+    // day rollover a fresh load (clearing yesterday's clips) rather than a
+    // refresh, which would otherwise keep drawing yesterday's clips on top
+    // of today's axis until the next poll happened to replace them.
+    const key = `${id}|${$todayDate}`;
+    const isRefresh = key === lastEventsKey;
+    lastEventsKey = key;
     const seq = ++eventsSeq;
     if (!isRefresh) todayEvents = [];
     getJson<{ events: EventClip[] }>(eventsUrl(id, $todayDate))

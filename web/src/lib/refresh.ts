@@ -29,6 +29,11 @@ export function createTodayRefresher(opts: { isToday: () => boolean; refresh: ()
 
 // "Today" in the browser's time zone, rolling over at local midnight.
 export const todayDate = readable(localDate(new Date()), (set) => {
+  // A subscriber can arrive well after the store's initial value was
+  // computed (e.g. a resubscribe after every subscriber unsubscribed, with
+  // the store idle in between): that stale initial value would otherwise
+  // stick until the next scheduled midnight rollover or visibilitychange.
+  set(localDate(new Date()));
   let timer: ReturnType<typeof setTimeout>;
   const schedule = () => {
     const n = new Date();
