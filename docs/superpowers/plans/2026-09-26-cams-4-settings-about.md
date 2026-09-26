@@ -17,6 +17,15 @@
   licences.
 - **The "Camera web UI" link** sits in the top bar and on the Device card. It
   only works on the home network, and says so.
+- **Live keep-alive:** the live stream keeps running for a chosen time after you
+  leave the Live page, so coming back is instant.
+- **Today's recordings refresh on their own**, and long days get grouped by
+  hour.
+- **The Live mini timeline gets a time legend**, in the browser's time zone.
+- **The top bar shows a clock** with seconds and the time zone.
+- **A streaming indicator:** a green frame around the favicon and the top-bar
+  logo while streaming, red on a connection error, and none otherwise. The
+  tab title and the logo's tooltip explain the camera status.
 
 **Architecture:**
 - **Mapping.** `server/reolink/settings.ts` translates between typed cams
@@ -113,7 +122,10 @@ sensitivity 41. AI sensitivity for people is 60, `dayNight` is `Auto`,
   - Stored in `PREFS_FILE` (default `join(os.tmpdir(), 'cams-preferences.json')`); in the cluster, `/var/lib/cams/preferences.json` on the PVC `cams-data`.
   - Keyed by the lower-cased email.
   - Written to a temp file and renamed.
-  - Defaults: `{ defaultCamera: null, liveQuality: 'sub', eventFilter: 'all', timelineZoom: 24 }`.
+  - Defaults: `{ defaultCamera: null, liveQuality: 'sub', eventFilter: 'all', timelineZoom: 24, liveKeepAlive: 60 }`.
+  - `liveKeepAlive` is the number of seconds the live stream keeps running after
+    you leave the Live page. It must be one of `0` (off), `30`, `60`, `120`,
+    `300` or `900`. There is deliberately no "always".
 - **The "Camera web UI" link.**
   - `target="_blank" rel="noopener noreferrer"`, with `title="Opens the camera's own web page. Works on the home network only."`
   - On the Device card, a visible note: "Works on the home network only. The camera's page isn't reachable from the internet."
@@ -125,7 +137,12 @@ sensitivity 41. AI sensitivity for people is 60, `dayNight` is `Auto`,
   - Detection: `recording-toggle`, `motion-recording-toggle`, `motion-sensitivity`, `ai-{person|vehicle|pet}-record`, `ai-{person|vehicle|pet}-sensitivity`.
   - Image: `daynight-select`, `ir-select`, `spotlight-mode`, `spotlight-brightness`, `osd-name`, `osd-name-toggle`, `osd-time-toggle`, `osd-name-pos`, `osd-time-pos`.
   - Device: `device-model`, `device-firmware`, `device-storage`, `device-cert`, `reboot-button`, `reboot-confirm`, `reboot-cancel`.
-  - Preferences: `pref-camera`, `pref-quality`, `pref-filter`, `pref-zoom`.
+  - Preferences: `pref-camera`, `pref-quality`, `pref-filter`, `pref-zoom`, `pref-keepalive`.
+  - Clock: `top-clock`.
+  - Refresh: `events-updated` (Recordings) and `live-timeline-updated` (Live).
+  - Hour groups: `hour-group` (with `data-hour`), `hour-toggle`, `hour-count`.
+  - Live mini timeline: `live-timeline-legend`, `timeline-now`.
+  - Indicator: `stream-indicator` with `data-state` = `streaming|error|idle`.
   - About: `about-version`, `about-build`, `about-cameras`, `about-licences`.
 
 ## Review Focus
@@ -148,6 +165,13 @@ sensitivity 41. AI sensitivity for people is 60, `dayNight` is `Auto`,
    overwrite it. Only an explicit toggle of that type writes the table. Pinned
    in Tasks 1 and 3.
 
+6. **The keep-alive must end.** A kept-alive stream must close when its time
+   runs out or the page is closed, and a second leave must restart the
+   countdown, not stack timers. Pinned in Task 12 (unit test with fake timers,
+   plus `live-teardown`).
+7. **A refresh must not disturb what the viewer is doing.** Today's list
+   refreshing every minute must keep the selected clip, the scroll position,
+   collapsed hour groups and the timeline zoom. Pinned in Tasks 10 and 11.
 ---
 
 ### Task 1: Settings mapping (pure)
@@ -1154,7 +1178,7 @@ git commit -m "feat: camera settings, device info and guarded reboot API with pe
 
 **Interfaces:**
 - **Produces:**
-  - `Preferences = { defaultCamera: string | null; liveQuality: 'sub' | 'main'; eventFilter: 'all' | 'person' | 'vehicle' | 'pet' | 'motion'; timelineZoom: 24 | 6 | 1 }`
+  - `Preferences = { defaultCamera: string | null; liveQuality: 'sub' | 'main'; eventFilter: 'all' | 'person' | 'vehicle' | 'pet' | 'motion'; timelineZoom: 24 | 6 | 1; liveKeepAlive: 0 | 30 | 60 | 120 | 300 | 900 }`
   - `DEFAULT_PREFERENCES`
   - `getPreferences(email): Promise<Preferences>`
   - `savePreferences(email, patch): Promise<Preferences>`
@@ -1203,6 +1227,8 @@ describe('preferences', () => {
     [{ eventFilter: 'cat' }],
     [{ defaultCamera: 'nope' }],
     [{ theme: 'dark' }],
+    [{ liveKeepAlive: 45 }],
+    [{ liveKeepAlive: -1 }],
   ])('rejects %j', async (body) => {
     const res = await request(createApp()).put('/api/preferences').set('Cookie', klaus).set('Origin', 'http://127.0.0.1').send(body);
     expect(res.status).toBe(400);
@@ -1245,9 +1271,11 @@ export interface Preferences {
   liveQuality: 'sub' | 'main';
   eventFilter: 'all' | 'person' | 'vehicle' | 'pet' | 'motion';
   timelineZoom: 24 | 6 | 1;
+  liveKeepAlive: 0 | 30 | 60 | 120 | 300 | 900; // seconds; 0 = off
 }
 
-export const DEFAULT_PREFERENCES: Preferences = { defaultCamera: null, liveQuality: 'sub', eventFilter: 'all', timelineZoom: 24 };
+export const KEEP_ALIVE_CHOICES = [0, 30, 60, 120, 300, 900] as const;
+export const DEFAULT_PREFERENCES: Preferences = { defaultCamera: null, liveQuality: 'sub', eventFilter: 'all', timelineZoom: 24, liveKeepAlive: 60 };
 
 const file = () => process.env.PREFS_FILE || join(tmpdir(), 'cams-preferences.json');
 let writing: Promise<unknown> = Promise.resolve();
@@ -1296,6 +1324,7 @@ export function validatePreferencesPatch(body: unknown): { ok: true; patch: Part
   if ('liveQuality' in b && b.liveQuality !== 'sub' && b.liveQuality !== 'main') details.push('liveQuality: sub or main');
   if ('eventFilter' in b && !['all', 'person', 'vehicle', 'pet', 'motion'].includes(b.eventFilter as string)) details.push('eventFilter: all, person, vehicle, pet or motion');
   if ('timelineZoom' in b && ![24, 6, 1].includes(b.timelineZoom as number)) details.push('timelineZoom: 24, 6 or 1');
+  if ('liveKeepAlive' in b && !(KEEP_ALIVE_CHOICES as readonly number[]).includes(b.liveKeepAlive as number)) details.push('liveKeepAlive: 0, 30, 60, 120, 300 or 900');
   return details.length ? { ok: false, details } : { ok: true, patch: b as Partial<Preferences> };
 }
 ```
@@ -1603,6 +1632,7 @@ export interface Preferences {
   liveQuality: 'sub' | 'main';
   eventFilter: 'all' | 'person' | 'vehicle' | 'pet' | 'motion';
   timelineZoom: 24 | 6 | 1;
+  liveKeepAlive: 0 | 30 | 60 | 120 | 300 | 900;
 }
 
 export const preferences = writable<Preferences | null>(null);
@@ -1824,6 +1854,13 @@ The page has one column below 900 px and two columns above. Card order: Preferen
           <select data-testid="pref-zoom" bind:value={prefs.timelineZoom}>
             <option value={24}>24 hours</option><option value={6}>6 hours</option><option value={1}>1 hour</option>
           </select>
+        </label>
+        <label>Keep live video running after leaving Live
+          <select data-testid="pref-keepalive" bind:value={prefs.liveKeepAlive}>
+            <option value={0}>Off (stop at once)</option><option value={30}>30 seconds</option><option value={60}>1 minute</option>
+            <option value={120}>2 minutes</option><option value={300}>5 minutes</option><option value={900}>15 minutes</option>
+          </select>
+          <small class="muted">Coming back within this time shows the live picture at once. Longer uses more bandwidth.</small>
         </label>
       {:else}
         <p class="muted">Loading…</p>
@@ -2227,7 +2264,854 @@ git commit -m "test: e2e for settings save/partial/offline, reboot guard, prefer
 
 ---
 
-### Task 8 (controller, ops): data volume, ship, verify
+### Task 8: Top-bar clock
+
+**Files:**
+- Create: `web/src/lib/clock.ts`, `web/src/lib/clock.test.ts`, `web/src/components/Clock.svelte`
+- Modify: `web/src/components/TopBar.svelte`
+
+**Interfaces:**
+- **Produces:**
+  - `formatNow(d: Date, locale?: string): string`, in the form `14:32:05 CDT`: 24-hour HH:MM:SS plus the browser's short time-zone name.
+  - `timeZoneLabel(d: Date, locale?: string): string` (e.g. `CDT`).
+  - `now`: a readable store that ticks on each whole second.
+
+- [ ] **Step 1: Failing test `web/src/lib/clock.test.ts`** (the suite runs with `TZ=America/Chicago`)
+
+```ts
+import { describe, expect, it, vi } from 'vitest';
+import { get } from 'svelte/store';
+import { formatNow, now, timeZoneLabel } from './clock';
+
+describe('clock', () => {
+  it('shows 24-hour time with seconds and the time zone', () => {
+    expect(formatNow(new Date('2026-09-26T19:32:05Z'), 'en-US')).toBe('14:32:05 CDT');
+    expect(formatNow(new Date('2026-01-10T06:02:09Z'), 'en-US')).toBe('00:02:09 CST');
+    expect(timeZoneLabel(new Date('2026-09-26T19:32:05Z'), 'en-US')).toBe('CDT');
+  });
+
+  it('ticks on whole seconds', () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-09-26T19:32:05.600Z'));
+    const seen: string[] = [];
+    const stop = now.subscribe((d) => seen.push(d.toISOString()));
+    vi.advanceTimersByTime(400); // reaches :06.000
+    vi.advanceTimersByTime(1000);
+    stop();
+    vi.useRealTimers();
+    expect(seen.slice(-2)).toEqual(['2026-09-26T19:32:06.000Z', '2026-09-26T19:32:07.000Z']);
+    expect(get(now)).toBeInstanceOf(Date);
+  });
+});
+```
+
+- [ ] **Step 2: Implement `web/src/lib/clock.ts`**
+
+```ts
+import { readable } from 'svelte/store';
+
+// The browser's own time zone: the viewer's local time, as the rest of the UI.
+export function formatNow(d: Date, locale?: string): string {
+  const time = new Intl.DateTimeFormat(locale, { hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23' }).format(d);
+  return `${time} ${timeZoneLabel(d, locale)}`;
+}
+
+export function timeZoneLabel(d: Date, locale?: string): string {
+  return new Intl.DateTimeFormat(locale, { timeZoneName: 'short' }).formatToParts(d).find((p) => p.type === 'timeZoneName')?.value ?? '';
+}
+
+// Ticks on each whole second (aligned, so the display never skips a second).
+export const now = readable(new Date(), (set) => {
+  let timer: ReturnType<typeof setTimeout>;
+  const tick = () => {
+    const t = Date.now();
+    set(new Date(Math.floor(t / 1000) * 1000));
+    timer = setTimeout(tick, 1000 - (t % 1000));
+  };
+  timer = setTimeout(tick, 1000 - (Date.now() % 1000));
+  return () => clearTimeout(timer);
+});
+```
+
+- [ ] **Step 3: `web/src/components/Clock.svelte`**
+
+```svelte
+<script lang="ts">
+  import { formatNow, now } from '../lib/clock';
+</script>
+
+<time class="clock" data-testid="top-clock" datetime={$now.toISOString()} aria-label="Current time">{formatNow($now)}</time>
+
+<style>
+  .clock { font-family: var(--mono); font-size: 13px; color: var(--muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
+</style>
+```
+
+In `TopBar.svelte`, place `<Clock />` in the right-hand group, before the version. On screens narrower than 480 px, hide the version rather than the clock, since the clock was requested.
+
+- [ ] **Step 4: Verify and commit.** Run `npx vitest run web/src/lib/clock.test.ts`, then the full suite, `npm run build` (no warnings) and `npm run check`.
+
+```bash
+git add web
+git commit -m "feat: top-bar clock with seconds and time zone"
+```
+
+---
+
+### Task 9: Real local time on the timelines, and a legend under Live
+
+**Files:**
+- Modify: `web/src/lib/recordings.ts` (add `tickLabel`, `dayStartMs`), `web/src/lib/recordings.test.ts`, `web/src/components/Timeline.svelte`, `web/src/pages/Live.svelte`
+
+**Interfaces:**
+- **Produces:**
+  - `dayStartMs(date: string): number`: local midnight.
+  - `tickLabel(date: string, sec: number, locale?: string): string`: `HH:MM` of real local time at `sec` seconds after local midnight. On DST days this differs from `sec/3600`.
+  - Timeline gains the props `legend?: boolean` (compact mode shows the tick labels and a caption) and `now?: number | null` (a "now" marker in seconds into the day).
+
+- [ ] **Step 1: Failing tests (append to `web/src/lib/recordings.test.ts`)**
+
+```ts
+import { dayStartMs, tickLabel } from './recordings';
+
+describe('tick labels use real local time', () => {
+  it('matches the hour on a normal day', () => {
+    expect(tickLabel('2026-09-26', 6 * 3600, 'en-US')).toBe('06:00');
+    expect(tickLabel('2026-09-26', 86400, 'en-US')).toBe('00:00');
+  });
+
+  // Fall back (2026-11-01): the 25-hour day repeats 01:00.
+  it('follows the clock across the fall-back hour', () => {
+    expect(tickLabel('2026-11-01', 2 * 3600, 'en-US')).toBe('01:00');
+    expect(tickLabel('2026-11-01', 3 * 3600, 'en-US')).toBe('02:00');
+  });
+
+  // Spring forward (2026-03-08): 02:00 doesn't exist.
+  it('follows the clock across the spring-forward hour', () => {
+    expect(tickLabel('2026-03-08', 2 * 3600, 'en-US')).toBe('03:00');
+  });
+
+  it('knows local midnight', () => {
+    expect(new Date(dayStartMs('2026-09-26')).toISOString()).toBe('2026-09-26T05:00:00.000Z');
+  });
+});
+```
+
+- [ ] **Step 2: Implement (append to `web/src/lib/recordings.ts`)**
+
+```ts
+export function dayStartMs(date: string): number {
+  const [y, m, d] = date.split('-').map(Number);
+  return new Date(y, m - 1, d).getTime();
+}
+
+// The label a wall clock shows `sec` seconds after local midnight. On DST days
+// that differs from sec/3600, so labels come from the real instant.
+export function tickLabel(date: string, sec: number, locale?: string): string {
+  return new Intl.DateTimeFormat(locale, { hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).format(new Date(dayStartMs(date) + sec * 1000));
+}
+```
+
+- [ ] **Step 3: Timeline.** In `web/src/components/Timeline.svelte`, change the tick loop so it builds labels with `tickLabel(date, s)` rather than from `s/3600`. Then add a legend mode:
+
+```ts
+  let { /* existing props */, legend = false, now = null }: { /* existing types */; legend?: boolean; now?: number | null } = $props();
+```
+
+- In compact mode with `legend`, ticks are every 6 hours (0, 6 h, 12 h, 18 h and the day's end, all through `tickLabel`) and stay visible. Today, compact mode hides them with `.compact .ticks { display: none }`; show them when `legend` is set.
+- Render a caption under the bar: `<p class="caption" data-testid="live-timeline-legend">{captionText}</p>`. Here `captionText` = `` `${isToday ? 'Today' : date}, 00:00–24:00, times in ${timeZoneLabel(new Date())}` ``. `timeZoneLabel` comes from Task 8's `clock.ts`; `isToday` compares `date` with `localDate(new Date())`.
+- When `now` is not null and inside the window, render `<span class="now" data-testid="timeline-now" style="left:…%"></span>`: a 2 px line in `--text` at 60 % opacity, labelled with `aria-label="Now"`.
+- Compact bars with a legend are 30 px high, plus 16 px for labels, so the bar and labels don't overlap.
+
+- [ ] **Step 4: Live.** In `web/src/pages/Live.svelte`, pass `legend` and `now={secondsIntoDay(new Date($now).toISOString(), today)}` (using `now` from Task 8's `clock.ts`) to the mini timeline. That makes the "now" marker move. Keep the "Today" heading above the bar, or drop it if the caption makes it redundant. Say which you chose in the report.
+
+- [ ] **Step 5: Verify and commit.** Run the unit suite, then `npm run build` (no warnings), then `npm run test:e2e`. The Live mini-timeline click test must still pass, and must still click a segment, not a label.
+
+```bash
+git add web
+git commit -m "feat: timeline labels in real local time; legend and now marker under Live"
+```
+
+---
+
+### Task 10: Today's recordings refresh on their own
+
+**Files:**
+- Create: `web/src/lib/refresh.ts`, `web/src/lib/refresh.test.ts`
+- Modify: `web/src/pages/Recordings.svelte`, `web/src/pages/Live.svelte`
+
+**Interfaces:**
+- **Produces:**
+  - `REFRESH_MS = 60_000`
+  - `createTodayRefresher(opts: { isToday: () => boolean; refresh: () => void; intervalMs?: number; doc?: Document }): { stop(): void }`. While `isToday()` is true, it calls `refresh()` every interval. It also calls `refresh()` when the tab becomes visible again, if at least 10 s have passed since the last refresh. It never refreshes while the tab is hidden.
+  - `todayDate`: a readable store holding `localDate(new Date())`, updated at local midnight and whenever the tab becomes visible.
+
+- [ ] **Step 1: Failing test `web/src/lib/refresh.test.ts`**
+
+```ts
+// @vitest-environment jsdom
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { createTodayRefresher } from './refresh';
+
+afterEach(() => vi.useRealTimers());
+
+function setHidden(hidden: boolean) {
+  Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => (hidden ? 'hidden' : 'visible') });
+  document.dispatchEvent(new Event('visibilitychange'));
+}
+
+describe('createTodayRefresher', () => {
+  it('refreshes every interval while viewing today', () => {
+    vi.useFakeTimers();
+    const refresh = vi.fn();
+    const r = createTodayRefresher({ isToday: () => true, refresh, intervalMs: 1000 });
+    vi.advanceTimersByTime(3500);
+    expect(refresh).toHaveBeenCalledTimes(3);
+    r.stop();
+    vi.advanceTimersByTime(5000);
+    expect(refresh).toHaveBeenCalledTimes(3);
+  });
+
+  it('never refreshes a past day', () => {
+    vi.useFakeTimers();
+    const refresh = vi.fn();
+    createTodayRefresher({ isToday: () => false, refresh, intervalMs: 1000 }).stop;
+    vi.advanceTimersByTime(5000);
+    expect(refresh).not.toHaveBeenCalled();
+  });
+
+  it('pauses while hidden and catches up when the tab comes back', () => {
+    vi.useFakeTimers();
+    const refresh = vi.fn();
+    const r = createTodayRefresher({ isToday: () => true, refresh, intervalMs: 60_000 });
+    setHidden(true);
+    vi.advanceTimersByTime(180_000);
+    expect(refresh).not.toHaveBeenCalled();
+    setHidden(false);
+    expect(refresh).toHaveBeenCalledTimes(1);
+    r.stop();
+  });
+});
+```
+
+- [ ] **Step 2: Implement `web/src/lib/refresh.ts`**
+
+```ts
+import { readable } from 'svelte/store';
+import { localDate } from './recordings';
+
+export const REFRESH_MS = 60_000;
+const MIN_GAP_MS = 10_000;
+
+// Past days don't change; today gains clips. The server caches today's list
+// for 30 s, so a minute's poll costs the camera at most one search pair.
+export function createTodayRefresher(opts: { isToday: () => boolean; refresh: () => void; intervalMs?: number; doc?: Document }): { stop(): void } {
+  const doc = opts.doc ?? document;
+  let last = Date.now();
+  const run = () => {
+    if (doc.visibilityState === 'hidden' || !opts.isToday()) return;
+    last = Date.now();
+    opts.refresh();
+  };
+  const timer = setInterval(run, opts.intervalMs ?? REFRESH_MS);
+  const onVisible = () => {
+    if (doc.visibilityState === 'visible' && Date.now() - last >= MIN_GAP_MS) run();
+  };
+  doc.addEventListener('visibilitychange', onVisible);
+  return {
+    stop() {
+      clearInterval(timer);
+      doc.removeEventListener('visibilitychange', onVisible);
+    },
+  };
+}
+
+// "Today" in the browser's time zone, rolling over at local midnight.
+export const todayDate = readable(localDate(new Date()), (set) => {
+  let timer: ReturnType<typeof setTimeout>;
+  const schedule = () => {
+    const n = new Date();
+    const next = new Date(n.getFullYear(), n.getMonth(), n.getDate() + 1, 0, 0, 1);
+    timer = setTimeout(() => {
+      set(localDate(new Date()));
+      schedule();
+    }, next.getTime() - n.getTime());
+  };
+  const onVisible = () => document.visibilityState === 'visible' && set(localDate(new Date()));
+  schedule();
+  document.addEventListener('visibilitychange', onVisible);
+  return () => {
+    clearTimeout(timer);
+    document.removeEventListener('visibilitychange', onVisible);
+  };
+});
+```
+
+(The 1 s past midnight avoids landing a hair before the day changes.)
+
+- [ ] **Step 3: Recordings.** In `web/src/pages/Recordings.svelte`:
+- Replace the constant `today` with `$todayDate`.
+- Add `let refreshTick = $state(0);` and `let updatedAt: Date | null = $state(null);`.
+- In the events effect, read `refreshTick` alongside `cam` and `date`, and track the last loaded pair as `lastKey` = `` `${cam}|${date}` ``.
+  - **Cam or date changed:** keep today's behaviour. Clear `events`, set `loading = true` and show the skeleton.
+  - **Refresh of the same cam and date:** do **not** clear the list or show the skeleton. Replace `events` with the new list only when it arrives. Keep the selection, and don't reset the scroll or the timeline zoom. Also refresh the days list.
+- On every successful load, set `updatedAt = new Date()`.
+- Show `<span class="updated" data-testid="events-updated">Updated {formatNow(updatedAt)}</span>` in the header next to the day picker, in muted small text, only when the date is today.
+- In an effect with cleanup, create `createTodayRefresher({ isToday: () => date === $todayDate, refresh: () => refreshTick++ })`.
+- A refresh failure leaves the old list in place and doesn't show the error. Only a failed first load shows the error.
+
+- [ ] **Step 4: Live.** Apply the same pattern to Live's mini timeline:
+- `today` becomes `$todayDate`, so it rolls over at midnight.
+- The refresher bumps a tick.
+- The effect refetches without clearing, and shows `data-testid="live-timeline-updated"` inside the legend caption, e.g. "…, updated 14:32:05".
+
+- [ ] **Step 5: e2e (append to `e2e/recordings.spec.ts`).** Use Playwright's clock to jump time forward instead of waiting a minute:
+
+```ts
+test('today refreshes on its own and keeps the selection', async ({ page }) => {
+  await page.clock.install();
+  await page.goto('/app/recordings?panel=events');
+  await expect(page.getByTestId('event-card')).toHaveCount(4);
+  await page.getByTestId('event-card').nth(1).click();
+  const first = await page.getByTestId('events-updated').textContent();
+  const requests: string[] = [];
+  page.on('request', (r) => r.url().includes('/events?') && requests.push(r.url()));
+  await page.clock.runFor(61_000);
+  await expect.poll(() => requests.length).toBeGreaterThan(0);
+  await expect(page.getByTestId('events-updated')).not.toHaveText(first!);
+  await expect(page.locator('[data-testid="event-card"][aria-current="true"]')).toHaveAttribute('data-clip-id', /-093000-093020$/);
+});
+```
+
+If `page.clock.install()` breaks media playback or mpegts on this page, which the earlier Live tests rely on, move this test into its own `test.describe` with the clock installed only there. Report what you found.
+
+- [ ] **Step 6: Verify and commit.** Run the unit suite, `npm run build` (no warnings), `npm run check`, and `npm run test:e2e` twice.
+
+```bash
+git add web e2e
+git commit -m "feat: today's recordings and the Live mini timeline refresh on their own"
+```
+
+---
+
+### Task 11: Busy days, grouped by hour
+
+**Files:**
+- Modify: `web/src/lib/recordings.ts` (`groupByHour`), `web/src/lib/recordings.test.ts`, `web/src/components/EventList.svelte`, `web/src/components/DownloadList.svelte`
+
+**Interfaces:**
+- **Produces:**
+  - `HourGroup = { hour: number; label: string; events: EventClip[] }`. `label` is e.g. `14:00–15:00`, in real local time via `tickLabel`.
+  - `groupByHour(events, date): HourGroup[]`: grouped by local hour of `start`, in order, with empty hours omitted.
+  - `COLLAPSE_OVER = 10`: an hour with more events than this starts collapsed, unless it holds the selected clip.
+
+- [ ] **Step 1: Failing test (append to `web/src/lib/recordings.test.ts`)**
+
+```ts
+import { groupByHour } from './recordings';
+
+describe('groupByHour', () => {
+  it('groups by local hour, in order, skipping empty hours', () => {
+    const g = groupByHour(events, DAY); // the three fixtures at 08:15, 12:05, 17:45
+    expect(g.map((x) => [x.hour, x.label, x.events.length])).toEqual([
+      [8, '08:00–09:00', 1],
+      [12, '12:00–13:00', 1],
+      [17, '17:00–18:00', 1],
+    ]);
+  });
+
+  it('keeps a busy hour together', () => {
+    const many = Array.from({ length: 25 }, (_, i) =>
+      E(`20260925-1400${String(i).padStart(2, '0')}-1400${String(i + 1).padStart(2, '0')}`, `${DAY}T14:00:${String(i).padStart(2, '0')}-05:00`, `${DAY}T14:00:${String(i + 1).padStart(2, '0')}-05:00`, ['motion']),
+    );
+    const g = groupByHour(many, DAY);
+    expect(g).toHaveLength(1);
+    expect(g[0].events).toHaveLength(25);
+  });
+});
+```
+
+- [ ] **Step 2: Implement**
+
+```ts
+export interface HourGroup {
+  hour: number;
+  label: string;
+  events: EventClip[];
+}
+export const COLLAPSE_OVER = 10;
+
+export function groupByHour(events: EventClip[], date: string): HourGroup[] {
+  const groups = new Map<number, EventClip[]>();
+  for (const e of events) {
+    const hour = new Date(e.start).getHours();
+    if (!groups.has(hour)) groups.set(hour, []);
+    groups.get(hour)!.push(e);
+  }
+  return [...groups.entries()]
+    .sort(([a], [b]) => a - b)
+    .map(([hour, list]) => ({ hour, label: `${tickLabel(date, hour * 3600)}–${tickLabel(date, (hour + 1) * 3600)}`, events: list }));
+}
+```
+
+`groupByHour` needs the date. `EventList` and `DownloadList` get a new `date: string` prop, and Recordings passes `date={cursor.date}`.
+
+- [ ] **Step 3: EventList and DownloadList.** Render groups instead of a flat list:
+- Each group is `<section data-testid="hour-group" data-hour={g.hour}>` with a sticky header (`position: sticky; top: 0`, background `--surface`) containing:
+  - `<button data-testid="hour-toggle" aria-expanded={open}>`
+  - the label
+  - `<span data-testid="hour-count">{n} events</span>`
+- A group starts open unless it has more than `COLLAPSE_OVER` events and doesn't hold the selected clip.
+- Keep the open or closed state per `date|hour` in a local `Set`, so a refresh (Task 10) doesn't reopen or close groups. When the selection moves into a collapsed group (via prev/next or the timeline), open that group.
+- Cards stay as they are, and each keeps its `data-testid`.
+- Thumbnails of collapsed groups are not rendered, so the camera isn't asked for them.
+- With one hour group, still show its header: it gives the scale.
+- After a selection change from outside the list (timeline, prev/next or a deep link), scroll the selected card into view with `scrollIntoView({ block: 'nearest' })`. Don't scroll when the change came from a click in the list.
+
+- [ ] **Step 4: e2e (append to `e2e/recordings.spec.ts`)**
+
+```ts
+test('events are grouped by hour and a busy hour starts collapsed', async ({ page }) => {
+  await page.goto('/app/recordings?panel=events');
+  await expect(page.getByTestId('hour-group')).toHaveCount(4); // 08, 09, 12, 17 in the mock
+  await expect(page.getByTestId('hour-count').first()).toHaveText('1 event');
+});
+```
+
+(Say "1 event" and "2 events": pluralize in the component.) A mock day with more than 10 clips in one hour is best covered in a unit or component-level test. If you add a mock option for a busy hour instead, keep the default clips unchanged for the other tests.
+
+- [ ] **Step 5: Verify and commit.** Run the unit suite, `npm run build` (no warnings), `npm run check`, and `npm run test:e2e` twice.
+
+```bash
+git add web e2e
+git commit -m "feat: group long event and download lists by hour; busy hours start collapsed"
+```
+
+---
+
+### Task 12: Live keep-alive after leaving the page
+
+**Files:**
+- Create: `web/src/lib/keepAlive.ts`, `web/src/lib/keepAlive.test.ts`
+- Modify: `web/src/App.svelte` (route rendering), `web/src/pages/Live.svelte` (only if needed), `test/mock-camera/server.ts` (`state.streamsOpened` counter)
+- Test: `e2e/live-keepalive.spec.ts`
+
+**Design:**
+- Keep the **Live page mounted but hidden**, with the `hidden` attribute (`display: none`), while the user is on another page and the keep-alive time hasn't run out. A `<video>` that is not rendered keeps playing and its MediaSource keeps buffering. So the picture is there at once on return, with no new connection.
+- When the time runs out, unmount the Live page. Its existing `onDestroy` stops the session and closes the stream.
+- Do **not** move `<video>` elements between containers: removing a media element from the document pauses it (HTML spec), and re-adding it means a visible restart.
+- The server's 4-streams-per-camera limit is unaffected: a kept-alive page still holds only the one stream it had.
+
+**Interfaces:**
+- **Produces:** `createKeepAlive(onExpire: () => void): { enter(): void; leave(seconds: number): void; dispose(): void }`.
+  - `enter()` cancels a pending expiry.
+  - `leave(0)` calls `onExpire` at once.
+  - `leave(n)` calls it after `n` seconds unless `enter()` comes first.
+- **Produces:** `MockState.streamsOpened`, the total number of `/flv` streams the mock has opened.
+
+- [ ] **Step 1: Failing test `web/src/lib/keepAlive.test.ts`**
+
+```ts
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { createKeepAlive } from './keepAlive';
+
+afterEach(() => vi.useRealTimers());
+
+describe('createKeepAlive', () => {
+  it('expires after the chosen time', () => {
+    vi.useFakeTimers();
+    const expire = vi.fn();
+    const k = createKeepAlive(expire);
+    k.leave(60);
+    vi.advanceTimersByTime(59_999);
+    expect(expire).not.toHaveBeenCalled();
+    vi.advanceTimersByTime(1);
+    expect(expire).toHaveBeenCalledTimes(1);
+  });
+
+  it('coming back in time cancels the expiry', () => {
+    vi.useFakeTimers();
+    const expire = vi.fn();
+    const k = createKeepAlive(expire);
+    k.leave(30);
+    vi.advanceTimersByTime(10_000);
+    k.enter();
+    vi.advanceTimersByTime(60_000);
+    expect(expire).not.toHaveBeenCalled();
+  });
+
+  it('off means stop at once', () => {
+    const expire = vi.fn();
+    createKeepAlive(expire).leave(0);
+    expect(expire).toHaveBeenCalledTimes(1);
+  });
+
+  it('a second leave restarts the countdown instead of stacking', () => {
+    vi.useFakeTimers();
+    const expire = vi.fn();
+    const k = createKeepAlive(expire);
+    k.leave(30);
+    vi.advanceTimersByTime(20_000);
+    k.leave(30);
+    vi.advanceTimersByTime(20_000);
+    expect(expire).not.toHaveBeenCalled();
+    vi.advanceTimersByTime(10_000);
+    expect(expire).toHaveBeenCalledTimes(1);
+  });
+});
+```
+
+- [ ] **Step 2: Implement `web/src/lib/keepAlive.ts`**
+
+```ts
+// Keeps the Live page (and its stream) alive for a while after the user
+// leaves it, so coming back shows the picture at once. There is deliberately
+// no "forever": an unwatched stream costs bandwidth on the camera's uplink.
+export function createKeepAlive(onExpire: () => void): { enter(): void; leave(seconds: number): void; dispose(): void } {
+  let timer: ReturnType<typeof setTimeout> | null = null;
+  const cancel = () => {
+    if (timer) clearTimeout(timer);
+    timer = null;
+  };
+  return {
+    enter: cancel,
+    leave(seconds) {
+      cancel();
+      if (seconds <= 0) onExpire();
+      else timer = setTimeout(() => {
+        timer = null;
+        onExpire();
+      }, seconds * 1000);
+    },
+    dispose: cancel,
+  };
+}
+```
+
+- [ ] **Step 3: App routing.** In `web/src/App.svelte`, read how pages are rendered today. There is a `{#if $route.page === …}` chain or a component map. Change it so Live is rendered outside that chain:
+
+```svelte
+<script lang="ts">
+  // additions
+  import { createKeepAlive } from './lib/keepAlive';
+  import { preferences } from './lib/preferences';
+  let liveMounted = $state(false);
+  const keepAlive = createKeepAlive(() => (liveMounted = false));
+  let wasLive = false;
+  $effect(() => {
+    const onLive = $route.page === 'live';
+    if (onLive) {
+      liveMounted = true;
+      keepAlive.enter();
+    } else if (wasLive) {
+      keepAlive.leave($preferences?.liveKeepAlive ?? 60);
+    }
+    wasLive = onLive;
+  });
+  $effect(() => () => keepAlive.dispose());
+</script>
+
+<!-- in the main content area, instead of rendering Live inside the page chain -->
+{#if liveMounted}
+  <div class="live-host" hidden={$route.page !== 'live'}><Live /></div>
+{/if}
+{#if $route.page !== 'live'}
+  <!-- the existing chain for the other pages, unchanged -->
+{/if}
+```
+
+Things to check and handle:
+- **Selectors.** `data-testid="live-video"` must only resolve on the *visible* Live page. Playwright locators match hidden elements too. Check that the existing e2e tests don't break (they only look at Live while on Live), and that `page-title` isn't ambiguous: the hidden Live page's title and the visible page's title can both be in the DOM. Either scope `page-title` in the Live page to render only when visible, or have the tests use `:visible`. Choose the smaller change and report it.
+- **Live's own timers.** Status polling and the Task 10 refresher may keep running while hidden. That's acceptable, and cheap, but the Task 10 refresher already skips hidden *tabs*, not hidden *pages*. Leave it.
+- **Changing camera while away.** Live already reacts to `$selectedCameraId`. That replaces the stream in the background, which is correct.
+- **Keyboard focus.** The hidden page must not take focus. `hidden` handles that.
+- **Leaving from a deep link.** If the first page after sign-in isn't Live, Live is never mounted. That's correct.
+
+- [ ] **Step 4: Mock counter.** In `test/mock-camera/server.ts`, increment `state.streamsOpened` whenever a valid `/flv` stream starts, and expose it in `/__state`.
+
+- [ ] **Step 5: e2e `e2e/live-keepalive.spec.ts`** (desktop only, serial: it changes the shared preferences file)
+
+```ts
+import { expect, test, type Page } from '@playwright/test';
+import { signIn } from './session';
+
+const MOCK = 'http://127.0.0.1:8098/__state';
+test.describe.configure({ mode: 'serial' });
+test.skip(({ browserName }, testInfo) => testInfo.project.name !== 'desktop', 'shared preferences file; desktop only');
+
+async function setKeepAlive(page: Page, seconds: number) {
+  const res = await page.request.put('/api/preferences', { data: { liveKeepAlive: seconds } });
+  expect(res.status()).toBe(200);
+}
+const opened = async (page: Page) => (await (await page.request.get(MOCK)).json()).streamsOpened as number;
+const active = async (page: Page) => (await (await page.request.get(MOCK)).json()).activeStreams as number;
+
+test.beforeEach(async ({ context, baseURL }) => {
+  await signIn(context, baseURL!);
+});
+
+test('coming back within the keep-alive shows the live picture without reconnecting', async ({ page }) => {
+  await setKeepAlive(page, 60);
+  await page.goto('/app/live');
+  const video = page.locator('[data-testid="live-video"]:visible');
+  await expect.poll(() => video.evaluate((v: HTMLVideoElement) => v.readyState >= 2 && v.currentTime > 0.5), { timeout: 15_000 }).toBe(true);
+  const before = await opened(page);
+  await page.getByTestId('sidebar').getByTestId('nav-settings').click();
+  await expect(page.getByTestId('settings-card-prefs')).toBeVisible();
+  expect(await active(page)).toBeGreaterThan(0); // still streaming in the background
+  await page.getByTestId('sidebar').getByTestId('nav-live').click();
+  // immediately playing, and no new stream was opened
+  await expect.poll(() => video.evaluate((v: HTMLVideoElement) => v.readyState >= 2 && !v.paused), { timeout: 1_000 }).toBe(true);
+  expect(await opened(page)).toBe(before);
+});
+
+test('with keep-alive off, leaving Live closes the stream', async ({ page }) => {
+  await setKeepAlive(page, 0);
+  await page.goto('/app/live');
+  const video = page.locator('[data-testid="live-video"]:visible');
+  await expect.poll(() => video.evaluate((v: HTMLVideoElement) => v.readyState >= 2), { timeout: 15_000 }).toBe(true);
+  await page.getByTestId('sidebar').getByTestId('nav-settings').click();
+  await expect.poll(() => active(page), { timeout: 5_000 }).toBe(0);
+  await setKeepAlive(page, 60); // restore the default for later tests
+});
+```
+
+The expiry after N seconds is covered by the unit test with fake timers, so e2e does not wait out a real minute. `live-teardown.spec.ts` checks that streams close when the page closes. Make sure it still passes. It runs after the others, and with a 60 s default keep-alive a stream may still be open when it starts. If it needs adjusting, adjust it to close the page, which still has to end every stream, rather than weakening it.
+
+- [ ] **Step 6: Verify and commit.** Run the unit suite, `npm run build` (no warnings), `npm run check`, and `npm run test:e2e` twice with every project green. Ports 8097–8099 must be free afterwards.
+
+```bash
+git add web test/mock-camera e2e
+git commit -m "feat: live stream keeps running for the chosen time after leaving Live"
+```
+
+---
+
+### Task 13: Streaming indicator on the favicon and the top-bar logo
+
+**What Klaus asked for (2026-09-26):** a frame around the favicon:
+- **green** while streaming;
+- **red** when the connection has an error;
+- **transparent** when nothing is streaming and there is no error;
+- a tooltip that explains the camera status.
+
+Browsers show no tooltip for a tab's icon; hovering a tab shows the page
+title. So the status appears in three places:
+1. the favicon frame;
+2. the document title, e.g. `● Live · Den · cams`, which is what the tab
+   tooltip shows;
+3. a matching frame on the top-bar logo, with a real `title` tooltip.
+
+**Files:**
+- Create: `web/src/lib/liveStatus.ts`, `web/src/lib/liveStatus.test.ts`, `web/src/lib/favicon.ts`
+- Modify: `web/src/pages/Live.svelte` (publish status), `web/src/components/TopBar.svelte` + `web/src/components/Logo.svelte` (frame and tooltip), `web/src/App.svelte` (apply favicon and title)
+
+**Interfaces:**
+- **Produces:** the types
+  - `IndicatorState = 'streaming' | 'error' | 'idle'`
+  - `LiveStatus = { state: IndicatorState; cameraName: string | null; detail: string }`
+- **Produces:** the store `liveStatus: Writable<LiveStatus>`. Its initial value is `{ state: 'idle', cameraName: null, detail: 'No live video' }`.
+- **Produces:** `deriveStatus(input: { mounted: boolean; cameraName: string | null; online: boolean | null; offlineReason: string | null; player: 'connecting' | 'playing' | 'reconnecting' | null }): LiveStatus`.
+- **Produces:** `faviconSvg(state: IndicatorState): string` and `documentTitle(s: LiveStatus): string`.
+- **Colours:** green `#22C55E`, red `#EF4444`, and none for idle, when the base icon is shown unchanged. The frame is a 4-unit stroke on the 64×64 icon, so it stays visible at 16 px.
+
+- [ ] **Step 1: Failing test `web/src/lib/liveStatus.test.ts`**
+
+```ts
+import { describe, expect, it } from 'vitest';
+import { deriveStatus, documentTitle, faviconSvg } from './liveStatus';
+
+const base = { mounted: true, cameraName: 'Den', online: true, offlineReason: null, player: 'playing' as const };
+
+describe('deriveStatus', () => {
+  it('is streaming while the live picture plays', () => {
+    expect(deriveStatus(base)).toEqual({ state: 'streaming', cameraName: 'Den', detail: 'Den: live video is streaming' });
+  });
+
+  it('is an error while reconnecting or when the camera is offline', () => {
+    expect(deriveStatus({ ...base, player: 'reconnecting' })).toMatchObject({ state: 'error', detail: 'Den: connection lost, reconnecting…' });
+    expect(deriveStatus({ ...base, online: false, player: null, offlineReason: 'The camera is not reachable.' })).toMatchObject({
+      state: 'error',
+      detail: 'Den: offline. The camera is not reachable.',
+    });
+  });
+
+  it('is idle while connecting for the first time, and when Live is not running', () => {
+    expect(deriveStatus({ ...base, player: 'connecting' })).toMatchObject({ state: 'idle', detail: 'Den: connecting…' });
+    expect(deriveStatus({ ...base, mounted: false })).toEqual({ state: 'idle', cameraName: null, detail: 'No live video' });
+  });
+});
+
+describe('outputs', () => {
+  it('frames the favicon in green or red, and not at all when idle', () => {
+    expect(faviconSvg('streaming')).toContain('stroke="#22C55E"');
+    expect(faviconSvg('error')).toContain('stroke="#EF4444"');
+    expect(faviconSvg('idle')).not.toMatch(/#22C55E|#EF4444/);
+  });
+
+  it('puts the status in the tab title', () => {
+    expect(documentTitle({ state: 'streaming', cameraName: 'Den', detail: '' })).toBe('● Live · Den · cams');
+    expect(documentTitle({ state: 'error', cameraName: 'Den', detail: '' })).toBe('⚠ Den · cams');
+    expect(documentTitle({ state: 'idle', cameraName: null, detail: '' })).toBe('cams · Skylar Technology');
+  });
+});
+```
+
+- [ ] **Step 2: Implement `web/src/lib/liveStatus.ts`**
+
+```ts
+import { writable } from 'svelte/store';
+
+export type IndicatorState = 'streaming' | 'error' | 'idle';
+export interface LiveStatus {
+  state: IndicatorState;
+  cameraName: string | null;
+  detail: string;
+}
+
+const IDLE: LiveStatus = { state: 'idle', cameraName: null, detail: 'No live video' };
+export const liveStatus = writable<LiveStatus>(IDLE);
+
+// "Streaming" means a live picture is actually playing (on the Live page or
+// kept alive in the background); "error" means the camera is offline or the
+// stream dropped and is reconnecting. A first connect is neither.
+export function deriveStatus(i: {
+  mounted: boolean;
+  cameraName: string | null;
+  online: boolean | null;
+  offlineReason: string | null;
+  player: 'connecting' | 'playing' | 'reconnecting' | null;
+}): LiveStatus {
+  if (!i.mounted || !i.cameraName) return IDLE;
+  const name = i.cameraName;
+  if (i.online === false) return { state: 'error', cameraName: name, detail: `${name}: offline. ${i.offlineReason ?? ''}`.trim() };
+  if (i.player === 'playing') return { state: 'streaming', cameraName: name, detail: `${name}: live video is streaming` };
+  if (i.player === 'reconnecting') return { state: 'error', cameraName: name, detail: `${name}: connection lost, reconnecting…` };
+  return { state: 'idle', cameraName: name, detail: `${name}: connecting…` };
+}
+
+const FRAME: Record<IndicatorState, string | null> = { streaming: '#22C55E', error: '#EF4444', idle: null };
+
+// The app icon (web/public/favicon.svg), inset so a frame fits around it.
+export function faviconSvg(state: IndicatorState): string {
+  const frame = FRAME[state];
+  const icon =
+    '<defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#22D3EE"/><stop offset="1" stop-color="#6366F1"/></linearGradient></defs>' +
+    '<rect x="6" y="6" width="52" height="52" rx="13" fill="url(#g)"/>' +
+    '<circle cx="32" cy="32" r="14" fill="#0B1220"/>' +
+    '<circle cx="32" cy="32" r="7.4" fill="none" stroke="#22D3EE" stroke-width="2.5"/>' +
+    '<circle cx="35.3" cy="28.7" r="2.1" fill="#E6EDF7"/>';
+  const ring = frame ? `<rect x="2" y="2" width="60" height="60" rx="16" fill="none" stroke="${frame}" stroke-width="4"/>` : '';
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">${icon}${ring}</svg>`;
+}
+
+export function documentTitle(s: LiveStatus): string {
+  if (s.state === 'streaming' && s.cameraName) return `● Live · ${s.cameraName} · cams`;
+  if (s.state === 'error' && s.cameraName) return `⚠ ${s.cameraName} · cams`;
+  return 'cams · Skylar Technology';
+}
+```
+
+When idle, `faviconSvg('idle')` draws the inset icon without a frame. Also switch the `<link rel="icon">` back to the original `/favicon.svg`, so the idle tab looks exactly as before. Step 4 does this with `setFavicon`.
+
+- [ ] **Step 3: Publish from Live.** In `web/src/pages/Live.svelte`, add an effect:
+
+```ts
+  import { deriveStatus, liveStatus } from '../lib/liveStatus';
+  $effect(() => {
+    liveStatus.set(
+      deriveStatus({
+        mounted: true,
+        cameraName: camera?.name ?? null,
+        online: status ? status.online : null,
+        offlineReason: status && !status.online ? offlineReason(status.error) : null,
+        player: status?.online ? playerState : null,
+      }),
+    );
+  });
+  onDestroy(() => liveStatus.set(deriveStatus({ mounted: false, cameraName: null, online: null, offlineReason: null, player: null })));
+```
+
+Use the names the file really has: `camera`, `status`, `playerState` and `offlineReason`. Keep-alive (Task 12) keeps Live mounted in the background, so the indicator stays green while the stream runs off-screen, and goes transparent when the keep-alive expires.
+
+- [ ] **Step 4: Apply it.** Create `web/src/lib/favicon.ts`:
+
+```ts
+import { faviconSvg, type IndicatorState } from './liveStatus';
+
+// Swaps the SVG favicon; idle restores the shipped file exactly.
+export function setFavicon(state: IndicatorState, doc: Document = document): void {
+  const link = doc.querySelector<HTMLLinkElement>('link[rel="icon"][type="image/svg+xml"]');
+  if (!link) return;
+  link.href = state === 'idle' ? '/favicon.svg' : `data:image/svg+xml,${encodeURIComponent(faviconSvg(state))}`;
+}
+```
+
+In `web/src/App.svelte`:
+
+```ts
+  import { liveStatus, documentTitle } from './lib/liveStatus';
+  import { setFavicon } from './lib/favicon';
+  $effect(() => {
+    setFavicon($liveStatus.state);
+    document.title = documentTitle($liveStatus);
+  });
+```
+
+Also restore the idle favicon and title when the user signs out. The landing page is a separate entry (`web/src/landing.ts`), so a full navigation resets both.
+
+- [ ] **Step 5: The top-bar logo.** In `TopBar.svelte`, wrap the brand logo:
+
+```svelte
+<a class="brand" href="/app/live" aria-label="cams home">
+  <span class="indicator" data-testid="stream-indicator" data-state={$liveStatus.state} title={$liveStatus.detail}>
+    <Logo size={28} />
+  </span>
+  <span>cams</span>
+</a>
+```
+
+```css
+  .indicator { display: inline-grid; place-items: center; padding: 2px; border-radius: 11px; border: 2px solid transparent; transition: border-color 0.3s ease; }
+  .indicator[data-state='streaming'] { border-color: #22C55E; }
+  .indicator[data-state='error'] { border-color: #EF4444; }
+```
+
+The logo's `aria-label` stays "cams home". Add a visually hidden `<span class="sr-only">` holding the status detail inside the link, so screen readers get the status too.
+
+- [ ] **Step 6: e2e (append to `e2e/live.spec.ts`)**
+
+```ts
+test('the indicator shows streaming, and explains the status', async ({ page }) => {
+  await page.goto('/app/live');
+  const ind = page.getByTestId('stream-indicator');
+  await expect(ind).toHaveAttribute('data-state', 'streaming', { timeout: 15_000 });
+  await expect(ind).toHaveAttribute('title', /Den: live video is streaming/);
+  await expect(page).toHaveTitle('● Live · Den · cams');
+  const icon = await page.locator('link[rel="icon"][type="image/svg+xml"]').getAttribute('href');
+  expect(decodeURIComponent(icon!)).toContain('#22C55E');
+});
+
+test('an offline camera shows the red indicator', async ({ page }) => {
+  await page.goto('/app/live');
+  await page.getByTestId('camera-picker').selectOption({ label: 'Garage' });
+  await expect(page.getByTestId('stream-indicator')).toHaveAttribute('data-state', 'error');
+  await expect(page.getByTestId('stream-indicator')).toHaveAttribute('title', /Garage: offline/);
+});
+```
+
+Use the picker's real test id. A test that the indicator goes transparent after the keep-alive expires belongs in `e2e/live-keepalive.spec.ts`, using the keep-alive-off case: after leaving Live, `data-state` becomes `idle`.
+
+- [ ] **Step 7: Verify and commit.** Run the unit suite, `npm run build` (no warnings), `npm run check`, and `npm run test:e2e` twice.
+
+```bash
+git add web e2e
+git commit -m "feat: streaming indicator: framed favicon, tab title and logo tooltip"
+```
+
+---
+
+### Task 14 (controller, ops): data volume, ship, verify
 
 - [x] **Step 1: Ask kube-setup** (done 2026-09-26: revision `cams-00011`, kube-setup 601c14e + 73e86ce, PVC Bound on local-path, reclaim Retain, in the Velero backup) to add a PVC `cams-data` (64Mi) to the cams ksvc:
   - mounted at `/var/lib/cams`, writable by uid 1000 (it is empty on first use);
