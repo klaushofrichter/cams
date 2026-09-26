@@ -99,4 +99,26 @@ describe('preferences', () => {
     expect(res.status).toBe(500);
     expect(readFileSync(process.env.PREFS_FILE!, 'utf8')).toBe(content);
   });
+
+  it('refuses to save over a file it cannot read', async () => {
+    const { writeFileSync, chmodSync } = await import('fs');
+    const content = JSON.stringify({ 'someone@else.example': { timelineZoom: 1 } });
+    writeFileSync(process.env.PREFS_FILE!, content);
+    chmodSync(process.env.PREFS_FILE!, 0o000);
+    try {
+      const res = await request(createApp()).put('/api/preferences').set('Cookie', klaus).send({ timelineZoom: 6 });
+      expect(res.status).toBe(500);
+    } finally {
+      chmodSync(process.env.PREFS_FILE!, 0o644);
+    }
+    expect(readFileSync(process.env.PREFS_FILE!, 'utf8')).toBe(content);
+  });
+
+  it('treats an empty file as no preferences yet', async () => {
+    const { writeFileSync } = await import('fs');
+    writeFileSync(process.env.PREFS_FILE!, '');
+    const res = await request(createApp()).put('/api/preferences').set('Cookie', klaus).send({ timelineZoom: 6 });
+    expect(res.status).toBe(200);
+    expect(res.body.timelineZoom).toBe(6);
+  });
 });

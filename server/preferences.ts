@@ -35,9 +35,18 @@ async function readAll(forSave = false): Promise<Record<string, Partial<Preferen
   try {
     text = await fs.readFile(file(), 'utf8');
   } catch (err) {
-    if ((err as NodeJS.ErrnoException).code !== 'ENOENT') logger.warn({ err: (err as Error).message }, 'preferences file unreadable; using defaults');
+    if ((err as NodeJS.ErrnoException).code === 'ENOENT') return {}; // first save ever
+    // Unreadable (EACCES, EIO…): never overwrite it with one user's data.
+    if (forSave) {
+      logger.error({ err: (err as Error).message }, 'preferences file unreadable; refusing to save over it');
+      throw new CorruptPreferencesError();
+    }
+    logger.warn({ err: (err as Error).message }, 'preferences file unreadable; using defaults');
     return {};
   }
+  // An empty file (e.g. left by a crash before writes were fsynced) holds no
+  // preferences; treat it as none rather than blocking every save.
+  if (text.trim() === '') return {};
   let parsed: unknown;
   try {
     parsed = JSON.parse(text);
