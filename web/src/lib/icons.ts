@@ -26,6 +26,8 @@ export const ICONS = {
   next: 'M17 6v12M6 6l8 6-8 6z',
   calendarPrev: 'M15 6l-6 6 6 6',
   calendarNext: 'M9 6l6 6-6 6',
+  external: 'M14 4h6v6M20 4l-9 9M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5',
+  power: 'M12 3v9M6.3 6.3a8 8 0 1 0 11.4 0',
 } as const;
 
 export type IconName = keyof typeof ICONS;

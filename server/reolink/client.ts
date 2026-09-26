@@ -1,9 +1,10 @@
 import { randomBytes } from 'crypto';
+import { connect as tlsConnect } from 'tls';
 import { IncomingMessage } from 'node:http';
 import type { CameraConfig } from '../cameraRegistry';
 import { logger } from '../logger';
 import { TimeInfo, timeInfoFromGetTime } from '../recordings/clipNames';
-import { CameraTarget, openRequest, readBody, ResponseTooLargeError } from './http';
+import { CameraTarget, openRequest, readBody, requestWasWritten, ResponseTooLargeError, splitHost } from './http';
 import { Semaphore } from './semaphore';
 
 export type CameraErrorCode = 'camera_offline' | 'camera_auth_failed' | 'camera_error';
@@ -11,9 +12,12 @@ export type CameraErrorCode = 'camera_offline' | 'camera_auth_failed' | 'camera_
 // Messages are for logs only and never contain URLs, tokens or passwords;
 // clients see just the code.
 export class CameraError extends Error {
+  // `requestSent`: the request reached the camera before the failure (the
+  // connection dropped after it was written), so the camera may have acted.
   constructor(
     readonly code: CameraErrorCode,
     message: string,
+    readonly requestSent = false,
   ) {
     super(message);
     this.name = 'CameraError';
@@ -48,13 +52,13 @@ function isTlsCertError(code: string): boolean {
   return code.startsWith('ERR_TLS_') || code.includes('CERT') || code.includes('SIGNATURE');
 }
 
-export function classifyNetworkError(err: unknown): CameraError {
+export function classifyNetworkError(err: unknown, requestSent = requestWasWritten(err)): CameraError {
   const name = err instanceof Error ? err.name : 'Error';
   const code = (err as { code?: string }).code ?? name;
   if (isTlsCertError(code)) {
     return new CameraError('camera_error', `TLS certificate check failed (${code})`);
   }
-  return new CameraError('camera_offline', `camera unreachable (${code})`);
+  return new CameraError('camera_offline', `camera unreachable (${code})`, requestSent);
 }
 
 const SAFE_RECORDING_NAME = /^[A-Za-z0-9_./-]+\.mp4$/;
@@ -73,7 +77,8 @@ export class ReolinkClient {
 
   constructor(
     private readonly cam: CameraConfig,
-    private readonly opts: { timeoutMs?: number; maxConcurrent?: number; now?: () => number } = {},
+    // `tlsCa` is a test seam: extra trusted CA certificates for cameraCertificate().
+    private readonly opts: { timeoutMs?: number; maxConcurrent?: number; now?: () => number; tlsCa?: string | Buffer } = {},
   ) {
     this.gate = new Semaphore(opts.maxConcurrent ?? 2);
     this.timeoutMs = opts.timeoutMs ?? DEFAULT_TIMEOUT_MS;
@@ -111,7 +116,7 @@ export class ReolinkClient {
       } catch (err) {
         if (err instanceof SyntaxError) throw new CameraError('camera_error', `${cmd}: response is not JSON`);
         if (err instanceof ResponseTooLargeError) throw new CameraError('camera_error', `${cmd}: response too large`);
-        throw classifyNetworkError(err);
+        throw classifyNetworkError(err, true); // dropped mid-reply: the request was sent
       }
       const first = Array.isArray(parsed) ? (parsed[0] as ReolinkReply | undefined) : undefined;
       if (!first || typeof first.code !== 'number') throw new CameraError('camera_error', `${cmd}: unexpected response`);
@@ -153,7 +158,14 @@ export class ReolinkClient {
 
   async command<T>(cmd: string, param: object = {}): Promise<T> {
     for (let attempt = 0; attempt < 2; attempt++) {
-      const token = await this.getToken();
+      let token: string;
+      try {
+        token = await this.getToken();
+      } catch (err) {
+        // A failed login never sent `cmd`, whatever happened to the Login.
+        if (err instanceof CameraError && err.requestSent) throw new CameraError(err.code, err.message);
+        throw err;
+      }
       const reply = await this.post(cmd, param, token);
       if (reply.code === 0) return reply.value as T;
       if (attempt === 0 && AUTH_RSP_CODES.has(reply.error?.rspCode ?? 0)) {
@@ -163,6 +175,41 @@ export class ReolinkClient {
       throw new CameraError('camera_error', `${cmd} failed (rspCode ${reply.error?.rspCode ?? 'unknown'})`);
     }
     throw new CameraError('camera_auth_failed', `${cmd}: session rejected after re-login`);
+  }
+
+  // The certificate the camera presents (subject, issuer, expiry). The camera's
+  // GetCertificateInfo only says whether a custom one is installed.
+  async cameraCertificate(): Promise<{ subject: string; issuer: string; validTo: string } | null> {
+    if (this.cam.protocol !== 'https') return null;
+    // Same host parsing as requests (bracketed IPv6 included). This only
+    // reads the certificate for display: nothing is sent, and it runs outside
+    // the API gate because it opens no camera session. The certificate is
+    // verified against tlsServername like every other request: an invalid or
+    // expired one shows as "not available" here, and expiry is alerted on
+    // separately (Grafana, cam1-cert-push).
+    const { hostname, port } = splitHost(this.cam.host);
+    const host = hostname.replace(/^\[(.*)\]$/, '$1');
+    return new Promise((resolve) => {
+      let done = false;
+      const finish = (v: { subject: string; issuer: string; validTo: string } | null) => {
+        if (done) return;
+        done = true;
+        clearTimeout(timer);
+        socket.destroy();
+        resolve(v);
+      };
+      const socket = tlsConnect({ host, port: port ?? 443, servername: this.cam.tlsServername ?? host, ca: this.opts.tlsCa }, () => {
+        const c = socket.getPeerCertificate();
+        const t = c?.valid_to ? Date.parse(c.valid_to) : NaN;
+        // A throw here would be an uncaught exception in a socket listener.
+        if (!c || Number.isNaN(t)) return finish(null);
+        finish({ subject: String(c.subject?.CN ?? ''), issuer: String(c.issuer?.O ?? c.issuer?.CN ?? ''), validTo: new Date(t).toISOString() });
+      });
+      // The socket's idle timeout doesn't cover a stalled handshake: an
+      // explicit deadline does.
+      const timer = setTimeout(() => finish(null), this.timeoutMs);
+      socket.on('error', () => finish(null));
+    });
   }
 
   async status(): Promise<CameraStatus> {
@@ -234,7 +281,14 @@ export class ReolinkClient {
   // the connection without a response (see isResetBeforeHeaders).
   private async getWithToken(buildPath: (token: string) => string, accept: RegExp, signal?: AbortSignal): Promise<IncomingMessage> {
     for (let attempt = 0; attempt < 2; attempt++) {
-      const token = await this.getToken();
+      let token: string;
+      try {
+        token = await this.getToken();
+      } catch (err) {
+        // A failed login never sent `cmd`, whatever happened to the Login.
+        if (err instanceof CameraError && err.requestSent) throw new CameraError(err.code, err.message);
+        throw err;
+      }
       let res: IncomingMessage;
       try {
         res = await openRequest(this.target, buildPath(encodeURIComponent(token)), { timeoutMs: this.timeoutMs, signal });
@@ -298,7 +352,14 @@ export class ReolinkClient {
 
   async snapshot(): Promise<Buffer> {
     for (let attempt = 0; attempt < 2; attempt++) {
-      const token = await this.getToken();
+      let token: string;
+      try {
+        token = await this.getToken();
+      } catch (err) {
+        // A failed login never sent `cmd`, whatever happened to the Login.
+        if (err instanceof CameraError && err.requestSent) throw new CameraError(err.code, err.message);
+        throw err;
+      }
       const outcome = await this.snapshotAttempt(token);
       if (outcome.ok) return outcome.body;
       this.clearTokenIfCurrent(token);

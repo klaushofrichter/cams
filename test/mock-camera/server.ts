@@ -24,6 +24,14 @@ export interface MockCameraOptions {
   // Resets the connection for the first N valid Downloads, like the
   // firmware occasionally does before a retry succeeds.
   dropFirstDownloads?: number;
+  // Set commands that answer {code:1, error:{rspCode:-67}}, e.g. ['SetWhiteLed'].
+  settingsFailures?: string[];
+  // Set commands that answer rspCode 200 but change nothing.
+  ignoreWrites?: string[];
+  // How long a Reboot keeps the mock "offline" (default 50 ms).
+  rebootMs?: number;
+  // Firmware may go down before answering Reboot: drop the connection instead.
+  rebootDropsConnection?: boolean;
 }
 
 export interface MockClip {
@@ -51,6 +59,9 @@ export interface MockState {
   logins: number;
   loginAttempts: number;
   activeStreams: number;
+  // Total /flv streams ever started (never decremented), so a test can tell
+  // a kept-alive stream from a reconnect.
+  streamsOpened: number;
   // GetDevInfo calls answered with a valid token (the client uses GetDevInfo
   // to check its session after a reset /flv connection).
   devInfoCalls: number;
@@ -63,6 +74,11 @@ export interface MockState {
   droppedDownloads: number;
   // Start times (HHMMSS) of downloaded clips, in the order they were served.
   downloadOrder: string[];
+  // The in-memory settings state, with the same shapes as the real Get replies.
+  settings: MockSettings;
+  // The cmd names of every Set received.
+  setCalls: string[];
+  reboots: number;
   revokeTokens(): void;
   // Forcibly ends every open /flv connection, simulating a camera-side drop
   // (reset, reboot) rather than the viewer leaving.
@@ -75,6 +91,67 @@ export interface MockState {
 export interface MockCamera {
   app: Express;
   state: MockState;
+}
+
+// The in-memory camera state, with the same shapes as the real Get replies.
+function initialSettings() {
+  const ALL = '1'.repeat(168);
+  return {
+    Rec: { enable: 1, postRec: '15 Seconds', preRec: 1, saveDay: 7, schedule: { channel: 0, table: { MD: ALL, AI_PEOPLE: ALL, AI_VEHICLE: ALL, AI_DOG_CAT: ALL, TIMING: '0'.repeat(168) } } },
+    MdAlarm: { channel: 0, useNewSens: 1, newSens: { sensDef: 10 } },
+    AiAlarm: {
+      people: { channel: 0, ai_type: 'people', sensitivity: 60, stay_time: 3 },
+      vehicle: { channel: 0, ai_type: 'vehicle', sensitivity: 60, stay_time: 3 },
+      dog_cat: { channel: 0, ai_type: 'dog_cat', sensitivity: 60, stay_time: 3 },
+    } as Record<string, { channel: number; ai_type: string; sensitivity: number; stay_time: number }>,
+    Isp: { channel: 0, dayNight: 'Auto', antiFlicker: '60HZ' },
+    IrLights: { channel: 0, state: 'Auto' },
+    WhiteLed: { channel: 0, mode: 1, bright: 100, state: 0 },
+    Osd: { channel: 0, osdChannel: { enable: 1, name: 'Den', pos: 'Lower Right' }, osdTime: { enable: 1, pos: 'Top Center' }, watermark: 1 },
+    HddInfo: [{ capacity: 61047, size: 60670, mount: 1, format: 1, number: 0, storageType: 2 }],
+  };
+}
+export type MockSettings = ReturnType<typeof initialSettings>;
+
+// Deep merge of a partial Set param into the stored object (how the firmware
+// treats partial params, measured 2026-09-26).
+function merge(target: Record<string, unknown>, patch: Record<string, unknown>): void {
+  for (const [k, v] of Object.entries(patch)) {
+    if (k === '__proto__' || k === 'constructor' || k === 'prototype') continue;
+    if (v && typeof v === 'object' && !Array.isArray(v) && target[k] && typeof target[k] === 'object') {
+      merge(target[k] as Record<string, unknown>, v as Record<string, unknown>);
+    } else {
+      target[k] = v;
+    }
+  }
+}
+
+const POSITIONS = ['Upper Left', 'Top Center', 'Upper Right', 'Lower Left', 'Bottom Center', 'Lower Right'];
+// Firmware-like range checks: -56 for a bad number, -67 for a bad enum.
+function settingsError(cmd: string, p: Record<string, any>): number | null {
+  if (cmd === 'SetMdAlarm') {
+    const s = p?.MdAlarm?.newSens?.sensDef;
+    if (s !== undefined && !(Number.isInteger(s) && s >= 1 && s <= 50)) return -56;
+  }
+  if (cmd === 'SetAiAlarm') {
+    const s = p?.AiAlarm?.sensitivity;
+    if (s !== undefined && !(Number.isInteger(s) && s >= 0 && s <= 100)) return -56;
+    if (!['people', 'vehicle', 'dog_cat'].includes(p?.AiAlarm?.ai_type)) return -67;
+  }
+  if (cmd === 'SetIsp' && p?.Isp?.dayNight !== undefined && !['Auto', 'Color', 'Black&White'].includes(p.Isp.dayNight)) return -67;
+  if (cmd === 'SetIrLights' && !['Auto', 'Off'].includes(p?.IrLights?.state)) return -67;
+  if (cmd === 'SetWhiteLed') {
+    const w = p?.WhiteLed ?? {};
+    if (w.mode !== undefined && ![0, 1, 2, 3].includes(w.mode)) return -67;
+    if (w.bright !== undefined && !(Number.isInteger(w.bright) && w.bright >= 0 && w.bright <= 100)) return -56;
+  }
+  if (cmd === 'SetOsd') {
+    const o = p?.Osd ?? {};
+    for (const part of [o.osdChannel, o.osdTime]) if (part?.pos !== undefined && !POSITIONS.includes(part.pos)) return -67;
+    const name = o.osdChannel?.name;
+    if (name !== undefined && (typeof name !== 'string' || Buffer.byteLength(name, 'utf8') > 31 || /\p{C}/u.test(name))) return -56;
+  }
+  return null;
 }
 
 const FIXTURES = join(__dirname, 'fixtures');
@@ -164,6 +241,7 @@ export function createMockCamera(opts: MockCameraOptions): MockCamera {
     logins: 0,
     loginAttempts: 0,
     activeStreams: 0,
+    streamsOpened: 0,
     devInfoCalls: 0,
     offline: false,
     rejectAllStreams: false,
@@ -171,6 +249,9 @@ export function createMockCamera(opts: MockCameraOptions): MockCamera {
     activeDownloads: 0,
     droppedDownloads: 0,
     downloadOrder: [],
+    settings: initialSettings(),
+    setCalls: [],
+    reboots: 0,
     revokeTokens: () => tokens.clear(),
     dropStreams: () => {
       for (const res of activeResponses) res.destroy(new Error('mock camera dropped the stream'));
@@ -186,12 +267,16 @@ export function createMockCamera(opts: MockCameraOptions): MockCamera {
   app.get('/__state', (_req: Request, res: Response) => {
     res.json({
       activeStreams: state.activeStreams,
+      streamsOpened: state.streamsOpened,
       logins: state.logins,
       downloads: state.downloads,
       activeDownloads: state.activeDownloads,
+      reboots: state.reboots,
     });
   });
-  app.use((_req, res, next) => (state.offline ? res.status(503).end() : next()));
+  // "Offline" (e.g. mid-Reboot) drops the connection like a camera that's
+  // actually down, not one that's up and answering 503s.
+  app.use((req, res, next) => (state.offline ? req.socket.destroy() : next()));
   app.use(express.json());
 
   const valid = (req: Request) => typeof req.query.token === 'string' && tokens.has(req.query.token);
@@ -265,6 +350,55 @@ export function createMockCamera(opts: MockCameraOptions): MockCamera {
       res.json([{ cmd, code: 0, value: { SearchResult: { channel: 0, ...(File.length ? { File } : {}) } } }]);
       return;
     }
+    const S = state.settings;
+    const GETS: Record<string, () => unknown> = {
+      GetRecV20: () => ({ Rec: S.Rec }),
+      GetMdAlarm: () => ({ MdAlarm: S.MdAlarm }),
+      GetAiAlarm: () => ({ AiAlarm: S.AiAlarm[param?.ai_type] ?? S.AiAlarm.people }),
+      GetIsp: () => ({ Isp: S.Isp }),
+      GetIrLights: () => ({ IrLights: { state: S.IrLights.state } }),
+      GetWhiteLed: () => ({ WhiteLed: S.WhiteLed }),
+      GetOsd: () => ({ Osd: S.Osd }),
+      GetHddInfo: () => ({ HddInfo: S.HddInfo }),
+    };
+    const getter = Object.hasOwn(GETS, cmd) ? GETS[cmd] : undefined;
+    if (getter) {
+      res.json([{ cmd, code: 0, value: getter() }]);
+      return;
+    }
+    const SETS: Record<string, (p: any) => void> = {
+      SetRecV20: (p) => merge(S.Rec, p.Rec ?? {}),
+      SetMdAlarm: (p) => merge(S.MdAlarm, p.MdAlarm ?? {}),
+      SetAiAlarm: (p) => merge(S.AiAlarm[p.AiAlarm.ai_type], p.AiAlarm),
+      SetIsp: (p) => merge(S.Isp, p.Isp ?? {}),
+      SetIrLights: (p) => merge(S.IrLights, p.IrLights ?? {}),
+      SetWhiteLed: (p) => merge(S.WhiteLed, p.WhiteLed ?? {}),
+      SetOsd: (p) => merge(S.Osd, p.Osd ?? {}),
+    };
+    const setter = Object.hasOwn(SETS, cmd) ? SETS[cmd] : undefined;
+    if (setter) {
+      state.setCalls.push(cmd);
+      const rsp = (opts.settingsFailures ?? []).includes(cmd) ? -67 : settingsError(cmd, param);
+      if (rsp !== null) {
+        res.json([{ cmd, code: 1, error: { detail: 'rejected by mock', rspCode: rsp } }]);
+        return;
+      }
+      if (!(opts.ignoreWrites ?? []).includes(cmd)) setter(param);
+      res.json([{ cmd, code: 0, value: { rspCode: 200 } }]);
+      return;
+    }
+    if (cmd === 'Reboot') {
+      state.reboots++;
+      state.offline = true;
+      if (opts.rebootDropsConnection) {
+        setTimeout(() => (state.offline = false), opts.rebootMs ?? 50);
+        req.socket.destroy();
+        return;
+      }
+      setTimeout(() => (state.offline = false), opts.rebootMs ?? 50);
+      res.json([{ cmd, code: 0, value: { rspCode: 200 } }]);
+      return;
+    }
     res.json([{ cmd, code: 1, error: { detail: 'not supported by mock', rspCode: -9 } }]);
   });
 
@@ -333,6 +467,7 @@ export function createMockCamera(opts: MockCameraOptions): MockCamera {
       // delay above; don't count or serve a stream nobody is waiting for.
       if (res.destroyed || res.writableEnded) return;
       state.activeStreams++;
+      state.streamsOpened++;
       activeResponses.add(res);
       const { header, tags } = liveFixture();
       const began = Date.now();

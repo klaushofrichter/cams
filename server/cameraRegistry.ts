@@ -17,6 +17,7 @@ export interface CameraConfig {
 export interface CameraSummary {
   id: string;
   name: string;
+  webUiUrl: string;
 }
 
 const ID_PATTERN = /^[a-z0-9][a-z0-9-]{0,31}$/;
@@ -80,9 +81,16 @@ export function setCameras(list: CameraConfig[]): void {
 }
 
 export function listCameras(): CameraSummary[] {
-  return cameras.map(({ id, name }) => ({ id, name }));
+  return cameras.map((c) => ({ id: c.id, name: c.name, webUiUrl: webUiUrlOf(c) }));
 }
 
 export function getCamera(id: string): CameraConfig | undefined {
   return cameras.find((c) => c.id === id);
+}
+
+// The camera's own web UI, by LAN address: it's reachable from the home
+// network only (docs/reolink-api.md, "Camera authentication").
+export function webUiUrlOf(cam: CameraConfig): string {
+  const host = cam.host.startsWith('[') ? cam.host.slice(0, cam.host.indexOf(']') + 1) : cam.host.split(':')[0];
+  return `https://${host}/`;
 }

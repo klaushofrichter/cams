@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import request from 'supertest';
 import http from 'http';
 import { statSync } from 'fs';
@@ -52,18 +52,17 @@ describe('mock camera', () => {
   it('refuses all requests while "offline"', async () => {
     const { app, state } = createMockCamera(creds);
     state.offline = true;
-    const res = await login(app);
-    expect(res.status).toBe(503);
+    await expect(login(app)).rejects.toThrow();
   });
 
   it('reports activeStreams and logins via /__state, even while "offline"', async () => {
     const { app, state } = createMockCamera(creds);
     await login(app);
-    expect((await request(app).get('/__state')).body).toEqual({ activeStreams: 0, logins: 1, downloads: 0, activeDownloads: 0 });
+    expect((await request(app).get('/__state')).body).toEqual({ activeStreams: 0, streamsOpened: 0, logins: 1, downloads: 0, activeDownloads: 0, reboots: 0 });
     state.offline = true;
     const res = await request(app).get('/__state');
     expect(res.status).toBe(200);
-    expect(res.body).toEqual({ activeStreams: 0, logins: 1, downloads: 0, activeDownloads: 0 });
+    expect(res.body).toEqual({ activeStreams: 0, streamsOpened: 0, logins: 1, downloads: 0, activeDownloads: 0, reboots: 0 });
   });
 
   it('streams /flv and stops counting once the client disconnects', async () => {
@@ -90,10 +89,11 @@ describe('mock camera', () => {
       const firstChunk = await new Promise<Buffer>((resolve) => res.once('data', resolve));
       expect(firstChunk.subarray(0, 3).toString()).toBe('FLV');
       expect(state.activeStreams).toBe(1);
+      expect(state.streamsOpened).toBe(1);
 
       res.destroy();
-      await new Promise((resolve) => setTimeout(resolve, 100));
-      expect(state.activeStreams).toBe(0);
+      await vi.waitFor(() => expect(state.activeStreams).toBe(0));
+      expect(state.streamsOpened).toBe(1);
     } finally {
       server.close();
     }
@@ -191,6 +191,62 @@ describe('mock camera recordings', () => {
     expect(bad.status).toBe(401);
     expect(bad.headers['content-type']).toMatch(/^text\/html/);
     expect(bad.text).toBe('');
+  });
+});
+
+describe('mock camera settings', () => {
+  async function tok(app: Parameters<typeof request>[0]) {
+    return (await login(app)).body[0].value.Token.name as string;
+  }
+  const cmd = (app: Parameters<typeof request>[0], t: string, name: string, param: object) =>
+    request(app).post(`/cgi-bin/api.cgi?cmd=${name}&token=${t}`).send([{ cmd: name, action: 0, param }]);
+
+  it('reads the real camera defaults and merges partial writes', async () => {
+    const { app, state } = createMockCamera(creds);
+    const t = await tok(app);
+    expect((await cmd(app, t, 'GetMdAlarm', { channel: 0 })).body[0].value.MdAlarm.newSens.sensDef).toBe(10);
+    expect((await cmd(app, t, 'SetOsd', { Osd: { channel: 0, osdChannel: { enable: 1, name: 'Porch', pos: 'Lower Right' } } })).body[0].code).toBe(0);
+    const osd = (await cmd(app, t, 'GetOsd', { channel: 0 })).body[0].value.Osd;
+    expect(osd.osdChannel.name).toBe('Porch');
+    expect(osd.osdTime).toEqual({ enable: 1, pos: 'Top Center' }); // untouched half kept
+    const ai = (await cmd(app, t, 'GetAiAlarm', { channel: 0, ai_type: 'vehicle' })).body[0].value.AiAlarm;
+    expect(ai.ai_type).toBe('vehicle');
+    expect(state.setCalls).toEqual(['SetOsd']);
+  });
+
+  it('rejects out-of-range values like the firmware and keeps the old value', async () => {
+    const { app } = createMockCamera(creds);
+    const t = await tok(app);
+    const bad = await cmd(app, t, 'SetMdAlarm', { MdAlarm: { channel: 0, useNewSens: 1, newSens: { sensDef: 99 } } });
+    expect(bad.body[0]).toMatchObject({ code: 1, error: { rspCode: -56 } });
+    expect((await cmd(app, t, 'GetMdAlarm', { channel: 0 })).body[0].value.MdAlarm.newSens.sensDef).toBe(10);
+  });
+
+  it('rejects an OSD name over 31 bytes or with control characters, like the firmware', async () => {
+    const { app } = createMockCamera(creds);
+    const t = await tok(app);
+    const osd = (name: string) => cmd(app, t, 'SetOsd', { Osd: { channel: 0, osdChannel: { name } } });
+    expect((await osd('門'.repeat(11))).body[0]).toMatchObject({ code: 1, error: { rspCode: -56 } });
+    expect((await osd('\u200bDen')).body[0]).toMatchObject({ code: 1, error: { rspCode: -56 } });
+    expect((await osd('x'.repeat(31))).body[0].code).toBe(0);
+  });
+
+  it('can fail or silently ignore chosen commands', async () => {
+    const { app } = createMockCamera({ ...creds, settingsFailures: ['SetWhiteLed'], ignoreWrites: ['SetIrLights'] });
+    const t = await tok(app);
+    expect((await cmd(app, t, 'SetWhiteLed', { WhiteLed: { channel: 0, mode: 0, bright: 10 } })).body[0].code).toBe(1);
+    const ignored = await cmd(app, t, 'SetIrLights', { IrLights: { channel: 0, state: 'Off' } });
+    expect(ignored.body[0]).toMatchObject({ code: 0, value: { rspCode: 200 } });
+    expect((await cmd(app, t, 'GetIrLights', { channel: 0 })).body[0].value.IrLights.state).toBe('Auto');
+  });
+
+  it('counts reboots and drops connections while rebooting', async () => {
+    // Long enough that the mock is surely still "rebooting" for the next call.
+    const { app, state } = createMockCamera({ ...creds, rebootMs: 5000 });
+    const t = await tok(app);
+    expect((await cmd(app, t, 'Reboot', {})).body[0].code).toBe(0);
+    expect(state.reboots).toBe(1);
+    await expect(cmd(app, t, 'GetDevInfo', {})).rejects.toThrow();
   });
 });
 

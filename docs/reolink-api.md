@@ -118,7 +118,17 @@ firmware's design; there is no header alternative. So:
   Clients then see the [token rejection shapes](#token-rejection-four-shapes).
 
 **The camera's web UI** is at `https://<camera IP>/` (e.g.
-`https://192.168.1.164/`), and only from the home network. Log in as `admin`.
+`https://192.168.1.164/`).
+
+> **The camera's web UI is reachable from the home network only, by design**
+> (decided 2026-09-26). The public name `cam1.skylar.technology` does **not**
+> lead to it: from anywhere, including the home network, it answers
+> `404` from the cluster with Traefik's default certificate. The camera's admin
+> page is protected only by its own password, and consumer camera firmware has a
+> history of security holes, so it is not exposed to the internet. The cams
+> app's "Camera web UI" link points at the LAN address and says so. Remote
+> access to the camera goes through the cams app (Google sign-in) or the
+> Reolink mobile app. Log in as `admin`.
 The browser warns about the certificate, because it is issued for
 `cam1.skylar.technology`, not for the IP address (see the next section).
 
@@ -147,6 +157,10 @@ cam1.skylar.technology ──DNS (Squarespace)──▶ home public IP ──rou
   3. It calls `ImportCertificate`.
 
   Grafana alerts fire if the push goes stale or the certificate stops renewing.
+- **Nothing routes the name to the camera.** The cluster serves only the
+  ACME challenge for `cam1.skylar.technology`; any other request gets `404`
+  with Traefik's default certificate. That is deliberate: see
+  [Camera authentication](#camera-authentication).
 - **No LAN DNS override.** On the home network, `cam1.skylar.technology` still
   resolves to the public IP, i.e. to the cluster. The stock ASUS firmware has no
   custom DNS entries, and none was added on purpose. So **every client reaches

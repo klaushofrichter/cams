@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { onDestroy } from 'svelte';
   import LivePlayer from '../components/LivePlayer.svelte';
   import Icon from '../components/Icon.svelte';
   import Timeline from '../components/Timeline.svelte';
@@ -7,8 +8,12 @@
   import { QUALITY_KEY, snapshotUrl, supportsHevc, type Quality } from '../lib/live';
   import type { PlayerState } from '../lib/liveSession';
   import { enterFullscreen } from '../lib/fullscreen';
-  import { clipAtSecond, cursorSearch, eventsUrl, localDate, saveCursor, secondsIntoDay, type EventClip } from '../lib/recordings';
+  import { clipAtSecond, cursorSearch, eventsUrl, saveCursor, secondsIntoDay, type EventClip } from '../lib/recordings';
   import { navigate } from '../lib/router';
+  import { pref } from '../lib/preferences';
+  import { now } from '../lib/clock';
+  import { createTodayRefresher, todayDate } from '../lib/refresh';
+  import { deriveStatus, liveStatus } from '../lib/liveStatus';
 
   interface CameraStatus {
     id: string;
@@ -18,14 +23,27 @@
     error?: string;
   }
 
+  // False while App keeps this page mounted but hidden (the keep-alive after
+  // leaving Live). Things that would duplicate another page's test ids or
+  // headings (the page title, the mini timeline) are only rendered while
+  // visible; the player itself is never unmounted by this, so the stream
+  // keeps playing in the background.
+  // `audible` is false whenever nobody can hear it on purpose: another page
+  // OR a hidden browser tab (Klaus: off-screen means either). `visible` only
+  // covers the page, because a hidden tab still renders.
+  let { visible = true, audible = true }: { visible?: boolean; audible?: boolean } = $props();
+
   const hevc = typeof MediaSource !== 'undefined' && supportsHevc((t) => MediaSource.isTypeSupported(t));
 
   function initialQuality(): Quality {
+    let stored: string | null = null;
     try {
-      return hevc && localStorage.getItem(QUALITY_KEY) === 'main' ? 'main' : 'sub';
+      stored = localStorage.getItem(QUALITY_KEY);
     } catch {
-      return 'sub';
+      // not available; fall back to the stored preference below
     }
+    const wanted = stored ?? pref('liveQuality') ?? 'sub';
+    return hevc && wanted === 'main' ? 'main' : 'sub';
   }
 
   let quality: Quality = $state(initialQuality());
@@ -66,29 +84,68 @@
   // it times out, for a timeline that has nothing to show anyway. A
   // request-sequence guard (like checkStatus above) drops a late response
   // from a camera that's since been switched away from.
-  const today = localDate(new Date());
   let todayEvents: EventClip[] = $state([]);
   let eventsSeq = 0;
+  let refreshTick = $state(0);
+  let updatedAt: Date | null = $state(null);
+  let lastEventsKey = '';
   $effect(() => {
     const id = $selectedCameraId;
     const online = status?.online === true;
-    todayEvents = [];
-    if (!id || !online) return;
+    void refreshTick;
+    if (!id || !online) {
+      todayEvents = [];
+      lastEventsKey = '';
+      return;
+    }
+    // Keyed by camera AND today's date: at local midnight this makes the
+    // day rollover a fresh load (clearing yesterday's clips) rather than a
+    // refresh, which would otherwise keep drawing yesterday's clips on top
+    // of today's axis until the next poll happened to replace them.
+    const key = `${id}|${$todayDate}`;
+    const isRefresh = key === lastEventsKey;
+    lastEventsKey = key;
     const seq = ++eventsSeq;
-    getJson<{ events: EventClip[] }>(eventsUrl(id, today))
+    if (!isRefresh) todayEvents = [];
+    getJson<{ events: EventClip[] }>(eventsUrl(id, $todayDate))
       .then((r) => {
-        if (seq === eventsSeq) todayEvents = r.events;
+        if (seq !== eventsSeq) return;
+        todayEvents = r.events;
+        updatedAt = new Date();
       })
       .catch(() => {});
+  });
+
+  // Refreshes the mini timeline every minute while the tab is visible, and
+  // once more when it becomes visible again. Skips the tick entirely while
+  // this page itself is hidden (App keeps it mounted for the keep-alive
+  // after leaving Live): nobody can see the mini timeline then, so there's
+  // no point spending a Search call on the camera for it.
+  $effect(() => {
+    const r = createTodayRefresher({ isToday: () => true, refresh: () => { if (visible) refreshTick++; } });
+    return () => r.stop();
+  });
+
+  // Coming back to Live (visible again after being hidden) refreshes once
+  // at once, rather than waiting for the next minute's tick, so returning
+  // shows whatever recorded while it was hidden. Starts `true`: App only
+  // ever mounts this page while it's the visible one (see App.svelte), so
+  // there's no "becoming visible" transition to catch on the very first
+  // render -- and starting from the (reactive) `visible` prop directly here
+  // would only capture its value once anyway, not track it.
+  let wasVisible = true;
+  $effect(() => {
+    if (visible && !wasVisible) refreshTick++;
+    wasVisible = visible;
   });
 
   // Clicking (or arrow-stepping to) a point on the mini timeline opens the
   // full Recordings workspace at that clip.
   function openRecording(sec: number) {
     const id = $selectedCameraId;
-    const e = clipAtSecond(todayEvents, today, sec);
+    const e = clipAtSecond(todayEvents, $todayDate, sec);
     if (!id || !e) return;
-    const c = { date: today, clipId: e.id, offsetSec: 0 };
+    const c = { date: $todayDate, clipId: e.id, offsetSec: 0 };
     saveCursor(id, c);
     navigate(`/app/recordings${cursorSearch(id, c, 'history', 'all')}`);
   }
@@ -99,7 +156,7 @@
   function jumpToEdge(edge: 'start' | 'end') {
     if (!todayEvents.length) return;
     const target = edge === 'start' ? todayEvents[0] : todayEvents[todayEvents.length - 1];
-    openRecording(secondsIntoDay(target.start, today));
+    openRecording(secondsIntoDay(target.start, $todayDate));
   }
   function stepEvent(dir: -1 | 1) {
     jumpToEdge(dir === 1 ? 'start' : 'end');
@@ -119,6 +176,16 @@
     void enterFullscreen(container, video);
   }
 
+  // Leaving Live while its viewer is fullscreen (App keeps it mounted but
+  // hidden, for the keep-alive) would otherwise leave a black fullscreen
+  // screen behind: nothing in it is visible any more, but the browser is
+  // still in fullscreen. Exit it as soon as this page is hidden.
+  $effect(() => {
+    if (!visible && container && document.fullscreenElement && container.contains(document.fullscreenElement)) {
+      void document.exitFullscreen().catch(() => {});
+    }
+  });
+
   // One explanation per error code: camera_error covers things re-trying
   // won't fix (a certificate problem, an unexpected answer), so it points at
   // the server logs instead of suggesting the camera is simply unreachable.
@@ -129,11 +196,29 @@
   }
 
   const stamp = () => new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-');
+
+  // Publishes the camera's live status (used for the favicon frame, the tab
+  // title and the top-bar logo tooltip). Keep-alive (Task 12) keeps this page
+  // mounted in the background after leaving Live, so the indicator stays
+  // green while the stream keeps playing off-screen; onDestroy publishes idle
+  // once the keep-alive expires and this page is actually torn down.
+  $effect(() => {
+    liveStatus.set(
+      deriveStatus({
+        mounted: true,
+        cameraName: camera?.name ?? null,
+        online: status ? status.online : null,
+        offlineReason: status && !status.online ? offlineReason(status.error) : null,
+        player: status?.online ? playerState : null,
+      }),
+    );
+  });
+  onDestroy(() => liveStatus.set(deriveStatus({ mounted: false, cameraName: null, online: null, offlineReason: null, player: null })));
 </script>
 
 <section class="page">
   <header class="head">
-    <h1 data-testid="page-title">Live</h1>
+    {#if visible}<h1 data-testid="page-title">Live</h1>{/if}
     {#if camera}<span class="cam">{camera.name}</span>{/if}
     {#if status?.online}
       <span class="badge" data-testid="live-badge" class:ok={playerState === 'playing'}>● {playerState === 'playing' ? 'LIVE' : '…'}</span>
@@ -155,7 +240,12 @@
     </div>
   {:else if status?.online}
     <div class="viewer" bind:this={container}>
-      <LivePlayer cameraId={camera.id} {quality} {muted} onstate={(s) => (playerState = s)} />
+      <!-- `muted` itself is left untouched while hidden, so the user's own
+           choice comes back once Live is visible again; the player is muted
+           here (not by mutating `muted`) so a hidden Live or a hidden tab
+           playing in the background (the keep-alive) never plays audio
+           nobody asked for. -->
+      <LivePlayer cameraId={camera.id} {quality} muted={muted || !audible} onstate={(s) => (playerState = s)} />
       <div class="controls">
         <button data-testid="mute-toggle" aria-pressed={!muted} onclick={() => (muted = !muted)} title={muted ? 'Unmute' : 'Mute'}>
           <Icon name={muted ? 'volumeOff' : 'volumeOn'} size={18} /><span>{muted ? 'Muted' : 'Sound'}</span>
@@ -172,9 +262,22 @@
       </div>
       <p class="meta">{status.model} · firmware {status.firmware}</p>
       <div class="today">
-        <span class="label">Today</span>
-        {#if todayEvents.length}
-          <Timeline events={todayEvents} date={today} selectedId={null} onpick={openRecording} onstep={stepEvent} onedge={jumpToEdge} compact testid="live-timeline" />
+        {#if !visible}
+          <!-- not rendered while hidden: its test ids would clash with Recordings' timeline -->
+        {:else if todayEvents.length}
+          <Timeline
+            events={todayEvents}
+            date={$todayDate}
+            selectedId={null}
+            onpick={openRecording}
+            onstep={stepEvent}
+            onedge={jumpToEdge}
+            compact
+            legend
+            now={secondsIntoDay(new Date($now).toISOString(), $todayDate)}
+            testid="live-timeline"
+            {updatedAt}
+          />
         {:else}
           <span class="none">No recordings yet today.</span>
         {/if}
@@ -204,7 +307,6 @@
   .controls button[aria-pressed='true'] { border-color: var(--accent); }
   .meta { margin: 0; font-size: 12px; color: var(--muted); }
   .today { display: flex; flex-direction: column; gap: 4px; }
-  .today .label { font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.05em; }
   .today .none { font-size: 13px; color: var(--muted); }
   .offline {
     display: flex; align-items: center; gap: 12px; flex-wrap: wrap; padding: 16px 18px; border-radius: 12px;

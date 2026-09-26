@@ -3,7 +3,8 @@ import request from 'supertest';
 import http from 'http';
 import { PassThrough } from 'stream';
 import { IncomingMessage } from 'http';
-import { rmSync, writeFileSync } from 'fs';
+import { mkdtempSync, rmSync, writeFileSync } from 'fs';
+import { tmpdir } from 'os';
 import { createRequire } from 'module';
 import { join } from 'path';
 import { Server } from 'http';
@@ -11,7 +12,7 @@ import { AddressInfo } from 'net';
 import { createApp } from '../server/app';
 import { setCameras } from '../server/cameraRegistry';
 import { resetClients } from '../server/reolink/clients';
-import { resetRecordings } from '../server/recordings/service';
+import { getRecordings, resetRecordings } from '../server/recordings/service';
 import { ReolinkClient } from '../server/reolink/client';
 import { SESSION_COOKIE, signSession } from '../server/session';
 import { createMockCamera, MockState } from './mock-camera/server';
@@ -40,10 +41,19 @@ let state: MockState;
 
 // This file's clip ids are deterministic (today's mock clips), so a clip
 // cached by one test would otherwise satisfy fill() for a later test with no
-// camera download, breaking the "exactly N downloads" assertions below.
-// process.env.CACHE_DIR is set per-worker in test/setup.ts (fix round 1,
-// item 11), so clearing it here only affects this file's own tests.
-beforeEach(() => rmSync(process.env.CACHE_DIR!, { recursive: true, force: true }));
+// camera download, breaking the "exactly N downloads" assertions below. Each
+// test gets its own fresh cache directory (the service reads CACHE_DIR when
+// it's created, after resetRecordings()), rather than clearing a shared one.
+const workerCacheDir = process.env.CACHE_DIR;
+let cacheDir: string;
+beforeEach(() => {
+  cacheDir = mkdtempSync(join(tmpdir(), 'cams-test-cache-'));
+  process.env.CACHE_DIR = cacheDir;
+});
+afterEach(() => {
+  process.env.CACHE_DIR = workerCacheDir;
+  rmSync(cacheDir, { recursive: true, force: true });
+});
 
 beforeEach(async () => {
   const mock = createMockCamera({ user: 'u', password: 'p' });
@@ -123,15 +133,20 @@ describe('recordings API', () => {
     const app = createApp();
     const events = (await request(app).get(`/api/cameras/cam1/events?date=${today()}`).set('Cookie', auth)).body.events as { id: string }[];
     const [a, b, c, d] = events.map((e) => e.id);
-    const thumbs = [a, b, c].map((id) => request(app).get(`/api/cameras/cam1/clips/${id}/thumb.jpg`).set('Cookie', auth).then((r) => r));
-    await vi.waitFor(() => expect(state.downloads).toBe(1)); // first thumbnail holds the slot
-    // Let the other two queue before the video arrives.
-    await vi.waitFor(() => expect(state.downloadOrder.length).toBe(1));
-    await new Promise((r) => setTimeout(r, 20));
+    // Start the thumbnails one at a time and wait until each has reached the
+    // camera or its queue, so the queue order is known: a holds the slot,
+    // then b, then c wait in that order.
+    const thumb = (id: string) => request(app).get(`/api/cameras/cam1/clips/${id}/thumb.jpg`).set('Cookie', auth).then((r) => r);
+    const thumbs = [thumb(a)];
+    await vi.waitFor(() => expect(state.downloads).toBe(1));
+    thumbs.push(thumb(b));
+    await vi.waitFor(() => expect(getRecordings().transferQueueLength('cam1')).toBe(1));
+    thumbs.push(thumb(c));
+    await vi.waitFor(() => expect(getRecordings().transferQueueLength('cam1')).toBe(2));
     const video = await request(app).get(`/api/cameras/cam1/clips/${d}/video`).set('Cookie', auth);
     expect(video.status).toBe(200);
     await Promise.all(thumbs);
-    expect(state.downloadOrder[1]).toBe(d.slice(9, 15));
+    expect(state.downloadOrder).toEqual([a, d, b, c].map((id) => id.slice(9, 15)));
   });
 
   it('promotes a queued thumbnail fetch when someone opens that clip', async () => {
@@ -139,9 +154,16 @@ describe('recordings API', () => {
     const app = createApp();
     const events = (await request(app).get(`/api/cameras/cam1/events?date=${today()}`).set('Cookie', auth)).body.events as { id: string }[];
     const [a, b, c] = events.map((e) => e.id);
-    const thumbs = [a, b, c].map((id) => request(app).get(`/api/cameras/cam1/clips/${id}/thumb.jpg`).set('Cookie', auth).then((r) => r));
+    // Start the thumbnails one at a time and wait until each has reached the
+    // camera or its queue, so the queue order is known: a holds the slot,
+    // then b, then c wait in that order.
+    const thumb = (id: string) => request(app).get(`/api/cameras/cam1/clips/${id}/thumb.jpg`).set('Cookie', auth).then((r) => r);
+    const thumbs = [thumb(a)];
     await vi.waitFor(() => expect(state.downloads).toBe(1));
-    await new Promise((r) => setTimeout(r, 20));
+    thumbs.push(thumb(b));
+    await vi.waitFor(() => expect(getRecordings().transferQueueLength('cam1')).toBe(1));
+    thumbs.push(thumb(c));
+    await vi.waitFor(() => expect(getRecordings().transferQueueLength('cam1')).toBe(2));
     const video = await request(app).get(`/api/cameras/cam1/clips/${c}/video`).set('Cookie', auth);
     expect(video.status).toBe(200);
     await Promise.all(thumbs);
@@ -399,11 +421,11 @@ describe('recordings API', () => {
     await vi.waitFor(() => expect(state.downloads).toBe(1));
     const third = start(); // TRANSFERS_PER_CAMERA is 1: this one queues behind the first
     const doneThird = third.then(() => {}).catch(() => {});
-    // Give the third request a moment to actually reach openDownload() and
-    // queue for the gate before aborting it.
-    await new Promise((r) => setTimeout(r, 15));
+    // Wait until the third actually reached openDownload() and queued for
+    // the gate before aborting it, and until its abort left the queue.
+    await vi.waitFor(() => expect(getRecordings().transferQueueLength('cam1')).toBe(1));
     third.abort();
-    await new Promise((r) => setTimeout(r, 15));
+    await vi.waitFor(() => expect(getRecordings().transferQueueLength('cam1')).toBe(0));
     first.abort();
     await Promise.all([doneFirst, doneThird]);
     await vi.waitFor(() => expect(state.activeDownloads).toBe(0));

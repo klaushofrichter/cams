@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount } from 'svelte';
+  import { onMount, untrack } from 'svelte';
   import { fly, fade } from 'svelte/transition';
   import TopBar from './components/TopBar.svelte';
   import Sidebar from './components/Sidebar.svelte';
@@ -11,21 +11,99 @@
   import { initRouter, route } from './lib/router';
   import { cameras, drawerOpen, me, selectedCameraId, theme, type CameraSummary, type Me } from './lib/stores';
   import { getJson, UnauthorizedError } from './lib/api';
+  import { loadPreferences, preferences } from './lib/preferences';
+  import { createKeepAlive } from './lib/keepAlive';
   import { duration } from './lib/motion';
   import { currentTheme } from './lib/theme';
+  import { liveStatus, documentTitle } from './lib/liveStatus';
+  import { setFavicon } from './lib/favicon';
 
   let loadError = $state('');
+  // Preferences (and the default-camera selection derived from them) must
+  // settle before any page mounts, so a page that reads a preference at
+  // init (Live's initialQuality, Timeline's initial zoom) sees the real
+  // value instead of racing it. This gate covers success and failure
+  // alike -- a failed preferences load still finishes `load()`.
+  let ready = $state(false);
   let drawerPanelEl: HTMLDivElement | undefined = $state();
   let drawerWasOpen = false;
 
+  // The Live page stays mounted (but hidden) for the chosen keep-alive time
+  // after the user leaves it, so its stream keeps playing in the background
+  // and coming back shows the picture at once. When the time runs out, Live
+  // is unmounted and its onDestroy closes the stream. Live's <video> is never
+  // moved in the DOM: removing a media element pauses it.
+  let liveMounted = $state(false);
+  const keepAlive = createKeepAlive(() => (liveMounted = false));
+  // "On screen" means the Live page is showing AND the browser tab is
+  // visible: a hidden tab or minimised window is off-screen too, so the
+  // countdown also runs there (Klaus, 2026-09-26).
+  let tabVisible = $state(typeof document === 'undefined' || document.visibilityState !== 'hidden');
+  $effect(() => {
+    const onVisibility = () => (tabVisible = document.visibilityState !== 'hidden');
+    document.addEventListener('visibilitychange', onVisibility);
+    return () => document.removeEventListener('visibilitychange', onVisibility);
+  });
+  let wasOnScreen = false;
+  let leftWith: number | null = null;
+  $effect(() => {
+    // Nothing before `ready`: the router store starts out on 'live' until
+    // initRouter() syncs it, and a deep link to another page must not
+    // briefly mount Live (and open a stream nobody asked for).
+    if (!ready) return;
+    const onScreen = $route.page === 'live' && tabVisible;
+    const seconds = $preferences?.liveKeepAlive ?? 60;
+    if (onScreen) {
+      liveMounted = true;
+      leftWith = null;
+      keepAlive.enter();
+    } else if (wasOnScreen || (liveMounted && leftWith !== null && seconds !== leftWith)) {
+      // Just went off-screen (another page, or the tab was hidden), or the
+      // keep-alive preference changed while away: restart the countdown
+      // with the new time ("off" stops at once).
+      leftWith = seconds;
+      keepAlive.leave(seconds);
+    }
+    wasOnScreen = onScreen;
+  });
+  $effect(() => () => keepAlive.dispose());
+  // Picking another camera while Live is off-screen (kept alive) would switch
+  // the hidden player to a stream nobody watches: unmount Live at once
+  // instead. It mounts fresh, on the new camera, on return.
+  let liveCamera: string | null | undefined;
+  $effect(() => {
+    const id = $selectedCameraId;
+    untrack(() => {
+      if (liveCamera !== undefined && id !== liveCamera && liveMounted && !($route.page === 'live' && tabVisible)) {
+        keepAlive.enter(); // cancels the countdown: nothing left to expire
+        liveMounted = false;
+      }
+    });
+    liveCamera = id;
+  });
+
+  // The favicon frame and tab title mirror the camera's live status (Task
+  // 13). Signing out is a full page navigation (to a separate entry point,
+  // web/src/landing.ts), which already resets both to their shipped values.
+  $effect(() => {
+    setFavicon($liveStatus.state);
+    document.title = documentTitle($liveStatus);
+  });
+
   async function load() {
     try {
-      const [profile, list] = await Promise.all([getJson<Me>('/api/me'), getJson<CameraSummary[]>('/api/cameras')]);
+      const [profile, list, prefs] = await Promise.all([getJson<Me>('/api/me'), getJson<CameraSummary[]>('/api/cameras'), loadPreferences()]);
       me.set(profile);
       cameras.set(list);
-      selectedCameraId.update((id) => (list.some((c) => c.id === id) ? id : (list[0]?.id ?? null)));
+      selectedCameraId.update((id) =>
+        list.some((c) => c.id === id)
+          ? id
+          : (prefs?.defaultCamera && list.some((c) => c.id === prefs.defaultCamera) ? prefs.defaultCamera : (list[0]?.id ?? null)),
+      );
     } catch (err) {
       if (!(err instanceof UnauthorizedError)) loadError = 'Could not load the app. Please reload the page.';
+    } finally {
+      ready = true;
     }
   }
 
@@ -56,14 +134,21 @@
   <div class="side"><Sidebar /></div>
   <main class="main">
     {#if loadError}<div class="error" role="alert">{loadError}</div>{/if}
-    {#key $route.page}
-      <div class="page-wrap" in:fly={{ y: 8, duration: duration(180) }}>
-        {#if $route.page === 'recordings'}<Recordings />
-        {:else if $route.page === 'settings'}<Settings />
-        {:else if $route.page === 'about'}<About />
-        {:else}<Live />{/if}
-      </div>
-    {/key}
+    {#if ready}
+      <!-- Outside the {#key} below: a route change must not remount Live. -->
+      {#if liveMounted}
+        <div class="live-host" hidden={$route.page !== 'live'} in:fly={{ y: 8, duration: duration(180) }}><Live visible={$route.page === 'live'} audible={$route.page === 'live' && tabVisible} /></div>
+      {/if}
+      {#if $route.page !== 'live'}
+        {#key $route.page}
+          <div class="page-wrap" in:fly={{ y: 8, duration: duration(180) }}>
+            {#if $route.page === 'recordings'}<Recordings />
+            {:else if $route.page === 'settings'}<Settings />
+            {:else if $route.page === 'about'}<About />{/if}
+          </div>
+        {/key}
+      {/if}
+    {/if}
   </main>
 
   {#if $drawerOpen}

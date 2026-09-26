@@ -4,11 +4,13 @@ import type { Theme } from './theme';
 export interface Me {
   email: string;
   version: string;
+  buildDate: string | null;
 }
 
 export interface CameraSummary {
   id: string;
   name: string;
+  webUiUrl: string;
 }
 
 // A boolean kept in localStorage. Storage failures (private mode) degrade to

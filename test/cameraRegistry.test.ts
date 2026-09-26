@@ -65,9 +65,9 @@ describe('loadCameras', () => {
 });
 
 describe('listCameras / getCamera', () => {
-  it('exposes only id and name', () => {
+  it('exposes id, name and webUiUrl', () => {
     setCameras([{ ...cam1, protocol: 'https' }]);
-    expect(listCameras()).toEqual([{ id: 'cam1', name: 'Den' }]);
+    expect(listCameras()).toEqual([{ id: 'cam1', name: 'Den', webUiUrl: 'https://10.0.0.5/' }]);
     expect(getCamera('cam1')).toEqual({ ...cam1, protocol: 'https' });
     expect(getCamera('nope')).toBeUndefined();
   });

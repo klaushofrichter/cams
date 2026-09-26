@@ -12,8 +12,10 @@
     addDays, clipAtSecond, cursorSearch, daysUrl, downloadUrl, eventsUrl, filterEvents, loadCursor, localDate,
     neighbour, parseCursor, saveCursor, secondsIntoDay, videoUrl, type Cursor, type EventClip, type Filter,
   } from '../lib/recordings';
+  import { preferences } from '../lib/preferences';
+  import { createTodayRefresher, todayDate } from '../lib/refresh';
+  import { formatNow } from '../lib/clock';
 
-  const today = localDate(new Date());
   const TABS: { id: Panel; label: string }[] = [
     { id: 'history', label: 'History' },
     { id: 'events', label: 'Events' },
@@ -25,6 +27,9 @@
   let loading = $state(true);
   let failed = $state(false);
   let eventsRequest = 0;
+  let refreshTick = $state(0);
+  let updatedAt: Date | null = $state(null);
+  let lastKey = '';
   let clipPlayer: { seek: (sec: number) => void } | undefined = $state();
 
   // The URL is the source of truth; with none (e.g. a sidebar link), the
@@ -34,7 +39,7 @@
   // session remembered from a previous camera would silently override a
   // camera just picked on another page.
   const parsed = $derived.by(() => {
-    const p = parseCursor($route.params, today);
+    const p = parseCursor($route.params, $todayDate);
     if (!$route.params.has('date') && !$route.params.has('clip')) {
       const saved = loadCursor();
       const agrees = p.cam ? saved?.cam === p.cam : $selectedCameraId === null || saved?.cam === $selectedCameraId;
@@ -51,7 +56,12 @@
   const cursor: Cursor = $derived(parsed.cursor);
   // Likewise, a primitive projection of cursor.date for the events effect.
   const date = $derived(cursor.date);
-  const filter: Filter = $derived(parsed.filter);
+  // parseCursor already falls back to 'all' when the URL has no filter, so
+  // the stored preference is only applied by overriding that case here.
+  // Reads the preferences store reactively (not the pref() snapshot helper,
+  // which uses get() and would not update this derived value if the
+  // preference arrived or changed after the page mounted).
+  const filter: Filter = $derived($route.params.has('filter') ? parsed.filter : ($preferences?.eventFilter ?? 'all'));
   const panel: Panel = $derived($route.panel);
   const visible = $derived(filterEvents(events, filter));
   const selected = $derived(events.find((e) => e.id === cursor.clipId) ?? null);
@@ -121,11 +131,20 @@
   $effect(() => {
     const c = cam;
     const d = date;
+    void refreshTick;
     if (!c) return;
+    // A refresh (same cam and date, triggered by the today-refresher) must
+    // not clear the list, show the skeleton, or surface an error: the old
+    // list stays on screen and a failure is silently ignored.
+    const key = `${c}|${d}`;
+    const isRefresh = key === lastKey;
+    lastKey = key;
     const seq = ++eventsRequest;
-    loading = true;
-    failed = false;
-    events = [];
+    if (!isRefresh) {
+      loading = true;
+      failed = false;
+      events = [];
+    }
     const month = d.slice(0, 7);
     const prevMonth = addDays(`${month}-01`, -1).slice(0, 7);
     const dayFetches: Promise<{ days: string[] }>[] = [
@@ -133,7 +152,7 @@
     ];
     // Only needed when browsing a past month, so day-next can cross into a
     // month that isn't otherwise loaded.
-    if (month < today.slice(0, 7)) {
+    if (month < $todayDate.slice(0, 7)) {
       const nextMonth = addDays(`${month}-01`, 32).slice(0, 7);
       dayFetches.push(getJson<{ days: string[] }>(daysUrl(c, nextMonth)).catch(() => ({ days: [] })));
     }
@@ -142,13 +161,33 @@
         if (seq !== eventsRequest) return;
         events = e.events;
         days = [...new Set([...d0.days, ...rest.flatMap((r) => r.days)])].sort();
+        updatedAt = new Date();
+        // Always clear the skeleton and any earlier failure on success, even
+        // for a refresh (isRefresh never set loading = true above, so a
+        // dropped earlier response -- one whose seq no longer matches --
+        // would otherwise leave `loading` stuck true forever). A later
+        // successful refresh also clears an earlier failed load.
+        loading = false;
+        failed = false;
       })
       .catch(() => {
-        if (seq === eventsRequest) failed = true;
-      })
-      .finally(() => {
-        if (seq === eventsRequest) loading = false;
+        if (seq !== eventsRequest) return;
+        // Only the error display is gated on !isRefresh: a refresh failure
+        // is silently ignored and the old list stays on screen.
+        if (!isRefresh) failed = true;
+        loading = false;
       });
+  });
+
+  // Refreshes today's events and the days list on its own: every minute
+  // while the tab is visible, and once more when it becomes visible again
+  // (if enough time has passed). Never touches a past day.
+  $effect(() => {
+    // Skips a tick while a load (or an earlier refresh) is still in flight,
+    // so a slow response never gets raced by a second request that would
+    // otherwise get dropped without ever clearing the skeleton.
+    const r = createTodayRefresher({ isToday: () => date === $todayDate, refresh: () => { if (!loading) refreshTick++; } });
+    return () => r.stop();
   });
 
   let lastT = 0;
@@ -194,7 +233,8 @@
 <section class="page">
   <header class="head">
     <h1 data-testid="page-title">Recordings</h1>
-    {#if cam}<DayPicker date={cursor.date} {days} {today} onchange={(d) => go({ date: d, clipId: null, offsetSec: 0 })} />{/if}
+    {#if cam}<DayPicker date={cursor.date} {days} today={$todayDate} onchange={(d) => go({ date: d, clipId: null, offsetSec: 0 })} />{/if}
+    {#if cam && date === $todayDate && updatedAt}<span class="updated" data-testid="events-updated">Updated {formatNow(updatedAt)}</span>{/if}
   </header>
 
   {#if !cam}
@@ -232,9 +272,9 @@
           {/each}
         </div>
         {#if panel === 'downloads'}
-          <DownloadList cameraId={cam} {events} selectedId={cursor.clipId} />
+          <DownloadList cameraId={cam} {events} date={cursor.date} selectedId={cursor.clipId} />
         {:else}
-          <EventList cameraId={cam} events={visible} {filter} selectedId={cursor.clipId}
+          <EventList cameraId={cam} events={visible} {filter} date={cursor.date} selectedId={cursor.clipId}
             onfilter={(f) => go({}, { filter: f })}
             onselect={(e) => go({ clipId: e.id, offsetSec: 0 })} />
         {/if}
@@ -246,6 +286,7 @@
 <style>
   .head { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 14px; }
   .head h1 { margin: 0; }
+  .updated { color: var(--muted); font-size: 12px; }
   .workspace { display: grid; grid-template-columns: minmax(0, 1fr) 340px; gap: 18px; align-items: start; }
   .main { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
   .side { display: flex; flex-direction: column; gap: 10px; max-height: calc(100vh - 170px); overflow: auto; }

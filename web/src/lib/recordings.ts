@@ -154,6 +154,61 @@ export function saveCursor(c: string, cursor: Cursor): void {
   }
 }
 
+export function dayStartMs(date: string): number {
+  const [y, m, d] = date.split('-').map(Number);
+  return new Date(y, m - 1, d).getTime();
+}
+
+// The label a wall clock shows `sec` seconds after local midnight. On DST days
+// that differs from sec/3600, so labels come from the real instant.
+const CLOCK: Intl.DateTimeFormatOptions = { hour: '2-digit', minute: '2-digit', hourCycle: 'h23' };
+export function tickLabel(date: string, sec: number, locale?: string): string {
+  return new Intl.DateTimeFormat(locale, CLOCK).format(new Date(dayStartMs(date) + sec * 1000));
+}
+
+// The label of a wall-clock hour (0–23, as getHours() gives it). Built from the
+// hour itself, not from hour*3600 seconds after midnight: on a DST day those
+// differ (the spring-forward 03:xx hour starts 2 h after midnight).
+function hourLabel(date: string, hour: number, locale?: string): string {
+  const [y, m, d] = date.split('-').map(Number);
+  return new Intl.DateTimeFormat(locale, CLOCK).format(new Date(y, m - 1, d, hour));
+}
+
+// The Live mini timeline's fixed legend: every 6 hours plus the day's end,
+// which reads "24:00" (like the caption), not the next day's "00:00".
+export function legendTicks(date: string, daySec: number, locale?: string): { sec: number; label: string }[] {
+  return [0, 6 * 3600, 12 * 3600, 18 * 3600, daySec].map((sec) => ({ sec, label: sec === daySec ? '24:00' : tickLabel(date, sec, locale) }));
+}
+
+export interface HourGroup {
+  hour: number;
+  label: string;
+  events: EventClip[];
+}
+export const COLLAPSE_OVER = 10;
+
+// Whether an hour group with no explicit open/closed state yet should start
+// open: a busy hour starts collapsed unless it holds the current selection.
+// Shared by EventList and DownloadList so both the template's initial
+// render and the effect's later bookkeeping ever agree, and a busy hour's
+// thumbnails are never built on the very first paint just to be torn down
+// again once the effect decides it should have been collapsed.
+export function defaultGroupOpen(g: HourGroup, selectedId: string | null): boolean {
+  return g.events.length <= COLLAPSE_OVER || g.events.some((e) => e.id === selectedId);
+}
+
+export function groupByHour(events: EventClip[], date: string): HourGroup[] {
+  const groups = new Map<number, EventClip[]>();
+  for (const e of events) {
+    const hour = new Date(e.start).getHours();
+    if (!groups.has(hour)) groups.set(hour, []);
+    groups.get(hour)!.push(e);
+  }
+  return [...groups.entries()]
+    .sort(([a], [b]) => a - b)
+    .map(([hour, list]) => ({ hour, label: `${hourLabel(date, hour)}–${hourLabel(date, hour + 1)}`, events: list }));
+}
+
 export function loadCursor(): { cam: string; cursor: Cursor } | null {
   try {
     const raw = sessionStorage.getItem(CURSOR_KEY);
