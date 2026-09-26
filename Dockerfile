@@ -12,15 +12,17 @@ WORKDIR /app
 # Thumbnails of recorded clips (server/recordings/thumbnail.ts).
 RUN apk add --no-cache ffmpeg
 ENV CACHE_DIR=/var/cache/cams
-# Stamped by the deploy; "dev" for local builds, "main" for build-push.
-ARG APP_VERSION=dev
-ENV APP_VERSION=$APP_VERSION
-ARG BUILD_DATE=
-ENV BUILD_DATE=$BUILD_DATE
 ENV NODE_ENV=production
 COPY package.json package-lock.json ./
 RUN npm ci --omit=dev && npm cache clean --force
 COPY --from=builder /app/dist ./dist
+# Stamped by the deploy; "dev" for local builds, "main" for build-push.
+# Declared after the dependency and build layers: a new version or date
+# changes every layer below its ARG, so earlier they rebuilt npm ci each time.
+ARG APP_VERSION=dev
+ENV APP_VERSION=$APP_VERSION
+ARG BUILD_DATE=
+ENV BUILD_DATE=$BUILD_DATE
 COPY CHANGELOG.md ./
 # CACHE_DIR must exist and be writable by the non-root user below, or the
 # first fill() fails outright (DiskCache.ensureDir()'s mkdir has nothing to
