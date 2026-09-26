@@ -86,7 +86,7 @@ describe('ReolinkClient', () => {
     expect((err as CameraError).message).not.toMatch(/hunter2|127\.0\.0\.1|token=/);
   });
 
-  it('reports camera_offline when the camera answers 503', async () => {
+  it('reports camera_offline when the camera drops the connection', async () => {
     const client = new ReolinkClient(cam);
     state.offline = true;
     await expect(client.status()).rejects.toMatchObject({ code: 'camera_offline' });

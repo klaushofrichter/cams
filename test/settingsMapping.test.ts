@@ -85,6 +85,9 @@ describe('validating patches', () => {
 
   it.each([
     [{ dayNight: 'Purple' }],
+    [{ dayNight: 'toString' }],
+    [{ dayNight: 'constructor' }],
+    [{ irLights: 'hasOwnProperty' }],
     [{ irLights: 'on' }],
     [{ spotlight: { mode: 'disco' } }],
     [{ spotlight: { brightness: 101 } }],

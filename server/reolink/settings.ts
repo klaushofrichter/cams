@@ -146,8 +146,9 @@ export function validateImagePatch(body: unknown): { ok: true; patch: ImagePatch
   const b = body as Obj;
   const details: string[] = [];
   onlyKeys(b, ['dayNight', 'irLights', 'spotlight', 'osd'], '', details);
-  if ('dayNight' in b && !(b.dayNight as string in DAYNIGHT)) details.push('dayNight: auto, color or blackwhite');
-  if ('irLights' in b && !(b.irLights as string in IR)) details.push('irLights: auto or off');
+  // Own keys only: `in` would accept inherited names such as 'toString'.
+  if ('dayNight' in b && !Object.keys(DAYNIGHT).includes(b.dayNight as string)) details.push('dayNight: auto, color or blackwhite');
+  if ('irLights' in b && !Object.keys(IR).includes(b.irLights as string)) details.push('irLights: auto or off');
   if ('spotlight' in b) {
     if (!isObj(b.spotlight)) details.push('spotlight: must be an object');
     else {
