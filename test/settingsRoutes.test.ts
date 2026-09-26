@@ -7,7 +7,7 @@ import { setCameras } from '../server/cameraRegistry';
 import { resetClients } from '../server/reolink/clients';
 import { resetRebootCooldowns } from '../server/routes/settings';
 import { SESSION_COOKIE, signSession } from '../server/session';
-import { createMockCamera, MockCameraOptions, MockState } from './mock-camera/server';
+import { createMockCamera, MockCameraOptions, MockState } from './camera/sim';
 
 const auth = `${SESSION_COOKIE}=${signSession('klaus@klaushofrichter.net')}`;
 let cam: Server;
@@ -22,7 +22,7 @@ const stop = (server: Server) =>
 
 async function start(opts: Partial<MockCameraOptions> = {}) {
   if (cam) await stop(cam);
-  const mock = createMockCamera({ user: 'u', password: 'p', ...opts });
+  const mock = await createMockCamera({ user: 'u', password: 'p', ...opts });
   state = mock.state;
   cam = mock.app.listen(0);
   await new Promise((r) => cam.once('listening', r));
@@ -103,7 +103,11 @@ describe('settings API', () => {
   it('reads device info with storage used and free', async () => {
     const res = await request(createApp()).get('/api/cameras/cam1/device').set('Cookie', auth);
     expect(res.status).toBe(200);
-    expect(res.body).toMatchObject({ model: 'RLC-1224A', storage: { totalMb: 61047, usedMb: 377, mounted: true }, certificate: null });
+    // The camera reports capacity and FREE space; cams shows used = capacity − free.
+    // (The old mock hardcoded 377 MB used; cam-sim derives it from its recordings.)
+    const used = state.hddInfo.capacity - state.hddInfo.size;
+    expect(used).toBeGreaterThan(0);
+    expect(res.body).toMatchObject({ model: 'RLC-1224A', storage: { totalMb: 61047, usedMb: used, mounted: true }, certificate: null });
     expect(res.body.webUiUrl).toBe('https://127.0.0.1/');
   });
 

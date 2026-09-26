@@ -1,3 +1,4 @@
+import { SIMS, simEnv } from './e2e/sims';
 import { defineConfig, devices } from '@playwright/test';
 import { E2E_ENV, E2E_PORT } from './e2e/env';
 
@@ -25,7 +26,7 @@ export default defineConfig({
       testIgnore: /live-teardown\.spec\.ts/,
       use: { ...devices['Desktop Chrome'], channel: 'chrome', viewport: { width: 390, height: 844 }, hasTouch: true },
     },
-    // e2e/live-teardown.spec.ts reads the mock camera's shared /__state, so it
+    // e2e/live-teardown.spec.ts reads the simulators' shared counters, so it
     // can only run once no other spec file is mid-stream against the mock.
     // `dependencies` makes Playwright finish every test in `desktop` and
     // `phone` (across all spec files) before this project starts any of its
@@ -39,20 +40,13 @@ export default defineConfig({
       use: { ...devices['Desktop Chrome'], channel: 'chrome', viewport: { width: 1440, height: 900 } },
     },
   ],
-  // Requires `npm run build` first. The mock camera stands in for the Reolink
-  // (e2e/cameras.json points "Den" at it); "Garage" is deliberately unreachable.
-  // A second mock on 8097 backs "Porch" and always rejects SetWhiteLed, so
-  // settings.spec.ts can exercise a partial save without making cam1/Den's
-  // mock (which live.spec.ts and live-teardown.spec.ts depend on) unreliable.
-  // Playwright merges each `env` with process.env (see
-  // playwright/lib/runner/index.js's WebServerPlugin), so PATH is preserved
-  // even though these entries only list the variables they add.
+  // Requires `npm run build` first. Three cam-sim cameras (e2e/sims.ts) stand
+  // in for Reolinks: Den, Porch (rejects SetWhiteLed) and Shed (refuses
+  // downloads); e2e/cameras.json points at them, and "Garage" is deliberately
+  // unreachable. Playwright merges each `env` with process.env (see
+  // playwright/lib/runner/index.js's WebServerPlugin), so PATH is preserved.
   webServer: [
-    { command: 'npx tsx test/mock-camera/cli.ts', port: 8098, reuseExistingServer: !process.env.CI },
-    { command: 'npx tsx test/mock-camera/cli.ts', port: 8097, reuseExistingServer: !process.env.CI, env: { MOCK_CAMERA_PORT: '8097', MOCK_SETTINGS_FAILURES: 'SetWhiteLed' } },
-    // A third mock on 8096 backs "Shed" and refuses every recording download,
-    // like the real RLC-1224A since 2026-09-26 (Plan 5 breaker and banner).
-    { command: 'npx tsx test/mock-camera/cli.ts', port: 8096, reuseExistingServer: !process.env.CI, env: { MOCK_CAMERA_PORT: '8096', MOCK_DROP_DOWNLOADS: '1000000' } },
+    ...Object.values(SIMS).map((s) => ({ command: 'npx cam-sim', port: s.http, reuseExistingServer: !process.env.CI, env: simEnv(s) })),
     { command: 'npm start', port: E2E_PORT, reuseExistingServer: !process.env.CI, env: E2E_ENV },
   ],
   globalSetup: require.resolve('./e2e/global-setup'),

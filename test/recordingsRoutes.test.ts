@@ -15,7 +15,7 @@ import { resetClients } from '../server/reolink/clients';
 import { getRecordings, resetRecordings } from '../server/recordings/service';
 import { ReolinkClient } from '../server/reolink/client';
 import { SESSION_COOKIE, signSession } from '../server/session';
-import { createMockCamera, MockState } from './mock-camera/server';
+import { createMockCamera, MockState } from './camera/sim';
 import * as thumbnailModule from '../server/recordings/thumbnail';
 
 // Partial mock: real implementation by default, so every test except the
@@ -56,7 +56,7 @@ afterEach(() => {
 });
 
 beforeEach(async () => {
-  const mock = createMockCamera({ user: 'u', password: 'p' });
+  const mock = await createMockCamera({ user: 'u', password: 'p' });
   state = mock.state;
   cam = mock.app.listen(0);
   await new Promise((r) => cam.once('listening', r));
@@ -77,11 +77,11 @@ async function firstClip(date = today()) {
   return res.body.events[0];
 }
 
-// Swaps the running mock camera for a fresh one (with different options,
+// Swaps the running simulated camera for a fresh one (with different options,
 // e.g. a download delay), keeping cam1 pointed at it. Closes the old one.
 async function replaceMockCamera(opts: Parameters<typeof createMockCamera>[0]): Promise<void> {
   await new Promise<void>((r) => cam.close(() => r()));
-  const mock = createMockCamera(opts);
+  const mock = await createMockCamera(opts);
   state = mock.state;
   cam = mock.app.listen(0);
   await new Promise((r) => cam.once('listening', r));
@@ -516,7 +516,7 @@ describe('recordings API', () => {
   // connection mid-transfer must not crash the process; the response just
   // ends, and the transfer slot comes back for the next request.
   //
-  // The mock camera's fixture is small enough that a real Download often
+  // The simulated camera's fixture is small enough that a real Download often
   // finishes before dropDownloads() can fire, which would make this test
   // pass even without the pipeline() error handling it's meant to guard.
   // Stubbing ReolinkClient.prototype.download lets the test control exactly
