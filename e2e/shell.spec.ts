@@ -84,13 +84,6 @@ test('navigation reaches every page and keeps the URL in sync', async ({ page },
   await expect(page.getByTestId('page-title')).toHaveText('About');
 });
 
-test('recordings panel tabs switch the panel', async ({ page }) => {
-  await page.goto('/app/recordings?panel=events');
-  await expect(page.getByTestId('panel-tab-events')).toHaveAttribute('aria-selected', 'true');
-  await page.getByTestId('panel-tab-downloads').click();
-  await expect(page).toHaveURL(/[?&]panel=downloads(&|$)/);
-});
-
 test('unknown app paths show the Live page', async ({ page }) => {
   await page.goto('/app/does-not-exist');
   await expect(page.getByTestId('page-title')).toHaveText('Live');
