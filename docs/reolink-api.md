@@ -22,6 +22,8 @@ the firmware hid most of the bugs listed here.
 ## Contents
 
 - [Basics](#basics)
+- [Camera authentication](#camera-authentication)
+- [DNS, the camera's name and its certificate](#dns-the-cameras-name-and-its-certificate)
 - [Ports and services](#ports-and-services)
 - [Login and tokens](#login-and-tokens)
 - [Token rejection: four shapes](#token-rejection-four-shapes)
@@ -66,6 +68,104 @@ by IP, either pass `--resolve cam1.skylar.technology:443:$CAM` and use that
 name, or use `-k` for quick local tests. In Node, set
 `servername: 'cam1.skylar.technology'` on the TLS options; the name check then
 uses the servername.
+
+## Camera authentication
+
+This section is about logging in **to the camera**. The cams app's own Google
+sign-in is separate.
+
+**Users.** The camera has its own user list (`GetUser`), each with a level of
+`admin` or `guest`. `AddUser` and `DelUser` manage them:
+
+```json
+[{ "cmd": "AddUser", "action": 0, "param": { "User": { "userName": "cams", "password": "…", "level": "admin" } } }]
+```
+
+| User | Level | Used by | Password kept in |
+|---|---|---|---|
+| `admin` | admin | the owner: camera web UI, Reolink app, setup scripts | `~/Development/reolink/.env` (`REOLINK_PASSWORD`) only |
+| `cams` | admin | the cams app | Kubernetes Secret `cams-cameras` (namespace `cams`) only |
+
+- The `cams` user exists so the owner's password never leaves `.env`.
+  `scripts/create-camera-user.sh` creates it:
+  1. It generates a random 24-character password.
+  2. It verifies that the new password can log in.
+  3. It writes the Secret.
+
+  The script never prints the password. It refuses to touch an existing `cams`
+  user unless you pass `--reset`. After a reset it restarts the cams pod,
+  because the pod reads the password only at startup.
+- A second `admin`-level user can do everything cams needs: device info, Snap,
+  FLV live, Search, Download. `guest` has not been tested.
+- The certificate CronJob in the cluster uses its own Secret,
+  `cam1-camera-credentials` (namespace `cam1`), created by
+  `~/Development/reolink/create-cam-secret.sh`.
+
+**Sessions.** `Login` returns a token that is valid for `leaseTime` (3600 s).
+Every other request carries it as `token=` in the query string. This is the
+firmware's design; there is no header alternative. So:
+
+- **Never log camera URLs.** They contain a live token. cams logs only error
+  codes, never request URLs.
+- **Never put the password in a URL.** `user=…&password=…` query
+  authentication exists for some GET endpoints, but Download answers it with
+  404, and a URL with a password ends up in logs and shell history. cams
+  always uses the token.
+- Sessions are limited on the camera. `GetOnline` lists them, e.g.
+  `[cams, admin, admin]`. Reuse one token per client and `Logout` when done.
+  Tokens that are never logged out expire after the lease.
+- Changing a user's password, or rebooting the camera, invalidates its tokens.
+  Clients then see the [token rejection shapes](#token-rejection-four-shapes).
+
+**The camera's web UI** is at `https://<camera IP>/` (e.g.
+`https://192.168.1.164/`), and only from the home network. Log in as `admin`.
+The browser warns about the certificate, because it is issued for
+`cam1.skylar.technology`, not for the IP address (see the next section).
+
+## DNS, the camera's name and its certificate
+
+The camera has a public name, but **that name does not lead to the camera**.
+It exists only so the camera can have a trusted certificate.
+
+```
+cam1.skylar.technology ──DNS (Squarespace)──▶ home public IP ──router :80/:443──▶ k3s cluster (Traefik)
+                                                                                      │
+        camera 192.168.1.164 ◀── ImportCertificate (daily CronJob) ◀── cert-manager (Let's Encrypt, HTTP-01)
+```
+
+- **DNS.** `cam1.skylar.technology` is an A record at the domain's DNS
+  provider (Squarespace, no API) pointing at the home's public IP. The ASUS
+  router forwards ports 80 and 443 to the Kubernetes cluster, not to the
+  camera.
+- **Certificate.** cert-manager in the cluster (namespace `cam1`) gets a
+  Let's Encrypt certificate for that name through the HTTP-01 challenge,
+  which the cluster answers. The CronJob `cam1-cert-push` then installs it on
+  the camera daily at 04:17 America/Chicago:
+  1. It calls `CertificateClear`, because an import over an existing
+     certificate is silently ignored.
+  2. It waits and logs in again.
+  3. It calls `ImportCertificate`.
+
+  Grafana alerts fire if the push goes stale or the certificate stops renewing.
+- **No LAN DNS override.** On the home network, `cam1.skylar.technology` still
+  resolves to the public IP, i.e. to the cluster. The stock ASUS firmware has no
+  custom DNS entries, and none was added on purpose. So **every client reaches
+  the camera by IP** and checks the certificate against the name:
+  - **Node** (cams): `host: '192.168.1.164'` with TLS
+    `servername: 'cam1.skylar.technology'`. This is `tlsServername` in the
+    cams camera config; the name check uses the servername.
+  - **curl:**
+    ```sh
+    curl --resolve cam1.skylar.technology:443:192.168.1.164 https://cam1.skylar.technology/cgi-bin/api.cgi?cmd=Login …
+    ```
+  - **Browser:** by IP, so expect a certificate warning.
+- **The Reolink mobile app** doesn't use any of this. It talks to the camera
+  over Reolink's own protocol (port 9000) or the Reolink cloud relay.
+- **The IP address is configuration.** The camera gets its address by DHCP,
+  with no reservation as of 2026-09-26. If the address changes, cams and the
+  certificate CronJob lose the camera. They store `192.168.1.164` in the
+  Secrets `cams-cameras` and `cam1-camera-credentials`. A DHCP reservation on
+  the router would prevent that.
 
 ## Ports and services
 
