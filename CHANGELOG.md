@@ -9,4 +9,4 @@ published as [GitHub releases](https://github.com/klaushofrichter/cams/releases)
 ## [Unreleased]
 
 
-- Fix: clip playback, thumbnails and downloads failed on the real camera (it drops a Download whose source path is percent-encoded); one transfer at a time per camera, like the camera's own web UI.
+- Fix: an event whose SD and full-quality copies end a few seconds apart showed as two recordings; a clip still being recorded showed with a 16-hour length. A clip fetch the camera resets is retried once.

@@ -225,7 +225,7 @@ export class ReolinkClient {
   private async revalidateAfterReset(usedToken: string): Promise<void> {
     await this.command('GetDevInfo'); // a CameraError from here is rethrown as-is
     if (!this.token || this.token.value === usedToken) {
-      throw new CameraError('camera_offline', 'live stream connection reset by camera; session is valid');
+      throw new CameraError('camera_offline', 'connection reset by camera; session is valid');
     }
   }
 

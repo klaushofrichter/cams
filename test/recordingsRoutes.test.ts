@@ -80,6 +80,50 @@ async function replaceMockCamera(opts: Parameters<typeof createMockCamera>[0]): 
 }
 
 describe('recordings API', () => {
+  // Real camera, 2026-09-26: one event's sub and main copies ended 2 s apart,
+  // and a clip still being recorded was listed with end time 000000.
+  it('pairs sub and main copies by start time and hides a clip still being recorded', async () => {
+    await replaceMockCamera({
+      user: 'u',
+      password: 'p',
+      clips: [
+        { daysAgo: 0, start: '065221', end: '065224', mainEnd: '065226', triggers: ['motion'] },
+        { daysAgo: 0, start: '072758', end: '000000', triggers: ['motion'] },
+      ],
+    });
+    const res = await request(createApp()).get(`/api/cameras/cam1/events?date=${today()}`).set('Cookie', auth);
+    expect(res.status).toBe(200);
+    expect(res.body.events).toHaveLength(1);
+    const [e] = res.body.events;
+    expect(e.id).toMatch(/^\d{8}-065221-065226$/);
+    expect(e.durationSec).toBe(5);
+    expect(e.sizeSub).toBeGreaterThan(0);
+    expect(e.sizeMain).toBeGreaterThan(0);
+    // Both qualities resolve through the paired id.
+    for (const q of ['sub', 'main']) {
+      const d = await request(createApp()).get(`/api/cameras/cam1/clips/${e.id}/download?quality=${q}`).set('Cookie', auth);
+      expect(d.status).toBe(200);
+      expect(d.headers['content-disposition']).toContain(`-${q}.mp4`);
+    }
+  });
+
+  it('retries once when the camera resets a clip fetch', async () => {
+    await replaceMockCamera({ user: 'u', password: 'p', dropFirstDownloads: 1 });
+    const e = await firstClip();
+    const res = await request(createApp()).get(`/api/cameras/cam1/clips/${e.id}/video`).set('Cookie', auth);
+    expect(res.status).toBe(200);
+    expect(state.droppedDownloads).toBe(1);
+    expect(state.downloads).toBe(1);
+  });
+
+  it('keeps a clip that really ends at midnight', async () => {
+    await replaceMockCamera({ user: 'u', password: 'p', clips: [{ daysAgo: 1, start: '235940', end: '000000', triggers: ['motion'] }] });
+    const date = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Chicago' }).format(new Date(Date.now() - 86400_000 * 1));
+    const res = await request(createApp()).get(`/api/cameras/cam1/events?date=${date}`).set('Cookie', auth);
+    // (stepBackDate in the mock uses calendar days; this matches except in the DST hour.)
+    expect(res.body.events.map((x: { durationSec: number }) => x.durationSec)).toEqual([20]);
+  });
+
   it('lists today\'s events with exact times, triggers and sizes', async () => {
     const res = await request(createApp()).get(`/api/cameras/cam1/events?date=${today()}`).set('Cookie', auth);
     expect(res.status).toBe(200);

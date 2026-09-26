@@ -21,6 +21,9 @@ export interface MockCameraOptions {
   // How long each Search takes (default 20 ms); a second Search arriving in
   // that window gets rspCode -54, like the firmware.
   searchDelayMs?: number;
+  // Resets the connection for the first N valid Downloads, like the
+  // firmware occasionally does before a retry succeeds.
+  dropFirstDownloads?: number;
 }
 
 export interface MockClip {
@@ -28,6 +31,9 @@ export interface MockClip {
   start: string; // HHMMSS camera-local
   end: string;
   triggers: ('person' | 'vehicle' | 'pet' | 'motion')[];
+  // Firmware: the main-stream copy of an event can end a few seconds after
+  // the sub-stream copy (e.g. sub 065221_065224, main 065221_065226).
+  mainEnd?: string;
 }
 
 // Four clips today, two yesterday: one per trigger, so filters and the
@@ -54,6 +60,7 @@ export interface MockState {
   rejectAllStreams: boolean;
   downloads: number;
   activeDownloads: number;
+  droppedDownloads: number;
   revokeTokens(): void;
   // Forcibly ends every open /flv connection, simulating a camera-side drop
   // (reset, reboot) rather than the viewer leaving.
@@ -123,7 +130,7 @@ function clipNames(clip: MockClip, stream: 'sub' | 'main'): { name: string; size
   const dst = isDstOn(date);
   const ymd = date.replaceAll('-', '');
   const size = stream === 'sub' ? 0x927c9 : 0x4eb60d;
-  const base = `Rec${stream === 'sub' ? 'S' : 'M'}0A_${dst ? 'DST' : ''}${ymd}_${clip.start}_${clip.end}_0_${flagsHex(stream, clip.triggers)}_${size.toString(16).toUpperCase()}.mp4`;
+  const base = `Rec${stream === 'sub' ? 'S' : 'M'}0A_${dst ? 'DST' : ''}${ymd}_${clip.start}_${stream === 'main' && clip.mainEnd ? clip.mainEnd : clip.end}_0_${flagsHex(stream, clip.triggers)}_${size.toString(16).toUpperCase()}.mp4`;
   return { name: `/mnt/sda/Mp4Record/${date}/${base}`, size, date };
 }
 
@@ -160,6 +167,7 @@ export function createMockCamera(opts: MockCameraOptions): MockCamera {
     rejectAllStreams: false,
     downloads: 0,
     activeDownloads: 0,
+    droppedDownloads: 0,
     revokeTokens: () => tokens.clear(),
     dropStreams: () => {
       for (const res of activeResponses) res.destroy(new Error('mock camera dropped the stream'));
@@ -270,6 +278,11 @@ export function createMockCamera(opts: MockCameraOptions): MockCamera {
       if (!valid(req)) {
         // Firmware: HTTP 401, text/html, empty body.
         res.status(401).type('text/html').end();
+        return;
+      }
+      if ((opts.dropFirstDownloads ?? 0) > state.droppedDownloads) {
+        state.droppedDownloads++;
+        req.socket.destroy();
         return;
       }
       const source = String(req.query.source ?? '');
