@@ -1,11 +1,12 @@
 <script lang="ts">
+  import { untrack } from 'svelte';
   import DayPicker from '../components/DayPicker.svelte';
   import Timeline from '../components/Timeline.svelte';
   import ClipPlayer from '../components/ClipPlayer.svelte';
   import EventList from '../components/EventList.svelte';
   import DownloadList from '../components/DownloadList.svelte';
   import { cameras, selectedCameraId } from '../lib/stores';
-  import { navigate, route, type Panel } from '../lib/router';
+  import { navigate, replaceRoute, route, type Panel } from '../lib/router';
   import { getJson } from '../lib/api';
   import {
     addDays, clipAtSecond, cursorSearch, daysUrl, downloadUrl, eventsUrl, filterEvents, loadCursor, localDate,
@@ -35,43 +36,92 @@
     }
     return p;
   });
+  // A primitive projection of parsed.cam: unlike `parsed` (a fresh object on
+  // every route change), this only changes value when the camera in the URL
+  // actually changes, so effects that depend on it don't fire on every
+  // clip/filter/panel navigation.
+  const urlCam = $derived(parsed.cam);
   const cam = $derived(parsed.cam && $cameras.some((c) => c.id === parsed.cam) ? parsed.cam : $selectedCameraId);
   const cursor: Cursor = $derived(parsed.cursor);
+  // Likewise, a primitive projection of cursor.date for the events effect.
+  const date = $derived(cursor.date);
   const filter: Filter = $derived(parsed.filter);
   const panel: Panel = $derived($route.panel);
   const visible = $derived(filterEvents(events, filter));
   const selected = $derived(events.find((e) => e.id === cursor.clipId) ?? null);
 
-  function go(next: Partial<Cursor>, opts: { panel?: Panel; filter?: Filter } = {}) {
+  function go(next: Partial<Cursor>, opts: { panel?: Panel; filter?: Filter } = {}, mode: 'push' | 'replace' = 'push') {
     if (!cam) return;
     const c: Cursor = { ...cursor, ...next };
     saveCursor(cam, c);
-    navigate(`/app/recordings${cursorSearch(cam, c, opts.panel ?? panel, opts.filter ?? filter)}`);
+    const href = `/app/recordings${cursorSearch(cam, c, opts.panel ?? panel, opts.filter ?? filter)}`;
+    if (mode === 'replace') replaceRoute(href);
+    else navigate(href);
   }
 
-  // Keep the picker and the page's camera in step.
+  // Picking a camera in the header should follow this page to it, keeping
+  // the date but starting a fresh clip.
+  function switchCamera(newCam: string) {
+    const c: Cursor = { ...cursor, clipId: null, offsetSec: 0 };
+    saveCursor(newCam, c);
+    navigate(`/app/recordings${cursorSearch(newCam, c, panel, filter)}`);
+  }
+
+  // Keep the picker and the page's camera in step, in both directions,
+  // without looping: each effect tracks only the one signal that should
+  // drive it (urlCam, $selectedCameraId), reading everything else through
+  // untrack so it isn't re-run by its own side effect.
   $effect(() => {
-    if (parsed.cam && parsed.cam !== $selectedCameraId && $cameras.some((c) => c.id === parsed.cam)) selectedCameraId.set(parsed.cam);
+    const p = urlCam;
+    untrack(() => {
+      if (p && p !== $selectedCameraId && $cameras.some((c) => c.id === p)) selectedCameraId.set(p);
+    });
+  });
+  $effect(() => {
+    const sel = $selectedCameraId;
+    untrack(() => {
+      if (sel && sel !== cam && $cameras.some((c) => c.id === sel)) switchCamera(sel);
+    });
   });
 
+  // A restored session cursor (no date/clip in the URL) is only ever
+  // adopted once; after that the URL itself is canonical.
+  let restoredOnce = false;
   $effect(() => {
     const c = cam;
-    const date = cursor.date;
+    if (restoredOnce || !c) return;
+    if (!$route.params.has('date') && !$route.params.has('clip')) go({}, {}, 'replace');
+    restoredOnce = true;
+  });
+
+  // Fetches events and the days-with-recordings list; depends only on the
+  // camera and the date (both primitives), so selecting a clip, changing
+  // the filter or switching panels never re-fetches or remounts the
+  // Timeline (which would reset its zoom).
+  $effect(() => {
+    const c = cam;
+    const d = date;
     if (!c) return;
     const seq = ++eventsRequest;
     loading = true;
     failed = false;
-    const month = date.slice(0, 7);
+    events = [];
+    const month = d.slice(0, 7);
     const prevMonth = addDays(`${month}-01`, -1).slice(0, 7);
-    Promise.all([
-      getJson<{ events: EventClip[] }>(eventsUrl(c, date)),
-      getJson<{ days: string[] }>(daysUrl(c, month)),
+    const dayFetches: Promise<{ days: string[] }>[] = [
       getJson<{ days: string[] }>(daysUrl(c, prevMonth)).catch(() => ({ days: [] })),
-    ])
-      .then(([e, d, dPrev]) => {
+    ];
+    // Only needed when browsing a past month, so day-next can cross into a
+    // month that isn't otherwise loaded.
+    if (month < today.slice(0, 7)) {
+      const nextMonth = addDays(`${month}-01`, 32).slice(0, 7);
+      dayFetches.push(getJson<{ days: string[] }>(daysUrl(c, nextMonth)).catch(() => ({ days: [] })));
+    }
+    Promise.all([getJson<{ events: EventClip[] }>(eventsUrl(c, d)), getJson<{ days: string[] }>(daysUrl(c, month)), ...dayFetches])
+      .then(([e, d0, ...rest]) => {
         if (seq !== eventsRequest) return;
         events = e.events;
-        days = [...new Set([...d.days, ...dPrev.days])].sort();
+        days = [...new Set([...d0.days, ...rest.flatMap((r) => r.days)])].sort();
       })
       .catch(() => {
         if (seq === eventsRequest) failed = true;
@@ -92,6 +142,11 @@
     const e = clipAtSecond(events, cursor.date, sec);
     if (e) go({ clipId: e.id, offsetSec: Math.max(0, Math.floor(sec - secondsIntoDay(e.start, cursor.date))) });
   }
+
+  function step(dir: -1 | 1) {
+    const n = selected && neighbour(visible, selected.id, dir);
+    if (n) go({ clipId: n.id, offsetSec: 0 });
+  }
 </script>
 
 <section class="page">
@@ -108,10 +163,11 @@
         <ClipPlayer
           src={selected ? videoUrl(cam, selected.id) : null}
           startAt={cursor.offsetSec}
-          hasPrev={!!(selected && neighbour(events, selected.id, -1))}
-          hasNext={!!(selected && neighbour(events, selected.id, 1))}
-          onprev={() => { const p = selected && neighbour(events, selected.id, -1); if (p) go({ clipId: p.id, offsetSec: 0 }); }}
-          onnext={() => { const n = selected && neighbour(events, selected.id, 1); if (n) go({ clipId: n.id, offsetSec: 0 }); }}
+          hasPrev={!!(selected && neighbour(visible, selected.id, -1))}
+          hasNext={!!(selected && neighbour(visible, selected.id, 1))}
+          onprev={() => step(-1)}
+          onnext={() => step(1)}
+          onauto={() => { const n = selected && neighbour(visible, selected.id, 1); if (n) go({ clipId: n.id, offsetSec: 0 }, {}, 'replace'); }}
           ontime={onTime}
           downloadHref={selected ? downloadUrl(cam, selected.id, 'main') : null}
         />
@@ -122,7 +178,7 @@
         {:else if events.length === 0}
           <p class="note" data-testid="no-recordings">No recordings on {cursor.date}.</p>
         {:else}
-          <Timeline {events} date={cursor.date} selectedId={cursor.clipId} onpick={pickSecond} />
+          <Timeline {events} date={cursor.date} selectedId={cursor.clipId} onpick={pickSecond} onstep={step} />
         {/if}
       </div>
 

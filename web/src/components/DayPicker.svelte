@@ -16,7 +16,7 @@
     max={today}
     onchange={(e) => {
       const v = (e.currentTarget as HTMLInputElement).value;
-      if (v) onchange(v);
+      if (v && v <= today) onchange(v);
     }}
   />
   <button data-testid="day-next" disabled={!nextDay} onclick={() => nextDay && onchange(nextDay)} aria-label="Next day with recordings">

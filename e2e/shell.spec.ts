@@ -61,8 +61,13 @@ test('navigation reaches every page and keeps the URL in sync', async ({ page },
       await page.getByTestId('sidebar').getByTestId(`nav-${id}`).click();
     }
   };
-  const cases: [string, string, string][] = [
-    ['history', '/app/recordings?panel=history', 'Recordings'],
+  // The first landing on the recordings page (from a plain nav href with no
+  // cam/date/clip) canonicalises its own URL once it resolves a camera
+  // (adding cam, date, t and filter); staying on the page and switching
+  // panels afterwards no longer rewrites the URL, so those cases keep the
+  // plain nav-item href.
+  const cases: [string, string | RegExp, string][] = [
+    ['history', /^http:\/\/[^/]+\/app\/recordings\?.*[?&]panel=history(&|$)/, 'Recordings'],
     ['events', '/app/recordings?panel=events', 'Recordings'],
     ['downloads', '/app/recordings?panel=downloads', 'Recordings'],
     ['settings', '/app/settings', 'Settings'],

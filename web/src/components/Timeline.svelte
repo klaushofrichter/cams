@@ -6,6 +6,7 @@
     date,
     selectedId,
     onpick,
+    onstep,
     compact = false,
     testid = 'timeline',
   }: {
@@ -13,6 +14,7 @@
     date: string;
     selectedId: string | null;
     onpick: (sec: number) => void;
+    onstep: (dir: -1 | 1) => void;
     compact?: boolean;
     testid?: string;
   } = $props();
@@ -39,6 +41,16 @@
     const frac = Math.min(1, Math.max(0, (e.clientX - rect.left) / rect.width));
     onpick(win.start + frac * (win.end - win.start));
   }
+
+  function keydown(e: KeyboardEvent) {
+    if (e.key === 'ArrowLeft') {
+      e.preventDefault();
+      onstep(-1);
+    } else if (e.key === 'ArrowRight') {
+      e.preventDefault();
+      onstep(1);
+    }
+  }
 </script>
 
 <div class="wrap" class:compact>
@@ -49,8 +61,7 @@
       {/each}
     </div>
   {/if}
-  <!-- svelte-ignore a11y_click_events_have_key_events -->
-  <div class="bar" data-testid={testid} role="slider" tabindex="0" aria-label="Recordings timeline" aria-valuemin={0} aria-valuemax={daySec} aria-valuenow={Math.round(center)} onclick={click}>
+  <div class="bar" data-testid={testid} role="slider" tabindex="0" aria-label="Recordings timeline" aria-valuemin={0} aria-valuemax={daySec} aria-valuenow={Math.round(center)} onclick={click} onkeydown={keydown}>
     {#each segs as s (s.id)}
       <span class="seg" class:ai={s.ai} class:on={s.id === selectedId} data-testid="timeline-seg" data-clip-id={s.id} style={`left:${s.left}%;width:${s.width}%`}></span>
     {/each}

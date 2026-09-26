@@ -60,6 +60,15 @@ export function navigate(href: string): void {
   sync();
 }
 
+// Auto-advance and cursor restoration replace the current history entry
+// instead of pushing a new one, so the back button doesn't have to step
+// through every clip or re-play a stale restore.
+export function replaceRoute(href: string): void {
+  if (href === location.pathname + location.search) return;
+  history.replaceState({}, '', href);
+  sync();
+}
+
 export function initRouter(): () => void {
   sync();
   addEventListener('popstate', sync);

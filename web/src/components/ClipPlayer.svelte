@@ -8,6 +8,7 @@
     hasNext,
     onprev,
     onnext,
+    onauto,
     ontime,
     downloadHref,
   }: {
@@ -17,6 +18,7 @@
     hasNext: boolean;
     onprev: () => void;
     onnext: () => void;
+    onauto?: () => void;
     ontime: (sec: number) => void;
     downloadHref: string | null;
   } = $props();
@@ -25,12 +27,39 @@
   let playing = $state(false);
   let current = $state(0);
   let loadedSrc: string | null = null;
+  let appliedStart = 0;
 
+  // Handles the src cycling through A -> null -> A (a video element is
+  // destroyed and recreated when the player is hidden and shown again): the
+  // null branch resets loadedSrc so the same src is treated as unloaded on
+  // the new element, instead of being skipped as "already loaded".
   $effect(() => {
-    if (!video || !src || src === loadedSrc) return;
+    if (!src) {
+      loadedSrc = null;
+      current = 0;
+      playing = false;
+      return;
+    }
+    if (!video) {
+      loadedSrc = null;
+      return;
+    }
+    if (src === loadedSrc) {
+      // A timeline click within the clip that's already playing: seek
+      // without reloading the source.
+      if (startAt !== appliedStart) {
+        appliedStart = startAt;
+        video.currentTime = startAt;
+      }
+      return;
+    }
     loadedSrc = src;
+    appliedStart = startAt;
+    current = 0;
+    playing = false;
     const v = video;
     const at = startAt;
+    const controller = new AbortController();
     v.src = src;
     v.addEventListener(
       'loadedmetadata',
@@ -38,8 +67,9 @@
         if (at > 0 && at < v.duration) v.currentTime = at;
         void v.play().catch(() => (playing = false));
       },
-      { once: true },
+      { once: true, signal: controller.signal },
     );
+    return () => controller.abort();
   });
 
   function toggle() {
@@ -67,7 +97,7 @@
         current = video?.currentTime ?? 0;
         ontime(current);
       }}
-      onended={() => hasNext && onnext()}
+      onended={() => hasNext && (onauto ?? onnext)()}
     ></video>
   {:else}
     <div class="empty">Select a recording on the timeline or in the list.</div>
