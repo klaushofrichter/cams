@@ -25,13 +25,18 @@ export class DiskCache {
   // A stray *.tmp-* file can only be a leftover from a process that crashed
   // mid-fill: every in-flight fill of this process starts after ensureDir()
   // and cleans up its own temp file on success or failure, so any tmp file
-  // seen here predates this process entirely.
+  // seen here predates this process entirely. This sweep assumes one process
+  // owns this cache directory at a time (true in production: a single pod
+  // per cache volume); a second process sharing the same dir concurrently
+  // could have its own in-progress tmp file swept here.
   private ensureDir(): Promise<void> {
     this.ready ??= (async () => {
       await fs.mkdir(this.dir, { recursive: true });
       const names = await fs.readdir(this.dir).catch(() => []);
       await Promise.all(
-        names.filter((n) => n.includes('.tmp-')).map((n) => fs.rm(join(this.dir, n), { force: true })),
+        // A single bad entry (permissions, a concurrent unlink, ...) must
+        // not poison `ready` and leave every future fill() rejecting.
+        names.filter((n) => n.includes('.tmp-')).map((n) => fs.rm(join(this.dir, n), { force: true }).catch(() => {})),
       );
     })();
     return this.ready;

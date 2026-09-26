@@ -1,7 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import request from 'supertest';
 import http from 'http';
+import { PassThrough } from 'stream';
+import { IncomingMessage } from 'http';
 import { rmSync, writeFileSync } from 'fs';
+import { createRequire } from 'module';
 import { join } from 'path';
 import { Server } from 'http';
 import { AddressInfo } from 'net';
@@ -9,6 +12,7 @@ import { createApp } from '../server/app';
 import { setCameras } from '../server/cameraRegistry';
 import { resetClients } from '../server/reolink/clients';
 import { resetRecordings } from '../server/recordings/service';
+import { ReolinkClient } from '../server/reolink/client';
 import { SESSION_COOKIE, signSession } from '../server/session';
 import { createMockCamera, MockState } from './mock-camera/server';
 import * as thumbnailModule from '../server/recordings/thumbnail';
@@ -19,6 +23,15 @@ vi.mock('../server/recordings/thumbnail', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../server/recordings/thumbnail')>();
   return { ...actual };
 });
+
+// node:fs's ESM namespace object isn't configurable (vi.spyOn(fs, 'stat')
+// throws "Cannot redefine property"), and Express's `send` package (used by
+// res.sendFile) reaches fs.stat via its own `require('fs')`, a separate
+// CJS load that vi.mock('fs', ...) doesn't intercept either. Going through
+// Node's own require() gets the one real, mutable module.exports object
+// every consumer (ESM or CJS) actually shares, so a plain property
+// reassignment on it is visible everywhere, including inside `send`.
+const nodeRequire = createRequire(import.meta.url);
 
 const auth = `${SESSION_COOKIE}=${signSession('klaus@klaushofrichter.net')}`;
 const today = () => new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Chicago' }).format(new Date());
@@ -266,6 +279,8 @@ describe('recordings API', () => {
 
   // Fix round 1, item 2: a client that disconnects mid-download must free
   // its camera transfer slot rather than leaking it.
+  // Fix round 2, item 4: wait on the actual condition instead of a fixed
+  // sleep before asserting.
   it('frees the camera transfer slot when a client disconnects mid-download', async () => {
     const e = await firstClip();
     await replaceMockCamera({ user: 'u', password: 'p', downloadDelayMs: 150 });
@@ -278,25 +293,122 @@ describe('recordings API', () => {
     };
     // TRANSFERS_PER_CAMERA is 2: both of these occupy the whole gate.
     await Promise.all([abort(), abort()]);
-    await new Promise((r) => setTimeout(r, 100));
-    expect(state.activeDownloads).toBe(0);
+    await vi.waitFor(() => expect(state.activeDownloads).toBe(0));
     // The gate must be free again: a third download completes normally.
     const res = await request(app).get(`/api/cameras/cam1/clips/${e.id}/download`).set('Cookie', auth);
     expect(res.status).toBe(200);
   });
 
-  // Fix round 1, item 2: the camera dropping the connection mid-transfer
-  // must not crash the process; the response just ends.
+  // Fix round 2, item 2: a request aborted while still queued for a camera
+  // transfer slot (demand > TRANSFERS_PER_CAMERA) must never reach the
+  // camera at all, and must not hold up the slot for anyone else.
+  it('aborts a download while it is still queued for a transfer slot, without it ever reaching the camera', async () => {
+    const e = await firstClip();
+    await replaceMockCamera({ user: 'u', password: 'p', downloadDelayMs: 150 });
+    const app = createApp();
+    const start = () => request(app).get(`/api/cameras/cam1/clips/${e.id}/download`).set('Cookie', auth);
+    const first = start();
+    const second = start();
+    const doneFirst = first.then(() => {}).catch(() => {});
+    const doneSecond = second.then(() => {}).catch(() => {});
+    // Give the gate time to actually hand out both slots (each reaches the
+    // camera and is now sitting in the mock's downloadDelayMs delay) before
+    // starting a third: only then is it guaranteed to queue rather than
+    // race the first two for a slot.
+    await vi.waitFor(() => expect(state.downloads).toBe(2));
+    const third = start(); // TRANSFERS_PER_CAMERA is 2: this one queues behind the first two
+    const doneThird = third.then(() => {}).catch(() => {});
+    // Give the third request a moment to actually reach openDownload() and
+    // queue for the gate before aborting it.
+    await new Promise((r) => setTimeout(r, 15));
+    third.abort();
+    await new Promise((r) => setTimeout(r, 15));
+    first.abort();
+    second.abort();
+    await Promise.all([doneFirst, doneSecond, doneThird]);
+    await vi.waitFor(() => expect(state.activeDownloads).toBe(0));
+    // Only the first two ever reached the camera; the queued-then-aborted
+    // third never did.
+    expect(state.downloads).toBe(2);
+    // The gate is free again: a fourth download completes normally.
+    const res = await request(app).get(`/api/cameras/cam1/clips/${e.id}/download`).set('Cookie', auth);
+    expect(res.status).toBe(200);
+  });
+
+  // Fix round 1, item 2 / fix round 2, item 1: the camera dropping the
+  // connection mid-transfer must not crash the process; the response just
+  // ends, and the transfer slot comes back for the next request.
+  //
+  // The mock camera's fixture is small enough that a real Download often
+  // finishes before dropDownloads() can fire, which would make this test
+  // pass even without the pipeline() error handling it's meant to guard.
+  // Stubbing ReolinkClient.prototype.download lets the test control exactly
+  // when the "camera" fails, independent of fixture size or network speed.
   it('does not crash the process when the camera drops the connection mid-download', async () => {
     const e = await firstClip();
     const app = createApp();
-    const pending = request(app).get(`/api/cameras/cam1/clips/${e.id}/download?quality=main`).set('Cookie', auth);
-    const settled = pending.then((r) => r).catch((err) => err);
-    await new Promise((r) => setTimeout(r, 20));
-    state.dropDownloads();
-    await settled;
-    // The process (and this app instance) must still be healthy afterwards.
+    const upstream = new PassThrough();
+    (upstream as unknown as IncomingMessage).headers = { 'content-type': 'video/mp4' };
+    (upstream as unknown as IncomingMessage).statusCode = 200;
+    const spy = vi.spyOn(ReolinkClient.prototype, 'download').mockResolvedValue(upstream as unknown as IncomingMessage);
+    try {
+      const pending = request(app).get(`/api/cameras/cam1/clips/${e.id}/download?quality=main`).set('Cookie', auth);
+      const settled = pending.then((r) => r).catch((err) => err);
+      await new Promise((r) => setTimeout(r, 20));
+      upstream.write(Buffer.alloc(1000, 1));
+      await new Promise((r) => setTimeout(r, 10));
+      // The camera drops the connection mid-transfer.
+      upstream.destroy(new Error('camera dropped'));
+      const result = await settled;
+      // The response must have ended (not hung): either an HTTP response
+      // came back, or the client sees the connection error/reset - either
+      // way `settled` resolved, which is the main assertion.
+      expect(result).toBeDefined();
+    } finally {
+      spy.mockRestore();
+    }
+    // The process (and this app instance) must still be healthy afterwards,
+    // and the transfer slot this stub held must have come back.
     const ok = await request(createApp()).get('/api/me').set('Cookie', auth);
     expect(ok.status).toBe(200);
+    const again = await request(app).get(`/api/cameras/cam1/clips/${e.id}/download`).set('Cookie', auth);
+    expect(again.status).toBe(200);
+  });
+
+  // Fix round 2, item 3: sendFile() failing before any headers went out
+  // (e.g. the cached file vanished between fill() and sendFile()) must
+  // answer with a JSON error, not hang the request.
+  it('answers with a JSON error when sendFile fails before headers are sent', async () => {
+    const e = await firstClip();
+    const app = createApp();
+    // Warm the cache so withClip()/fill() succeed normally; the failure
+    // happens only inside sendFile() itself. Express's `send` package (used
+    // by res.sendFile) calls the callback-style fs.stat first, before ever
+    // opening the file or writing headers - stubbing it to fail (with a
+    // code other than ENOENT, which `send` handles itself as a 404)
+    // simulates the file vanishing between withClip() resolving and
+    // sendFile() actually reading it.
+    await request(app).get(`/api/cameras/cam1/clips/${e.id}/video`).set('Cookie', auth);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const realFs = nodeRequire('fs') as typeof import('fs');
+    const originalStat = realFs.stat;
+    // Restores itself on its first (and only expected) call, so this
+    // affects exactly one fs.stat invocation - the one `send` makes for
+    // this request - regardless of how many other fs.stat calls happen
+    // concurrently elsewhere in the app.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (realFs as any).stat = (...args: any[]) => {
+      realFs.stat = originalStat;
+      const cb = args[args.length - 1];
+      cb(Object.assign(new Error('boom'), { code: 'EACCES' }));
+    };
+    let res;
+    try {
+      res = await request(app).get(`/api/cameras/cam1/clips/${e.id}/video`).set('Cookie', auth);
+    } finally {
+      realFs.stat = originalStat;
+    }
+    expect(res.status).toBe(500);
+    expect(res.type).toBe('application/json');
   });
 });
