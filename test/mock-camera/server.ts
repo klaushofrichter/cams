@@ -259,6 +259,12 @@ export function createMockCamera(opts: MockCameraOptions): MockCamera {
 
   app.get('/cgi-bin/api.cgi', (req: Request, res: Response) => {
     if (req.query.cmd === 'Download') {
+      // Firmware: a percent-encoded source path makes the camera drop the
+      // connection without any response.
+      if (/[?&]source=[^&]*%2F/i.test(req.originalUrl)) {
+        req.socket.destroy();
+        return;
+      }
       if (!valid(req)) {
         // Firmware: HTTP 401, text/html, empty body.
         res.status(401).type('text/html').end();

@@ -309,6 +309,12 @@ describe('Semaphore', () => {
 });
 
 describe('ReolinkClient recordings', () => {
+  it('refuses to download a recording name with unexpected characters', async () => {
+    const client = new ReolinkClient(cam);
+    await expect(client.download('/mnt/sda/x.mp4&cmd=Reboot')).rejects.toMatchObject({ code: 'camera_error' });
+    await expect(client.download('/mnt/sda/a b.mp4')).rejects.toMatchObject({ code: 'camera_error' });
+  });
+
   // Firmware: two Searches at once fail with rspCode -54 (the other may come
   // back empty), so the client must run a camera's searches one at a time.
   it('runs concurrent searches one at a time, like the firmware needs', async () => {

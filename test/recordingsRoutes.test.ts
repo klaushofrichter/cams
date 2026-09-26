@@ -299,7 +299,7 @@ describe('recordings API', () => {
       setTimeout(() => test.abort(), 20);
       return done;
     };
-    // TRANSFERS_PER_CAMERA is 2: both of these occupy the whole gate.
+    // TRANSFERS_PER_CAMERA is 1: the first holds the slot, the second queues.
     await Promise.all([abort(), abort()]);
     await vi.waitFor(() => expect(state.activeDownloads).toBe(0));
     // The gate must be free again: a third download completes normally.
@@ -316,15 +316,12 @@ describe('recordings API', () => {
     const app = createApp();
     const start = () => request(app).get(`/api/cameras/cam1/clips/${e.id}/download`).set('Cookie', auth);
     const first = start();
-    const second = start();
     const doneFirst = first.then(() => {}).catch(() => {});
-    const doneSecond = second.then(() => {}).catch(() => {});
-    // Give the gate time to actually hand out both slots (each reaches the
-    // camera and is now sitting in the mock's downloadDelayMs delay) before
-    // starting a third: only then is it guaranteed to queue rather than
-    // race the first two for a slot.
-    await vi.waitFor(() => expect(state.downloads).toBe(2));
-    const third = start(); // TRANSFERS_PER_CAMERA is 2: this one queues behind the first two
+    // Wait until the first holds the only slot (it reached the camera and is
+    // sitting in the mock's downloadDelayMs delay): only then is the next
+    // request guaranteed to queue.
+    await vi.waitFor(() => expect(state.downloads).toBe(1));
+    const third = start(); // TRANSFERS_PER_CAMERA is 1: this one queues behind the first
     const doneThird = third.then(() => {}).catch(() => {});
     // Give the third request a moment to actually reach openDownload() and
     // queue for the gate before aborting it.
@@ -332,12 +329,11 @@ describe('recordings API', () => {
     third.abort();
     await new Promise((r) => setTimeout(r, 15));
     first.abort();
-    second.abort();
-    await Promise.all([doneFirst, doneSecond, doneThird]);
+    await Promise.all([doneFirst, doneThird]);
     await vi.waitFor(() => expect(state.activeDownloads).toBe(0));
-    // Only the first two ever reached the camera; the queued-then-aborted
-    // third never did.
-    expect(state.downloads).toBe(2);
+    // Only the first ever reached the camera; the queued-then-aborted one
+    // never did.
+    expect(state.downloads).toBe(1);
     // The gate is free again: a fourth download completes normally.
     const res = await request(app).get(`/api/cameras/cam1/clips/${e.id}/download`).set('Cookie', auth);
     expect(res.status).toBe(200);

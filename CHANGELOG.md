@@ -8,3 +8,5 @@ published as [GitHub releases](https://github.com/klaushofrichter/cams/releases)
 
 ## [Unreleased]
 
+
+- Fix: clip playback, thumbnails and downloads failed on the real camera (it drops a Download whose source path is percent-encoded); one transfer at a time per camera, like the camera's own web UI.
