@@ -88,7 +88,7 @@
       <span class="seg" class:ai={s.ai} class:on={s.id === selectedId} data-testid="timeline-seg" data-clip-id={s.id} style={`left:${s.left}%;width:${s.width}%`}></span>
     {/each}
     {#if nowLeft !== null}
-      <span class="now" data-testid="timeline-now" style={`left:${nowLeft}%`} aria-label="Now"></span>
+      <span class="now" role="img" data-testid="timeline-now" style={`left:${nowLeft}%`} aria-label="Now"></span>
     {/if}
     {#if !legend}
       <div class="ticks">
