@@ -15,6 +15,14 @@ export class PriorityGate {
 
   constructor(private readonly max: number) {}
 
+  // How many callers are queued (not yet holding a slot) right now.
+  // Test-only instrumentation (fix round 1, item 8): lets a test wait for
+  // the actual "this entry is queued" state instead of guessing with a
+  // fixed sleep.
+  get queued(): number {
+    return this.queue.length;
+  }
+
   run<T>(fn: () => Promise<T>, opts: { high?: boolean; key?: string } = {}): Promise<T> {
     return new Promise<T>((resolve, reject) => {
       const start = () => {

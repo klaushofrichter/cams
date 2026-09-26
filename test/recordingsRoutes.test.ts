@@ -11,7 +11,7 @@ import { AddressInfo } from 'net';
 import { createApp } from '../server/app';
 import { setCameras } from '../server/cameraRegistry';
 import { resetClients } from '../server/reolink/clients';
-import { resetRecordings } from '../server/recordings/service';
+import { getRecordings, resetRecordings } from '../server/recordings/service';
 import { ReolinkClient } from '../server/reolink/client';
 import { SESSION_COOKIE, signSession } from '../server/session';
 import { createMockCamera, MockState } from './mock-camera/server';
@@ -125,9 +125,12 @@ describe('recordings API', () => {
     const [a, b, c, d] = events.map((e) => e.id);
     const thumbs = [a, b, c].map((id) => request(app).get(`/api/cameras/cam1/clips/${id}/thumb.jpg`).set('Cookie', auth).then((r) => r));
     await vi.waitFor(() => expect(state.downloads).toBe(1)); // first thumbnail holds the slot
-    // Let the other two queue before the video arrives.
-    await vi.waitFor(() => expect(state.downloadOrder.length).toBe(1));
-    await new Promise((r) => setTimeout(r, 20));
+    // Wait for the actual queued state (fix round 1, item 8) rather than a
+    // fixed sleep: b's and c's thumbnail fetches must really be queued
+    // behind a's before d's video request arrives, or a busy gate under
+    // full-suite load can let d's high-priority request race ahead of them
+    // reaching the gate at all.
+    await vi.waitFor(() => expect(getRecordings().transferQueueLength('cam1')).toBe(2));
     const video = await request(app).get(`/api/cameras/cam1/clips/${d}/video`).set('Cookie', auth);
     expect(video.status).toBe(200);
     await Promise.all(thumbs);
@@ -141,7 +144,13 @@ describe('recordings API', () => {
     const [a, b, c] = events.map((e) => e.id);
     const thumbs = [a, b, c].map((id) => request(app).get(`/api/cameras/cam1/clips/${id}/thumb.jpg`).set('Cookie', auth).then((r) => r));
     await vi.waitFor(() => expect(state.downloads).toBe(1));
-    await new Promise((r) => setTimeout(r, 20));
+    // Wait for the actual queued state (fix round 1, item 8): c's own
+    // thumbnail fetch must really be queued (so its entry exists for the
+    // video request below to promote) before firing the video request. A
+    // fixed sleep let the video request's promote() race ahead of c's
+    // thumbnail fetch reaching the gate under full-suite load, silently
+    // becoming a no-op and breaking the expected download order.
+    await vi.waitFor(() => expect(getRecordings().transferQueueLength('cam1')).toBe(2));
     const video = await request(app).get(`/api/cameras/cam1/clips/${c}/video`).set('Cookie', auth);
     expect(video.status).toBe(200);
     await Promise.all(thumbs);

@@ -122,6 +122,12 @@ export class RecordingsService {
     return g;
   }
 
+  // Test-only instrumentation (fix round 1, item 8): how many transfers for
+  // this camera are queued behind the one active slot right now.
+  transferQueueLength(cameraId: string): number {
+    return this.gate(cameraId).queued;
+  }
+
   // Acquires a transfer slot for this camera, honoring an optional abort
   // signal. Signalling abort before a slot is granted rejects `ready`
   // immediately and never touches the gate (if the signal is already
