@@ -1,5 +1,6 @@
 import { expect, test } from '@playwright/test';
 import { signIn } from './session';
+import { simCounters } from './sims';
 
 // Browser-side evidence for CI-only failures. Console errors/warnings and
 // page errors are forwarded to the test output as they happen. Everything
@@ -128,7 +129,7 @@ test('an unreachable camera shows the offline banner with retry', async ({ page 
 });
 
 // Review focus 4 ("switching cameras tears the stream down") is covered by
-// e2e/live-teardown.spec.ts, which checks the mock camera's own connection
+// e2e/live-teardown.spec.ts, which checks the simulated camera's own connection
 // count instead of just the DOM. A DOM-only check here would pass even if
 // LiveSession.stop()/player.destroy() did nothing, because Live.svelte
 // unconditionally unmounts LivePlayer on any camera switch (status is reset
@@ -155,4 +156,20 @@ test('an offline camera shows the red indicator', async ({ page }) => {
   await page.getByTestId('camera-picker').selectOption({ label: 'Garage' });
   await expect(page.getByTestId('stream-indicator')).toHaveAttribute('data-state', 'error');
   await expect(page.getByTestId('stream-indicator')).toHaveAttribute('title', /Garage: offline/);
+});
+
+// Two cameras in the picker, each a separate simulated camera (e2e/sims.ts):
+// choosing one streams from that camera's simulator, not the other's.
+// streamsOpened only grows, so the check holds while other tests stream too.
+test('the picker switches between two simulated cameras, each streaming live', async ({ page }) => {
+  const opened = async (sim: 'den' | 'porch') => (await simCounters(page, sim)).streamsOpened;
+  const before = { den: await opened('den'), porch: await opened('porch') };
+  await page.goto('/app/live'); // opens on the first camera, Den
+  const picker = page.getByTestId('camera-picker');
+  await expect(picker.locator('option')).toContainText(['Den', 'Porch']);
+  await expect(page.getByTestId('live-state')).toHaveText('Live', { timeout: 15_000 });
+  await expect.poll(() => opened('den')).toBeGreaterThan(before.den);
+  await picker.selectOption('porch');
+  await expect(page.getByTestId('live-state')).toHaveText('Live', { timeout: 15_000 });
+  await expect.poll(() => opened('porch')).toBeGreaterThan(before.porch);
 });

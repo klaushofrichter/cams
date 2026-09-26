@@ -1,14 +1,15 @@
 import { expect, test, type Page } from '@playwright/test';
 import { signIn } from './session';
+import { simCounters } from './sims';
 
 // Proves that switching cameras releases the OLD stream both client- and
-// server-side, by reading the mock camera's own /__state instead of just the
+// server-side, by reading the simulator's counters (control API) instead of just the
 // Live page's DOM. A DOM-only assertion (no <video> element left) would pass
 // even if LiveSession.stop()/player.destroy() did nothing, since Live.svelte
 // unconditionally unmounts LivePlayer on any camera switch.
 //
 // Isolation: /__state's activeStreams counter is shared across the WHOLE
-// mock-camera process it belongs to (one process per e2e run per port: 8098
+// simulator process it belongs to (one process per e2e run per port: 8098
 // for Den, 8097 for Porch) -- it isn't scoped per camera id or per browser
 // page, because the app's upstream requests to a given mock never say which
 // cams-camera id they're for. Den and Porch are two separate mock processes
@@ -27,19 +28,15 @@ import { signIn } from './session';
 //     stream to "Den") have completed, so nothing else can be mid-stream on
 //     the mock while this file polls the count. It runs once, not once per
 //     project, since repeating it under `phone` would just re-observe the
-//     same single mock-camera process's state.
+//     same single simulator process's state.
 test.describe.serial('live stream teardown', () => {
   test.beforeEach(async ({ context, baseURL }) => {
     await signIn(context, baseURL!);
   });
 
   async function activeStreams(page: Page): Promise<number> {
-    const [den, porch] = await Promise.all([
-      page.request.get('http://127.0.0.1:8098/__state'),
-      page.request.get('http://127.0.0.1:8097/__state'),
-    ]);
-    const [denState, porchState] = await Promise.all([den.json(), porch.json()]);
-    return denState.activeStreams + porchState.activeStreams;
+    const [den, porch] = await Promise.all([simCounters(page, 'den'), simCounters(page, 'porch')]);
+    return den.activeStreams + porch.activeStreams;
   }
 
   test('switching cameras releases the old stream (client and server)', async ({ page }) => {

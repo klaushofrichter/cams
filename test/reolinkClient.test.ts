@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { AddressInfo } from 'net';
 import { Server } from 'http';
 import express from 'express';
-import { createMockCamera, MockState } from './mock-camera/server';
+import { createMockCamera, MockState } from './camera/sim';
 import { CameraError, ReolinkClient, classifyNetworkError } from '../server/reolink/client';
 import { Semaphore } from '../server/reolink/semaphore';
 import type { CameraConfig } from '../server/cameraRegistry';
@@ -22,7 +22,7 @@ function withDeadline<T>(p: Promise<T>, ms = 3000): Promise<T> {
 }
 
 beforeEach(async () => {
-  const mock = createMockCamera({ user: 'u', password: 'p' });
+  const mock = await createMockCamera({ user: 'u', password: 'p' });
   state = mock.state;
   server = mock.app.listen(0);
   await new Promise((r) => server.once('listening', r));
@@ -113,7 +113,7 @@ describe('ReolinkClient', () => {
   // stay inside the per-camera concurrency gate, same as JSON commands.
   it('keeps snapshots within the per-camera concurrency cap', async () => {
     await new Promise<void>((r) => server.close(() => r()));
-    const mock = createMockCamera({ user: 'u', password: 'p' });
+    const mock = await createMockCamera({ user: 'u', password: 'p' });
     state = mock.state;
 
     const counter = { active: 0, peak: 0 };

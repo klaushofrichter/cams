@@ -16,9 +16,11 @@ in cams.
 | Firmware updates | `CheckFirmware` reported none on 2026-09-26 |
 
 Other models or firmware versions may behave differently. When a quirk turns
-up, change the mock camera (`test/mock-camera/server.ts`) to reproduce it
-**before** fixing the client. A mock that copies the documentation instead of
-the firmware hid most of the bugs listed here.
+up, change the camera simulator
+[cam-sim](https://github.com/klaushofrichter/cam-sim) to reproduce it
+**before** fixing the client. A mock that copied the documentation instead of
+the firmware hid most of the bugs listed here. cams' tests run against cam-sim
+(`test/camera/sim.ts`, `e2e/sims.ts`).
 
 ## Contents
 
@@ -573,17 +575,17 @@ use FTP; clips will arrive through a separate gateway later.
 
 ## Where cams handles each quirk
 
-| Quirk | Code | Mock (`test/mock-camera/server.ts`) |
+| Quirk | Code | cam-sim |
 |---|---|---|
 | Token rejection shapes (−6, Snap 200/html, FLV reset, Download 401) | `isAuthRejection`, `getWithToken`, `revalidateAfterReset` in `server/reolink/client.ts` | each shape reproduced |
 | One Search at a time (−54) | `searchGate` in `server/reolink/client.ts` | a concurrent Search gets −54 |
 | Unencoded Download `source` | `download()` in `server/reolink/client.ts` | an encoded `source` resets the connection |
-| One transfer at a time, playback ahead of thumbnails | `PriorityGate` (`server/recordings/priorityGate.ts`), `TRANSFERS_PER_CAMERA` in `server/recordings/service.ts` | download order recorded in `state.downloadOrder` |
-| Occasional Download reset | `downloadWithRetry` in `server/recordings/service.ts` | `dropFirstDownloads` |
-| Camera refuses every Download | download-health breaker (`guard`, `noteRefused`, `probeIfDue`) in `server/recordings/service.ts`: after `BREAKER_FAILURES` (3) refusals, clip requests get `503 recordings_unavailable`; one probe per `RECORDINGS_PROBE_MS` (default 60 s) | `dropFirstDownloads`; `MOCK_DROP_DOWNLOADS` (e2e camera Shed) |
-| Sub/main ends differ; still-recording `000000` | `day()` / `isStillRecording` in `server/recordings/service.ts` | `mainEnd` on `MockClip`; a clip with end `000000` passed via `clips` |
-| Partial Set resets omitted keys | `Writes` in `server/reolink/settings.ts`: one whole-object write per object; `camera_setting_side_effect` log | a Set resets the keys it leaves out |
-| Reboot drops the connection | `202` when unconfirmed, 120 s cooldown (`429`) | — |
+| One transfer at a time, playback ahead of thumbnails | `PriorityGate` (`server/recordings/priorityGate.ts`), `TRANSFERS_PER_CAMERA` in `server/recordings/service.ts` | download order in the `downloadOrder` counter |
+| Occasional Download reset | `downloadWithRetry` in `server/recordings/service.ts` | fault `downloads.dropFirst` |
+| Camera refuses every Download | download-health breaker (`guard`, `noteRefused`, `probeIfDue`) in `server/recordings/service.ts`: after `BREAKER_FAILURES` (3) refusals, clip requests get `503 recordings_unavailable`; one probe per `RECORDINGS_PROBE_MS` (default 60 s) | fault `downloads.refuse` (e2e camera Shed) |
+| Sub/main ends differ; still-recording `000000` | `day()` / `isStillRecording` in `server/recordings/service.ts` | main copies end 2 s later; a recording in progress lists end `000000` |
+| Partial Set resets omitted keys | `Writes` in `server/reolink/settings.ts`: one whole-object write per object; `camera_setting_side_effect` log | a Set resets the keys it leaves out, after a reboot (fault `settings.strictPartial`: at once) |
+| Reboot drops the connection | `202` when unconfirmed, 120 s cooldown (`429`) | Reboot drops the connection half the time (seeded) |
 | `sensDef` lower = more sensitive; HddInfo `size` is free space | `server/reolink/settings.ts` maps `sensDef` to `51 − sensDef`; `size` is shown as free space | same values |
 | File names, triggers, DST offset | `server/recordings/clipNames.ts` | names built the same way |
 

@@ -1,7 +1,7 @@
 import { expect, test, type Page } from '@playwright/test';
 import { signIn } from './session';
 
-// The mock camera's default clips (test/mock-camera/server.ts, DEFAULT_MOCK_CLIPS):
+// The simulated cameras' demo clips (cam-sim DEMO_CLIPS, CAMSIM_SEED_CLIPS=demo):
 // today 08:15:10 person, 09:30:00 vehicle, 12:05:05 motion, 17:45:40 pet;
 // yesterday 07:00:00 motion, 22:15:10 person. Browser zone = America/Chicago.
 // e2e/cameras.json: cam1 "Den" (mock on 8098) and porch "Porch" (a separate
