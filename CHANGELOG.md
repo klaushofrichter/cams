@@ -8,4 +8,4 @@ published as [GitHub releases](https://github.com/klaushofrichter/cams/releases)
 
 ## [Unreleased]
 
-- Landing page: "Skylar Technology LLC" links to https://skylar.technology in the header and footer.
+- Live video from the camera: low-latency player, HD where the browser supports it, mute, snapshot, fullscreen, and an offline state with retry. The stream renews itself every 9 minutes without a visible cut.

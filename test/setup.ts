@@ -8,6 +8,8 @@ process.env.ALLOWED_EMAILS ??= 'klaus@klaushofrichter.net';
 
 import { beforeEach } from 'vitest';
 import { resetRateLimits } from '../server/middleware/rateLimit';
+import { resetClients } from '../server/reolink/clients';
 
 // Limiters are module-level, so counters would otherwise leak between tests.
 beforeEach(() => resetRateLimits());
+beforeEach(() => resetClients());

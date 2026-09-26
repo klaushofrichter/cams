@@ -73,6 +73,7 @@
     background: linear-gradient(90deg, color-mix(in srgb, var(--accent) 18%, transparent), color-mix(in srgb, var(--accent-2) 10%, transparent));
     box-shadow: inset 3px 0 0 var(--accent);
   }
+  .item :global(svg) { flex-shrink: 0; }
   .label { transition: opacity 0.15s ease; }
   .collapsed .label { opacity: 0; pointer-events: none; }
   .grow { flex: 1; }

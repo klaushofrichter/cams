@@ -24,8 +24,21 @@ describe('loadCameras', () => {
     expect(loadCameras(join(dir, 'does-not-exist.json'))).toEqual([]);
   });
 
-  it('loads a valid list', () => {
-    expect(loadCameras(file('ok.json', JSON.stringify([cam1])))).toEqual([cam1]);
+  it('loads a valid list, defaulting protocol to https', () => {
+    expect(loadCameras(file('ok.json', JSON.stringify([cam1])))).toEqual([{ ...cam1, protocol: 'https' }]);
+  });
+
+  it('keeps protocol http and a tlsServername', () => {
+    const entry = { ...cam1, protocol: 'http', tlsServername: 'cam1.example.test' };
+    expect(loadCameras(file('extra.json', JSON.stringify([entry])))).toEqual([entry]);
+  });
+
+  it('rejects an unknown protocol', () => {
+    expect(() => loadCameras(file('proto.json', JSON.stringify([{ ...cam1, protocol: 'ftp' }])))).toThrow(/entry 0.*protocol/);
+  });
+
+  it('rejects an empty tlsServername', () => {
+    expect(() => loadCameras(file('sni.json', JSON.stringify([{ ...cam1, tlsServername: '' }])))).toThrow(/entry 0.*tlsServername/);
   });
 
   it('fails on malformed JSON, naming the file', () => {
@@ -53,9 +66,9 @@ describe('loadCameras', () => {
 
 describe('listCameras / getCamera', () => {
   it('exposes only id and name', () => {
-    setCameras([cam1]);
+    setCameras([{ ...cam1, protocol: 'https' }]);
     expect(listCameras()).toEqual([{ id: 'cam1', name: 'Den' }]);
-    expect(getCamera('cam1')).toEqual(cam1);
+    expect(getCamera('cam1')).toEqual({ ...cam1, protocol: 'https' });
     expect(getCamera('nope')).toBeUndefined();
   });
 });

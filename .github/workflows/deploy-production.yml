@@ -183,3 +183,27 @@ jobs:
           printf '\nImage: `ghcr.io/klaushofrichter/cams:%s`\n' "$TAG" >> /tmp/notes.md
           gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --title "$TAG" --notes-file /tmp/notes.md
           echo "Released $TAG"
+
+      # The release notes harvested [Unreleased]; empty it on main so the next
+      # release starts clean. Runs only after a successful release.
+      - name: Reset the Unreleased changelog on main
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ steps.ver.outputs.version }}
+        run: |
+          set -euo pipefail
+          rm -rf /tmp/cams-main
+          git clone --depth 1 --branch main "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" /tmp/cams-main
+          cd /tmp/cams-main
+          awk '
+            /^## \[Unreleased\]/ { print; print ""; skip = 1; next }
+            skip && /^## / { skip = 0 }
+            !skip { print }
+          ' CHANGELOG.md > CHANGELOG.new
+          if cmp -s CHANGELOG.md CHANGELOG.new; then echo "Unreleased already empty"; rm -rf /tmp/cams-main; exit 0; fi
+          mv CHANGELOG.new CHANGELOG.md
+          git config user.name "cams-deploy-bot"
+          git config user.email "actions@users.noreply.github.com"
+          git commit -am "chore: clear Unreleased after v${VERSION}"
+          git push || echo "::warning::could not clear [Unreleased] on main (it moved during the deploy); clear it by hand"
+          rm -rf /tmp/cams-main
