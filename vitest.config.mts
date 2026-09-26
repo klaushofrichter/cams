@@ -16,7 +16,7 @@ export default defineConfig({
         test: {
           name: 'node',
           include: ['test/**/*.test.ts', 'web/src/**/*.test.ts'],
-          exclude: ['web/src/components/**/*.test.ts'],
+          exclude: ['web/src/components/**/*.test.ts', 'web/src/pages/**/*.test.ts'],
           setupFiles: ['./test/setup.ts'],
           env: { LOG_LEVEL: 'silent', DOWNLOAD_RETRY_DELAY_MS: '20', TZ: 'America/Chicago' },
         },
@@ -27,7 +27,7 @@ export default defineConfig({
         test: {
           name: 'components',
           environment: 'jsdom',
-          include: ['web/src/components/*.test.ts'],
+          include: ['web/src/components/*.test.ts', 'web/src/pages/*.test.ts'],
           setupFiles: ['./test/setupComponents.ts'],
           env: { TZ: 'America/Chicago' },
         },

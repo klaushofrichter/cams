@@ -5,9 +5,13 @@
   import type { DeviceInfo } from '../lib/settings';
 
   let devices: Record<string, DeviceInfo | 'offline'> = $state({});
+  // Plain, not $state: the effect must not re-run (and re-request every
+  // camera still in flight) each time one answer lands in `devices`.
+  const requested = new Set<string>();
   $effect(() => {
     for (const c of $cameras) {
-      if (devices[c.id]) continue;
+      if (requested.has(c.id)) continue;
+      requested.add(c.id);
       getJson<DeviceInfo>(`/api/cameras/${encodeURIComponent(c.id)}/device`)
         .then((d) => (devices = { ...devices, [c.id]: d }))
         .catch(() => (devices = { ...devices, [c.id]: 'offline' }));
