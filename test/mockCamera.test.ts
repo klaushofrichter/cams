@@ -59,11 +59,11 @@ describe('mock camera', () => {
   it('reports activeStreams and logins via /__state, even while "offline"', async () => {
     const { app, state } = createMockCamera(creds);
     await login(app);
-    expect((await request(app).get('/__state')).body).toEqual({ activeStreams: 0, logins: 1 });
+    expect((await request(app).get('/__state')).body).toEqual({ activeStreams: 0, logins: 1, downloads: 0, activeDownloads: 0 });
     state.offline = true;
     const res = await request(app).get('/__state');
     expect(res.status).toBe(200);
-    expect(res.body).toEqual({ activeStreams: 0, logins: 1 });
+    expect(res.body).toEqual({ activeStreams: 0, logins: 1, downloads: 0, activeDownloads: 0 });
   });
 
   it('streams /flv and stops counting once the client disconnects', async () => {
@@ -125,3 +125,75 @@ describe('mock camera', () => {
     }
   });
 });
+
+describe('mock camera recordings', () => {
+  async function token(app: Parameters<typeof request>[0]) {
+    return (await login(app)).body[0].value.Token.name as string;
+  }
+  const search = (app: Parameters<typeof request>[0], t: string, onlyStatus: 0 | 1, day: Date, stream = 'sub') =>
+    request(app)
+      .post(`/cgi-bin/api.cgi?cmd=Search&token=${t}`)
+      .send([
+        {
+          cmd: 'Search',
+          action: 0,
+          param: {
+            Search: {
+              channel: 0,
+              onlyStatus,
+              streamType: stream,
+              StartTime: { year: day.getFullYear(), mon: day.getMonth() + 1, day: onlyStatus ? 1 : day.getDate(), hour: 0, min: 0, sec: 0 },
+              EndTime: { year: day.getFullYear(), mon: day.getMonth() + 1, day: day.getDate(), hour: 23, min: 59, sec: 59 },
+            },
+          },
+        },
+      ]);
+
+  it('answers GetTime like the real camera (UTC-6 with DST)', async () => {
+    const { app } = createMockCamera(creds);
+    const t = await token(app);
+    const res = await request(app).post(`/cgi-bin/api.cgi?cmd=GetTime&token=${t}`).send([{ cmd: 'GetTime', action: 0, param: {} }]);
+    expect(res.body[0].value.Time.timeZone).toBe(21600);
+    expect(res.body[0].value.Dst).toMatchObject({ enable: 1, offset: 1 });
+  });
+
+  it('lists clips for a day with real-format names on both streams', async () => {
+    const { app } = createMockCamera({ ...creds, clips: [{ daysAgo: 0, start: '081510', end: '081535', triggers: ['person'] }] });
+    const t = await token(app);
+    const today = chicagoToday();
+    const sub = await search(app, t, 0, today, 'sub');
+    const main = await search(app, t, 0, today, 'main');
+    const subName: string = sub.body[0].value.SearchResult.File[0].name;
+    expect(subName).toMatch(/\/Mp4Record\/\d{4}-\d{2}-\d{2}\/RecS0A_(DST)?\d{8}_081510_081535_0_5514C000000000_[0-9A-F]+\.mp4$/);
+    expect(main.body[0].value.SearchResult.File[0].name).toMatch(/RecM0A_/);
+  });
+
+  it('marks days that have clips in the month table', async () => {
+    const { app } = createMockCamera({ ...creds, clips: [{ daysAgo: 0, start: '081510', end: '081535', triggers: ['motion'] }] });
+    const t = await token(app);
+    const today = chicagoToday();
+    const res = await search(app, t, 1, today);
+    const table: string = res.body[0].value.SearchResult.Status[0].table;
+    expect(table[today.getDate() - 1]).toBe('1');
+  });
+
+  it('downloads a clip with a valid token, and answers a bad token with 401 text/html like the firmware', async () => {
+    const { app, state } = createMockCamera({ ...creds, clips: [{ daysAgo: 0, start: '081510', end: '081535', triggers: ['motion'] }] });
+    const t = await token(app);
+    const name = (await search(app, t, 0, chicagoToday())).body[0].value.SearchResult.File[0].name;
+    const ok = await request(app).get(`/cgi-bin/api.cgi?cmd=Download&source=${encodeURIComponent(name)}&output=x.mp4&token=${t}`);
+    expect(ok.status).toBe(200);
+    expect(ok.headers['content-type']).toBe('video/mp4');
+    expect(state.downloads).toBe(1);
+    const bad = await request(app).get(`/cgi-bin/api.cgi?cmd=Download&source=${encodeURIComponent(name)}&output=x.mp4&token=nope`);
+    expect(bad.status).toBe(401);
+    expect(bad.headers['content-type']).toMatch(/^text\/html/);
+    expect(bad.text).toBe('');
+  });
+});
+
+// Calendar "today" in the mock camera's zone, as a local-date Date object.
+function chicagoToday(): Date {
+  const [y, m, d] = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Chicago' }).format(new Date()).split('-').map(Number);
+  return new Date(y, m - 1, d);
+}

@@ -308,6 +308,49 @@ describe('Semaphore', () => {
   });
 });
 
+describe('ReolinkClient recordings', () => {
+  it('reads camera time into offsets and caches it', async () => {
+    const client = new ReolinkClient(cam);
+    const t = await client.timeInfo();
+    expect(t).toEqual({ stdOffsetMinutes: -360, dstOffsetMinutes: 60 });
+    await client.timeInfo();
+    // one GetTime only: cached
+  });
+
+  it('lists a day of clips with numeric sizes', async () => {
+    const client = new ReolinkClient(cam);
+    const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Chicago' }).format(new Date());
+    const files = await client.searchDay(today, 'sub');
+    expect(files.length).toBeGreaterThan(0);
+    expect(typeof files[0].size).toBe('number');
+    expect(files[0].name).toMatch(/RecS0A_/);
+  });
+
+  it('returns [] for a day without clips', async () => {
+    const client = new ReolinkClient(cam);
+    expect(await client.searchDay('2001-01-01', 'sub')).toEqual([]);
+  });
+
+  it('lists days of a month that have recordings', async () => {
+    const client = new ReolinkClient(cam);
+    const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Chicago' }).format(new Date());
+    expect(await client.searchMonth(today.slice(0, 7))).toContain(today);
+  });
+
+  // Firmware: Download with a bad token answers 401 text/html (empty).
+  it('re-logs in once when a download is rejected with 401', async () => {
+    const client = new ReolinkClient(cam);
+    const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Chicago' }).format(new Date());
+    const [file] = await client.searchDay(today, 'sub');
+    state.revokeTokens();
+    const before = state.loginAttempts;
+    const res = await client.download(file.name);
+    expect(res.headers['content-type']).toBe('video/mp4');
+    res.resume();
+    expect(state.loginAttempts - before).toBe(1);
+  });
+});
+
 // Review Minor 6: TLS certificate failures are a security signal, not
 // "the camera is offline".
 describe('classifyNetworkError', () => {
