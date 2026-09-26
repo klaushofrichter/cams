@@ -89,4 +89,14 @@ describe('preferences', () => {
     const res = await request(createApp()).get('/api/preferences').set('Cookie', klaus);
     expect(res.body).toEqual(DEFAULT_PREFERENCES);
   });
+
+  // Saving over a corrupt file would replace every other user's preferences
+  // with just this one's: refuse, and leave the file for a human to repair.
+  it.each([['{not json'], ['[1, 2]']])('refuses to save over a corrupt file (%s)', async (content) => {
+    const { writeFileSync } = await import('fs');
+    writeFileSync(process.env.PREFS_FILE!, content);
+    const res = await request(createApp()).put('/api/preferences').set('Cookie', klaus).send({ timelineZoom: 6 });
+    expect(res.status).toBe(500);
+    expect(readFileSync(process.env.PREFS_FILE!, 'utf8')).toBe(content);
+  });
 });

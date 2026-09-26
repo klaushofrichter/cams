@@ -19,14 +19,38 @@ export const DEFAULT_PREFERENCES: Preferences = { defaultCamera: null, liveQuali
 const file = () => process.env.PREFS_FILE || join(tmpdir(), 'cams-preferences.json');
 let writing: Promise<unknown> = Promise.resolve();
 
-async function readAll(): Promise<Record<string, Partial<Preferences>>> {
+// Thrown by a save when the file exists but isn't a JSON object: writing it
+// back would replace every other user's preferences with just this one.
+class CorruptPreferencesError extends Error {
+  constructor() {
+    super('preferences file is corrupt; refusing to overwrite it');
+    this.name = 'CorruptPreferencesError';
+  }
+}
+
+// `forSave`: a corrupt file throws instead of reading as empty. Reads for
+// display still fall back to defaults.
+async function readAll(forSave = false): Promise<Record<string, Partial<Preferences>>> {
+  let text: string;
   try {
-    const parsed = JSON.parse(await fs.readFile(file(), 'utf8'));
-    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {};
+    text = await fs.readFile(file(), 'utf8');
   } catch (err) {
     if ((err as NodeJS.ErrnoException).code !== 'ENOENT') logger.warn({ err: (err as Error).message }, 'preferences file unreadable; using defaults');
     return {};
   }
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(text);
+  } catch {
+    parsed = undefined;
+  }
+  if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) return parsed as Record<string, Partial<Preferences>>;
+  if (forSave) {
+    logger.error('preferences file is corrupt; refusing to save over it');
+    throw new CorruptPreferencesError();
+  }
+  logger.warn('preferences file is corrupt; using defaults');
+  return {};
 }
 
 // What's stored may come from an older version or a hand edit: keep only
@@ -46,21 +70,29 @@ export async function getPreferences(email: string): Promise<Preferences> {
   return { ...DEFAULT_PREFERENCES, ...sanitize((await readAll())[email.toLowerCase()]) };
 }
 
-// Writes are serialized and atomic (temp file + rename in the same
+// Writes are serialized and atomic (temp file, fsync, rename in the same
 // directory), so two saves can't interleave and a crash never leaves half a
 // file on the volume. During a rolling deploy the old and new pods both mount
 // the volume for a few seconds, and both run as PID 1 in their containers, so
 // the temp name needs a random part, not the PID.
 export function savePreferences(email: string, patch: Partial<Preferences>): Promise<Preferences> {
   const run = writing.then(async () => {
-    const all = await readAll();
+    const all = await readAll(true);
     const key = email.toLowerCase();
     const next = { ...DEFAULT_PREFERENCES, ...sanitize(all[key]), ...patch };
     all[key] = next;
     await fs.mkdir(dirname(file()), { recursive: true });
     const tmp = `${file()}.tmp-${randomBytes(6).toString('hex')}`;
     try {
-      await fs.writeFile(tmp, JSON.stringify(all, null, 2));
+      // Synced before the rename, so a crash right after it can't leave the
+      // new name pointing at a file whose data never reached the disk.
+      const fh = await fs.open(tmp, 'w');
+      try {
+        await fh.writeFile(JSON.stringify(all, null, 2));
+        await fh.sync();
+      } finally {
+        await fh.close();
+      }
       await fs.rename(tmp, file());
     } catch (err) {
       await fs.rm(tmp, { force: true });
