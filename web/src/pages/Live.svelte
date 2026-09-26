@@ -30,17 +30,23 @@
   let status: CameraStatus | null = $state(null);
   let checking = $state(false);
   let container: HTMLDivElement | undefined = $state();
+  let statusRequest = 0;
 
   const camera = $derived($cameras.find((c) => c.id === $selectedCameraId) ?? null);
 
+  // A request-sequence guard: if the user switches cameras while an earlier
+  // /status request is still in flight, its late response must not overwrite
+  // the newer camera's status.
   async function checkStatus(id: string) {
+    const seq = ++statusRequest;
     checking = true;
     try {
-      status = await getJson<CameraStatus>(`/api/cameras/${encodeURIComponent(id)}/status`);
+      const result = await getJson<CameraStatus>(`/api/cameras/${encodeURIComponent(id)}/status`);
+      if (seq === statusRequest) status = result;
     } catch {
-      status = { id, online: false, error: 'camera_error' };
+      if (seq === statusRequest) status = { id, online: false, error: 'camera_error' };
     } finally {
-      checking = false;
+      if (seq === statusRequest) checking = false;
     }
   }
 
