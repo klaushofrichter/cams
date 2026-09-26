@@ -33,6 +33,7 @@ the firmware hid most of the bugs listed here.
 - [Recordings: Search](#recordings-search)
 - [Recording file names](#recording-file-names)
 - [Recordings: Download](#recordings-download)
+- [Settings](#settings)
 - [Certificates](#certificates)
 - [Where cams handles each quirk](#where-cams-handles-each-quirk)
 
@@ -399,9 +400,10 @@ decodeTriggers('55148080000000'); // ['motion']
 decodeTriggers('5514D080000000'); // ['person', 'vehicle', 'motion']
 ```
 
-The AI triggers only appear when the camera's AI **recording** schedule is on
-(`GetRecV20` schedule keys `AI_PEOPLE`, `AI_VEHICLE`, `AI_DOG_CAT`). With only
-`MD` on, every clip is motion-only.
+AI triggers appear only when the camera's AI **recording** schedule is on
+(`GetRecV20` schedule keys `AI_PEOPLE`, `AI_VEHICLE`, `AI_DOG_CAT`) and AI
+detection fires. On this camera the schedule is fully on, and every clip so
+far is still motion-only.
 
 ## Recordings: Download
 
@@ -463,6 +465,34 @@ More quirks:
 
 - The web UI also appends an `encrypt=` parameter to requests, an obfuscated
   `countId`/`checkNum` counter. The API works without it.
+
+## Settings
+
+These were measured on 2026-09-26 by writing back the current value of each setting and re-reading it; nothing changed.
+- Every Set command accepts **partial parameters**, and answers `code 0, rspCode 200`.
+- Invalid values are rejected and the old value stays:
+  - `SetMdAlarm` with `sensDef: 99` → `rspCode -56`;
+  - `SetIsp` with `dayNight: "Purple"` → `rspCode -67`.
+- **A `200` doesn't prove the write took effect** (see `ImportCertificate`). Re-read after every write.
+
+| Setting | Read | Write | Values |
+|---|---|---|---|
+| Recording on/off | `GetRecV20 {channel:0}` → `Rec.enable` | `SetRecV20 {Rec:{enable}}` | 0/1 |
+| Record on motion / AI type | `Rec.schedule.table.MD`, `AI_PEOPLE`, `AI_VEHICLE`, `AI_DOG_CAT` (168 chars, one per hour of the week) | `SetRecV20 {Rec:{schedule:{channel:0,table:{AI_PEOPLE:"1"×168}}}}` (only that key is written) | all `1` on, all `0` off, mixed = a custom schedule |
+| Motion sensitivity | `GetMdAlarm {channel:0}` → `MdAlarm.newSens.sensDef` (`useNewSens: 1`) | `SetMdAlarm {MdAlarm:{channel:0,useNewSens:1,newSens:{sensDef}}}` | 1–50, **lower = more sensitive**; shown as `51 − sensDef` |
+| AI sensitivity | `GetAiAlarm {channel:0,ai_type}` → `AiAlarm.sensitivity` | `SetAiAlarm {AiAlarm:{channel:0,ai_type,sensitivity}}` | 0–100; `people`, `vehicle`, `dog_cat` |
+| Day/night | `GetIsp` → `Isp.dayNight` | `SetIsp {Isp:{channel:0,dayNight}}` | `Auto`, `Color`, `Black&White` |
+| IR lights | `GetIrLights` → `IrLights.state` | `SetIrLights {IrLights:{channel:0,state}}` | `Auto`, `Off` |
+| Spotlight | `GetWhiteLed` → `WhiteLed.mode`, `bright` | `SetWhiteLed {WhiteLed:{channel:0,mode,bright}}` | mode 0 off, 1 on motion at night, 2 on at night, 3 schedule; bright 0–100 |
+| On-screen text | `GetOsd` → `Osd.osdChannel {enable,name,pos}`, `Osd.osdTime {enable,pos}` | `SetOsd {Osd:{channel:0,osdChannel:{…},osdTime:{…}}}` | 6 positions (`Upper Left` … `Lower Right`); name ≤ 31 bytes (cams: UTF-8 bytes, no control or format characters) |
+| Storage | `GetHddInfo` → `HddInfo[0] {capacity, size, mount}` | — | MB; **`size` is the FREE space** |
+| Certificate | TLS handshake (`getPeerCertificate()`) | — | `GetCertificateInfo` has no subject or expiry |
+| Reboot | — | `Reboot {}` | the camera is offline about a minute; it may drop the connection before answering |
+
+Rules cams follows:
+- **Partial writes are built from the raw reply.** When only part of an object changes (e.g. the OSD name), cams takes the other keys from the camera's own reply, never from a normalised copy. A value cams doesn't recognise, such as a custom OSD position, is sent back unchanged instead of being replaced by a default.
+- **Unmodelled keys are never sent.** Keys cams doesn't model (`LightingSchedule`, `watermark`, …) are left alone, relying on the firmware's partial-parameter merge.
+- **The AI record schedule on this camera is fully on** (168 × `1` for people, vehicles and pets). The clips so far are motion-only only because AI detection hasn't fired.
 
 ## Certificates
 
