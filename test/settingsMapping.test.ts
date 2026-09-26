@@ -109,47 +109,54 @@ describe('validating patches', () => {
 });
 
 describe('building commands', () => {
-  it('writes only what changed, one command per field, in a stable order', () => {
-    expect(detectionCommands({ recording: false, motionSensitivity: 50, ai: { vehicle: { record: 'off', sensitivity: 70 } } })).toEqual([
-      { field: 'recording', cmd: 'SetRecV20', param: { Rec: { enable: 0 } } },
-      { field: 'motionSensitivity', cmd: 'SetMdAlarm', param: { MdAlarm: { channel: 0, useNewSens: 1, newSens: { sensDef: 1 } } } },
-      { field: 'ai.vehicle.record', cmd: 'SetRecV20', param: { Rec: { schedule: { channel: 0, table: { AI_VEHICLE: NONE } } } } },
-      { field: 'ai.vehicle.sensitivity', cmd: 'SetAiAlarm', param: { AiAlarm: { channel: 0, ai_type: 'vehicle', sensitivity: 70 } } },
+  // The firmware resets keys a Set leaves out (measured 2026-09-26), so every
+  // write carries the camera's complete current object with only the changed
+  // keys replaced — including keys cams doesn't model (rotation, stay_time,
+  // watermark, LightingSchedule, …).
+  const FULL = {
+    rec: { Rec: { enable: 1, postRec: '15 Seconds', preRec: 1, saveDay: 7, schedule: { channel: 0, table: { MD: ALL, AI_PEOPLE: ALL, AI_VEHICLE: ALL, AI_DOG_CAT: ALL, TIMING: NONE } } } },
+    md: { MdAlarm: { channel: 0, useNewSens: 1, newSens: { sensDef: 10, sens: [{ id: 0, sensitivity: 10 }] }, scope: { cols: 70 } } },
+    ai: {
+      person: { AiAlarm: { channel: 0, ai_type: 'people', sensitivity: 60, stay_time: 3, scope: { area: '11' } } },
+      vehicle: { AiAlarm: { channel: 0, ai_type: 'vehicle', sensitivity: 50, stay_time: 0 } },
+      pet: { AiAlarm: { channel: 0, ai_type: 'dog_cat', sensitivity: 40, stay_time: 0 } },
+    },
+    isp: { Isp: { channel: 0, dayNight: 'Auto', antiFlicker: '60HZ', rotation: 0, mirroring: 0, bd_day: { mode: 'Auto' } } },
+    ir: { IrLights: { state: 'Auto' } },
+    wl: { WhiteLed: { channel: 0, mode: 5, bright: 100, state: 0, LightingSchedule: { StartHour: 18 } } },
+    osd: { Osd: { channel: 0, osdChannel: { enable: 1, name: 'Den', pos: 'Lower Right' }, osdTime: { enable: 1, pos: 'Custom Pos' }, watermark: 1, bgcolor: 0 } },
+  };
+
+  it('writes the complete current object with only the changed keys replaced', () => {
+    expect(imageCommands({ dayNight: 'color', osd: { name: 'Porch' }, spotlight: { brightness: 40 } }, FULL)).toEqual([
+      { fields: ['dayNight'], cmd: 'SetIsp', param: { Isp: { ...FULL.isp.Isp, dayNight: 'Color' } } },
+      { fields: ['spotlight'], cmd: 'SetWhiteLed', param: { WhiteLed: { ...FULL.wl.WhiteLed, bright: 40 } } },
+      {
+        fields: ['osd'],
+        cmd: 'SetOsd',
+        param: { Osd: { ...FULL.osd.Osd, osdChannel: { enable: 1, name: 'Porch', pos: 'Lower Right' } } },
+      },
     ]);
-    expect(detectionCommands({ motionRecording: 'on' })).toEqual([
-      { field: 'motionRecording', cmd: 'SetRecV20', param: { Rec: { schedule: { channel: 0, table: { MD: ALL } } } } },
+    expect(detectionCommands({ motionSensitivity: 50, ai: { person: { sensitivity: 80 } } }, FULL)).toEqual([
+      { fields: ['motionSensitivity'], cmd: 'SetMdAlarm', param: { MdAlarm: { ...FULL.md.MdAlarm, newSens: { ...FULL.md.MdAlarm.newSens, sensDef: 1 } } } },
+      { fields: ['ai.person.sensitivity'], cmd: 'SetAiAlarm', param: { AiAlarm: { ...FULL.ai.person.AiAlarm, sensitivity: 80 } } },
     ]);
   });
 
-  it('keeps the unchanged OSD half when only one part changes', () => {
-    expect(imageCommands({ osd: { name: 'Porch' }, dayNight: 'color', spotlight: { mode: 'off' } }, REAL)).toEqual([
-      { field: 'dayNight', cmd: 'SetIsp', param: { Isp: { channel: 0, dayNight: 'Color' } } },
-      { field: 'spotlight', cmd: 'SetWhiteLed', param: { WhiteLed: { channel: 0, mode: 0, bright: 100 } } },
-      {
-        field: 'osd',
-        cmd: 'SetOsd',
-        param: { Osd: { channel: 0, osdChannel: { enable: 1, name: 'Porch', pos: 'Lower Right' }, osdTime: { enable: 1, pos: 'Top Center' } } },
-      },
-    ]);
+  it('carries several changes to one camera object in a single write', () => {
+    const cmds = detectionCommands({ recording: false, motionRecording: 'off', ai: { vehicle: { record: 'off' } } }, FULL);
+    expect(cmds).toHaveLength(1);
+    expect(cmds[0].fields).toEqual(['recording', 'motionRecording', 'ai.vehicle.record']);
+    expect(cmds[0].param).toEqual({
+      Rec: { ...FULL.rec.Rec, enable: 0, schedule: { channel: 0, table: { ...FULL.rec.Rec.schedule.table, MD: NONE, AI_VEHICLE: NONE } } },
+    });
   });
 
-  // A partial save must never rewrite a field the user didn't touch, even one
-  // imageFrom() can't represent (it would read as "Upper Left" / "off" / 0).
-  it('copies untouched values from the raw replies, not from the normalized settings', () => {
-    const raw = {
-      wl: { WhiteLed: { channel: 0, mode: 5, state: 0 } },
-      osd: { Osd: { channel: 0, osdChannel: { enable: 1, name: 'Den', pos: 'Lower Right' }, osdTime: { enable: 1, pos: 'Custom Pos' } } },
-    };
-    expect(imageCommands({ osd: { name: 'Porch' } }, raw)).toEqual([
-      {
-        field: 'osd',
-        cmd: 'SetOsd',
-        param: { Osd: { channel: 0, osdChannel: { enable: 1, name: 'Porch', pos: 'Lower Right' }, osdTime: { enable: 1, pos: 'Custom Pos' } } },
-      },
-    ]);
-    expect(imageCommands({ spotlight: { brightness: 40 } }, raw)).toEqual([
-      { field: 'spotlight', cmd: 'SetWhiteLed', param: { WhiteLed: { channel: 0, mode: 5, bright: 40 } } },
-    ]);
+  it('never mutates the raw replies it is given', () => {
+    const before = JSON.stringify(FULL);
+    detectionCommands({ recording: false, motionSensitivity: 20, ai: { pet: { sensitivity: 1, record: 'off' } } }, FULL);
+    imageCommands({ dayNight: 'color', irLights: 'off', spotlight: { mode: 'off' }, osd: { showTime: false } }, FULL);
+    expect(JSON.stringify(FULL)).toBe(before);
   });
 
   it('sends nothing for an empty spotlight or OSD patch', () => {

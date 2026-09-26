@@ -468,12 +468,22 @@ More quirks:
 
 ## Settings
 
-These were measured on 2026-09-26 by writing back the current value of each setting and re-reading it; nothing changed.
-- Every Set command accepts **partial parameters**, and answers `code 0, rspCode 200`.
-- Invalid values are rejected and the old value stays:
-  - `SetMdAlarm` with `sensDef: 99` → `rspCode -56`;
-  - `SetIsp` with `dayNight: "Purple"` → `rspCode -67`.
-- **A `200` doesn't prove the write took effect** (see `ImportCertificate`). Re-read after every write.
+> **Always write the complete object.** A Set command answers `code 0,
+> rspCode 200` for a partial parameter set, and an immediate re-read looks
+> right. But **the keys you leave out are reset to defaults in the saved
+> configuration**, and the camera uses them after its next restart.
+> Measured on 2026-09-26:
+> - a `SetIsp` with only `dayNight` changed `rotation` 0 → 1;
+> - a `SetOsd` without `watermark` changed it 1 → 0;
+> - a `SetAiAlarm` with only `sensitivity` changed `stay_time` 3 → 0.
+>
+> Read the object with its Get command, change only your keys, and send the
+> whole object back. A read-back straight after the write does **not** prove
+> the other keys survived.
+
+Invalid values are rejected, and the old value stays:
+- `SetMdAlarm` with `sensDef: 99` returns `rspCode -56`.
+- `SetIsp` with `dayNight: "Purple"` returns `rspCode -67`.
 
 | Setting | Read | Write | Values |
 |---|---|---|---|
@@ -490,8 +500,9 @@ These were measured on 2026-09-26 by writing back the current value of each sett
 | Reboot | — | `Reboot {}` | the camera is offline about a minute; it may drop the connection before answering |
 
 Rules cams follows:
-- **Partial writes are built from the raw reply.** When only part of an object changes (e.g. the OSD name), cams takes the other keys from the camera's own reply, never from a normalised copy. A value cams doesn't recognise, such as a custom OSD position, is sent back unchanged instead of being replaced by a default.
-- **Unmodelled keys are never sent.** Keys cams doesn't model (`LightingSchedule`, `watermark`, …) are left alone, relying on the firmware's partial-parameter merge.
+- **Every write sends the camera's complete current object**, taken from the raw Get reply, with only the changed keys replaced. That includes keys cams doesn't model (`rotation`, `stay_time`, `watermark`, `LightingSchedule`, …), and values it doesn't recognise, such as a custom OSD position.
+- **One write per object.** Several changes to one object in a single save (e.g. recording on/off plus schedules) go out as one write. Two writes, each built from the same original, would undo each other.
+- **After a save, cams re-reads the objects and logs `camera_setting_side_effect`** (key names only) if anything changed that it didn't send.
 - **The AI record schedule on this camera is fully on** (168 × `1` for people, vehicles and pets). The clips so far are motion-only only because AI detection hasn't fired.
 
 ## Certificates
