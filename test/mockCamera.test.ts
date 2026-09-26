@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import request from 'supertest';
 import http from 'http';
 import { statSync } from 'fs';
@@ -92,8 +92,7 @@ describe('mock camera', () => {
       expect(state.streamsOpened).toBe(1);
 
       res.destroy();
-      await new Promise((resolve) => setTimeout(resolve, 100));
-      expect(state.activeStreams).toBe(0);
+      await vi.waitFor(() => expect(state.activeStreams).toBe(0));
       expect(state.streamsOpened).toBe(1);
     } finally {
       server.close();
@@ -242,7 +241,8 @@ describe('mock camera settings', () => {
   });
 
   it('counts reboots and drops connections while rebooting', async () => {
-    const { app, state } = createMockCamera(creds);
+    // Long enough that the mock is surely still "rebooting" for the next call.
+    const { app, state } = createMockCamera({ ...creds, rebootMs: 5000 });
     const t = await tok(app);
     expect((await cmd(app, t, 'Reboot', {})).body[0].code).toBe(0);
     expect(state.reboots).toBe(1);

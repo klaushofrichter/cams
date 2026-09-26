@@ -13,19 +13,28 @@ const auth = `${SESSION_COOKIE}=${signSession('klaus@klaushofrichter.net')}`;
 let cam: Server;
 let state: MockState;
 
+// Keep-alive sockets from the previous test would otherwise hold close() open.
+const stop = (server: Server) =>
+  new Promise<void>((r) => {
+    server.closeAllConnections();
+    server.close(() => r());
+  });
+
 async function start(opts: Partial<MockCameraOptions> = {}) {
-  if (cam) await new Promise<void>((r) => cam.close(() => r()));
+  if (cam) await stop(cam);
   const mock = createMockCamera({ user: 'u', password: 'p', ...opts });
   state = mock.state;
   cam = mock.app.listen(0);
   await new Promise((r) => cam.once('listening', r));
-  setCameras([{ id: 'cam1', name: 'Den', host: `127.0.0.1:${(cam.address() as AddressInfo).port}`, protocol: 'http', user: 'u', password: 'p' }]);
+  // Set right before use, after the await: nothing between here and the test
+  // can leave cam1 pointing at a closed port.
   resetClients();
+  setCameras([{ id: 'cam1', name: 'Den', host: `127.0.0.1:${(cam.address() as AddressInfo).port}`, protocol: 'http', user: 'u', password: 'p' }]);
 }
 beforeEach(() => resetRebootCooldowns());
 beforeEach(() => start());
 afterEach(async () => {
-  await new Promise<void>((r) => cam.close(() => r()));
+  await stop(cam);
   setCameras([]);
 });
 
@@ -131,7 +140,7 @@ describe('settings API', () => {
     // Signed in, then the port is closed: the Reboot's own connection is refused.
     state.offline = false;
     expect((await request(app).get('/api/cameras/cam1/device').set('Cookie', auth)).status).toBe(200);
-    await new Promise<void>((r) => cam.close(() => r()));
+    await stop(cam);
     const refused = await reboot();
     expect(refused.status).toBe(503);
     expect(refused.body).toEqual({ error: 'camera_offline' });

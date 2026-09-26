@@ -3,7 +3,8 @@ import request from 'supertest';
 import http from 'http';
 import { PassThrough } from 'stream';
 import { IncomingMessage } from 'http';
-import { rmSync, writeFileSync } from 'fs';
+import { mkdtempSync, rmSync, writeFileSync } from 'fs';
+import { tmpdir } from 'os';
 import { createRequire } from 'module';
 import { join } from 'path';
 import { Server } from 'http';
@@ -40,10 +41,19 @@ let state: MockState;
 
 // This file's clip ids are deterministic (today's mock clips), so a clip
 // cached by one test would otherwise satisfy fill() for a later test with no
-// camera download, breaking the "exactly N downloads" assertions below.
-// process.env.CACHE_DIR is set per-worker in test/setup.ts (fix round 1,
-// item 11), so clearing it here only affects this file's own tests.
-beforeEach(() => rmSync(process.env.CACHE_DIR!, { recursive: true, force: true }));
+// camera download, breaking the "exactly N downloads" assertions below. Each
+// test gets its own fresh cache directory (the service reads CACHE_DIR when
+// it's created, after resetRecordings()), rather than clearing a shared one.
+const workerCacheDir = process.env.CACHE_DIR;
+let cacheDir: string;
+beforeEach(() => {
+  cacheDir = mkdtempSync(join(tmpdir(), 'cams-test-cache-'));
+  process.env.CACHE_DIR = cacheDir;
+});
+afterEach(() => {
+  process.env.CACHE_DIR = workerCacheDir;
+  rmSync(cacheDir, { recursive: true, force: true });
+});
 
 beforeEach(async () => {
   const mock = createMockCamera({ user: 'u', password: 'p' });
@@ -411,11 +421,11 @@ describe('recordings API', () => {
     await vi.waitFor(() => expect(state.downloads).toBe(1));
     const third = start(); // TRANSFERS_PER_CAMERA is 1: this one queues behind the first
     const doneThird = third.then(() => {}).catch(() => {});
-    // Give the third request a moment to actually reach openDownload() and
-    // queue for the gate before aborting it.
-    await new Promise((r) => setTimeout(r, 15));
+    // Wait until the third actually reached openDownload() and queued for
+    // the gate before aborting it, and until its abort left the queue.
+    await vi.waitFor(() => expect(getRecordings().transferQueueLength('cam1')).toBe(1));
     third.abort();
-    await new Promise((r) => setTimeout(r, 15));
+    await vi.waitFor(() => expect(getRecordings().transferQueueLength('cam1')).toBe(0));
     first.abort();
     await Promise.all([doneFirst, doneThird]);
     await vi.waitFor(() => expect(state.activeDownloads).toBe(0));
