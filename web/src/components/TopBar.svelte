@@ -3,6 +3,7 @@
   import Icon from './Icon.svelte';
   import CameraPicker from './CameraPicker.svelte';
   import ThemeToggle from './ThemeToggle.svelte';
+  import Clock from './Clock.svelte';
   import { cameras, me, drawerOpen, selectedCameraId } from '../lib/stores';
 
   const REPO_URL = 'https://github.com/klaushofrichter/cams';
@@ -22,6 +23,7 @@
     </a>
   {/if}
   <div class="spacer"></div>
+  <Clock />
   {#if $me}
     <a class="version" data-testid="version-link" href={REPO_URL} target="_blank" rel="noopener noreferrer" title="cams on GitHub">{$me.version}</a>
   {/if}
@@ -57,5 +59,8 @@
     .hamburger { display: grid; }
     .desktop-only { display: none; }
     .brand span { display: none; }
+  }
+  @media (max-width: 479px) {
+    .version { display: none; }
   }
 </style>
