@@ -97,13 +97,24 @@ test('audio starts muted and can be toggled', async ({ page }) => {
   await expect(page.getByTestId('live-video')).toHaveJSProperty('muted', false);
 });
 
-test('snapshot link downloads a JPEG', async ({ page }) => {
+test('the snapshot button saves a JPEG', async ({ page }) => {
   await page.goto('/app/live');
-  const link = page.getByTestId('snapshot');
-  await expect(link).toHaveAttribute('href', '/api/cameras/cam1/snapshot.jpg');
-  const res = await page.request.get('/api/cameras/cam1/snapshot.jpg');
-  expect(res.status()).toBe(200);
-  expect(res.headers()['content-type']).toBe('image/jpeg');
+  const [download] = await Promise.all([page.waitForEvent('download'), page.getByTestId('snapshot').click()]);
+  expect(download.suggestedFilename()).toMatch(/^cam1-\d{4}-\d{2}-\d{2}-\d{2}-\d{2}-\d{2}\.jpg$/);
+  const { readFileSync } = await import('fs');
+  const bytes = readFileSync((await download.path())!);
+  expect(bytes.subarray(0, 3).toString('hex')).toBe('ffd8ff'); // a JPEG, not an error page
+});
+
+// Review focus 5 (Plan 5): a failed snapshot says so instead of saving junk.
+test('a failed snapshot shows a message and saves nothing', async ({ page }) => {
+  await page.route('**/api/cameras/cam1/snapshot.jpg', (route) => route.fulfill({ status: 503, contentType: 'application/json', body: '{"error":"camera_offline"}' }));
+  await page.goto('/app/live');
+  let downloaded = false;
+  page.on('download', () => (downloaded = true));
+  await page.getByTestId('snapshot').click();
+  await expect(page.getByTestId('snapshot-error')).toContainText("couldn't be taken");
+  expect(downloaded).toBe(false);
 });
 
 test('an unreachable camera shows the offline banner with retry', async ({ page }) => {

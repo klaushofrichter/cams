@@ -10,6 +10,8 @@
     selectedId,
     onfilter,
     onselect,
+    onthumberror,
+    downloadsOk = true,
   }: {
     cameraId: string;
     events: EventClip[];
@@ -18,6 +20,8 @@
     selectedId: string | null;
     onfilter: (f: Filter) => void;
     onselect: (e: EventClip) => void;
+    onthumberror?: () => void;
+    downloadsOk?: boolean;
   } = $props();
 
   // Keyed by cameraId|id, not just id: a clip id is only unique within its
@@ -25,6 +29,23 @@
   // have one camera's broken-thumbnail mark wrongly hide another's.
   let broken = $state(new Set<string>());
   const brokenKey = (id: string) => `${cameraId}|${id}`;
+  // The key comes from the element, not from this item's reactive state: the
+  // error can land while the item re-renders (the derived_inert warnings seen
+  // in production), so the handler reads nothing reactive but `broken`.
+  // When the camera starts serving recordings again, give the failed
+  // thumbnails another try.
+  let wasOk = true;
+  $effect(() => {
+    const ok = downloadsOk;
+    if (ok && !wasOk) broken = new Set();
+    wasOk = ok;
+  });
+
+  function markBroken(ev: Event) {
+    const key = (ev.currentTarget as HTMLElement | null)?.dataset.brokenKey;
+    if (key) broken = new Set([...broken, key]);
+    onthumberror?.();
+  }
 
   const groups = $derived(groupByHour(events, date));
 
@@ -141,7 +162,7 @@
                   {#if broken.has(brokenKey(e.id))}
                     <span class="thumb placeholder" data-testid="event-thumb"></span>
                   {:else}
-                    <img class="thumb" data-testid="event-thumb" loading="lazy" alt="" src={thumbUrl(cameraId, e.id)} onerror={() => (broken = new Set([...broken, brokenKey(e.id)]))} />
+                    <img class="thumb" data-testid="event-thumb" loading="lazy" alt="" src={thumbUrl(cameraId, e.id)} data-broken-key={brokenKey(e.id)} onerror={markBroken} />
                   {/if}
                   <span class="meta">
                     <strong>{formatClock(e.start)}</strong>

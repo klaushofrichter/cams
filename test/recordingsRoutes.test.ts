@@ -170,6 +170,81 @@ describe('recordings API', () => {
     expect(state.downloadOrder).toEqual([a, c, b].map((id) => id.slice(9, 15)));
   });
 
+  // Review focus 1 and 2 (Plan 5): a camera that refuses every download
+  // (RLC-1224A since 2026-09-26) must not get a refused transfer per
+  // thumbnail; the breaker answers at once and lets one probe through per
+  // interval, and a successful probe closes it.
+  it('stops asking a camera that refuses downloads, and recovers on a successful probe', async () => {
+    process.env.RECORDINGS_PROBE_MS = '200';
+    try {
+      await replaceMockCamera({ user: 'u', password: 'p', dropFirstDownloads: 6 });
+      const app = createApp();
+      const events = (await request(app).get(`/api/cameras/cam1/events?date=${today()}`).set('Cookie', auth)).body;
+      expect(events.downloads).toBe('ok');
+      const ids = (events.events as { id: string }[]).map((e) => e.id);
+      // Three refused clips (each tried twice: one retry) open the breaker.
+      for (const id of ids.slice(0, 3)) {
+        expect((await request(app).get(`/api/cameras/cam1/clips/${id}/video`).set('Cookie', auth)).status).toBe(503);
+      }
+      expect(state.droppedDownloads).toBe(6);
+      const refused = await request(app).get(`/api/cameras/cam1/clips/${ids[3]}/video`).set('Cookie', auth);
+      expect(refused.status).toBe(503);
+      expect(refused.body).toEqual({ error: 'recordings_unavailable' });
+      expect(state.droppedDownloads).toBe(6); // the camera wasn't asked
+      expect(state.downloads).toBe(0);
+      expect((await request(app).get(`/api/cameras/cam1/events?date=${today()}`).set('Cookie', auth)).body.downloads).toBe('unavailable');
+      // After the probe interval the next request goes through; the camera
+      // (no drops left) answers, and the breaker closes.
+      await new Promise((r) => setTimeout(r, 250));
+      expect((await request(app).get(`/api/cameras/cam1/clips/${ids[3]}/video`).set('Cookie', auth)).status).toBe(200);
+      expect((await request(app).get(`/api/cameras/cam1/events?date=${today()}`).set('Cookie', auth)).body.downloads).toBe('ok');
+    } finally {
+      delete process.env.RECORDINGS_PROBE_MS;
+    }
+  });
+
+  it('refreshing the events list probes a refusing camera in the background, once per interval', async () => {
+    process.env.RECORDINGS_PROBE_MS = '200';
+    try {
+      await replaceMockCamera({ user: 'u', password: 'p', dropFirstDownloads: 6 });
+      const app = createApp();
+      const ids = ((await request(app).get(`/api/cameras/cam1/events?date=${today()}`).set('Cookie', auth)).body.events as { id: string }[]).map((e) => e.id);
+      for (const id of ids.slice(0, 3)) await request(app).get(`/api/cameras/cam1/clips/${id}/thumb.jpg`).set('Cookie', auth);
+      expect((await request(app).get(`/api/cameras/cam1/events?date=${today()}`).set('Cookie', auth)).body.downloads).toBe('unavailable');
+      // Not due yet: refreshing doesn't touch the camera.
+      const before = state.downloads + state.droppedDownloads;
+      await request(app).get(`/api/cameras/cam1/events?date=${today()}`).set('Cookie', auth);
+      expect(state.downloads + state.droppedDownloads).toBe(before);
+      // Due: one refresh starts one background probe; the camera answers, and
+      // the next refresh reports ok with nobody opening a clip.
+      await new Promise((r) => setTimeout(r, 250));
+      await Promise.all([1, 2, 3].map(() => request(app).get(`/api/cameras/cam1/events?date=${today()}`).set('Cookie', auth)));
+      await vi.waitFor(() => expect(state.downloads).toBe(1));
+      await vi.waitFor(async () =>
+        expect((await request(app).get(`/api/cameras/cam1/events?date=${today()}`).set('Cookie', auth)).body.downloads).toBe('ok'),
+      );
+      expect(state.downloads).toBe(1);
+    } finally {
+      delete process.env.RECORDINGS_PROBE_MS;
+    }
+  });
+
+  it('keeps serving cached clips while the breaker is open', async () => {
+    process.env.RECORDINGS_PROBE_MS = '60000';
+    try {
+      await replaceMockCamera({ user: 'u', password: 'p' });
+      const app = createApp();
+      const ids = ((await request(app).get(`/api/cameras/cam1/events?date=${today()}`).set('Cookie', auth)).body.events as { id: string }[]).map((e) => e.id);
+      expect((await request(app).get(`/api/cameras/cam1/clips/${ids[0]}/video`).set('Cookie', auth)).status).toBe(200); // now cached
+      await replaceMockCamera({ user: 'u', password: 'p', dropFirstDownloads: 100 }); // the camera starts refusing
+      for (const id of ids.slice(1, 4)) await request(app).get(`/api/cameras/cam1/clips/${id}/video`).set('Cookie', auth);
+      expect((await request(app).get(`/api/cameras/cam1/clips/${ids[1]}/video`).set('Cookie', auth)).body).toEqual({ error: 'recordings_unavailable' });
+      expect((await request(app).get(`/api/cameras/cam1/clips/${ids[0]}/video`).set('Cookie', auth)).status).toBe(200);
+    } finally {
+      delete process.env.RECORDINGS_PROBE_MS;
+    }
+  });
+
   it('keeps a clip that really ends at midnight', async () => {
     await replaceMockCamera({ user: 'u', password: 'p', clips: [{ daysAgo: 1, start: '235940', end: '000000', triggers: ['motion'] }] });
     const date = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Chicago' }).format(new Date(Date.now() - 86400_000 * 1));
@@ -193,7 +268,7 @@ describe('recordings API', () => {
   // Review focus 5: an empty day is an empty list, not an error.
   it('returns an empty list for a day without recordings', async () => {
     const res = await request(createApp()).get('/api/cameras/cam1/events?date=2001-01-01').set('Cookie', auth);
-    expect(res.body).toEqual({ date: '2001-01-01', events: [] });
+    expect(res.body).toEqual({ date: '2001-01-01', events: [], downloads: 'ok' });
   });
 
   it('lists days with recordings in a month', async () => {

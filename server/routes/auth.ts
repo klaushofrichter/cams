@@ -17,6 +17,9 @@ export function safeReturnPath(value: unknown): string | null {
   if (typeof value !== 'string') return null;
   if (!/^\/app(?:[/?]|$)/.test(value)) return null;
   if (value.includes('//') || value.includes('\\')) return null;
+  // No "." or ".." segments, raw or percent-encoded: /app/../x would leave /app.
+  const path = value.split('?')[0];
+  if (path.split('/').some((seg) => /^(\.|%2e){1,2}$/i.test(seg))) return null;
   return value;
 }
 
@@ -25,6 +28,13 @@ authRouter.get('/auth/google/login', authRateLimit, (req: Request, res: Response
 });
 
 authRouter.get('/auth/google/callback', authRateLimit, async (req: Request, res: Response) => {
+  // The user cancelled at Google (or Google refused): back to the start page,
+  // never a JSON error page.
+  if (req.query.error !== undefined) {
+    clearState(res);
+    res.redirect('/');
+    return;
+  }
   const code = req.query.code;
   if (typeof code !== 'string' || code.length === 0) {
     res.status(401).json({ error: 'missing authorization code' });

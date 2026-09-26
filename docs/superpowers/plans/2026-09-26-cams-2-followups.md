@@ -11,7 +11,7 @@ Plan 2: the CHANGELOG reset, the vendor fullscreen fallback (still open), and th
 
 ## Robustness
 - If `create-camera-user.sh --reset` fails after AddUser, the camera and the Secret no longer match, and the fix is another `--reset`. The script could roll back, or print exact recovery steps.
-- A failed `/status` fetch (app or network down) is shown with the `camera_error` wording ("The camera answered with an error"). It should say that the app, not the camera, failed.
+- ~~A failed `/status` fetch (app or network down) is shown with the `camera_error` wording ("The camera answered with an error"). It should say that the app, not the camera, failed.~~ (done in Plan 5)
 - The semaphore has no acquire timeout. Today every gated call has a 10 s inactivity timeout, so this is safe.
 - There is no loop guard for a camera that keeps rejecting fresh tokens. The damage is bounded: at most 2 logins per request.
 - An abort during the post-reset `GetDevInfo` re-validation surfaces `camera_offline`. The route handles this quietly, and a single `GetDevInfo` may still be in flight for up to 10 s.
@@ -29,6 +29,6 @@ Plan 2: the CHANGELOG reset, the vendor fullscreen fallback (still open), and th
 - Some e2e specs may hit the 4-stream cap when run with many local workers. CI uses 2 workers.
 
 ## UI
-- Snapshot errors are silent. The download link saves nothing. Consider fetching the snapshot and showing an error.
+- ~~Snapshot errors are silent. The download link saves nothing. Consider fetching the snapshot and showing an error.~~ (done in Plan 5)
 - There is no `webkitRequestFullscreen` fallback for older Safari.
 - When a standby stream fails and then the active one fails, the standby retry is lost until the next swap. Nothing freezes.
