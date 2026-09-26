@@ -115,7 +115,7 @@
     return out;
   }
 
-  // A failed save (anything but 200/207) may have partially applied
+  // A failed save (a 5xx or a network error) may have partially applied
   // commands on the camera, so the card is re-fetched to show the true
   // state rather than trusting the optimistic `edited` copy. `cam` and
   // `mine` are captured fresh here (not just inherited from the caller) so
@@ -154,7 +154,9 @@
       if (mine !== seq) return;
       if (res.status !== 200 && res.status !== 207) {
         set('error');
-        await reload(section);
+        // A 4xx was refused before any command reached the camera: keep the
+        // user's edits. Only a 5xx may have left the camera half-written.
+        if (res.status >= 500) await reload(section);
         return;
       }
       const errs = errorsOf(res.body.fields);

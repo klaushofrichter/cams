@@ -95,6 +95,21 @@ test('an OSD name over 31 bytes or with invisible characters cannot be saved', a
   await expect(page.getByTestId('save-image')).toBeEnabled();
 });
 
+// The PUT is answered by the test, so the camera is never written.
+test('a save refused with 400 keeps the edits', async ({ page }) => {
+  await page.route('**/api/cameras/*/settings/image', (route) => route.fulfill({ status: 400, json: { error: 'bad_request', details: [] } }));
+  await page.goto('/app/settings');
+  const name = page.getByTestId('osd-name');
+  await expect(name).toHaveValue('Den');
+  await name.fill('Den edited');
+  await page.getByTestId('daynight-select').selectOption('color');
+  await page.getByTestId('save-image').click();
+  await expect(page.getByTestId('settings-card-image').getByTestId('save-state')).toHaveAttribute('data-state', 'error');
+  await page.waitForTimeout(300); // a reload, if one ran, would land by now
+  await expect(name).toHaveValue('Den edited');
+  await expect(page.getByTestId('daynight-select')).toHaveValue('color');
+});
+
 test('an offline camera shows a clear message instead of a spinner', async ({ page }) => {
   await page.goto('/app/settings');
   await page.getByTestId('camera-picker').selectOption({ label: 'Garage' });
