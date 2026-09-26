@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount } from 'svelte';
+  import { onMount, untrack } from 'svelte';
   import { fly, fade } from 'svelte/transition';
   import TopBar from './components/TopBar.svelte';
   import Sidebar from './components/Sidebar.svelte';
@@ -67,6 +67,20 @@
     wasOnScreen = onScreen;
   });
   $effect(() => () => keepAlive.dispose());
+  // Picking another camera while Live is off-screen (kept alive) would switch
+  // the hidden player to a stream nobody watches: unmount Live at once
+  // instead. It mounts fresh, on the new camera, on return.
+  let liveCamera: string | null | undefined;
+  $effect(() => {
+    const id = $selectedCameraId;
+    untrack(() => {
+      if (liveCamera !== undefined && id !== liveCamera && liveMounted && !($route.page === 'live' && tabVisible)) {
+        keepAlive.enter(); // cancels the countdown: nothing left to expire
+        liveMounted = false;
+      }
+    });
+    liveCamera = id;
+  });
 
   // The favicon frame and tab title mirror the camera's live status (Task
   // 13). Signing out is a full page navigation (to a separate entry point,

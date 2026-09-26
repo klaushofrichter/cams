@@ -215,3 +215,27 @@ test('a hidden tab within the keep-alive keeps the same stream', async ({ page }
   expect(streams.open()).toBe(1);
 });
 
+// Picking another camera while Live is kept alive off-screen must not start a
+// stream for it that nobody watches: Live is unmounted at once, and mounts
+// fresh on the new camera on return.
+test('changing the camera while Live is kept alive ends the stream at once', async ({ page }) => {
+  await setKeepAlive(page, 60);
+  const streams = watchStreams(page);
+  await page.goto('/app/live');
+  const video = page.locator('[data-testid="live-video"]:visible');
+  await expect.poll(() => video.evaluate((v: HTMLVideoElement) => v.readyState >= 2), { timeout: 15_000 }).toBe(true);
+  expect(streams.open()).toBe(1);
+
+  await page.getByTestId('sidebar').getByTestId('nav-settings').click();
+  await expect(page.getByTestId('settings-card-prefs')).toBeVisible();
+  await expect(page.getByTestId('live-video')).toBeHidden(); // kept alive
+  const opened = streams.opened.length;
+  await page.getByTestId('camera-picker').selectOption({ label: 'Porch' });
+  await expect.poll(() => streams.open(), { timeout: 5_000 }).toBe(0);
+  await expect(page.locator('video')).toHaveCount(0);
+  expect(streams.opened.length).toBe(opened); // no stream for Porch while away
+
+  await page.getByTestId('sidebar').getByTestId('nav-live').click();
+  await expect.poll(() => video.evaluate((v: HTMLVideoElement) => v.readyState >= 2), { timeout: 15_000 }).toBe(true);
+  expect(streams.open()).toBe(1);
+});
