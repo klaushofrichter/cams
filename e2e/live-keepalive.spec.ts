@@ -91,3 +91,58 @@ test('with keep-alive off, leaving Live closes the stream', async ({ page }) => 
   await expect.poll(() => streams.open(), { timeout: 5_000 }).toBe(0);
   await expect(page.locator('video')).toHaveCount(0);
 });
+
+// Fix round 1, item 9: hidden Live (kept mounted for the keep-alive) must
+// not keep playing audio the viewer never asked for, and the viewer's own
+// mute choice must come back once Live is visible again.
+test('hidden Live is muted, and unmuted again on return', async ({ page }) => {
+  await setKeepAlive(page, 60);
+  await page.goto('/app/live');
+  const video = page.locator('[data-testid="live-video"]:visible');
+  await expect.poll(() => video.evaluate((v: HTMLVideoElement) => v.readyState >= 2), { timeout: 15_000 }).toBe(true);
+
+  // Unmute: the viewer's own choice.
+  await page.getByTestId('mute-toggle').click();
+  await expect(page.getByTestId('mute-toggle')).toHaveAttribute('aria-pressed', 'true');
+  expect(await video.evaluate((v: HTMLVideoElement) => v.muted)).toBe(false);
+
+  await page.getByTestId('sidebar').getByTestId('nav-settings').click();
+  await expect(page.getByTestId('settings-card-prefs')).toBeVisible();
+  // The same (hidden) <video> element is muted while nobody can see Live.
+  const hidden = page.locator('[data-testid="live-video"]');
+  await expect(hidden).toBeHidden();
+  await expect.poll(() => hidden.evaluate((v: HTMLVideoElement) => v.muted), { timeout: 2_000 }).toBe(true);
+
+  await page.getByTestId('sidebar').getByTestId('nav-live').click();
+  await expect(page.getByTestId('page-title')).toHaveText('Live');
+  // Unmuted again: the earlier choice came back, not a fresh `muted: true`.
+  await expect(page.getByTestId('mute-toggle')).toHaveAttribute('aria-pressed', 'true');
+  expect(await video.evaluate((v: HTMLVideoElement) => v.muted)).toBe(false);
+});
+
+// Fix round 1, item 11: the expiry path (App unmounts Live once the
+// keep-alive countdown, restarted by a live preference change while away,
+// runs out) is otherwise never exercised end to end. Setting keep-alive
+// through the actual Settings UI (not the API directly) also exercises the
+// preferences store update that drives App's countdown.
+test('turning keep-alive off in Settings while Live is hidden ends the stream', async ({ page }) => {
+  await setKeepAlive(page, 60);
+  const streams = watchStreams(page);
+  await page.goto('/app/live');
+  const video = page.locator('[data-testid="live-video"]:visible');
+  await expect.poll(() => video.evaluate((v: HTMLVideoElement) => v.readyState >= 2), { timeout: 15_000 }).toBe(true);
+  expect(streams.open()).toBe(1);
+
+  await page.getByTestId('sidebar').getByTestId('nav-settings').click();
+  await expect(page.getByTestId('settings-card-prefs')).toBeVisible();
+  await expect(page.getByTestId('live-video')).toBeHidden(); // still kept alive, hidden
+
+  await page.getByTestId('pref-keepalive').selectOption('0');
+  await page.getByTestId('save-prefs').click();
+  await expect(page.getByTestId('settings-card-prefs').getByTestId('save-state')).toHaveText('Saved', { timeout: 5_000 });
+
+  await expect.poll(() => streams.open(), { timeout: 5_000 }).toBe(0);
+  await expect(page.locator('video')).toHaveCount(0);
+
+  await setKeepAlive(page, 60); // restore, in case afterAll doesn't run
+});

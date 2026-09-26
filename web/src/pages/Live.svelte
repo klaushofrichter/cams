@@ -112,10 +112,26 @@
   });
 
   // Refreshes the mini timeline every minute while the tab is visible, and
-  // once more when it becomes visible again.
+  // once more when it becomes visible again. Skips the tick entirely while
+  // this page itself is hidden (App keeps it mounted for the keep-alive
+  // after leaving Live): nobody can see the mini timeline then, so there's
+  // no point spending a Search call on the camera for it.
   $effect(() => {
-    const r = createTodayRefresher({ isToday: () => true, refresh: () => refreshTick++ });
+    const r = createTodayRefresher({ isToday: () => true, refresh: () => { if (visible) refreshTick++; } });
     return () => r.stop();
+  });
+
+  // Coming back to Live (visible again after being hidden) refreshes once
+  // at once, rather than waiting for the next minute's tick, so returning
+  // shows whatever recorded while it was hidden. Starts `true`: App only
+  // ever mounts this page while it's the visible one (see App.svelte), so
+  // there's no "becoming visible" transition to catch on the very first
+  // render -- and starting from the (reactive) `visible` prop directly here
+  // would only capture its value once anyway, not track it.
+  let wasVisible = true;
+  $effect(() => {
+    if (visible && !wasVisible) refreshTick++;
+    wasVisible = visible;
   });
 
   // Clicking (or arrow-stepping to) a point on the mini timeline opens the
@@ -155,6 +171,16 @@
     void enterFullscreen(container, video);
   }
 
+  // Leaving Live while its viewer is fullscreen (App keeps it mounted but
+  // hidden, for the keep-alive) would otherwise leave a black fullscreen
+  // screen behind: nothing in it is visible any more, but the browser is
+  // still in fullscreen. Exit it as soon as this page is hidden.
+  $effect(() => {
+    if (!visible && container && document.fullscreenElement && container.contains(document.fullscreenElement)) {
+      void document.exitFullscreen().catch(() => {});
+    }
+  });
+
   // One explanation per error code: camera_error covers things re-trying
   // won't fix (a certificate problem, an unexpected answer), so it points at
   // the server logs instead of suggesting the camera is simply unreachable.
@@ -191,7 +217,11 @@
     </div>
   {:else if status?.online}
     <div class="viewer" bind:this={container}>
-      <LivePlayer cameraId={camera.id} {quality} {muted} onstate={(s) => (playerState = s)} />
+      <!-- `muted` itself is left untouched while hidden, so the user's own
+           choice comes back once Live is visible again; the player is muted
+           here (not by mutating `muted`) so a hidden Live playing in the
+           background (the keep-alive) never plays audio nobody asked for. -->
+      <LivePlayer cameraId={camera.id} {quality} muted={muted || !visible} onstate={(s) => (playerState = s)} />
       <div class="controls">
         <button data-testid="mute-toggle" aria-pressed={!muted} onclick={() => (muted = !muted)} title={muted ? 'Unmute' : 'Mute'}>
           <Icon name={muted ? 'volumeOff' : 'volumeOn'} size={18} /><span>{muted ? 'Muted' : 'Sound'}</span>
