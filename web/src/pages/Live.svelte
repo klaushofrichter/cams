@@ -28,7 +28,10 @@
   // headings (the page title, the mini timeline) are only rendered while
   // visible; the player itself is never unmounted by this, so the stream
   // keeps playing in the background.
-  let { visible = true }: { visible?: boolean } = $props();
+  // `audible` is false whenever nobody can hear it on purpose: another page
+  // OR a hidden browser tab (Klaus: off-screen means either). `visible` only
+  // covers the page, because a hidden tab still renders.
+  let { visible = true, audible = true }: { visible?: boolean; audible?: boolean } = $props();
 
   const hevc = typeof MediaSource !== 'undefined' && supportsHevc((t) => MediaSource.isTypeSupported(t));
 
@@ -239,9 +242,10 @@
     <div class="viewer" bind:this={container}>
       <!-- `muted` itself is left untouched while hidden, so the user's own
            choice comes back once Live is visible again; the player is muted
-           here (not by mutating `muted`) so a hidden Live playing in the
-           background (the keep-alive) never plays audio nobody asked for. -->
-      <LivePlayer cameraId={camera.id} {quality} muted={muted || !visible} onstate={(s) => (playerState = s)} />
+           here (not by mutating `muted`) so a hidden Live or a hidden tab
+           playing in the background (the keep-alive) never plays audio
+           nobody asked for. -->
+      <LivePlayer cameraId={camera.id} {quality} muted={muted || !audible} onstate={(s) => (playerState = s)} />
       <div class="controls">
         <button data-testid="mute-toggle" aria-pressed={!muted} onclick={() => (muted = !muted)} title={muted ? 'Unmute' : 'Mute'}>
           <Icon name={muted ? 'volumeOff' : 'volumeOn'} size={18} /><span>{muted ? 'Muted' : 'Sound'}</span>

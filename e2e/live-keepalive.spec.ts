@@ -201,9 +201,17 @@ test('a hidden tab within the keep-alive keeps the same stream', async ({ page }
   const video = page.locator('[data-testid="live-video"]:visible');
   await expect.poll(() => video.evaluate((v: HTMLVideoElement) => v.readyState >= 2), { timeout: 15_000 }).toBe(true);
   const opened = streams.opened.length;
+  // Unmuted by the viewer; a hidden tab still mutes it (off-screen means
+  // another page OR a hidden tab), and showing the tab brings the sound back.
+  await page.getByTestId('mute-toggle').click();
+  expect(await video.evaluate((v: HTMLVideoElement) => v.muted)).toBe(false);
   await setTabHidden(page, true);
-  await page.waitForTimeout(500); // nothing should happen; prove it didn't
+  const player = page.locator('[data-testid="live-video"]');
+  await expect.poll(() => player.evaluate((v: HTMLVideoElement) => v.muted), { timeout: 2_000 }).toBe(true);
+  await page.waitForTimeout(500); // nothing should happen to the stream; prove it didn't
   await setTabHidden(page, false);
+  await expect.poll(() => player.evaluate((v: HTMLVideoElement) => v.muted), { timeout: 2_000 }).toBe(false);
   expect(streams.opened.length).toBe(opened);
   expect(streams.open()).toBe(1);
 });
+

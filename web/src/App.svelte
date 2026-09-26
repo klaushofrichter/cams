@@ -123,7 +123,7 @@
     {#if ready}
       <!-- Outside the {#key} below: a route change must not remount Live. -->
       {#if liveMounted}
-        <div class="live-host" hidden={$route.page !== 'live'} in:fly={{ y: 8, duration: duration(180) }}><Live visible={$route.page === 'live'} /></div>
+        <div class="live-host" hidden={$route.page !== 'live'} in:fly={{ y: 8, duration: duration(180) }}><Live visible={$route.page === 'live'} audible={$route.page === 'live' && tabVisible} /></div>
       {/if}
       {#if $route.page !== 'live'}
         {#key $route.page}
