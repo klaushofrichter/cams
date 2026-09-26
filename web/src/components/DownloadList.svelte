@@ -1,15 +1,18 @@
 <script lang="ts">
   import { tick, untrack } from 'svelte';
-  import { COLLAPSE_OVER, downloadUrl, formatBytes, formatClock, groupByHour, type EventClip } from '../lib/recordings';
+  import { defaultGroupOpen, downloadUrl, formatBytes, formatClock, groupByHour, type EventClip } from '../lib/recordings';
 
   let { cameraId, events, date, selectedId }: { cameraId: string; events: EventClip[]; date: string; selectedId: string | null } = $props();
 
   const groups = $derived(groupByHour(events, date));
 
-  // Open/closed state per `date|hour`, kept once decided so a refresh never
-  // reopens or re-collapses a group the viewer has already seen.
+  // Open/closed state per `cameraId|date|hour` -- not just `date|hour`:
+  // switching cameras (without changing the date) must not carry over a
+  // group's open/closed state from one camera's hour to another camera's
+  // same hour. Kept once decided so a refresh never reopens or re-collapses
+  // a group the viewer has already seen.
   let groupOpen: Record<string, boolean> = $state({});
-  const keyOf = (hour: number) => `${date}|${hour}`;
+  const keyOf = (hour: number) => `${cameraId}|${date}|${hour}`;
 
   let listEl: HTMLElement | undefined = $state();
   let prevSelected: string | null = null;
@@ -23,9 +26,7 @@
     untrack(() => {
       for (const g of gs) {
         const key = keyOf(g.hour);
-        if (!(key in groupOpen)) {
-          updates[key] = g.events.length <= COLLAPSE_OVER || g.events.some((e) => e.id === id);
-        }
+        if (!(key in groupOpen)) updates[key] = defaultGroupOpen(g, id);
       }
       // The selection moved into a collapsed group (this list has no click
       // selection of its own, so any change comes from outside it): open it.
@@ -59,7 +60,7 @@
 {:else}
   <div class="groups" bind:this={listEl}>
     {#each groups as g (g.hour)}
-      {@const open = groupOpen[keyOf(g.hour)] ?? true}
+      {@const open = groupOpen[keyOf(g.hour)] ?? defaultGroupOpen(g, selectedId)}
       <section class="group" data-testid="hour-group" data-hour={g.hour}>
         <button class="group-head" data-testid="hour-toggle" aria-expanded={open} onclick={() => toggle(g.hour)}>
           <span class="label">{g.label}</span>

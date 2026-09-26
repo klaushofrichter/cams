@@ -1,6 +1,6 @@
 <script lang="ts">
   import { tick, untrack } from 'svelte';
-  import { COLLAPSE_OVER, FILTERS, TRIGGER_LABELS, formatClock, groupByHour, thumbUrl, type EventClip, type Filter } from '../lib/recordings';
+  import { FILTERS, TRIGGER_LABELS, defaultGroupOpen, formatClock, groupByHour, thumbUrl, type EventClip, type Filter } from '../lib/recordings';
 
   let {
     cameraId,
@@ -28,31 +28,43 @@
 
   const groups = $derived(groupByHour(events, date));
 
-  // Open/closed state per `date|hour`, kept once decided so a refresh (new
-  // events for the same day arriving) never reopens or re-collapses a
-  // group the viewer has already seen. Only actually-new keys get a
-  // default computed for them.
+  // Open/closed state per `cameraId|date|hour` -- not just `date|hour`:
+  // switching cameras (without changing the date) must not carry over a
+  // group's open/closed state from one camera's hour to another camera's
+  // same hour, which have nothing to do with each other. Kept once decided
+  // so a refresh (new events for the same day arriving) never reopens or
+  // re-collapses a group the viewer has already seen. Only actually-new
+  // keys get a default computed for them.
   let groupOpen: Record<string, boolean> = $state({});
-  const keyOf = (hour: number) => `${date}|${hour}`;
+  const keyOf = (hour: number) => `${cameraId}|${date}|${hour}`;
 
   let listEl: HTMLElement | undefined = $state();
-  let internalClick = false;
+  // The id a click inside this list just selected, so the effect below can
+  // tell that apart from a selection that changed from outside (prev/next,
+  // the timeline, a deep link, a cross-day navigation): only the latter
+  // ever needs a scroll, since a click can't land on a hidden card.
+  let clickedId: string | null = null;
   let prevSelected: string | null = null;
+  // The id this list still owes a scroll to. Set on an external selection
+  // change and retried (via the effect below, which reruns whenever the
+  // groups or their open state change) until the card actually exists in
+  // the DOM -- e.g. a deep link or a cross-day prev/next can set the
+  // selection before its events have loaded, or before the group holding it
+  // has opened -- and is cleared only once that scroll actually happens.
+  let pendingScroll: string | null = $state(null);
 
   $effect(() => {
     const gs = groups;
     const id = selectedId;
     const changed = id !== prevSelected;
     prevSelected = id;
+    const wasClicked = id !== null && id === clickedId;
+    clickedId = null;
     const updates: Record<string, boolean> = {};
     untrack(() => {
       for (const g of gs) {
         const key = keyOf(g.hour);
-        if (!(key in groupOpen)) {
-          // A group starts open unless it's busy and doesn't hold the
-          // current selection.
-          updates[key] = g.events.length <= COLLAPSE_OVER || g.events.some((e) => e.id === id);
-        }
+        if (!(key in groupOpen)) updates[key] = defaultGroupOpen(g, id);
       }
       // The selection moved (via prev/next, the timeline or a deep link) into
       // a group that's collapsed: open it. A click inside this list can't
@@ -68,13 +80,29 @@
     });
     if (Object.keys(updates).length) groupOpen = { ...groupOpen, ...updates };
 
-    if (changed && id && !internalClick) {
-      const target = id;
-      void tick().then(() => {
-        listEl?.querySelector<HTMLElement>(`[data-testid="event-card"][data-clip-id="${CSS.escape(target)}"]`)?.scrollIntoView({ block: 'nearest' });
-      });
-    }
-    internalClick = false;
+    if (changed && id && !wasClicked) pendingScroll = id;
+  });
+
+  // Tries to scroll to `pendingScroll`'s card, retrying (via `groupOpen` and
+  // `groups`, read below so this effect reruns as they change) until the
+  // card is actually found, and clearing it only then.
+  $effect(() => {
+    const target = pendingScroll;
+    if (!target) return;
+    void groups;
+    void groupOpen;
+    void tick().then(() => {
+      // This effect can re-run (groups/groupOpen changing again before the
+      // first run's tick() resolves) and queue more than one of these
+      // callbacks for the same target; only the first to actually run
+      // should scroll -- a later, now-stale one must see pendingScroll
+      // already cleared and do nothing.
+      if (pendingScroll !== target) return;
+      const el = listEl?.querySelector<HTMLElement>(`[data-testid="event-card"][data-clip-id="${CSS.escape(target)}"]`);
+      if (!el) return;
+      el.scrollIntoView({ block: 'nearest' });
+      pendingScroll = null;
+    });
   });
 
   function toggle(hour: number) {
@@ -83,7 +111,7 @@
   }
 
   function select(e: EventClip) {
-    internalClick = true;
+    clickedId = e.id;
     onselect(e);
   }
 </script>
@@ -99,7 +127,7 @@
 {:else}
   <div class="groups" bind:this={listEl}>
     {#each groups as g (g.hour)}
-      {@const open = groupOpen[keyOf(g.hour)] ?? true}
+      {@const open = groupOpen[keyOf(g.hour)] ?? defaultGroupOpen(g, selectedId)}
       <section class="group" data-testid="hour-group" data-hour={g.hour}>
         <button class="group-head" data-testid="hour-toggle" aria-expanded={open} onclick={() => toggle(g.hour)}>
           <span class="label">{g.label}</span>
