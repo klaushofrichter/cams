@@ -162,12 +162,20 @@
         events = e.events;
         days = [...new Set([...d0.days, ...rest.flatMap((r) => r.days)])].sort();
         updatedAt = new Date();
+        // Always clear the skeleton and any earlier failure on success, even
+        // for a refresh (isRefresh never set loading = true above, so a
+        // dropped earlier response -- one whose seq no longer matches --
+        // would otherwise leave `loading` stuck true forever). A later
+        // successful refresh also clears an earlier failed load.
+        loading = false;
+        failed = false;
       })
       .catch(() => {
-        if (seq === eventsRequest && !isRefresh) failed = true;
-      })
-      .finally(() => {
-        if (seq === eventsRequest && !isRefresh) loading = false;
+        if (seq !== eventsRequest) return;
+        // Only the error display is gated on !isRefresh: a refresh failure
+        // is silently ignored and the old list stays on screen.
+        if (!isRefresh) failed = true;
+        loading = false;
       });
   });
 
@@ -175,7 +183,10 @@
   // while the tab is visible, and once more when it becomes visible again
   // (if enough time has passed). Never touches a past day.
   $effect(() => {
-    const r = createTodayRefresher({ isToday: () => date === $todayDate, refresh: () => refreshTick++ });
+    // Skips a tick while a load (or an earlier refresh) is still in flight,
+    // so a slow response never gets raced by a second request that would
+    // otherwise get dropped without ever clearing the skeleton.
+    const r = createTodayRefresher({ isToday: () => date === $todayDate, refresh: () => { if (!loading) refreshTick++; } });
     return () => r.stop();
   });
 
