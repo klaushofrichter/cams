@@ -1233,6 +1233,7 @@ In `test/setup.ts`, set `process.env.PREFS_FILE ??= join(tmpdir(), \`cams-test-p
 `server/preferences.ts`:
 
 ```ts
+import { randomBytes } from 'crypto';
 import { promises as fs } from 'fs';
 import { tmpdir } from 'os';
 import { dirname, join } from 'path';
@@ -1265,8 +1266,11 @@ export async function getPreferences(email: string): Promise<Preferences> {
   return { ...DEFAULT_PREFERENCES, ...((await readAll())[email.toLowerCase()] ?? {}) };
 }
 
-// Writes are serialized and atomic (temp file + rename), so two saves can't
-// interleave and a crash never leaves half a file on the volume.
+// Writes are serialized and atomic (temp file + rename in the same
+// directory), so two saves can't interleave and a crash never leaves half a
+// file on the volume. During a rolling deploy the old and new pods both mount
+// the volume for a few seconds, and both run as PID 1 in their containers, so
+// the temp name needs a random part, not the PID.
 export function savePreferences(email: string, patch: Partial<Preferences>): Promise<Preferences> {
   const run = writing.then(async () => {
     const all = await readAll();
@@ -1274,7 +1278,7 @@ export function savePreferences(email: string, patch: Partial<Preferences>): Pro
     const next = { ...DEFAULT_PREFERENCES, ...(all[key] ?? {}), ...patch };
     all[key] = next;
     await fs.mkdir(dirname(file()), { recursive: true });
-    const tmp = `${file()}.tmp-${process.pid}`;
+    const tmp = `${file()}.tmp-${randomBytes(6).toString('hex')}`;
     await fs.writeFile(tmp, JSON.stringify(all, null, 2));
     await fs.rename(tmp, file());
     return next;
@@ -2225,7 +2229,7 @@ git commit -m "test: e2e for settings save/partial/offline, reboot guard, prefer
 
 ### Task 8 (controller, ops): data volume, ship, verify
 
-- [ ] **Step 1: Ask kube-setup** to add a PVC `cams-data` (64Mi) to the cams ksvc:
+- [x] **Step 1: Ask kube-setup** (done 2026-09-26: revision `cams-00011`, kube-setup 601c14e + 73e86ce, PVC Bound on local-path, reclaim Retain, in the Velero backup) to add a PVC `cams-data` (64Mi) to the cams ksvc:
   - mounted at `/var/lib/cams`, writable by uid 1000 (it is empty on first use);
   - `PREFS_FILE=/var/lib/cams/preferences.json`;
   - kube-setup should push to git before applying.
