@@ -9,6 +9,7 @@ export interface Me {
 export interface CameraSummary {
   id: string;
   name: string;
+  webUiUrl: string;
 }
 
 // A boolean kept in localStorage. Storage failures (private mode) degrade to

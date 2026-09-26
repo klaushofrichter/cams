@@ -262,6 +262,7 @@ export function createMockCamera(opts: MockCameraOptions): MockCamera {
       logins: state.logins,
       downloads: state.downloads,
       activeDownloads: state.activeDownloads,
+      reboots: state.reboots,
     });
   });
   // "Offline" (e.g. mid-Reboot) drops the connection like a camera that's

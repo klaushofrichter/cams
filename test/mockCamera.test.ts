@@ -58,11 +58,11 @@ describe('mock camera', () => {
   it('reports activeStreams and logins via /__state, even while "offline"', async () => {
     const { app, state } = createMockCamera(creds);
     await login(app);
-    expect((await request(app).get('/__state')).body).toEqual({ activeStreams: 0, logins: 1, downloads: 0, activeDownloads: 0 });
+    expect((await request(app).get('/__state')).body).toEqual({ activeStreams: 0, logins: 1, downloads: 0, activeDownloads: 0, reboots: 0 });
     state.offline = true;
     const res = await request(app).get('/__state');
     expect(res.status).toBe(200);
-    expect(res.body).toEqual({ activeStreams: 0, logins: 1, downloads: 0, activeDownloads: 0 });
+    expect(res.body).toEqual({ activeStreams: 0, logins: 1, downloads: 0, activeDownloads: 0, reboots: 0 });
   });
 
   it('streams /flv and stops counting once the client disconnects', async () => {

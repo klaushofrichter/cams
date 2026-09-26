@@ -1,4 +1,5 @@
 import { randomBytes } from 'crypto';
+import { connect as tlsConnect } from 'tls';
 import { IncomingMessage } from 'node:http';
 import type { CameraConfig } from '../cameraRegistry';
 import { logger } from '../logger';
@@ -163,6 +164,29 @@ export class ReolinkClient {
       throw new CameraError('camera_error', `${cmd} failed (rspCode ${reply.error?.rspCode ?? 'unknown'})`);
     }
     throw new CameraError('camera_auth_failed', `${cmd}: session rejected after re-login`);
+  }
+
+  // The certificate the camera presents (subject, issuer, expiry). The camera's
+  // GetCertificateInfo only says whether a custom one is installed.
+  async cameraCertificate(): Promise<{ subject: string; issuer: string; validTo: string } | null> {
+    if (this.cam.protocol !== 'https') return null;
+    const [host, port] = this.cam.host.split(':');
+    return new Promise((resolve) => {
+      const socket = tlsConnect(
+        { host, port: Number(port) || 443, servername: this.cam.tlsServername, rejectUnauthorized: false, timeout: this.timeoutMs },
+        () => {
+          const c = socket.getPeerCertificate();
+          socket.end();
+          if (!c || !c.valid_to) return resolve(null);
+          resolve({ subject: String(c.subject?.CN ?? ''), issuer: String(c.issuer?.O ?? c.issuer?.CN ?? ''), validTo: new Date(c.valid_to).toISOString() });
+        },
+      );
+      socket.on('error', () => resolve(null));
+      socket.on('timeout', () => {
+        socket.destroy();
+        resolve(null);
+      });
+    });
   }
 
   async status(): Promise<CameraStatus> {

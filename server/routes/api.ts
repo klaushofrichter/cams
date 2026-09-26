@@ -6,6 +6,7 @@ import { listCameras } from '../cameraRegistry';
 import { appVersion } from '../version';
 import { camerasRouter } from './cameras';
 import { recordingsRouter } from './recordings';
+import { settingsRouter } from './settings';
 
 export const apiRouter = Router();
 
@@ -21,6 +22,7 @@ apiRouter.get('/api/cameras', (_req: Request, res: Response) => {
 
 apiRouter.use(camerasRouter);
 apiRouter.use(recordingsRouter);
+apiRouter.use(settingsRouter);
 
 // Last on /api: an unknown API path is JSON, never the SPA's HTML.
 apiRouter.use('/api', (_req: Request, res: Response) => {
