@@ -1,3 +1,4 @@
 # Accepted CodeQL findings. The gate in production-checks.yml ignores exactly
 # these, and nothing else. Changing this file takes a pull request.
 # Format: ruleId<TAB>path<TAB>reason
+js/missing-rate-limiting	test/mock-camera/server.ts	Test-only mock Reolink camera for vitest and e2e, bound to localhost by the test runner; never shipped (test/ is excluded from the Docker image and tsconfig), so it has no untrusted clients to rate-limit.
