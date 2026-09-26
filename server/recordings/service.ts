@@ -5,9 +5,9 @@ import { join } from 'path';
 import { pipeline } from 'stream/promises';
 import { getClient } from '../reolink/clients';
 import { CameraError } from '../reolink/client';
-import { Semaphore } from '../reolink/semaphore';
 import { clipIdOf, clipTimes, CLIP_ID, parseClipName, ParsedClip, Trigger } from './clipNames';
 import { DiskCache } from './cache';
+import { PriorityGate } from './priorityGate';
 import { makeThumbnail } from './thumbnail';
 
 export interface EventClip {
@@ -106,7 +106,7 @@ export class RecordingsService {
   private readonly days_ = new Map<string, { at: number; days: string[] }>();
   private readonly daysInflight = new Map<string, Promise<DayEntry>>();
   private readonly dayCache = new Map<string, DayEntry>();
-  private readonly transfers = new Map<string, Semaphore>();
+  private readonly transfers = new Map<string, PriorityGate>();
 
   constructor(private readonly cache: DiskCache) {}
 
@@ -116,9 +116,9 @@ export class RecordingsService {
     return c;
   }
 
-  private gate(cameraId: string): Semaphore {
+  private gate(cameraId: string): PriorityGate {
     let g = this.transfers.get(cameraId);
-    if (!g) this.transfers.set(cameraId, (g = new Semaphore(TRANSFERS_PER_CAMERA)));
+    if (!g) this.transfers.set(cameraId, (g = new PriorityGate(TRANSFERS_PER_CAMERA)));
     return g;
   }
 
@@ -126,7 +126,7 @@ export class RecordingsService {
   // signal. Signalling abort before a slot is granted rejects `ready`
   // immediately and never touches the gate (if the signal is already
   // aborted) or frees the slot the instant the queued acquisition is
-  // eventually handed one (Semaphore has no dequeue, so the queued callback
+  // eventually handed one (the gate has no dequeue, so the queued callback
   // still runs when its turn comes, but returns at once because its wait
   // promise is already resolved, so the next waiter gets it right away).
   // The caller must call release() when done with the slot; calling it more
@@ -156,12 +156,16 @@ export class RecordingsService {
       onAbort();
     } else {
       signal?.addEventListener('abort', onAbort, { once: true });
-      void this.gate(cameraId).run(async () => {
-        if (settled) return; // aborted while queued; bail at once, freeing the slot
-        settled = true;
-        resolveReady();
-        await held;
-      });
+      // A download someone clicked goes ahead of queued thumbnail fetches.
+      void this.gate(cameraId).run(
+        async () => {
+          if (settled) return; // aborted while queued; bail at once, freeing the slot
+          settled = true;
+          resolveReady();
+          await held;
+        },
+        { high: true },
+      );
     }
     return {
       ready,
@@ -263,17 +267,29 @@ export class RecordingsService {
     }
   }
 
-  async withClip<T>(cameraId: string, clipId: string, use: (path: string) => Promise<T>): Promise<T> {
+  // `priority` 'high' is for someone waiting to watch the clip; thumbnails
+  // pass 'low'. If a low-priority fetch of this clip is already queued, a
+  // high-priority caller promotes it rather than waiting behind other clips.
+  async withClip<T>(
+    cameraId: string,
+    clipId: string,
+    use: (path: string) => Promise<T>,
+    priority: 'high' | 'low' = 'high',
+  ): Promise<T> {
     const { sub } = await this.names(cameraId, clipId);
     if (!sub) throw new RecordingError('unknown_clip', 'clip has no sub stream');
     const key = this.key(cameraId, clipId, 'mp4');
     this.cache.pin(key);
     try {
+      if (priority === 'high') this.gate(cameraId).promote(key);
       const path = await this.cache.fill(key, (tmp) =>
-        this.gate(cameraId).run(async () => {
-          const res = await this.downloadWithRetry(cameraId, sub);
-          await pipeline(res, createWriteStream(tmp));
-        }),
+        this.gate(cameraId).run(
+          async () => {
+            const res = await this.downloadWithRetry(cameraId, sub);
+            await pipeline(res, createWriteStream(tmp));
+          },
+          { high: priority === 'high', key },
+        ),
       );
       return await use(path);
     } finally {
@@ -296,7 +312,7 @@ export class RecordingsService {
         }
         const stat = await fs.stat(tmp).catch(() => null);
         if (!stat || stat.size === 0) throw new RecordingError('thumbnail_unavailable', 'thumbnail could not be made');
-      }),
+      }, 'low'),
     );
   }
 

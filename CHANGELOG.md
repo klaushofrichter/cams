@@ -9,4 +9,4 @@ published as [GitHub releases](https://github.com/klaushofrichter/cams/releases)
 ## [Unreleased]
 
 
-- Fix: an event whose SD and full-quality copies end a few seconds apart showed as two recordings; a clip still being recorded showed with a 16-hour length. A clip fetch the camera resets is retried once.
+- Opening a clip no longer waits behind thumbnail fetches: playback and downloads go ahead of queued thumbnails. The Downloads panel lists every recording of the day.

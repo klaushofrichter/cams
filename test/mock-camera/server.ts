@@ -61,6 +61,8 @@ export interface MockState {
   downloads: number;
   activeDownloads: number;
   droppedDownloads: number;
+  // Start times (HHMMSS) of downloaded clips, in the order they were served.
+  downloadOrder: string[];
   revokeTokens(): void;
   // Forcibly ends every open /flv connection, simulating a camera-side drop
   // (reset, reboot) rather than the viewer leaving.
@@ -168,6 +170,7 @@ export function createMockCamera(opts: MockCameraOptions): MockCamera {
     downloads: 0,
     activeDownloads: 0,
     droppedDownloads: 0,
+    downloadOrder: [],
     revokeTokens: () => tokens.clear(),
     dropStreams: () => {
       for (const res of activeResponses) res.destroy(new Error('mock camera dropped the stream'));
@@ -288,6 +291,7 @@ export function createMockCamera(opts: MockCameraOptions): MockCamera {
       const source = String(req.query.source ?? '');
       const stream = /\/RecM/.test(source) ? 'main' : 'sub';
       state.downloads++;
+      state.downloadOrder.push(source.split('_')[2] ?? '');
       state.activeDownloads++;
       activeDownloadResponses.add(res);
       res.on('close', () => {

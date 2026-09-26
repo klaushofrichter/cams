@@ -116,6 +116,38 @@ describe('recordings API', () => {
     expect(state.downloads).toBe(1);
   });
 
+  // Real camera: ~150 KB/s, one transfer at a time. A clip someone opens
+  // must not wait behind a page's worth of thumbnail fetches.
+  it('fetches a clip someone is watching ahead of queued thumbnails', async () => {
+    await replaceMockCamera({ user: 'u', password: 'p', downloadDelayMs: 300 });
+    const app = createApp();
+    const events = (await request(app).get(`/api/cameras/cam1/events?date=${today()}`).set('Cookie', auth)).body.events as { id: string }[];
+    const [a, b, c, d] = events.map((e) => e.id);
+    const thumbs = [a, b, c].map((id) => request(app).get(`/api/cameras/cam1/clips/${id}/thumb.jpg`).set('Cookie', auth).then((r) => r));
+    await vi.waitFor(() => expect(state.downloads).toBe(1)); // first thumbnail holds the slot
+    // Let the other two queue before the video arrives.
+    await vi.waitFor(() => expect(state.downloadOrder.length).toBe(1));
+    await new Promise((r) => setTimeout(r, 20));
+    const video = await request(app).get(`/api/cameras/cam1/clips/${d}/video`).set('Cookie', auth);
+    expect(video.status).toBe(200);
+    await Promise.all(thumbs);
+    expect(state.downloadOrder[1]).toBe(d.slice(9, 15));
+  });
+
+  it('promotes a queued thumbnail fetch when someone opens that clip', async () => {
+    await replaceMockCamera({ user: 'u', password: 'p', downloadDelayMs: 300 });
+    const app = createApp();
+    const events = (await request(app).get(`/api/cameras/cam1/events?date=${today()}`).set('Cookie', auth)).body.events as { id: string }[];
+    const [a, b, c] = events.map((e) => e.id);
+    const thumbs = [a, b, c].map((id) => request(app).get(`/api/cameras/cam1/clips/${id}/thumb.jpg`).set('Cookie', auth).then((r) => r));
+    await vi.waitFor(() => expect(state.downloads).toBe(1));
+    await new Promise((r) => setTimeout(r, 20));
+    const video = await request(app).get(`/api/cameras/cam1/clips/${c}/video`).set('Cookie', auth);
+    expect(video.status).toBe(200);
+    await Promise.all(thumbs);
+    expect(state.downloadOrder).toEqual([a, c, b].map((id) => id.slice(9, 15)));
+  });
+
   it('keeps a clip that really ends at midnight', async () => {
     await replaceMockCamera({ user: 'u', password: 'p', clips: [{ daysAgo: 1, start: '235940', end: '000000', triggers: ['motion'] }] });
     const date = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Chicago' }).format(new Date(Date.now() - 86400_000 * 1));
