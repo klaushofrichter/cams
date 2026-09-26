@@ -1,7 +1,7 @@
 import { Router, Request, Response } from 'express';
 import { currentUser, noStore, requireAuthApi } from '../middleware/requireAuth';
 import { requireSameOrigin } from '../middleware/requireSameOrigin';
-import { createApiRateLimit } from '../middleware/rateLimit';
+import { createApiRateLimit, createMediaRateLimit } from '../middleware/rateLimit';
 import { listCameras } from '../cameraRegistry';
 import { appVersion } from '../version';
 import { camerasRouter } from './cameras';
@@ -9,7 +9,7 @@ import { recordingsRouter } from './recordings';
 
 export const apiRouter = Router();
 
-apiRouter.use('/api', createApiRateLimit(), noStore, requireSameOrigin, requireAuthApi);
+apiRouter.use('/api', createApiRateLimit(), createMediaRateLimit(), noStore, requireSameOrigin, requireAuthApi);
 
 apiRouter.get('/api/me', (req: Request, res: Response) => {
   res.json({ email: currentUser(req)!.email, version: appVersion() });
