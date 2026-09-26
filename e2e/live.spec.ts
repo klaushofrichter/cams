@@ -41,13 +41,13 @@ test('an unreachable camera shows the offline banner with retry', async ({ page 
   await expect(page.getByTestId('live-video')).toHaveCount(0);
 });
 
-// Review focus 4: switching cameras tears the stream down.
-test('switching away from a live camera stops its video', async ({ page }) => {
-  await page.goto('/app/live');
-  await expect(page.getByTestId('live-state')).toHaveText('Live', { timeout: 15_000 });
-  await page.getByTestId('camera-picker').selectOption('garage');
-  await expect(page.locator('video')).toHaveCount(0);
-});
+// Review focus 4 ("switching cameras tears the stream down") is covered by
+// e2e/live-teardown.spec.ts, which checks the mock camera's own connection
+// count instead of just the DOM. A DOM-only check here would pass even if
+// LiveSession.stop()/player.destroy() did nothing, because Live.svelte
+// unconditionally unmounts LivePlayer on any camera switch (status is reset
+// to null first), independent of whether teardown actually released
+// anything.
 
 test('camera API rejects unknown cameras', async ({ page }) => {
   const res = await page.request.get('/api/cameras/nope/status');

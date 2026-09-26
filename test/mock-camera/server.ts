@@ -49,6 +49,12 @@ export function createMockCamera(opts: MockCameraOptions): MockCamera {
     },
   };
   const app = express();
+  // Test-only introspection: needs no token, and is registered before the
+  // "offline" middleware below so tests can still read state (e.g. that a
+  // stream was already released) while the mock is simulating an outage.
+  app.get('/__state', (_req: Request, res: Response) => {
+    res.json({ activeStreams: state.activeStreams, logins: state.logins });
+  });
   app.use((_req, res, next) => (state.offline ? res.status(503).end() : next()));
   app.use(express.json());
 

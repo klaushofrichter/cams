@@ -46,6 +46,16 @@ describe('mock camera', () => {
     expect(res.status).toBe(503);
   });
 
+  it('reports activeStreams and logins via /__state, even while "offline"', async () => {
+    const { app, state } = createMockCamera(creds);
+    await login(app);
+    expect((await request(app).get('/__state')).body).toEqual({ activeStreams: 0, logins: 1 });
+    state.offline = true;
+    const res = await request(app).get('/__state');
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ activeStreams: 0, logins: 1 });
+  });
+
   it('streams /flv and stops counting once the client disconnects', async () => {
     const { app, state } = createMockCamera(creds);
     const server = app.listen(0);

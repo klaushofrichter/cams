@@ -11,7 +11,7 @@ test('top bar shows the version linking to GitHub and the camera picker', async 
   await expect(version).toHaveText('e2e-test-version');
   await expect(version).toHaveAttribute('href', 'https://github.com/klaushofrichter/cams');
   await expect(page.getByTestId('camera-picker')).toHaveValue('cam1');
-  await expect(page.getByTestId('camera-picker').locator('option')).toHaveText(['Den', 'Garage']);
+  await expect(page.getByTestId('camera-picker').locator('option')).toHaveText(['Den', 'Garage', 'Porch']);
 });
 
 test('theme toggle switches colours and scrollbars, and persists', async ({ page }, testInfo) => {

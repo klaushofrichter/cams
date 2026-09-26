@@ -15,8 +15,29 @@ export default defineConfig({
     colorScheme: 'light',
   },
   projects: [
-    { name: 'desktop', use: { ...devices['Desktop Chrome'], channel: 'chrome', viewport: { width: 1440, height: 900 } } },
-    { name: 'phone', use: { ...devices['Desktop Chrome'], channel: 'chrome', viewport: { width: 390, height: 844 }, hasTouch: true } },
+    {
+      name: 'desktop',
+      testIgnore: /live-teardown\.spec\.ts/,
+      use: { ...devices['Desktop Chrome'], channel: 'chrome', viewport: { width: 1440, height: 900 } },
+    },
+    {
+      name: 'phone',
+      testIgnore: /live-teardown\.spec\.ts/,
+      use: { ...devices['Desktop Chrome'], channel: 'chrome', viewport: { width: 390, height: 844 }, hasTouch: true },
+    },
+    // e2e/live-teardown.spec.ts reads the mock camera's shared /__state, so it
+    // can only run once no other spec file is mid-stream against the mock.
+    // `dependencies` makes Playwright finish every test in `desktop` and
+    // `phone` (across all spec files) before this project starts any of its
+    // own; `fullyParallel: false` keeps this file from racing itself. See the
+    // isolation comment at the top of that file for the full reasoning.
+    {
+      name: 'live-teardown',
+      testMatch: /live-teardown\.spec\.ts/,
+      fullyParallel: false,
+      dependencies: ['desktop', 'phone'],
+      use: { ...devices['Desktop Chrome'], channel: 'chrome', viewport: { width: 1440, height: 900 } },
+    },
   ],
   // Requires `npm run build` first. The mock camera stands in for the Reolink
   // (e2e/cameras.json points "Den" at it); "Garage" is deliberately unreachable.
