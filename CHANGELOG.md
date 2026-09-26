@@ -8,5 +8,7 @@ published as [GitHub releases](https://github.com/klaushofrichter/cams/releases)
 
 ## [Unreleased]
 
+- When the camera refuses recording downloads, cams stops asking (one check a minute), and Recordings says so with a banner instead of showing blank thumbnails. It recovers by itself when the camera does.
+- A cancelled Google sign-in returns to the start page. Session tokens are pinned to HS256. Return paths with dot segments are rejected.
+- Live explains when cams itself can't reach the camera. A failed snapshot shows a message instead of saving a broken file. The camera picker's arrow follows the theme.
 
-- Fix: Settings saves write the camera's complete current settings object with only your changes, so nothing else is reset (the firmware resets keys a save leaves out). Unexpected changes are logged.

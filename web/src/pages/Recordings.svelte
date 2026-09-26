@@ -26,6 +26,27 @@
   let days: string[] = $state([]);
   let loading = $state(true);
   let failed = $state(false);
+  // Whether the camera serves recording downloads (server-side breaker, see
+  // server/recordings/service.ts). Comes with every events load, and is
+  // re-checked shortly after a thumbnail or clip fails to load.
+  let downloads: 'ok' | 'unavailable' = $state('ok');
+  let recheckTimer: ReturnType<typeof setTimeout> | null = null;
+  function recheckDownloads() {
+    if (recheckTimer) return;
+    recheckTimer = setTimeout(() => {
+      recheckTimer = null;
+      const c = cam;
+      if (!c) return;
+      getJson<{ downloads?: 'ok' | 'unavailable' }>(eventsUrl(c, cursor.date))
+        .then((r) => {
+          if (c === cam) downloads = r.downloads ?? 'ok';
+        })
+        .catch(() => {});
+    }, 2000);
+  }
+  $effect(() => () => {
+    if (recheckTimer) clearTimeout(recheckTimer);
+  });
   let eventsRequest = 0;
   let refreshTick = $state(0);
   let updatedAt: Date | null = $state(null);
@@ -144,6 +165,7 @@
       loading = true;
       failed = false;
       events = [];
+      downloads = 'ok'; // another camera or day: don't carry its banner over
     }
     const month = d.slice(0, 7);
     const prevMonth = addDays(`${month}-01`, -1).slice(0, 7);
@@ -156,10 +178,11 @@
       const nextMonth = addDays(`${month}-01`, 32).slice(0, 7);
       dayFetches.push(getJson<{ days: string[] }>(daysUrl(c, nextMonth)).catch(() => ({ days: [] })));
     }
-    Promise.all([getJson<{ events: EventClip[] }>(eventsUrl(c, d)), getJson<{ days: string[] }>(daysUrl(c, month)), ...dayFetches])
+    Promise.all([getJson<{ events: EventClip[]; downloads?: 'ok' | 'unavailable' }>(eventsUrl(c, d)), getJson<{ days: string[] }>(daysUrl(c, month)), ...dayFetches])
       .then(([e, d0, ...rest]) => {
         if (seq !== eventsRequest) return;
         events = e.events;
+        downloads = e.downloads ?? 'ok';
         days = [...new Set([...d0.days, ...rest.flatMap((r) => r.days)])].sort();
         updatedAt = new Date();
         // Always clear the skeleton and any earlier failure on success, even
@@ -253,7 +276,15 @@
           onauto={() => { const n = selected && neighbour(visible, selected.id, 1); if (n) go({ clipId: n.id, offsetSec: 0 }, {}, 'replace'); }}
           ontime={onTime}
           downloadHref={selected ? downloadUrl(cam, selected.id, 'main') : null}
+          unavailable={downloads === 'unavailable'}
+          onvideoerror={recheckDownloads}
         />
+        {#if downloads === 'unavailable'}
+          <p class="banner" data-testid="recordings-unavailable" role="status">
+            The camera isn't serving recordings right now, so clips and thumbnails can't be loaded. This is a camera-side
+            problem; the list of recordings still works, and cams checks again every minute.
+          </p>
+        {/if}
         {#if loading}
           <div class="bar-skeleton" aria-busy="true"></div>
         {:else if failed}
@@ -276,7 +307,7 @@
         {:else}
           <EventList cameraId={cam} events={visible} {filter} date={cursor.date} selectedId={cursor.clipId}
             onfilter={(f) => go({}, { filter: f })}
-            onselect={(e) => go({ clipId: e.id, offsetSec: 0 })} />
+            onselect={(e) => go({ clipId: e.id, offsetSec: 0 })} onthumberror={recheckDownloads} downloadsOk={downloads === 'ok'} />
         {/if}
       </aside>
     </div>
@@ -284,6 +315,7 @@
 </section>
 
 <style>
+  .banner { margin: 0; padding: 10px 12px; border-radius: 10px; font-size: 13px; background: color-mix(in srgb, var(--danger) 12%, var(--surface)); border: 1px solid color-mix(in srgb, var(--danger) 35%, var(--border)); }
   .head { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 14px; }
   .head h1 { margin: 0; }
   .updated { color: var(--muted); font-size: 12px; }

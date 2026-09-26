@@ -11,7 +11,7 @@ test('top bar shows the version linking to GitHub and the camera picker', async 
   await expect(version).toHaveText('e2e-test-version');
   await expect(version).toHaveAttribute('href', 'https://github.com/klaushofrichter/cams');
   await expect(page.getByTestId('camera-picker')).toHaveValue('cam1');
-  await expect(page.getByTestId('camera-picker').locator('option')).toHaveText(['Den', 'Garage', 'Porch']);
+  await expect(page.getByTestId('camera-picker').locator('option')).toHaveText(['Den', 'Garage', 'Porch', 'Shed']);
 });
 
 test('theme toggle switches colours and scrollbars, and persists', async ({ page }, testInfo) => {
@@ -21,6 +21,7 @@ test('theme toggle switches colours and scrollbars, and persists', async ({ page
       theme: document.documentElement.dataset.theme ?? null,
       bg: getComputedStyle(document.body).backgroundColor,
       scrollbar: getComputedStyle(document.documentElement).scrollbarColor,
+      chevron: getComputedStyle(document.querySelector('[data-testid="camera-picker"]')!).backgroundImage,
     }));
   const before = await read();
   // before.theme is null until the app's own onMount runs (no data-theme
@@ -46,6 +47,8 @@ test('theme toggle switches colours and scrollbars, and persists', async ({ page
   await expect.poll(async () => (await read()).bg).not.toBe(before.bg);
   const after = await read();
   expect(after.scrollbar).not.toBe(before.scrollbar);
+  // The camera picker's arrow follows the theme too (Plan 5).
+  expect(after.chevron).not.toBe(before.chevron);
   await page.reload();
   expect((await read()).theme).toBe(expectedTheme);
 });
