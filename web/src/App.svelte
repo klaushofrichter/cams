@@ -11,6 +11,7 @@
   import { initRouter, route } from './lib/router';
   import { cameras, drawerOpen, me, selectedCameraId, theme, type CameraSummary, type Me } from './lib/stores';
   import { getJson, UnauthorizedError } from './lib/api';
+  import { loadPreferences } from './lib/preferences';
   import { duration } from './lib/motion';
   import { currentTheme } from './lib/theme';
 
@@ -20,10 +21,14 @@
 
   async function load() {
     try {
-      const [profile, list] = await Promise.all([getJson<Me>('/api/me'), getJson<CameraSummary[]>('/api/cameras')]);
+      const [profile, list, prefs] = await Promise.all([getJson<Me>('/api/me'), getJson<CameraSummary[]>('/api/cameras'), loadPreferences()]);
       me.set(profile);
       cameras.set(list);
-      selectedCameraId.update((id) => (list.some((c) => c.id === id) ? id : (list[0]?.id ?? null)));
+      selectedCameraId.update((id) =>
+        list.some((c) => c.id === id)
+          ? id
+          : (prefs?.defaultCamera && list.some((c) => c.id === prefs.defaultCamera) ? prefs.defaultCamera : (list[0]?.id ?? null)),
+      );
     } catch (err) {
       if (!(err instanceof UnauthorizedError)) loadError = 'Could not load the app. Please reload the page.';
     }

@@ -3,9 +3,10 @@
   import Icon from './Icon.svelte';
   import CameraPicker from './CameraPicker.svelte';
   import ThemeToggle from './ThemeToggle.svelte';
-  import { me, drawerOpen } from '../lib/stores';
+  import { cameras, me, drawerOpen, selectedCameraId } from '../lib/stores';
 
   const REPO_URL = 'https://github.com/klaushofrichter/cams';
+  const selected = $derived($cameras.find((c) => c.id === $selectedCameraId));
 </script>
 
 <header class="topbar" data-testid="topbar">
@@ -14,6 +15,12 @@
   </button>
   <a class="brand" href="/app/live" aria-label="cams home"><Logo size={28} /><span>cams</span></a>
   <CameraPicker />
+  {#if selected?.webUiUrl}
+    <a class="webui" data-testid="camera-webui-link" href={selected.webUiUrl} target="_blank" rel="noopener noreferrer"
+      title="Opens the camera's own web page. Works on the home network only." aria-label="Camera web UI (home network only)">
+      <Icon name="external" size={16} />
+    </a>
+  {/if}
   <div class="spacer"></div>
   {#if $me}
     <a class="version" data-testid="version-link" href={REPO_URL} target="_blank" rel="noopener noreferrer" title="cams on GitHub">{$me.version}</a>
@@ -41,6 +48,11 @@
   }
   .logout:hover { filter: brightness(1.1); transform: translateY(-1px); }
   .hamburger { display: none; width: 36px; height: 36px; place-items: center; border: 0; background: transparent; cursor: pointer; border-radius: 10px; }
+  .webui {
+    display: grid; place-items: center; width: 36px; height: 36px; border-radius: 10px;
+    color: var(--muted); text-decoration: none; transition: background-color 0.15s ease, color 0.15s ease;
+  }
+  .webui:hover { background: var(--surface-2); color: var(--accent); }
   @media (max-width: 767px) {
     .hamburger { display: grid; }
     .desktop-only { display: none; }

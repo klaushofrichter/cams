@@ -1,5 +1,6 @@
 <script lang="ts">
   import { dayLength, layoutSegments, secondsIntoDay, timelineWindow, type EventClip, type Zoom } from '../lib/recordings';
+  import { pref } from '../lib/preferences';
 
   let {
     events,
@@ -21,7 +22,7 @@
     testid?: string;
   } = $props();
 
-  let zoom: Zoom = $state(24);
+  let zoom: Zoom = $state(pref('timelineZoom') ?? 24);
   const daySec = $derived(dayLength(date));
   const selected = $derived(events.find((e) => e.id === selectedId) ?? null);
   const center = $derived(selected ? secondsIntoDay(selected.start, date) : daySec / 2);

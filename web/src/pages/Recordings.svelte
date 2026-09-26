@@ -12,6 +12,7 @@
     addDays, clipAtSecond, cursorSearch, daysUrl, downloadUrl, eventsUrl, filterEvents, loadCursor, localDate,
     neighbour, parseCursor, saveCursor, secondsIntoDay, videoUrl, type Cursor, type EventClip, type Filter,
   } from '../lib/recordings';
+  import { pref } from '../lib/preferences';
 
   const today = localDate(new Date());
   const TABS: { id: Panel; label: string }[] = [
@@ -51,7 +52,9 @@
   const cursor: Cursor = $derived(parsed.cursor);
   // Likewise, a primitive projection of cursor.date for the events effect.
   const date = $derived(cursor.date);
-  const filter: Filter = $derived(parsed.filter);
+  // parseCursor already falls back to 'all' when the URL has no filter, so
+  // the stored preference is only applied by overriding that case here.
+  const filter: Filter = $derived($route.params.has('filter') ? parsed.filter : (pref('eventFilter') ?? 'all'));
   const panel: Panel = $derived($route.panel);
   const visible = $derived(filterEvents(events, filter));
   const selected = $derived(events.find((e) => e.id === cursor.clipId) ?? null);

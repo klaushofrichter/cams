@@ -9,6 +9,7 @@
   import { enterFullscreen } from '../lib/fullscreen';
   import { clipAtSecond, cursorSearch, eventsUrl, localDate, saveCursor, secondsIntoDay, type EventClip } from '../lib/recordings';
   import { navigate } from '../lib/router';
+  import { pref } from '../lib/preferences';
 
   interface CameraStatus {
     id: string;
@@ -21,11 +22,14 @@
   const hevc = typeof MediaSource !== 'undefined' && supportsHevc((t) => MediaSource.isTypeSupported(t));
 
   function initialQuality(): Quality {
+    let stored: string | null = null;
     try {
-      return hevc && localStorage.getItem(QUALITY_KEY) === 'main' ? 'main' : 'sub';
+      stored = localStorage.getItem(QUALITY_KEY);
     } catch {
-      return 'sub';
+      // not available; fall back to the stored preference below
     }
+    const wanted = stored ?? pref('liveQuality') ?? 'sub';
+    return hevc && wanted === 'main' ? 'main' : 'sub';
   }
 
   let quality: Quality = $state(initialQuality());
