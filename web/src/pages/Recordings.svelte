@@ -162,12 +162,15 @@
     const e = clipAtSecond(events, cursor.date, sec);
     if (!e) return;
     const offsetSec = Math.max(0, Math.floor(sec - secondsIntoDay(e.start, cursor.date)));
+    // Captured before go(): go() updates the route store, and cursor is
+    // derived from it, so reading cursor.clipId after go() would already
+    // see the new clip and never detect the "same clip" case below.
+    const wasLoaded = e.id === cursor.clipId;
     go({ clipId: e.id, offsetSec });
-    // The clicked second may round to the one already applied, in which
+    // The clicked second may round to the clip already playing, in which
     // case the URL (and so the startAt prop) doesn't change and the player
-    // wouldn't otherwise re-seek; seek it directly whenever the picked clip
-    // is the one already loaded.
-    if (e.id === cursor.clipId) clipPlayer?.seek(offsetSec);
+    // wouldn't otherwise re-seek; seek it directly in that case.
+    if (wasLoaded) clipPlayer?.seek(offsetSec);
   }
 
   function step(dir: -1 | 1) {

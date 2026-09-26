@@ -36,7 +36,7 @@ function camera(req: Request, res: Response): string | undefined {
 
 function clip(req: Request, res: Response): string | undefined {
   const id = String(req.params.clipId);
-  if (!CLIP_ID.test(id)) {
+  if (!CLIP_ID.test(id) || !isRealDate(`${id.slice(0, 4)}-${id.slice(4, 6)}-${id.slice(6, 8)}`)) {
     res.status(400).json({ error: 'bad_request' });
     return undefined;
   }
@@ -106,8 +106,17 @@ recordingsRouter.get('/api/cameras/:id/clips/:clipId/thumb.jpg', async (req, res
     // res.json() (used by fail() below) skips setting Content-Type when one
     // is already present, so setting it to image/jpeg up front would leave a
     // thumbnail_unavailable error body mislabeled as an image.
-    const path = await getRecordings().thumbnail(id, clipId);
-    res.type('image/jpeg').sendFile(path);
+    //
+    // Pinned (via withThumbnail) from before fill() starts until sendFile()
+    // finishes, so it can never be evicted while it's being served here.
+    await getRecordings().withThumbnail(id, clipId, (path) =>
+      new Promise<void>((resolve, reject) => {
+        res.type('image/jpeg').sendFile(path, (err) => {
+          if (err && !res.headersSent) reject(err);
+          else resolve();
+        });
+      }),
+    );
   } catch (err) {
     fail(err, id, res, next);
   }

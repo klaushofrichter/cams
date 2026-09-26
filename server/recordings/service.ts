@@ -59,6 +59,14 @@ function abortError(): Error {
   return err;
 }
 
+// Real-time order, not string order: on the fall-back night, a clip at
+// 01:30 CDT (-05:00) is chronologically later than one at 01:10 CST
+// (-06:00), even though "01:10" sorts before "01:30" as a plain string.
+// Exported for a direct unit test of that night.
+export function byStartTime(a: { start: string }, b: { start: string }): number {
+  return Date.parse(a.start) - Date.parse(b.start);
+}
+
 // Picks which stream file to actually serve for a requested quality,
 // falling back to the other stream when the requested one is missing.
 // `served` names the stream actually picked, which may differ from
@@ -186,7 +194,7 @@ export class RecordingsService {
           sizeSub: e.sub?.size ?? null,
           sizeMain: e.main?.size ?? null,
         }))
-        .sort((a, b) => (a.start < b.start ? -1 : 1));
+        .sort(byStartTime);
       const names = new Map([...byId.entries()].map(([id, e]) => [id, { sub: e.sub?.name, main: e.main?.name }]));
       const entry = { at: Date.now(), events, names };
       this.dayCache.set(key, entry);
@@ -253,6 +261,21 @@ export class RecordingsService {
         if (!stat || stat.size === 0) throw new RecordingError('thumbnail_unavailable', 'thumbnail could not be made');
       }),
     );
+  }
+
+  // Same pin-before-fill pattern as withClip, but for the jpg: pinned
+  // before thumbnail()'s fill() starts and unpinned only once `use` is
+  // done, so a concurrent evict() can never remove the file while it's
+  // being sent to a client.
+  async withThumbnail<T>(cameraId: string, clipId: string, use: (path: string) => Promise<T>): Promise<T> {
+    const jpgKey = this.key(cameraId, clipId, 'jpg');
+    this.cache.pin(jpgKey);
+    try {
+      const path = await this.thumbnail(cameraId, clipId);
+      return await use(path);
+    } finally {
+      this.cache.unpin(jpgKey);
+    }
   }
 
   // Full-quality downloads stream straight through (not cached). The

@@ -20,6 +20,10 @@ COPY package.json package-lock.json ./
 RUN npm ci --omit=dev && npm cache clean --force
 COPY --from=builder /app/dist ./dist
 COPY CHANGELOG.md ./
+# CACHE_DIR must exist and be writable by the non-root user below, or the
+# first fill() fails outright (DiskCache.ensureDir()'s mkdir has nothing to
+# create it with once USER drops root).
+RUN mkdir -p /var/cache/cams && chown 1000:1000 /var/cache/cams
 # Numeric, not `USER node`: with a named user, the ksvc's runAsNonRoot can't
 # verify non-root and the pod fails with CreateContainerConfigError.
 USER 1000:1000

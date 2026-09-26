@@ -17,7 +17,11 @@
     onselect: (e: EventClip) => void;
   } = $props();
 
+  // Keyed by cameraId|id, not just id: a clip id is only unique within its
+  // own camera, so switching cameras without a page reload could otherwise
+  // have one camera's broken-thumbnail mark wrongly hide another's.
   let broken = $state(new Set<string>());
+  const brokenKey = (id: string) => `${cameraId}|${id}`;
 </script>
 
 <div class="filters" role="group" aria-label="Filter events">
@@ -33,10 +37,10 @@
     {#each events as e (e.id)}
       <li>
         <button class="card" data-testid="event-card" data-clip-id={e.id} aria-current={e.id === selectedId ? 'true' : undefined} onclick={() => onselect(e)}>
-          {#if broken.has(e.id)}
+          {#if broken.has(brokenKey(e.id))}
             <span class="thumb placeholder" data-testid="event-thumb"></span>
           {:else}
-            <img class="thumb" data-testid="event-thumb" loading="lazy" alt="" src={thumbUrl(cameraId, e.id)} onerror={() => (broken = new Set([...broken, e.id]))} />
+            <img class="thumb" data-testid="event-thumb" loading="lazy" alt="" src={thumbUrl(cameraId, e.id)} onerror={() => (broken = new Set([...broken, brokenKey(e.id)]))} />
           {/if}
           <span class="meta">
             <strong>{formatClock(e.start)}</strong>

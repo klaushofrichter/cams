@@ -31,13 +31,21 @@ export class DiskCache {
   // could have its own in-progress tmp file swept here.
   private ensureDir(): Promise<void> {
     this.ready ??= (async () => {
-      await fs.mkdir(this.dir, { recursive: true });
-      const names = await fs.readdir(this.dir).catch(() => []);
-      await Promise.all(
-        // A single bad entry (permissions, a concurrent unlink, ...) must
-        // not poison `ready` and leave every future fill() rejecting.
-        names.filter((n) => n.includes('.tmp-')).map((n) => fs.rm(join(this.dir, n), { force: true }).catch(() => {})),
-      );
+      try {
+        await fs.mkdir(this.dir, { recursive: true });
+        const names = await fs.readdir(this.dir).catch(() => []);
+        await Promise.all(
+          // A single bad entry (permissions, a concurrent unlink, ...) must
+          // not poison `ready` and leave every future fill() rejecting.
+          names.filter((n) => n.includes('.tmp-')).map((n) => fs.rm(join(this.dir, n), { force: true }).catch(() => {})),
+        );
+      } catch (err) {
+        // mkdir itself failing (e.g. a transient permissions problem) must
+        // not wedge `ready` into a rejected promise forever: clear it so the
+        // next fill() retries instead of every future call failing too.
+        this.ready = null;
+        throw err;
+      }
     })();
     return this.ready;
   }

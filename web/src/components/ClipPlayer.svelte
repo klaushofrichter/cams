@@ -26,6 +26,7 @@
   let video: HTMLVideoElement | undefined = $state();
   let playing = $state(false);
   let current = $state(0);
+  let videoError = $state(false);
   let loadedSrc: string | null = null;
   let appliedStart = 0;
   // Lives outside the effect (rather than being created fresh on every run)
@@ -59,6 +60,7 @@
       loadedSrc = null;
       current = 0;
       playing = false;
+      videoError = false;
       controller?.abort();
       controller = null;
       return;
@@ -88,6 +90,7 @@
     appliedStart = startAt;
     current = 0;
     playing = false;
+    videoError = false;
     const v = video;
     v.src = src;
     armMetadataSeek(v, startAt, true);
@@ -129,7 +132,11 @@
         ontime(current);
       }}
       onended={() => hasNext && (onauto ?? onnext)()}
+      onerror={() => (videoError = true)}
     ></video>
+    {#if videoError}
+      <p class="note" data-testid="clip-error" role="alert">This recording could not be loaded.</p>
+    {/if}
   {:else}
     <div class="empty">Select a recording on the timeline or in the list.</div>
   {/if}
@@ -150,6 +157,7 @@
   .player { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
   video, .empty { width: 100%; aspect-ratio: 16 / 9; background: #000; border-radius: 12px; }
   .empty { display: grid; place-items: center; color: var(--muted); background: var(--surface); border: 1px dashed var(--border); padding: 12px; text-align: center; }
+  .note { color: var(--muted); margin: 0; font-size: 13px; }
   .controls { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
   button, .dl {
     display: inline-flex; align-items: center; gap: 4px; height: 34px; padding: 0 10px; border-radius: 9px;

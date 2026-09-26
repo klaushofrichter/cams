@@ -90,6 +90,20 @@ describe('DiskCache', () => {
     cache.unpin('a');
   });
 
+  // M7: a transient failure of ensureDir()'s mkdir (e.g. the cache volume
+  // isn't mounted yet) must not wedge the memoised `ready` promise into a
+  // permanent rejection; the next fill() should retry from scratch.
+  it('retries ensureDir after a failure instead of failing every fill forever', async () => {
+    const d = dir();
+    const blocker = join(d, 'blocked'); // a file, not a directory
+    writeFileSync(blocker, 'not a directory');
+    const cache = new DiskCache(join(blocker, 'cache'), 10_000);
+    await expect(cache.fill('a', bytes(3))).rejects.toThrow();
+    rmSync(blocker, { force: true }); // clears the way for mkdir to succeed
+    await cache.fill('a', bytes(3));
+    expect(await cache.has('a')).toBe(true);
+  });
+
   // Fix round 1, item 7: a *.tmp-* file can only be left behind by a
   // process that crashed mid-fill; the next process to use this directory
   // clears it out on first use.

@@ -61,16 +61,19 @@
   });
 
   // A mini timeline of today's recordings, shown under the viewer once the
-  // camera is confirmed online. A request-sequence guard (like checkStatus
-  // above) drops a late response from a camera that's since been switched
-  // away from.
+  // camera is confirmed online. Only fetched once `status` says online: an
+  // offline camera's own Search call would otherwise just sit there until
+  // it times out, for a timeline that has nothing to show anyway. A
+  // request-sequence guard (like checkStatus above) drops a late response
+  // from a camera that's since been switched away from.
   const today = localDate(new Date());
   let todayEvents: EventClip[] = $state([]);
   let eventsSeq = 0;
   $effect(() => {
     const id = $selectedCameraId;
+    const online = status?.online === true;
     todayEvents = [];
-    if (!id) return;
+    if (!id || !online) return;
     const seq = ++eventsSeq;
     getJson<{ events: EventClip[] }>(eventsUrl(id, today))
       .then((r) => {

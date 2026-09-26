@@ -120,6 +120,14 @@ describe('recordings API', () => {
     expect((await request(app).get('/api/cameras/cam1/days?month=2026-13').set('Cookie', auth)).status).toBe(400);
   });
 
+  // M2: CLIP_ID's regex lets calendar nonsense (month 13, day 40) through
+  // too; the date carried in the id must also be real.
+  it('rejects a clip id whose date is calendar nonsense with 400', async () => {
+    const res = await request(createApp()).get('/api/cameras/cam1/clips/20261340-000000-000000/video').set('Cookie', auth);
+    expect(res.status).toBe(400);
+    expect(res.body).toEqual({ error: 'bad_request' });
+  });
+
   // Review focus 1: a well-formed id that this camera never listed is unknown.
   it('404s a well-formed clip id the camera never listed', async () => {
     const res = await request(createApp()).get('/api/cameras/cam1/clips/20010101-000000-000010/video').set('Cookie', auth);

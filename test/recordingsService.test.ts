@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { isRecentDay, pickStream } from '../server/recordings/service';
+import { byStartTime, isRecentDay, pickStream } from '../server/recordings/service';
 
 // Fix round 1, item 6: TODAY_TTL must cover today AND the trailing 24h
 // window, not just an exact string match against "today", so the
@@ -46,5 +46,17 @@ describe('pickStream', () => {
 
   it('returns null when neither stream exists', () => {
     expect(pickStream('sub', {})).toBeNull();
+  });
+});
+
+// M3: string order on `start` gets the fall-back night wrong, since
+// "01:10...-06:00" sorts before "01:30...-05:00" even though 01:30 CDT
+// (06:30 UTC) happens before 01:10 CST (07:10 UTC).
+describe('byStartTime', () => {
+  it('orders clips by real time, not by their start string, across a DST fall-back', () => {
+    const later = { start: '2026-11-01T01:10:00-06:00' }; // 07:10 UTC
+    const earlier = { start: '2026-11-01T01:30:00-05:00' }; // 06:30 UTC
+    expect(byStartTime(earlier, later)).toBeLessThan(0);
+    expect([later, earlier].sort(byStartTime)).toEqual([earlier, later]);
   });
 });
