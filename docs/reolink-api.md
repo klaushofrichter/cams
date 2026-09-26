@@ -13,6 +13,7 @@ in cams.
 | Firmware | **v3.2.0.6011_2607012059** |
 | Measured | **2026-09-25 and 2026-09-26** |
 | Web UI | version 2.1.0 (`https://<camera>/`) |
+| Firmware updates | `CheckFirmware` reported none on 2026-09-26 |
 
 Other models or firmware versions may behave differently. When a quirk turns
 up, change the mock camera (`test/mock-camera/server.ts`) to reproduce it
@@ -34,6 +35,7 @@ the firmware hid most of the bugs listed here.
 - [Recording file names](#recording-file-names)
 - [Recordings: Download](#recordings-download)
 - [Settings](#settings)
+- [FTP upload](#ftp-upload)
 - [Certificates](#certificates)
 - [Where cams handles each quirk](#where-cams-handles-each-quirk)
 
@@ -97,7 +99,8 @@ sign-in is separate.
   user unless you pass `--reset`. After a reset it restarts the cams pod,
   because the pod reads the password only at startup.
 - A second `admin`-level user can do everything cams needs: device info, Snap,
-  FLV live, Search, Download. `guest` has not been tested.
+  FLV live, Search, and Download while downloads work at all (see
+  [Recordings: Download](#recordings-download)). `guest` has not been tested.
 - The certificate CronJob in the cluster uses its own Secret,
   `cam1-camera-credentials` (namespace `cam1`), created by
   `~/Development/reolink/create-cam-secret.sh`.
@@ -112,9 +115,11 @@ firmware's design; there is no header alternative. So:
   authentication exists for some GET endpoints, but Download answers it with
   404, and a URL with a password ends up in logs and shell history. cams
   always uses the token.
-- Sessions are limited on the camera. `GetOnline` lists them, e.g.
-  `[cams, admin, admin]`. Reuse one token per client and `Logout` when done.
-  Tokens that are never logged out expire after the lease.
+- `GetOnline` lists open sessions, e.g. `[cams, admin, admin]`. Sessions that
+  are never logged out **accumulate** until their lease ends: a script retry
+  loop once left about 20 `admin` sessions open. Reuse one token per client
+  and `Logout` when done. cams keeps one token per camera and renews it; it
+  never calls `Logout`.
 - Changing a user's password, or rebooting the camera, invalidates its tokens.
   Clients then see the [token rejection shapes](#token-rejection-four-shapes).
 
@@ -129,8 +134,9 @@ firmware's design; there is no header alternative. So:
 > history of security holes, so it is not exposed to the internet. The cams
 > app's "Camera web UI" link points at the LAN address and says so. Remote
 > access to the camera goes through the cams app (Google sign-in) or the
-> Reolink mobile app. Log in as `admin`.
-The browser warns about the certificate, because it is issued for
+> Reolink mobile app.
+
+Log in as `admin`. The browser warns about the certificate, because it is issued for
 `cam1.skylar.technology`, not for the IP address (see the next section).
 
 ## DNS, the camera's name and its certificate
@@ -190,18 +196,21 @@ default**, and features quietly depend on them:
 | Service | Port | Needed for | Symptom when off |
 |---|---|---|---|
 | HTTPS | 443 | the API | nothing works |
-| **HTTP** | 80 | recording `Download`, **even when requested over HTTPS** | `Download` drops the connection; Snap and FLV keep working |
+| **HTTP** | 80 | recording `Download`, **even when requested over HTTPS** (required, but not sufficient: see [Download](#recordings-download)) | `Download` drops the connection; Snap and FLV keep working |
 | **RTMP** | 1935 | HTTPS FLV live, and Download (proxied internally) | the connection closes with no reply |
 | RTSP | 554 | `rtsp://…/h264Preview_01_main` / `_sub` | port refused |
 | ONVIF | 8000 | standards clients | — |
 
 Port 9000 carries Reolink's own "Baichuan" protocol. The mobile app uses it,
-and it stays open regardless of these settings.
+and it stays open regardless of these settings. The camera runs **no FTP
+server**: ports 20, 21 and 990 are closed. It is only an FTP client (see
+[FTP upload](#ftp-upload)).
 
-Check the current settings:
+Check the current settings (with a token from the next section):
 
 ```sh
 curl -sk -X POST "https://$CAM/cgi-bin/api.cgi?cmd=GetNetPort&token=$TOKEN" \
+  -H 'Content-Type: application/json' \
   -d '[{"cmd":"GetNetPort","action":0,"param":{}}]'
 # → {"NetPort":{"httpEnable":1,"httpPort":80,"httpsEnable":1,"rtmpEnable":1,"rtspEnable":1,...}}
 ```
@@ -221,8 +230,16 @@ PY
 )
 ```
 
-(Export `CAM` first for this snippet.) The reply carries
-`value.Token.leaseTime: 3600`, i.e. seconds.
+The reply carries only `value.Token` (`name`, `leaseTime: 3600`, i.e.
+seconds). The web UI's own login additionally gets counters back; the API
+Login does not need them.
+
+End the session when you are done (using the `post` helper from the next
+section):
+
+```sh
+post Logout
+```
 
 - **Sessions are a limited resource.** Reuse one token per camera. Log in
   again only when the lease is about to end or the camera rejects the token.
@@ -254,10 +271,10 @@ nothing.
 ```sh
 # post <Cmd> [param-json]
 post() { local param=${2:-'{}'}; curl -sk -X POST "https://$CAM/cgi-bin/api.cgi?cmd=$1&token=$TOKEN" \
-  -d "[{\"cmd\":\"$1\",\"action\":0,\"param\":$param}]"; }
-post GetDevInfo     # model, firmVer, hardVer, name, serial
+  -H 'Content-Type: application/json' -d "[{\"cmd\":\"$1\",\"action\":0,\"param\":$param}]"; }
+post GetDevInfo     # model, firmVer, hardVer, name, serial (changes on every reboot)
 post GetTime        # clock, timezone, DST
-post GetHddInfo     # SD card: capacity/size (MB), mount, format
+post GetHddInfo     # SD card: capacity (MB total), size (MB FREE), mount, format
 post GetEnc         # stream parameters
 post GetRecV20 '{"channel":0}'   # recording settings: saveDay, postRec, preRec, schedule
 ```
@@ -294,8 +311,10 @@ This returns an endless `video/x-flv` response and needs RTMP enabled.
 - **main** is H.265 in FLV with the **legacy codec id 12**, a vendor extension
   that is not in the FLV spec. ffprobe can't read it. mpegts.js 1.8+ can, and the
   browser needs HEVC in MSE (Chrome or Safari on macOS).
-- Many concurrent streams overload the camera. cams opens at most 4 per camera
-  and shares them through its server.
+- Many concurrent streams overload the camera. cams proxies each viewer's
+  stream through its server (every viewer gets its own camera stream) and
+  allows at most 4 per camera (`MAX_LIVE_PER_CAMERA` in
+  `server/routes/cameras.ts`); a fifth gets `503 too_many_streams`.
 
 ## Snapshots
 
@@ -387,7 +406,7 @@ Quirks:
 | motion | 24 | `55148080000000` (real sub clip), `7B288280000000` (real main clip) |
 
 ```ts
-// server/recordings/clipNames.ts
+// simplified from server/recordings/clipNames.ts
 const POSITIONS = [['person', 17], ['vehicle', 19], ['pet', 20], ['timer', 23], ['motion', 24]] as const;
 
 function decodeTriggers(flagsHex: string): string[] {
@@ -406,6 +425,15 @@ detection fires. On this camera the schedule is fully on, and every clip so
 far is still motion-only.
 
 ## Recordings: Download
+
+> **Status (2026-09-26): this camera refuses every Download.** Since about
+> 12:45 every Download fails (connection reset), over HTTPS and HTTP, from
+> cams, curl and the camera's own web UI. Two power cycles, an SD card
+> reformat and `CheckDownload` did not help, and `CheckFirmware` offers no
+> update. Live video, Snap, Search and settings still work. cams detects the
+> refusals and stops asking (see the breaker in
+> [Where cams handles each quirk](#where-cams-handles-each-quirk)). The
+> behaviour below was measured while downloads still worked.
 
 ```
 GET /cgi-bin/api.cgi?cmd=Download&source=<full name>&output=<file>.mp4&token=<t>
@@ -441,8 +469,9 @@ More quirks:
 
 - **One download at a time.** The web UI first calls
   `CheckDownload {"filename": "<name>"}`, which replies `{"downloadTask": 0}`,
-  and refuses to start a second download while `downloadTask >= 1`. After
-  overlapping downloads, the camera refused *every* download.
+  and refuses to start a second download while `downloadTask >= 1`. The camera
+  has twice ended up refusing *every* download; overlapping downloads came
+  just before the first time, but that they caused it is not proven.
 - **It is slow**, about **150 KB/s**. A ~600 KB sub clip takes ~15 s, and a
   15 MB main clip ~100 s. Put user-initiated playback ahead of background work
   such as thumbnails.
@@ -452,7 +481,9 @@ More quirks:
   - Every Download resets, over HTTPS and HTTP alike, even with the admin
     account.
   - The web UI's Playback page shows only a spinner.
-  - An API `Reboot` does **not** fix it. A **power cycle** does.
+  - An API `Reboot` does **not** fix it. A **power cycle** fixed it once, in
+    the morning of 2026-09-26. The refusal that began at 12:45 the same day
+    survived two power cycles and an SD card reformat; there is no known fix.
 - **Other forms fail differently**, which is useful when debugging:
 
   | Request | Result |
@@ -470,8 +501,9 @@ More quirks:
 
 > **Always write the complete object.** A Set command answers `code 0,
 > rspCode 200` for a partial parameter set, and an immediate re-read looks
-> right. But **the keys you leave out are reset to defaults in the saved
-> configuration**, and the camera uses them after its next restart.
+> right. But **the keys you leave out are reset (not necessarily to factory
+> defaults) in the saved configuration**, and the camera uses them after its
+> next restart.
 > Measured on 2026-09-26:
 > - a `SetIsp` with only `dayNight` changed `rotation` 0 → 1;
 > - a `SetOsd` without `watermark` changed it 1 → 0;
@@ -479,16 +511,21 @@ More quirks:
 >
 > Read the object with its Get command, change only your keys, and send the
 > whole object back. A read-back straight after the write does **not** prove
-> the other keys survived.
+> the other keys survived. The three values above were restored by writing
+> the full objects.
 
 Invalid values are rejected, and the old value stays:
 - `SetMdAlarm` with `sensDef: 99` returns `rspCode -56`.
 - `SetIsp` with `dayNight: "Purple"` returns `rspCode -67`.
+- `SetFtpV20` with `server: ""` returns `rspCode -4`.
+
+The Write column shows only the keys that change. The request itself must
+carry the whole object (see above).
 
 | Setting | Read | Write | Values |
 |---|---|---|---|
 | Recording on/off | `GetRecV20 {channel:0}` → `Rec.enable` | `SetRecV20 {Rec:{enable}}` | 0/1 |
-| Record on motion / AI type | `Rec.schedule.table.MD`, `AI_PEOPLE`, `AI_VEHICLE`, `AI_DOG_CAT` (168 chars, one per hour of the week) | `SetRecV20 {Rec:{schedule:{channel:0,table:{AI_PEOPLE:"1"×168}}}}` (only that key is written) | all `1` on, all `0` off, mixed = a custom schedule |
+| Record on motion / AI type | `Rec.schedule.table.MD`, `AI_PEOPLE`, `AI_VEHICLE`, `AI_DOG_CAT` (168 chars, one per hour of the week) | `SetRecV20 {Rec:{schedule:{channel:0,table:{AI_PEOPLE:"1"×168}}}}` (send the whole `Rec` object) | all `1` on, all `0` off, mixed = a custom schedule |
 | Motion sensitivity | `GetMdAlarm {channel:0}` → `MdAlarm.newSens.sensDef` (`useNewSens: 1`) | `SetMdAlarm {MdAlarm:{channel:0,useNewSens:1,newSens:{sensDef}}}` | 1–50, **lower = more sensitive**; shown as `51 − sensDef` |
 | AI sensitivity | `GetAiAlarm {channel:0,ai_type}` → `AiAlarm.sensitivity` | `SetAiAlarm {AiAlarm:{channel:0,ai_type,sensitivity}}` | 0–100; `people`, `vehicle`, `dog_cat` |
 | Day/night | `GetIsp` → `Isp.dayNight` | `SetIsp {Isp:{channel:0,dayNight}}` | `Auto`, `Color`, `Black&White` |
@@ -497,13 +534,30 @@ Invalid values are rejected, and the old value stays:
 | On-screen text | `GetOsd` → `Osd.osdChannel {enable,name,pos}`, `Osd.osdTime {enable,pos}` | `SetOsd {Osd:{channel:0,osdChannel:{…},osdTime:{…}}}` | 6 positions (`Upper Left` … `Lower Right`); name ≤ 31 bytes (cams: UTF-8 bytes, no control or format characters) |
 | Storage | `GetHddInfo` → `HddInfo[0] {capacity, size, mount}` | — | MB; **`size` is the FREE space** |
 | Certificate | TLS handshake (`getPeerCertificate()`) | — | `GetCertificateInfo` has no subject or expiry |
-| Reboot | — | `Reboot {}` | the camera is offline about a minute; it may drop the connection before answering |
+| Reboot | — | `Reboot {}` | the camera is offline about a minute; it may drop the connection before answering. cams answers `202` when the reply doesn't confirm it, and refuses another reboot for 120 s (`429`) |
 
 Rules cams follows:
 - **Every write sends the camera's complete current object**, taken from the raw Get reply, with only the changed keys replaced. That includes keys cams doesn't model (`rotation`, `stay_time`, `watermark`, `LightingSchedule`, …), and values it doesn't recognise, such as a custom OSD position.
 - **One write per object.** Several changes to one object in a single save (e.g. recording on/off plus schedules) go out as one write. Two writes, each built from the same original, would undo each other.
 - **After a save, cams re-reads the objects and logs `camera_setting_side_effect`** (key names only) if anything changed that it didn't send.
-- **The AI record schedule on this camera is fully on** (168 × `1` for people, vehicles and pets). The clips so far are motion-only only because AI detection hasn't fired.
+- **The AI record schedule on this camera is fully on** (168 × `1` for people, vehicles and pets). The clips so far are all motion-only.
+
+## FTP upload
+
+The camera is an FTP **client**: it uploads recordings to a server you name.
+It runs no FTP server itself (ports 20, 21 and 990 are closed). cams does not
+use FTP; clips will arrive through a separate gateway later.
+
+- `SetFtpV20` configures it (server, port, user, password, `remoteDir`,
+  `ftpSubStream`, schedule), and `TestFtp` tests a configuration.
+  `TestFtpV20` and `GetFtp` return `rspCode -9` on this firmware.
+- `SetFtpV20` rejects `server: ""` with `rspCode -4`. To disable FTP, leave the
+  empty keys out rather than clearing them.
+- Uploads are named `Den_00_YYYYMMDDHHMMSS.mp4`, where `Den` is the camera
+  name, plus a `.jpg` with the same stem.
+- With the main stream, one 24 s clip is H.265, about 7 MB, with the `moov`
+  atom first, so it can play before it is fully read. `ftpSubStream` selects
+  the sub stream instead.
 
 ## Certificates
 
@@ -526,7 +580,11 @@ Rules cams follows:
 | Unencoded Download `source` | `download()` in `server/reolink/client.ts` | an encoded `source` resets the connection |
 | One transfer at a time, playback ahead of thumbnails | `PriorityGate` (`server/recordings/priorityGate.ts`), `TRANSFERS_PER_CAMERA` in `server/recordings/service.ts` | download order recorded in `state.downloadOrder` |
 | Occasional Download reset | `downloadWithRetry` in `server/recordings/service.ts` | `dropFirstDownloads` |
-| Sub/main ends differ; still-recording `000000` | `day()` / `isStillRecording` in `server/recordings/service.ts` | `mainEnd` on `MockClip`; an end of `000000` |
+| Camera refuses every Download | download-health breaker (`guard`, `noteRefused`, `probeIfDue`) in `server/recordings/service.ts`: after `BREAKER_FAILURES` (3) refusals, clip requests get `503 recordings_unavailable`; one probe per `RECORDINGS_PROBE_MS` (default 60 s) | `dropFirstDownloads`; `MOCK_DROP_DOWNLOADS` (e2e camera Shed) |
+| Sub/main ends differ; still-recording `000000` | `day()` / `isStillRecording` in `server/recordings/service.ts` | `mainEnd` on `MockClip`; a clip with end `000000` passed via `clips` |
+| Partial Set resets omitted keys | `Writes` in `server/reolink/settings.ts`: one whole-object write per object; `camera_setting_side_effect` log | a Set resets the keys it leaves out |
+| Reboot drops the connection | `202` when unconfirmed, 120 s cooldown (`429`) | — |
+| `sensDef` lower = more sensitive; HddInfo `size` is free space | `server/reolink/settings.ts` maps `sensDef` to `51 − sensDef`; `size` is shown as free space | same values |
 | File names, triggers, DST offset | `server/recordings/clipNames.ts` | names built the same way |
 
 The Obsidian note **Cameras/Reolink API Behaviour** carries the same facts, for
