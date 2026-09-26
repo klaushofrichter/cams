@@ -14,6 +14,7 @@ process.env.ALLOWED_EMAILS ??= 'klaus@klaushofrichter.net';
 import { tmpdir } from 'os';
 import { join } from 'path';
 process.env.CACHE_DIR = join(tmpdir(), `cams-test-cache-${process.env.VITEST_POOL_ID ?? process.pid}`);
+process.env.PREFS_FILE ??= join(tmpdir(), `cams-test-prefs-${process.env.VITEST_POOL_ID ?? process.pid}.json`);
 
 import { beforeEach } from 'vitest';
 import { resetRateLimits } from '../server/middleware/rateLimit';

@@ -2,3 +2,4 @@
 # these, and nothing else. Changing this file takes a pull request.
 # Format: ruleId<TAB>path<TAB>reason
 js/missing-rate-limiting	test/mock-camera/server.ts	Test-only mock Reolink camera for vitest and e2e, bound to localhost by the test runner; never shipped (test/ is excluded from the Docker image and tsconfig), so it has no untrusted clients to rate-limit.
+js/missing-token-validation	server/app.ts	CSRF is handled without tokens: every non-GET /api request passes requireSameOrigin (Origin/Referer must equal this host; a browser always sends Origin on cross-origin POST/PUT), the session cookie is SameSite=Lax, and state-changing endpoints only accept JSON bodies (cross-site JSON needs a CORS preflight, which is never granted). CodeQL does not recognise the Origin check. Tested in test/api.test.ts (requireSameOrigin) and test/settingsRoutes.test.ts (cross-site PUT settings, POST reboot, PUT preferences all get 403 and reach nothing).

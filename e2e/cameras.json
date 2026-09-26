@@ -1,5 +1,5 @@
 [
   { "id": "cam1", "name": "Den", "host": "127.0.0.1:8098", "protocol": "http", "user": "e2e", "password": "e2e-not-a-real-password" },
   { "id": "garage", "name": "Garage", "host": "127.0.0.1:9", "protocol": "http", "user": "e2e", "password": "e2e-not-a-real-password" },
-  { "id": "porch", "name": "Porch", "host": "127.0.0.1:8098", "protocol": "http", "user": "e2e", "password": "e2e-not-a-real-password" }
+  { "id": "porch", "name": "Porch", "host": "127.0.0.1:8097", "protocol": "http", "user": "e2e", "password": "e2e-not-a-real-password" }
 ]

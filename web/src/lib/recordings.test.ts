@@ -1,8 +1,8 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
-  addDays, clipAtSecond, cursorSearch, dayLength, downloadUrl, filterEvents, formatBytes, layoutSegments,
-  loadCursor, neighbour, parseCursor, saveCursor, secondsIntoDay, thumbUrl, timelineWindow, videoUrl,
+  addDays, clipAtSecond, cursorSearch, dayLength, dayStartMs, downloadUrl, filterEvents, formatBytes, groupByHour, layoutSegments, legendTicks,
+  loadCursor, neighbour, parseCursor, saveCursor, secondsIntoDay, thumbUrl, tickLabel, timelineWindow, videoUrl,
   type EventClip,
 } from './recordings';
 
@@ -160,5 +160,73 @@ describe('cursor', () => {
       setItem: () => {},
     });
     expect(loadCursor()).toBeNull();
+  });
+});
+
+describe('tick labels use real local time', () => {
+  it('matches the hour on a normal day', () => {
+    expect(tickLabel('2026-09-26', 6 * 3600, 'en-US')).toBe('06:00');
+    expect(tickLabel('2026-09-26', 86400, 'en-US')).toBe('00:00');
+  });
+
+  // Fall back (2026-11-01): the 25-hour day repeats 01:00.
+  it('follows the clock across the fall-back hour', () => {
+    expect(tickLabel('2026-11-01', 2 * 3600, 'en-US')).toBe('01:00');
+    expect(tickLabel('2026-11-01', 3 * 3600, 'en-US')).toBe('02:00');
+  });
+
+  // Spring forward (2026-03-08): 02:00 doesn't exist.
+  it('follows the clock across the spring-forward hour', () => {
+    expect(tickLabel('2026-03-08', 2 * 3600, 'en-US')).toBe('03:00');
+  });
+
+  it('knows local midnight', () => {
+    expect(new Date(dayStartMs('2026-09-26')).toISOString()).toBe('2026-09-26T05:00:00.000Z');
+  });
+});
+
+describe('legendTicks', () => {
+  it('labels the day end 24:00, like the caption', () => {
+    expect(legendTicks('2026-09-26', 86400, 'en-US').map((t) => t.label)).toEqual(['00:00', '06:00', '12:00', '18:00', '24:00']);
+    expect(legendTicks('2026-03-08', 82800, 'en-US').at(-1)).toEqual({ sec: 82800, label: '24:00' });
+  });
+});
+
+describe('groupByHour', () => {
+  // Spring forward (2026-03-08): 02:00 doesn't exist, so the 03:xx hour starts
+  // two hours after midnight; its label comes from the hour, not the offset.
+  it('labels the hour after spring-forward by its wall clock', () => {
+    const g = groupByHour([E('20260308-031500-031520', '2026-03-08T03:15:00-05:00', '2026-03-08T03:15:20-05:00', ['motion'])], '2026-03-08');
+    expect(g.map((x) => [x.hour, x.label])).toEqual([[3, '03:00–04:00']]);
+  });
+
+  // Fall back (2026-11-01): 01:xx happens twice, and both are one group.
+  it('labels the repeated fall-back hour by its wall clock', () => {
+    const g = groupByHour(
+      [
+        E('20261101-011500-011520', '2026-11-01T01:15:00-05:00', '2026-11-01T01:15:20-05:00', ['motion']),
+        E('20261101-011500-011520b', '2026-11-01T01:15:00-06:00', '2026-11-01T01:15:20-06:00', ['motion']),
+      ],
+      '2026-11-01',
+    );
+    expect(g.map((x) => [x.hour, x.label, x.events.length])).toEqual([[1, '01:00–02:00', 2]]);
+  });
+
+  it('groups by local hour, in order, skipping empty hours', () => {
+    const g = groupByHour(events, DAY); // the three fixtures at 08:15, 12:05, 17:45
+    expect(g.map((x) => [x.hour, x.label, x.events.length])).toEqual([
+      [8, '08:00–09:00', 1],
+      [12, '12:00–13:00', 1],
+      [17, '17:00–18:00', 1],
+    ]);
+  });
+
+  it('keeps a busy hour together', () => {
+    const many = Array.from({ length: 25 }, (_, i) =>
+      E(`20260925-1400${String(i).padStart(2, '0')}-1400${String(i + 1).padStart(2, '0')}`, `${DAY}T14:00:${String(i).padStart(2, '0')}-05:00`, `${DAY}T14:00:${String(i + 1).padStart(2, '0')}-05:00`, ['motion']),
+    );
+    const g = groupByHour(many, DAY);
+    expect(g).toHaveLength(1);
+    expect(g[0].events).toHaveLength(25);
   });
 });

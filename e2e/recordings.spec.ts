@@ -4,8 +4,10 @@ import { signIn } from './session';
 // The mock camera's default clips (test/mock-camera/server.ts, DEFAULT_MOCK_CLIPS):
 // today 08:15:10 person, 09:30:00 vehicle, 12:05:05 motion, 17:45:40 pet;
 // yesterday 07:00:00 motion, 22:15:10 person. Browser zone = America/Chicago.
-// e2e/cameras.json: cam1 "Den" and porch "Porch" both point at the same mock
-// camera, so they share the same clips; garage is offline.
+// e2e/cameras.json: cam1 "Den" (mock on 8098) and porch "Porch" (a separate
+// mock on 8097, see playwright.config.ts) both start with the same default
+// clips, since neither mock is given a `clips` option, so they share the
+// same clip data even though they're different processes; garage is offline.
 test.beforeEach(async ({ context, baseURL }) => {
   await signIn(context, baseURL!);
 });
@@ -230,4 +232,29 @@ test('ArrowRight with no clip selected selects the first clip', async ({ page })
   await page.getByTestId('timeline').focus();
   await page.keyboard.press('ArrowRight');
   await expect(page).toHaveURL(/clip=\d{8}-081510-081535/);
+});
+
+test('events are grouped by hour and a busy hour starts collapsed', async ({ page }) => {
+  await page.goto('/app/recordings?panel=events');
+  await expect(page.getByTestId('hour-group')).toHaveCount(4); // 08, 09, 12, 17 in the mock
+  await expect(page.getByTestId('hour-count').first()).toHaveText('1 event');
+});
+
+// Isolated in its own describe: page.clock.install() replaces the page's
+// timers wholesale, which is risky alongside the other tests' real video
+// playback (mpegts.js and <video> rely on real timers/rAF).
+test.describe('today auto-refresh', () => {
+  test('today refreshes on its own and keeps the selection', async ({ page }) => {
+    await page.clock.install();
+    await page.goto('/app/recordings?panel=events');
+    await expect(page.getByTestId('event-card')).toHaveCount(4);
+    await page.getByTestId('event-card').nth(1).click();
+    const first = await page.getByTestId('events-updated').textContent();
+    const requests: string[] = [];
+    page.on('request', (r) => r.url().includes('/events?') && requests.push(r.url()));
+    await page.clock.runFor(61_000);
+    await expect.poll(() => requests.length).toBeGreaterThan(0);
+    await expect(page.getByTestId('events-updated')).not.toHaveText(first!);
+    await expect(page.locator('[data-testid="event-card"][aria-current="true"]')).toHaveAttribute('data-clip-id', /-093000-093020$/);
+  });
 });

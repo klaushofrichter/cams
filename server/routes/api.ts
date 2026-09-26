@@ -3,16 +3,18 @@ import { currentUser, noStore, requireAuthApi } from '../middleware/requireAuth'
 import { requireSameOrigin } from '../middleware/requireSameOrigin';
 import { createApiRateLimit, createMediaRateLimit } from '../middleware/rateLimit';
 import { listCameras } from '../cameraRegistry';
-import { appVersion } from '../version';
+import { appVersion, buildDate } from '../version';
 import { camerasRouter } from './cameras';
 import { recordingsRouter } from './recordings';
+import { settingsRouter } from './settings';
+import { preferencesRouter } from './preferences';
 
 export const apiRouter = Router();
 
 apiRouter.use('/api', createApiRateLimit(), createMediaRateLimit(), noStore, requireSameOrigin, requireAuthApi);
 
 apiRouter.get('/api/me', (req: Request, res: Response) => {
-  res.json({ email: currentUser(req)!.email, version: appVersion() });
+  res.json({ email: currentUser(req)!.email, version: appVersion(), buildDate: buildDate() });
 });
 
 apiRouter.get('/api/cameras', (_req: Request, res: Response) => {
@@ -21,6 +23,8 @@ apiRouter.get('/api/cameras', (_req: Request, res: Response) => {
 
 apiRouter.use(camerasRouter);
 apiRouter.use(recordingsRouter);
+apiRouter.use(settingsRouter);
+apiRouter.use(preferencesRouter);
 
 // Last on /api: an unknown API path is JSON, never the SPA's HTML.
 apiRouter.use('/api', (_req: Request, res: Response) => {

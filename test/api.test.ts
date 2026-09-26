@@ -18,14 +18,14 @@ describe('/api', () => {
     process.env.APP_VERSION = '2026.09.26.1';
     const res = await request(createApp()).get('/api/me').set('Cookie', auth);
     expect(res.status).toBe(200);
-    expect(res.body).toEqual({ email: 'klaus@klaushofrichter.net', version: '2026.09.26.1' });
+    expect(res.body).toEqual({ email: 'klaus@klaushofrichter.net', version: '2026.09.26.1', buildDate: null });
     expect(res.headers['cache-control']).toBe('no-store');
   });
 
   it('GET /api/cameras lists configured cameras without credentials', async () => {
     setCameras([{ id: 'cam1', name: 'Den', host: '10.0.0.5', protocol: 'https', user: 'cams', password: 'pw' }]);
     const res = await request(createApp()).get('/api/cameras').set('Cookie', auth);
-    expect(res.body).toEqual([{ id: 'cam1', name: 'Den' }]);
+    expect(res.body).toEqual([{ id: 'cam1', name: 'Den', webUiUrl: 'https://10.0.0.5/' }]);
     expect(JSON.stringify(res.body)).not.toContain('pw');
   });
 

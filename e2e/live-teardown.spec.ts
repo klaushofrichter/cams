@@ -8,11 +8,13 @@ import { signIn } from './session';
 // unconditionally unmounts LivePlayer on any camera switch.
 //
 // Isolation: /__state's activeStreams counter is shared across the WHOLE
-// mock-camera process (one process for the entire e2e run, on port 8098) —
-// it isn't scoped per camera id or per browser page, because the app's
-// upstream requests to the mock never say which cams-camera id they're for.
-// So this test can only be trusted while it is the ONLY thing touching the
-// mock. That's arranged three ways:
+// mock-camera process it belongs to (one process per e2e run per port: 8098
+// for Den, 8097 for Porch) -- it isn't scoped per camera id or per browser
+// page, because the app's upstream requests to a given mock never say which
+// cams-camera id they're for. Den and Porch are two separate mock processes
+// (playwright.config.ts, e2e/cameras.json), so this test sums both mocks'
+// /__state rather than reading only 8098. So this test can only be trusted
+// while it is the ONLY thing touching either mock. That's arranged three ways:
 //   - test.describe.serial, so this file's own test(s) never run concurrently
 //     with each other;
 //   - `fullyParallel: false` on this file's Playwright project (below,
@@ -32,8 +34,12 @@ test.describe.serial('live stream teardown', () => {
   });
 
   async function activeStreams(page: Page): Promise<number> {
-    const res = await page.request.get('http://127.0.0.1:8098/__state');
-    return (await res.json()).activeStreams;
+    const [den, porch] = await Promise.all([
+      page.request.get('http://127.0.0.1:8098/__state'),
+      page.request.get('http://127.0.0.1:8097/__state'),
+    ]);
+    const [denState, porchState] = await Promise.all([den.json(), porch.json()]);
+    return denState.activeStreams + porchState.activeStreams;
   }
 
   test('switching cameras releases the old stream (client and server)', async ({ page }) => {

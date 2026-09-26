@@ -31,7 +31,16 @@ export class ResponseTooLargeError extends Error {
   }
 }
 
-function splitHost(host: string): { hostname: string; port?: number } {
+// Whether a failed openRequest had already handed its whole request to the
+// camera. A reset after that means the camera may have acted on it (a Reboot
+// that went down before answering); a refused or timed-out connection means
+// nothing was sent.
+const WRITTEN = Symbol('requestWritten');
+export function requestWasWritten(err: unknown): boolean {
+  return typeof err === 'object' && err !== null && (err as { [WRITTEN]?: boolean })[WRITTEN] === true;
+}
+
+export function splitHost(host: string): { hostname: string; port?: number } {
   const i = host.lastIndexOf(':');
   if (i > 0 && /^\d+$/.test(host.slice(i + 1))) return { hostname: host.slice(0, i), port: Number(host.slice(i + 1)) };
   return { hostname: host };
@@ -63,8 +72,15 @@ export function openRequest(target: CameraTarget, path: string, opts: OpenOption
         resolve(res);
       },
     );
+    // 'finish' fires once the last byte is flushed to the socket, which a
+    // connection that never opens doesn't reach.
+    let written = false;
+    req.on('finish', () => (written = true));
     req.setTimeout(opts.timeoutMs, () => req.destroy(new TimeoutError()));
-    req.on('error', reject);
+    req.on('error', (err) => {
+      if (written && typeof err === 'object' && err !== null) Object.assign(err, { [WRITTEN]: true });
+      reject(err);
+    });
     req.end(opts.body);
   });
 }

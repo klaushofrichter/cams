@@ -128,3 +128,20 @@ test('camera API rejects unknown cameras', async ({ page }) => {
   const res = await page.request.get('/api/cameras/nope/status');
   expect(res.status()).toBe(404);
 });
+
+test('the indicator shows streaming, and explains the status', async ({ page }) => {
+  await page.goto('/app/live');
+  const ind = page.getByTestId('stream-indicator');
+  await expect(ind).toHaveAttribute('data-state', 'streaming', { timeout: 15_000 });
+  await expect(ind).toHaveAttribute('title', /Den: live video is streaming/);
+  await expect(page).toHaveTitle('● Live · Den · cams');
+  const icon = await page.locator('link[rel="icon"][type="image/svg+xml"]').getAttribute('href');
+  expect(decodeURIComponent(icon!)).toContain('#22C55E');
+});
+
+test('an offline camera shows the red indicator', async ({ page }) => {
+  await page.goto('/app/live');
+  await page.getByTestId('camera-picker').selectOption({ label: 'Garage' });
+  await expect(page.getByTestId('stream-indicator')).toHaveAttribute('data-state', 'error');
+  await expect(page.getByTestId('stream-indicator')).toHaveAttribute('title', /Garage: offline/);
+});
