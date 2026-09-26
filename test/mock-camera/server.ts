@@ -261,7 +261,9 @@ export function createMockCamera(opts: MockCameraOptions): MockCamera {
     if (req.query.cmd === 'Download') {
       // Firmware: a percent-encoded source path makes the camera drop the
       // connection without any response.
-      if (/[?&]source=[^&]*%2F/i.test(req.originalUrl)) {
+      const rawQuery = req.originalUrl.slice(req.originalUrl.indexOf('?') + 1);
+      const rawSource = rawQuery.split('&').find((kv) => kv.startsWith('source=')) ?? '';
+      if (rawSource.toUpperCase().includes('%2F')) {
         req.socket.destroy();
         return;
       }
