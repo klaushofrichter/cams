@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test';
+import { PREFS_EMAIL } from './env';
 import { signIn } from './session';
 
 // Den (cam1) is backed by the mock camera on 8098; Porch is backed by a
@@ -14,13 +15,15 @@ import { signIn } from './session';
 // in-memory state lives for the whole e2e run. Den's OSD name is therefore
 // never written by this file, so the "settings cards load the camera state"
 // test can assert its default value on any project without racing a writer.
-// The tests that DO mutate Porch (or the one shared preferences file, see
-// PREFS_FILE in e2e/env.ts) are confined to the `desktop` project via
-// `test.skip`, and this whole file runs with `mode: 'serial'` so that, within
-// one project, a mutating test's writes and restores never interleave with
-// another test's reads. Projects still run in parallel with each other, but
-// since only `desktop` ever writes to Porch or the preferences file, nothing
-// on `phone` can observe a half-applied write.
+// The preferences test signs in as PREFS_EMAIL (e2e/env.ts), so the values it
+// writes are never seen by the other spec files, which sign in as the first
+// allowlisted user. The tests that DO mutate Porch (or PREFS_EMAIL's
+// preferences) are confined to the `desktop` project via `test.skip`, and
+// this whole file runs with `mode: 'serial'` so that, within one project, a
+// mutating test's writes and restores never interleave with another test's
+// reads. Projects still run in parallel with each other, but since only
+// `desktop` ever writes to Porch or those preferences, nothing on `phone` can
+// observe a half-applied write.
 test.describe.configure({ mode: 'serial' });
 
 test.beforeEach(async ({ context, baseURL }) => {
@@ -135,8 +138,9 @@ test('a reboot refused by the cooldown says to wait', async ({ page }) => {
   await expect(page.getByTestId('reboot-status')).toHaveText('Rebooted recently; wait a minute.');
 });
 
-test('preferences save and apply', async ({ page }, testInfo) => {
-  test.skip(testInfo.project.name !== 'desktop', 'preferences live in one shared file; only run this in one project to avoid a race');
+test('preferences save and apply', async ({ page, context, baseURL }, testInfo) => {
+  test.skip(testInfo.project.name !== 'desktop', "PREFS_EMAIL's preferences are shared by the projects; only run this in one to avoid a race");
+  await signIn(context, baseURL!, PREFS_EMAIL);
   await page.goto('/app/settings');
   await page.getByTestId('pref-zoom').selectOption('6');
   await page.getByTestId('save-prefs').click();

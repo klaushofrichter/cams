@@ -1,4 +1,5 @@
 import { expect, test, type Page, type Request } from '@playwright/test';
+import { PREFS_EMAIL } from './env';
 import { signIn } from './session';
 
 // The Live page stays mounted (hidden) for `liveKeepAlive` seconds after the
@@ -12,9 +13,11 @@ import { signIn } from './session';
 // against Den, so they can't prove anything about THIS page. Instead each
 // test watches its own page's /live requests: a new request means a
 // reconnect, and a request that fails (aborted) means the client closed the
-// stream. Desktop only and serial: it writes the one shared preferences file.
+// stream. Every test signs in as PREFS_EMAIL, so the keep-alive values it
+// writes are never seen by other spec files (preferences are per user). Desktop
+// only and serial: the desktop and phone projects would share that user.
 test.describe.configure({ mode: 'serial' });
-test.skip(() => test.info().project.name !== 'desktop', 'shared preferences file; desktop only');
+test.skip(() => test.info().project.name !== 'desktop', 'preferences of the shared PREFS_EMAIL user; desktop only');
 
 const LIVE_URL = /\/api\/cameras\/[^/]+\/live\?/;
 
@@ -34,16 +37,16 @@ function watchStreams(page: Page) {
 }
 
 test.beforeEach(async ({ context, baseURL }) => {
-  await signIn(context, baseURL!);
+  await signIn(context, baseURL!, PREFS_EMAIL);
 });
 
 test.afterAll(async ({ browser, baseURL }, testInfo) => {
   // Hooks still run in the projects whose tests are all skipped; only the
-  // desktop project may touch the shared preferences file.
+  // desktop project may touch PREFS_EMAIL's preferences.
   if (testInfo.project.name !== 'desktop') return;
   // restore the default for later tests, even if a test failed half-way
   const context = await browser.newContext();
-  await signIn(context, baseURL!);
+  await signIn(context, baseURL!, PREFS_EMAIL);
   const page = await context.newPage();
   await setKeepAlive(page, 60);
   await context.close();
