@@ -9,6 +9,7 @@ export const E2E_ENV: Record<string, string> = {
   GOOGLE_REDIRECT_URI: `http://localhost:${E2E_PORT}/auth/google/callback`,
   ALLOWED_EMAILS: 'klaus@klaushofrichter.net',
   CAMERAS_FILE: 'e2e/cameras.json',
+  PREFS_FILE: '/tmp/cams-e2e-prefs.json',
   APP_VERSION: 'e2e-test-version',
   LOG_LEVEL: 'silent',
   RATE_LIMIT_MAX: '1000',

@@ -156,13 +156,23 @@
         return;
       }
       const errs = errorsOf(res.body.fields);
+      // Clone the plain response body BEFORE assigning it to the `$state`
+      // variable: once assigned, `detection`/`image` is a Svelte 5 reactive
+      // proxy, and calling structuredClone() on that proxy (rather than on
+      // the plain object it wraps) throws DataCloneError in Chrome -- which
+      // used to land every successful/partial save in the `catch` block
+      // below, showing "Could not save" even though the camera had just
+      // accepted the change. `reload()` and the initial per-camera load
+      // above already clone the plain source object for the same reason.
       if (section === 'detection') {
-        detection = res.body.settings as unknown as DetectionSettings;
-        detectionEdit = structuredClone(detection);
+        const d = res.body.settings as unknown as DetectionSettings;
+        detectionEdit = structuredClone(d);
+        detection = d;
         detectionErrors = errs;
       } else {
-        image = res.body.settings as unknown as ImageSettings;
-        imageEdit = structuredClone(image);
+        const img = res.body.settings as unknown as ImageSettings;
+        imageEdit = structuredClone(img);
+        image = img;
         imageErrors = errs;
       }
       set(res.status === 200 ? 'saved' : 'partial');

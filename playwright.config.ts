@@ -41,8 +41,16 @@ export default defineConfig({
   ],
   // Requires `npm run build` first. The mock camera stands in for the Reolink
   // (e2e/cameras.json points "Den" at it); "Garage" is deliberately unreachable.
+  // A second mock on 8097 backs "Porch" and always rejects SetWhiteLed, so
+  // settings.spec.ts can exercise a partial save without making cam1/Den's
+  // mock (which live.spec.ts and live-teardown.spec.ts depend on) unreliable.
+  // Playwright merges each `env` with process.env (see
+  // playwright/lib/runner/index.js's WebServerPlugin), so PATH is preserved
+  // even though these entries only list the variables they add.
   webServer: [
     { command: 'npx tsx test/mock-camera/cli.ts', port: 8098, reuseExistingServer: !process.env.CI },
+    { command: 'npx tsx test/mock-camera/cli.ts', port: 8097, reuseExistingServer: !process.env.CI, env: { MOCK_CAMERA_PORT: '8097', MOCK_SETTINGS_FAILURES: 'SetWhiteLed' } },
     { command: 'npm start', port: E2E_PORT, reuseExistingServer: !process.env.CI, env: E2E_ENV },
   ],
+  globalSetup: require.resolve('./e2e/global-setup'),
 });

@@ -4,8 +4,10 @@ import { signIn } from './session';
 // The mock camera's default clips (test/mock-camera/server.ts, DEFAULT_MOCK_CLIPS):
 // today 08:15:10 person, 09:30:00 vehicle, 12:05:05 motion, 17:45:40 pet;
 // yesterday 07:00:00 motion, 22:15:10 person. Browser zone = America/Chicago.
-// e2e/cameras.json: cam1 "Den" and porch "Porch" both point at the same mock
-// camera, so they share the same clips; garage is offline.
+// e2e/cameras.json: cam1 "Den" (mock on 8098) and porch "Porch" (a separate
+// mock on 8097, see playwright.config.ts) both start with the same default
+// clips, since neither mock is given a `clips` option, so they share the
+// same clip data even though they're different processes; garage is offline.
 test.beforeEach(async ({ context, baseURL }) => {
   await signIn(context, baseURL!);
 });
