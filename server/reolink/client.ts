@@ -2,6 +2,7 @@ import { randomBytes } from 'crypto';
 import { IncomingMessage } from 'node:http';
 import type { CameraConfig } from '../cameraRegistry';
 import { logger } from '../logger';
+import { TimeInfo, timeInfoFromGetTime } from '../recordings/clipNames';
 import { CameraTarget, openRequest, readBody, ResponseTooLargeError } from './http';
 import { Semaphore } from './semaphore';
 
@@ -58,6 +59,7 @@ export function classifyNetworkError(err: unknown): CameraError {
 
 export class ReolinkClient {
   private token: { value: string; expiresAt: number } | null = null;
+  private time: { value: TimeInfo; at: number } | null = null;
   private loginInFlight: Promise<string> | null = null;
   private lastLoginFailure = Number.NEGATIVE_INFINITY;
   private readonly gate: Semaphore;
@@ -165,14 +167,15 @@ export class ReolinkClient {
 
   // Real firmware limits concurrent sessions and never gets a Logout when we
   // drop a token, so we only clear it when the response actually says the
-  // token is bad: a 403, or a 200 whose body is a rspCode -6 reply. Real
-  // firmware (RLC-1224A v3.2.0.6011) sends that body for Snap as text/html,
-  // not application/json, so the content type is deliberately ignored. A
+  // token is bad: a 403, a 401 (Download answers a bad token with 401
+  // text/html), or a 200 whose body is a rspCode -6 reply. Real firmware
+  // (RLC-1224A v3.2.0.6011) sends that body for Snap as text/html, not
+  // application/json, so the content type is deliberately ignored. A
   // connection error never clears the token here - the camera may just be
   // briefly unreachable - and any other unexpected response is reported
   // as-is, without spending a second login on a problem re-login can't fix.
   private async isAuthRejection(res: IncomingMessage): Promise<boolean> {
-    if (res.statusCode === 403) {
+    if (res.statusCode === 401 || res.statusCode === 403) {
       res.resume();
       return true;
     }
@@ -304,6 +307,62 @@ export class ReolinkClient {
     return this.getWithToken(
       (t) => `/flv?port=1935&app=bcs&stream=channel0_${quality}.bcs&token=${t}`,
       /^video\/x-flv/,
+      signal,
+    );
+  }
+
+  async timeInfo(): Promise<TimeInfo> {
+    if (this.time && this.now() - this.time.at < 3600_000) return this.time.value;
+    const value = timeInfoFromGetTime(await this.command<unknown>('GetTime'));
+    this.time = { value, at: this.now() };
+    return value;
+  }
+
+  private static dayRange(date: string) {
+    const [year, mon, day] = date.split('-').map(Number);
+    return {
+      StartTime: { year, mon, day, hour: 0, min: 0, sec: 0 },
+      EndTime: { year, mon, day, hour: 23, min: 59, sec: 59 },
+    };
+  }
+
+  async searchDay(date: string, stream: 'main' | 'sub'): Promise<{ name: string; size: number }[]> {
+    const value = await this.command<{ SearchResult?: { File?: { name: string; size: string | number }[] } }>('Search', {
+      Search: { channel: 0, onlyStatus: 0, streamType: stream, ...ReolinkClient.dayRange(date) },
+    });
+    return (value.SearchResult?.File ?? []).map((f) => ({ name: f.name, size: Number(f.size) }));
+  }
+
+  // Days of a month (YYYY-MM) with recordings, from the camera's per-day table.
+  async searchMonth(month: string): Promise<string[]> {
+    const [year, mon] = month.split('-').map(Number);
+    const lastDay = new Date(Date.UTC(year, mon, 0)).getUTCDate();
+    const value = await this.command<{ SearchResult?: { Status?: { year: number; mon: number; table: string }[] } }>('Search', {
+      Search: {
+        channel: 0,
+        onlyStatus: 1,
+        streamType: 'main',
+        StartTime: { year, mon, day: 1, hour: 0, min: 0, sec: 0 },
+        EndTime: { year, mon, day: lastDay, hour: 23, min: 59, sec: 59 },
+      },
+    });
+    const days: string[] = [];
+    for (const s of value.SearchResult?.Status ?? []) {
+      if (s.year !== year || s.mon !== mon) continue;
+      [...s.table].forEach((c, i) => {
+        if (c === '1' && i < lastDay) days.push(`${month}-${String(i + 1).padStart(2, '0')}`);
+      });
+    }
+    return days;
+  }
+
+  // A recording file as an HTTP stream. Not gated here: the recordings
+  // service holds its own per-camera transfer slot for the whole transfer.
+  async download(name: string, signal?: AbortSignal): Promise<IncomingMessage> {
+    const base = name.slice(name.lastIndexOf('/') + 1);
+    return this.getWithToken(
+      (t) => `/cgi-bin/api.cgi?cmd=Download&source=${encodeURIComponent(name)}&output=${encodeURIComponent(base)}&token=${t}`,
+      /^video\/mp4/,
       signal,
     );
   }

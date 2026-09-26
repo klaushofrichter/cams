@@ -4,6 +4,6 @@ export default defineConfig({
   test: {
     include: ['test/**/*.test.ts', 'web/src/**/*.test.ts'],
     setupFiles: ['./test/setup.ts'],
-    env: { LOG_LEVEL: 'silent' },
+    env: { LOG_LEVEL: 'silent', TZ: 'America/Chicago' },
   },
 });
