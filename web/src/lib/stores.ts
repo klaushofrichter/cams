@@ -4,6 +4,7 @@ import type { Theme } from './theme';
 export interface Me {
   email: string;
   version: string;
+  buildDate: string | null;
 }
 
 export interface CameraSummary {

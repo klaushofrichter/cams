@@ -3,7 +3,7 @@ import { currentUser, noStore, requireAuthApi } from '../middleware/requireAuth'
 import { requireSameOrigin } from '../middleware/requireSameOrigin';
 import { createApiRateLimit, createMediaRateLimit } from '../middleware/rateLimit';
 import { listCameras } from '../cameraRegistry';
-import { appVersion } from '../version';
+import { appVersion, buildDate } from '../version';
 import { camerasRouter } from './cameras';
 import { recordingsRouter } from './recordings';
 import { settingsRouter } from './settings';
@@ -14,7 +14,7 @@ export const apiRouter = Router();
 apiRouter.use('/api', createApiRateLimit(), createMediaRateLimit(), noStore, requireSameOrigin, requireAuthApi);
 
 apiRouter.get('/api/me', (req: Request, res: Response) => {
-  res.json({ email: currentUser(req)!.email, version: appVersion() });
+  res.json({ email: currentUser(req)!.email, version: appVersion(), buildDate: buildDate() });
 });
 
 apiRouter.get('/api/cameras', (_req: Request, res: Response) => {

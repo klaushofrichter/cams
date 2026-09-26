@@ -15,6 +15,8 @@ ENV CACHE_DIR=/var/cache/cams
 # Stamped by the deploy; "dev" for local builds, "main" for build-push.
 ARG APP_VERSION=dev
 ENV APP_VERSION=$APP_VERSION
+ARG BUILD_DATE=
+ENV BUILD_DATE=$BUILD_DATE
 ENV NODE_ENV=production
 COPY package.json package-lock.json ./
 RUN npm ci --omit=dev && npm cache clean --force
