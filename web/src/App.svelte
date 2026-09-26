@@ -35,26 +35,36 @@
   // moved in the DOM: removing a media element pauses it.
   let liveMounted = $state(false);
   const keepAlive = createKeepAlive(() => (liveMounted = false));
-  let wasLive = false;
+  // "On screen" means the Live page is showing AND the browser tab is
+  // visible: a hidden tab or minimised window is off-screen too, so the
+  // countdown also runs there (Klaus, 2026-09-26).
+  let tabVisible = $state(typeof document === 'undefined' || document.visibilityState !== 'hidden');
+  $effect(() => {
+    const onVisibility = () => (tabVisible = document.visibilityState !== 'hidden');
+    document.addEventListener('visibilitychange', onVisibility);
+    return () => document.removeEventListener('visibilitychange', onVisibility);
+  });
+  let wasOnScreen = false;
   let leftWith: number | null = null;
   $effect(() => {
     // Nothing before `ready`: the router store starts out on 'live' until
     // initRouter() syncs it, and a deep link to another page must not
     // briefly mount Live (and open a stream nobody asked for).
     if (!ready) return;
-    const onLive = $route.page === 'live';
+    const onScreen = $route.page === 'live' && tabVisible;
     const seconds = $preferences?.liveKeepAlive ?? 60;
-    if (onLive) {
+    if (onScreen) {
       liveMounted = true;
       leftWith = null;
       keepAlive.enter();
-    } else if (wasLive || (liveMounted && leftWith !== null && seconds !== leftWith)) {
-      // Just left Live, or the keep-alive preference changed while away
-      // (restart the countdown with the new time; "off" stops at once).
+    } else if (wasOnScreen || (liveMounted && leftWith !== null && seconds !== leftWith)) {
+      // Just went off-screen (another page, or the tab was hidden), or the
+      // keep-alive preference changed while away: restart the countdown
+      // with the new time ("off" stops at once).
       leftWith = seconds;
       keepAlive.leave(seconds);
     }
-    wasLive = onLive;
+    wasOnScreen = onScreen;
   });
   $effect(() => () => keepAlive.dispose());
 

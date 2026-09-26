@@ -162,3 +162,45 @@ test('turning keep-alive off in Settings while Live is hidden ends the stream', 
 
   await setKeepAlive(page, 60); // restore, in case afterAll doesn't run
 });
+
+// A hidden tab (or minimised window) is off-screen too: with keep-alive off,
+// hiding the tab while on Live closes the stream, and showing it again
+// reconnects. Playwright can't really hide a tab, so the test overrides
+// document.visibilityState and fires visibilitychange, as a browser does.
+async function setTabHidden(page: Page, hidden: boolean) {
+  await page.evaluate((h) => {
+    Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => (h ? 'hidden' : 'visible') });
+    document.dispatchEvent(new Event('visibilitychange'));
+  }, hidden);
+}
+
+test('a hidden tab counts as off-screen: keep-alive off closes the stream, showing the tab reconnects', async ({ page }) => {
+  await setKeepAlive(page, 0);
+  const streams = watchStreams(page);
+  await page.goto('/app/live');
+  const video = page.locator('[data-testid="live-video"]:visible');
+  await expect.poll(() => video.evaluate((v: HTMLVideoElement) => v.readyState >= 2), { timeout: 15_000 }).toBe(true);
+  expect(streams.open()).toBe(1);
+
+  await setTabHidden(page, true);
+  await expect.poll(() => streams.open(), { timeout: 5_000 }).toBe(0);
+
+  await setTabHidden(page, false);
+  await expect.poll(() => video.evaluate((v: HTMLVideoElement) => v.readyState >= 2), { timeout: 15_000 }).toBe(true);
+  expect(streams.open()).toBe(1);
+  await setKeepAlive(page, 60); // restore, in case afterAll doesn't run
+});
+
+test('a hidden tab within the keep-alive keeps the same stream', async ({ page }) => {
+  await setKeepAlive(page, 60);
+  const streams = watchStreams(page);
+  await page.goto('/app/live');
+  const video = page.locator('[data-testid="live-video"]:visible');
+  await expect.poll(() => video.evaluate((v: HTMLVideoElement) => v.readyState >= 2), { timeout: 15_000 }).toBe(true);
+  const opened = streams.opened.length;
+  await setTabHidden(page, true);
+  await page.waitForTimeout(500); // nothing should happen; prove it didn't
+  await setTabHidden(page, false);
+  expect(streams.opened.length).toBe(opened);
+  expect(streams.open()).toBe(1);
+});
