@@ -201,14 +201,16 @@ describe('mock camera settings', () => {
   const cmd = (app: Parameters<typeof request>[0], t: string, name: string, param: object) =>
     request(app).post(`/cgi-bin/api.cgi?cmd=${name}&token=${t}`).send([{ cmd: name, action: 0, param }]);
 
-  it('reads the real camera defaults and merges partial writes', async () => {
+  // Firmware: keys a Set leaves out are reset to defaults (2026-09-26).
+  it('reads the real camera defaults and resets keys a partial write leaves out', async () => {
     const { app, state } = createMockCamera(creds);
     const t = await tok(app);
     expect((await cmd(app, t, 'GetMdAlarm', { channel: 0 })).body[0].value.MdAlarm.newSens.sensDef).toBe(10);
     expect((await cmd(app, t, 'SetOsd', { Osd: { channel: 0, osdChannel: { enable: 1, name: 'Porch', pos: 'Lower Right' } } })).body[0].code).toBe(0);
     const osd = (await cmd(app, t, 'GetOsd', { channel: 0 })).body[0].value.Osd;
     expect(osd.osdChannel.name).toBe('Porch');
-    expect(osd.osdTime).toEqual({ enable: 1, pos: 'Top Center' }); // untouched half kept
+    expect(osd.osdTime).toEqual({ enable: 0, pos: 'Upper Left' }); // left out: reset like the firmware
+    expect(osd.watermark).toBe(0);
     const ai = (await cmd(app, t, 'GetAiAlarm', { channel: 0, ai_type: 'vehicle' })).body[0].value.AiAlarm;
     expect(ai.ai_type).toBe('vehicle');
     expect(state.setCalls).toEqual(['SetOsd']);

@@ -169,6 +169,33 @@ describe('settings API', () => {
     expect(state.reboots).toBe(0);
   });
 
+  // 2026-09-26 on the real camera: partial writes reset rotation, watermark
+  // and stay_time. Saving one field must leave every other key as it was.
+  it('keeps keys it was not asked to change (rotation, watermark, stay_time, schedules)', async () => {
+    const before = JSON.parse(JSON.stringify(state.settings));
+    expect((await put('image', { dayNight: 'color' })).status).toBe(200);
+    expect((await put('image', { osd: { name: 'Porch' } })).status).toBe(200);
+    expect((await put('image', { spotlight: { brightness: 40 } })).status).toBe(200);
+    expect((await put('detection', { ai: { person: { sensitivity: 80 } } })).status).toBe(200);
+    expect((await put('detection', { recording: false })).status).toBe(200);
+    const S = state.settings;
+    expect(S.Isp).toEqual({ ...before.Isp, dayNight: 'Color' });
+    expect(S.Osd).toEqual({ ...before.Osd, osdChannel: { ...before.Osd.osdChannel, name: 'Porch' } });
+    expect(S.WhiteLed).toEqual({ ...before.WhiteLed, bright: 40 });
+    expect(S.AiAlarm.people).toEqual({ ...before.AiAlarm.people, sensitivity: 80 });
+    expect(S.AiAlarm.vehicle).toEqual(before.AiAlarm.vehicle);
+    expect(S.Rec).toEqual({ ...before.Rec, enable: 0 });
+    expect(S.MdAlarm).toEqual(before.MdAlarm);
+  });
+
+  it('applies several changes to one camera object from a single save', async () => {
+    const res = await put('detection', { recording: false, motionRecording: 'off', ai: { vehicle: { record: 'off' } } });
+    expect(res.status).toBe(200);
+    expect(res.body.fields).toEqual({ recording: { ok: true }, motionRecording: { ok: true }, 'ai.vehicle.record': { ok: true } });
+    expect(res.body.settings).toMatchObject({ recording: false, motionRecording: 'off', ai: { vehicle: { record: 'off' }, person: { record: 'on' } } });
+    expect(state.setCalls).toEqual(['SetRecV20']);
+  });
+
   it('lists cameras with a LAN web UI link built from the host without its port', async () => {
     const res = await request(createApp()).get('/api/cameras').set('Cookie', auth);
     expect(res.body).toEqual([{ id: 'cam1', name: 'Den', webUiUrl: 'https://127.0.0.1/' }]);

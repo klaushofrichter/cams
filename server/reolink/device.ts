@@ -1,24 +1,30 @@
 import { CameraConfig, webUiUrlOf } from '../cameraRegistry';
 import { ReolinkClient } from './client';
-import { AI_KINDS, AI_TYPE, detectionFrom, DetectionSettings, imageFrom, ImageSettings } from './settings';
+import { AI_KINDS, AI_TYPE, detectionFrom, DetectionSettings, imageFrom, ImageSettings, RawDetection, RawImage } from './settings';
 
 // Reads go through command() one at a time: they share the camera's API gate.
-export async function readDetection(client: ReolinkClient): Promise<DetectionSettings> {
+// The raw replies too: every save writes the camera's complete current
+// object with only the changed keys replaced (see detectionCommands).
+export async function readDetectionRaw(client: ReolinkClient): Promise<{ raw: RawDetection; settings: DetectionSettings }> {
   const rec = await client.command('GetRecV20', { channel: 0 });
   const md = await client.command('GetMdAlarm', { channel: 0 });
   const ai = {} as Record<(typeof AI_KINDS)[number], unknown>;
   for (const kind of AI_KINDS) ai[kind] = await client.command('GetAiAlarm', { channel: 0, ai_type: AI_TYPE[kind] });
-  return detectionFrom({ rec, md, ai });
+  const raw = { rec, md, ai };
+  return { raw, settings: detectionFrom(raw) };
 }
 
-// The raw replies too: a save builds the untouched half of SetWhiteLed and
-// SetOsd from them (see imageCommands).
-export async function readImageRaw(client: ReolinkClient): Promise<{ raw: { wl: unknown; osd: unknown }; settings: ImageSettings }> {
+export async function readDetection(client: ReolinkClient): Promise<DetectionSettings> {
+  return (await readDetectionRaw(client)).settings;
+}
+
+export async function readImageRaw(client: ReolinkClient): Promise<{ raw: RawImage; settings: ImageSettings }> {
   const isp = await client.command('GetIsp', { channel: 0 });
   const ir = await client.command('GetIrLights', { channel: 0 });
   const wl = await client.command('GetWhiteLed', { channel: 0 });
   const osd = await client.command('GetOsd', { channel: 0 });
-  return { raw: { wl, osd }, settings: imageFrom({ isp, ir, wl, osd }) };
+  const raw = { isp, ir, wl, osd };
+  return { raw, settings: imageFrom(raw) };
 }
 
 export async function readImage(client: ReolinkClient): Promise<ImageSettings> {

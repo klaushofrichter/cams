@@ -2,15 +2,39 @@ import { Router, Request, Response, NextFunction } from 'express';
 import { getCamera } from '../cameraRegistry';
 import { CameraError } from '../reolink/client';
 import { getClient } from '../reolink/clients';
-import { readDetection, readDevice, readImage, readImageRaw } from '../reolink/device';
+import { readDetectionRaw, readDevice, readImageRaw } from '../reolink/device';
 import {
-  detectionCommands, DetectionPatch, imageCommands, ImagePatch, patchApplied,
+  AI_TYPE, AiKind, changedKeys, detectionCommands, DetectionPatch, imageCommands, ImagePatch, patchApplied,
   SettingsCommand, validateDetectionPatch, validateImagePatch,
 } from '../reolink/settings';
 import { logger } from '../logger';
 import { currentUser } from '../middleware/requireAuth';
 
 export const settingsRouter = Router();
+
+// A changed key is expected only if the camera now holds exactly the value
+// a write sent for it (and that value differs from before). Paths from
+// changedKeys() look like "osd.Osd.osdChannel.name": the RawImage or
+// RawDetection key, the reply wrapper, then the object's own keys.
+function at(o: unknown, path: string[]): unknown {
+  for (const k of path) {
+    if (typeof o !== 'object' || o === null) return undefined;
+    o = (o as Record<string, unknown>)[k];
+  }
+  return o;
+}
+function expectedChange(key: string, commands: SettingsCommand[], after: unknown): boolean {
+  const parts = key.split('.');
+  const now = JSON.stringify(at(after, parts));
+  return commands.some((c) => {
+    const [wrap, body] = Object.entries(c.param as Record<string, unknown>)[0];
+    const i = parts.indexOf(wrap);
+    if (i < 0) return false;
+    // ai.<kind>.AiAlarm.…: only the command for that AI type counts.
+    if (parts[0] === 'ai' && (body as Record<string, unknown>)?.ai_type !== AI_TYPE[parts[1] as AiKind]) return false;
+    return JSON.stringify(at(body, parts.slice(i + 1))) === now;
+  });
+}
 
 function cameraOr404(req: Request, res: Response) {
   const cam = getCamera(String(req.params.id));
@@ -41,10 +65,10 @@ async function apply(
   for (const c of commands) {
     try {
       await client.command(c.cmd, c.param);
-      fields[c.field] = { ok: true };
+      for (const f of c.fields) fields[f] = { ok: true };
     } catch (err) {
       if (err instanceof CameraError && err.code !== 'camera_error') throw err; // offline/auth: whole request fails
-      fields[c.field] = { ok: false, error: 'camera_rejected' };
+      for (const f of c.fields) fields[f] = { ok: false, error: 'camera_rejected' };
     }
   }
   return fields;
@@ -54,7 +78,7 @@ settingsRouter.get('/api/cameras/:id/settings', async (req, res, next) => {
   const c = cameraOr404(req, res);
   if (!c) return;
   try {
-    res.json({ detection: await readDetection(c.client), image: await readImage(c.client) });
+    res.json({ detection: (await readDetectionRaw(c.client)).settings, image: (await readImageRaw(c.client)).settings });
   } catch (err) {
     fail(err, c.cam.id, res, next);
   }
@@ -74,15 +98,22 @@ settingsRouter.put('/api/cameras/:id/settings/:section', async (req, res, next) 
     return;
   }
   try {
+    const before = section === 'detection' ? await readDetectionRaw(c.client) : await readImageRaw(c.client);
     const commands =
       section === 'detection'
-        ? detectionCommands(v.patch as DetectionPatch)
-        : imageCommands(v.patch as ImagePatch, (await readImageRaw(c.client)).raw);
+        ? detectionCommands(v.patch as DetectionPatch, (before as Awaited<ReturnType<typeof readDetectionRaw>>).raw)
+        : imageCommands(v.patch as ImagePatch, (before as Awaited<ReturnType<typeof readImageRaw>>).raw);
     const fields = await apply(c.client, commands);
-    const settings = section === 'detection' ? await readDetection(c.client) : await readImage(c.client);
+    const after = section === 'detection' ? await readDetectionRaw(c.client) : await readImageRaw(c.client);
+    const settings = after.settings;
     for (const [field, r] of Object.entries(fields)) {
       if (r.ok && !patchApplied(field, v.patch, settings)) fields[field] = { ok: false, error: 'not_applied' };
     }
+    // A write sent the whole object, so after it the camera's object should
+    // equal exactly what was sent. Anything else moved on its own: log it
+    // (key names only) so a firmware surprise is visible, not silent.
+    const unexpected = changedKeys(before.raw, after.raw).filter((key) => !expectedChange(key, commands, after.raw));
+    if (unexpected.length) logger.warn({ cameraId: c.cam.id, section, keys: unexpected.slice(0, 20) }, 'camera_setting_side_effect');
     const allOk = Object.values(fields).every((f) => f.ok);
     res.status(allOk ? 200 : 207).json({ fields, settings });
   } catch (err) {

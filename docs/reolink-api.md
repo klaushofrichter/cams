@@ -33,6 +33,7 @@ the firmware hid most of the bugs listed here.
 - [Recordings: Search](#recordings-search)
 - [Recording file names](#recording-file-names)
 - [Recordings: Download](#recordings-download)
+- [Settings](#settings)
 - [Certificates](#certificates)
 - [Where cams handles each quirk](#where-cams-handles-each-quirk)
 
@@ -399,9 +400,10 @@ decodeTriggers('55148080000000'); // ['motion']
 decodeTriggers('5514D080000000'); // ['person', 'vehicle', 'motion']
 ```
 
-The AI triggers only appear when the camera's AI **recording** schedule is on
-(`GetRecV20` schedule keys `AI_PEOPLE`, `AI_VEHICLE`, `AI_DOG_CAT`). With only
-`MD` on, every clip is motion-only.
+AI triggers appear only when the camera's AI **recording** schedule is on
+(`GetRecV20` schedule keys `AI_PEOPLE`, `AI_VEHICLE`, `AI_DOG_CAT`) and AI
+detection fires. On this camera the schedule is fully on, and every clip so
+far is still motion-only.
 
 ## Recordings: Download
 
@@ -463,6 +465,45 @@ More quirks:
 
 - The web UI also appends an `encrypt=` parameter to requests, an obfuscated
   `countId`/`checkNum` counter. The API works without it.
+
+## Settings
+
+> **Always write the complete object.** A Set command answers `code 0,
+> rspCode 200` for a partial parameter set, and an immediate re-read looks
+> right. But **the keys you leave out are reset to defaults in the saved
+> configuration**, and the camera uses them after its next restart.
+> Measured on 2026-09-26:
+> - a `SetIsp` with only `dayNight` changed `rotation` 0 → 1;
+> - a `SetOsd` without `watermark` changed it 1 → 0;
+> - a `SetAiAlarm` with only `sensitivity` changed `stay_time` 3 → 0.
+>
+> Read the object with its Get command, change only your keys, and send the
+> whole object back. A read-back straight after the write does **not** prove
+> the other keys survived.
+
+Invalid values are rejected, and the old value stays:
+- `SetMdAlarm` with `sensDef: 99` returns `rspCode -56`.
+- `SetIsp` with `dayNight: "Purple"` returns `rspCode -67`.
+
+| Setting | Read | Write | Values |
+|---|---|---|---|
+| Recording on/off | `GetRecV20 {channel:0}` → `Rec.enable` | `SetRecV20 {Rec:{enable}}` | 0/1 |
+| Record on motion / AI type | `Rec.schedule.table.MD`, `AI_PEOPLE`, `AI_VEHICLE`, `AI_DOG_CAT` (168 chars, one per hour of the week) | `SetRecV20 {Rec:{schedule:{channel:0,table:{AI_PEOPLE:"1"×168}}}}` (only that key is written) | all `1` on, all `0` off, mixed = a custom schedule |
+| Motion sensitivity | `GetMdAlarm {channel:0}` → `MdAlarm.newSens.sensDef` (`useNewSens: 1`) | `SetMdAlarm {MdAlarm:{channel:0,useNewSens:1,newSens:{sensDef}}}` | 1–50, **lower = more sensitive**; shown as `51 − sensDef` |
+| AI sensitivity | `GetAiAlarm {channel:0,ai_type}` → `AiAlarm.sensitivity` | `SetAiAlarm {AiAlarm:{channel:0,ai_type,sensitivity}}` | 0–100; `people`, `vehicle`, `dog_cat` |
+| Day/night | `GetIsp` → `Isp.dayNight` | `SetIsp {Isp:{channel:0,dayNight}}` | `Auto`, `Color`, `Black&White` |
+| IR lights | `GetIrLights` → `IrLights.state` | `SetIrLights {IrLights:{channel:0,state}}` | `Auto`, `Off` |
+| Spotlight | `GetWhiteLed` → `WhiteLed.mode`, `bright` | `SetWhiteLed {WhiteLed:{channel:0,mode,bright}}` | mode 0 off, 1 on motion at night, 2 on at night, 3 schedule; bright 0–100 |
+| On-screen text | `GetOsd` → `Osd.osdChannel {enable,name,pos}`, `Osd.osdTime {enable,pos}` | `SetOsd {Osd:{channel:0,osdChannel:{…},osdTime:{…}}}` | 6 positions (`Upper Left` … `Lower Right`); name ≤ 31 bytes (cams: UTF-8 bytes, no control or format characters) |
+| Storage | `GetHddInfo` → `HddInfo[0] {capacity, size, mount}` | — | MB; **`size` is the FREE space** |
+| Certificate | TLS handshake (`getPeerCertificate()`) | — | `GetCertificateInfo` has no subject or expiry |
+| Reboot | — | `Reboot {}` | the camera is offline about a minute; it may drop the connection before answering |
+
+Rules cams follows:
+- **Every write sends the camera's complete current object**, taken from the raw Get reply, with only the changed keys replaced. That includes keys cams doesn't model (`rotation`, `stay_time`, `watermark`, `LightingSchedule`, …), and values it doesn't recognise, such as a custom OSD position.
+- **One write per object.** Several changes to one object in a single save (e.g. recording on/off plus schedules) go out as one write. Two writes, each built from the same original, would undo each other.
+- **After a save, cams re-reads the objects and logs `camera_setting_side_effect`** (key names only) if anything changed that it didn't send.
+- **The AI record schedule on this camera is fully on** (168 × `1` for people, vehicles and pets). The clips so far are motion-only only because AI detection hasn't fired.
 
 ## Certificates
 
