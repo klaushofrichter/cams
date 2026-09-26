@@ -18,6 +18,9 @@ export interface MockCameraOptions {
   // download while it's still in flight.
   downloadDelayMs?: number;
   clips?: MockClip[];
+  // How long each Search takes (default 20 ms); a second Search arriving in
+  // that window gets rspCode -54, like the firmware.
+  searchDelayMs?: number;
 }
 
 export interface MockClip {
@@ -143,6 +146,9 @@ function liveFixture(): { header: Buffer; tags: FlvTag[] } {
 
 export function createMockCamera(opts: MockCameraOptions): MockCamera {
   const tokens = new Set<string>();
+  // Keyed by token: e2e points two camera ids at this one mock, and each is a
+  // separate device in real life, so only one client's searches may collide.
+  const searching = new Set<string>();
   const activeResponses = new Set<Response>();
   const activeDownloadResponses = new Set<Response>();
   const state: MockState = {
@@ -179,7 +185,7 @@ export function createMockCamera(opts: MockCameraOptions): MockCamera {
 
   const valid = (req: Request) => typeof req.query.token === 'string' && tokens.has(req.query.token);
 
-  app.post('/cgi-bin/api.cgi', (req: Request, res: Response) => {
+  app.post('/cgi-bin/api.cgi', async (req: Request, res: Response) => {
     const cmd = String(req.query.cmd ?? '');
     const param = Array.isArray(req.body) ? req.body[0]?.param : undefined;
     if (cmd === 'Login') {
@@ -220,6 +226,17 @@ export function createMockCamera(opts: MockCameraOptions): MockCamera {
       return;
     }
     if (cmd === 'Search') {
+      // Firmware: a Search while another is still running fails with
+      // rspCode -54 (and a concurrent one can come back empty). Searches take
+      // a moment on the real camera, so the mock holds each one briefly.
+      const tok = String(req.query.token);
+      if (searching.has(tok)) {
+        res.json([{ cmd, code: 1, error: { detail: 'the respode of msg is err', rspCode: -54 } }]);
+        return;
+      }
+      searching.add(tok);
+      await new Promise((r) => setTimeout(r, opts.searchDelayMs ?? 20));
+      searching.delete(tok);
       const s = param?.Search ?? {};
       const stream: 'sub' | 'main' = s.streamType === 'main' ? 'main' : 'sub';
       const clips = opts.clips ?? DEFAULT_MOCK_CLIPS;
