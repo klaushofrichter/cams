@@ -1,10 +1,14 @@
 <script lang="ts">
   import LivePlayer from '../components/LivePlayer.svelte';
   import Icon from '../components/Icon.svelte';
+  import Timeline from '../components/Timeline.svelte';
   import { cameras, selectedCameraId } from '../lib/stores';
   import { getJson } from '../lib/api';
   import { QUALITY_KEY, snapshotUrl, supportsHevc, type Quality } from '../lib/live';
   import type { PlayerState } from '../lib/liveSession';
+  import { enterFullscreen } from '../lib/fullscreen';
+  import { clipAtSecond, cursorSearch, eventsUrl, localDate, saveCursor, secondsIntoDay, type EventClip } from '../lib/recordings';
+  import { navigate } from '../lib/router';
 
   interface CameraStatus {
     id: string;
@@ -56,6 +60,51 @@
     if (id) void checkStatus(id);
   });
 
+  // A mini timeline of today's recordings, shown under the viewer once the
+  // camera is confirmed online. Only fetched once `status` says online: an
+  // offline camera's own Search call would otherwise just sit there until
+  // it times out, for a timeline that has nothing to show anyway. A
+  // request-sequence guard (like checkStatus above) drops a late response
+  // from a camera that's since been switched away from.
+  const today = localDate(new Date());
+  let todayEvents: EventClip[] = $state([]);
+  let eventsSeq = 0;
+  $effect(() => {
+    const id = $selectedCameraId;
+    const online = status?.online === true;
+    todayEvents = [];
+    if (!id || !online) return;
+    const seq = ++eventsSeq;
+    getJson<{ events: EventClip[] }>(eventsUrl(id, today))
+      .then((r) => {
+        if (seq === eventsSeq) todayEvents = r.events;
+      })
+      .catch(() => {});
+  });
+
+  // Clicking (or arrow-stepping to) a point on the mini timeline opens the
+  // full Recordings workspace at that clip.
+  function openRecording(sec: number) {
+    const id = $selectedCameraId;
+    const e = clipAtSecond(todayEvents, today, sec);
+    if (!id || !e) return;
+    const c = { date: today, clipId: e.id, offsetSec: 0 };
+    saveCursor(id, c);
+    navigate(`/app/recordings${cursorSearch(id, c, 'history', 'all')}`);
+  }
+
+  // Nothing is ever "selected" on this mini timeline, so stepping and
+  // jumping to an edge both mean the same thing: land on the first or last
+  // recording of the day.
+  function jumpToEdge(edge: 'start' | 'end') {
+    if (!todayEvents.length) return;
+    const target = edge === 'start' ? todayEvents[0] : todayEvents[todayEvents.length - 1];
+    openRecording(secondsIntoDay(target.start, today));
+  }
+  function stepEvent(dir: -1 | 1) {
+    jumpToEdge(dir === 1 ? 'start' : 'end');
+  }
+
   function toggleQuality() {
     quality = quality === 'sub' ? 'main' : 'sub';
     try {
@@ -66,7 +115,8 @@
   }
 
   function fullscreen() {
-    void container?.requestFullscreen?.().catch(() => {});
+    const video = container?.querySelector<HTMLVideoElement>('[data-testid="live-video"]') ?? null;
+    void enterFullscreen(container, video);
   }
 
   // One explanation per error code: camera_error covers things re-trying
@@ -121,6 +171,14 @@
         <button data-testid="fullscreen" onclick={fullscreen} title="Fullscreen"><Icon name="expand" size={18} /></button>
       </div>
       <p class="meta">{status.model} · firmware {status.firmware}</p>
+      <div class="today">
+        <span class="label">Today</span>
+        {#if todayEvents.length}
+          <Timeline events={todayEvents} date={today} selectedId={null} onpick={openRecording} onstep={stepEvent} onedge={jumpToEdge} compact testid="live-timeline" />
+        {:else}
+          <span class="none">No recordings yet today.</span>
+        {/if}
+      </div>
     </div>
   {:else}
     <div class="placeholder">Checking camera…</div>
@@ -145,6 +203,9 @@
   .controls button:hover, .controls a:hover { background: color-mix(in srgb, var(--accent) 14%, var(--surface-2)); }
   .controls button[aria-pressed='true'] { border-color: var(--accent); }
   .meta { margin: 0; font-size: 12px; color: var(--muted); }
+  .today { display: flex; flex-direction: column; gap: 4px; }
+  .today .label { font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.05em; }
+  .today .none { font-size: 13px; color: var(--muted); }
   .offline {
     display: flex; align-items: center; gap: 12px; flex-wrap: wrap; padding: 16px 18px; border-radius: 12px;
     border: 1px solid color-mix(in srgb, var(--danger) 45%, var(--border));

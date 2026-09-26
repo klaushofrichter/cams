@@ -13,4 +13,5 @@ export const E2E_ENV: Record<string, string> = {
   LOG_LEVEL: 'silent',
   RATE_LIMIT_MAX: '1000',
   RATE_LIMIT_API_MAX: '10000',
+  RATE_LIMIT_MEDIA_MAX: '10000',
 };
