@@ -2,19 +2,13 @@
   import { downloadUrl, formatBytes, formatClock, type EventClip } from '../lib/recordings';
 
   let { cameraId, events, selectedId }: { cameraId: string; events: EventClip[]; selectedId: string | null } = $props();
-
-  // The selected recording and its neighbours: the cursor decides what's offered.
-  const around = $derived.by(() => {
-    const i = Math.max(0, events.findIndex((e) => e.id === selectedId));
-    return events.slice(Math.max(0, i - 3), i + 4);
-  });
 </script>
 
 {#if events.length === 0}
   <p class="none">No recordings on this day.</p>
 {:else}
   <ul class="rows">
-    {#each around as e (e.id)}
+    {#each events as e (e.id)}
       <li class="row" data-testid="download-row" data-clip-id={e.id} aria-current={e.id === selectedId ? 'true' : undefined}>
         <span class="when">{formatClock(e.start)} · {e.durationSec} s</span>
         <a data-testid="download-sub" href={downloadUrl(cameraId, e.id, 'sub')} download>SD <small>{formatBytes(e.sizeSub)}</small></a>

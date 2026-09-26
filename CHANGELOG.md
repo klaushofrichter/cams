@@ -8,3 +8,5 @@ published as [GitHub releases](https://github.com/klaushofrichter/cams/releases)
 
 ## [Unreleased]
 
+
+- Opening a clip no longer waits behind thumbnail fetches: playback and downloads go ahead of queued thumbnails. The Downloads panel lists every recording of the day.
