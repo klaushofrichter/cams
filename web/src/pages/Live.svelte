@@ -5,6 +5,7 @@
   import { getJson } from '../lib/api';
   import { QUALITY_KEY, snapshotUrl, supportsHevc, type Quality } from '../lib/live';
   import type { PlayerState } from '../lib/liveSession';
+  import { enterFullscreen } from '../lib/fullscreen';
 
   interface CameraStatus {
     id: string;
@@ -66,7 +67,8 @@
   }
 
   function fullscreen() {
-    void container?.requestFullscreen?.().catch(() => {});
+    const video = container?.querySelector<HTMLVideoElement>('[data-testid="live-video"]') ?? null;
+    void enterFullscreen(container, video);
   }
 
   // One explanation per error code: camera_error covers things re-trying
