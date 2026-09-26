@@ -43,14 +43,6 @@ export default defineConfig({
   // (e2e/cameras.json points "Den" at it); "Garage" is deliberately unreachable.
   webServer: [
     { command: 'npx tsx test/mock-camera/cli.ts', port: 8098, reuseExistingServer: !process.env.CI },
-    // On CI the server's own log goes to the job output, as evidence next to
-    // a failing test (it logs stream failures such as camera_stream_failed).
-    {
-      command: 'npm start',
-      port: E2E_PORT,
-      reuseExistingServer: !process.env.CI,
-      env: E2E_ENV,
-      stdout: process.env.CI ? 'pipe' : 'ignore',
-    },
+    { command: 'npm start', port: E2E_PORT, reuseExistingServer: !process.env.CI, env: E2E_ENV },
   ],
 });
