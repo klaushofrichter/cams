@@ -11,7 +11,8 @@
   import { initRouter, route } from './lib/router';
   import { cameras, drawerOpen, me, selectedCameraId, theme, type CameraSummary, type Me } from './lib/stores';
   import { getJson, UnauthorizedError } from './lib/api';
-  import { loadPreferences } from './lib/preferences';
+  import { loadPreferences, preferences } from './lib/preferences';
+  import { createKeepAlive } from './lib/keepAlive';
   import { duration } from './lib/motion';
   import { currentTheme } from './lib/theme';
 
@@ -24,6 +25,36 @@
   let ready = $state(false);
   let drawerPanelEl: HTMLDivElement | undefined = $state();
   let drawerWasOpen = false;
+
+  // The Live page stays mounted (but hidden) for the chosen keep-alive time
+  // after the user leaves it, so its stream keeps playing in the background
+  // and coming back shows the picture at once. When the time runs out, Live
+  // is unmounted and its onDestroy closes the stream. Live's <video> is never
+  // moved in the DOM: removing a media element pauses it.
+  let liveMounted = $state(false);
+  const keepAlive = createKeepAlive(() => (liveMounted = false));
+  let wasLive = false;
+  let leftWith: number | null = null;
+  $effect(() => {
+    // Nothing before `ready`: the router store starts out on 'live' until
+    // initRouter() syncs it, and a deep link to another page must not
+    // briefly mount Live (and open a stream nobody asked for).
+    if (!ready) return;
+    const onLive = $route.page === 'live';
+    const seconds = $preferences?.liveKeepAlive ?? 60;
+    if (onLive) {
+      liveMounted = true;
+      leftWith = null;
+      keepAlive.enter();
+    } else if (wasLive || (liveMounted && leftWith !== null && seconds !== leftWith)) {
+      // Just left Live, or the keep-alive preference changed while away
+      // (restart the countdown with the new time; "off" stops at once).
+      leftWith = seconds;
+      keepAlive.leave(seconds);
+    }
+    wasLive = onLive;
+  });
+  $effect(() => () => keepAlive.dispose());
 
   async function load() {
     try {
@@ -70,14 +101,19 @@
   <main class="main">
     {#if loadError}<div class="error" role="alert">{loadError}</div>{/if}
     {#if ready}
-      {#key $route.page}
-        <div class="page-wrap" in:fly={{ y: 8, duration: duration(180) }}>
-          {#if $route.page === 'recordings'}<Recordings />
-          {:else if $route.page === 'settings'}<Settings />
-          {:else if $route.page === 'about'}<About />
-          {:else}<Live />{/if}
-        </div>
-      {/key}
+      <!-- Outside the {#key} below: a route change must not remount Live. -->
+      {#if liveMounted}
+        <div class="live-host" hidden={$route.page !== 'live'} in:fly={{ y: 8, duration: duration(180) }}><Live visible={$route.page === 'live'} /></div>
+      {/if}
+      {#if $route.page !== 'live'}
+        {#key $route.page}
+          <div class="page-wrap" in:fly={{ y: 8, duration: duration(180) }}>
+            {#if $route.page === 'recordings'}<Recordings />
+            {:else if $route.page === 'settings'}<Settings />
+            {:else if $route.page === 'about'}<About />{/if}
+          </div>
+        {/key}
+      {/if}
     {/if}
   </main>
 

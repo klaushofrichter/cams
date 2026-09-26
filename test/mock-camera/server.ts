@@ -59,6 +59,9 @@ export interface MockState {
   logins: number;
   loginAttempts: number;
   activeStreams: number;
+  // Total /flv streams ever started (never decremented), so a test can tell
+  // a kept-alive stream from a reconnect.
+  streamsOpened: number;
   // GetDevInfo calls answered with a valid token (the client uses GetDevInfo
   // to check its session after a reset /flv connection).
   devInfoCalls: number;
@@ -236,6 +239,7 @@ export function createMockCamera(opts: MockCameraOptions): MockCamera {
     logins: 0,
     loginAttempts: 0,
     activeStreams: 0,
+    streamsOpened: 0,
     devInfoCalls: 0,
     offline: false,
     rejectAllStreams: false,
@@ -261,6 +265,7 @@ export function createMockCamera(opts: MockCameraOptions): MockCamera {
   app.get('/__state', (_req: Request, res: Response) => {
     res.json({
       activeStreams: state.activeStreams,
+      streamsOpened: state.streamsOpened,
       logins: state.logins,
       downloads: state.downloads,
       activeDownloads: state.activeDownloads,
@@ -458,6 +463,7 @@ export function createMockCamera(opts: MockCameraOptions): MockCamera {
       // delay above; don't count or serve a stream nobody is waiting for.
       if (res.destroyed || res.writableEnded) return;
       state.activeStreams++;
+      state.streamsOpened++;
       activeResponses.add(res);
       const { header, tags } = liveFixture();
       const began = Date.now();

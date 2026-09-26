@@ -21,6 +21,13 @@
     error?: string;
   }
 
+  // False while App keeps this page mounted but hidden (the keep-alive after
+  // leaving Live). Things that would duplicate another page's test ids or
+  // headings (the page title, the mini timeline) are only rendered while
+  // visible; the player itself is never unmounted by this, so the stream
+  // keeps playing in the background.
+  let { visible = true }: { visible?: boolean } = $props();
+
   const hevc = typeof MediaSource !== 'undefined' && supportsHevc((t) => MediaSource.isTypeSupported(t));
 
   function initialQuality(): Quality {
@@ -159,7 +166,7 @@
 
 <section class="page">
   <header class="head">
-    <h1 data-testid="page-title">Live</h1>
+    {#if visible}<h1 data-testid="page-title">Live</h1>{/if}
     {#if camera}<span class="cam">{camera.name}</span>{/if}
     {#if status?.online}
       <span class="badge" data-testid="live-badge" class:ok={playerState === 'playing'}>● {playerState === 'playing' ? 'LIVE' : '…'}</span>
@@ -198,7 +205,9 @@
       </div>
       <p class="meta">{status.model} · firmware {status.firmware}</p>
       <div class="today">
-        {#if todayEvents.length}
+        {#if !visible}
+          <!-- not rendered while hidden: its test ids would clash with Recordings' timeline -->
+        {:else if todayEvents.length}
           <Timeline
             events={todayEvents}
             date={$todayDate}
