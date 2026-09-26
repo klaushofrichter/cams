@@ -12,7 +12,7 @@
 # With --reset it deletes the user, adds it with a new password, verifies that
 # the new password can sign in, and only then writes the Secret. The running
 # pod still holds the old password after that, so the script then restarts
-# the cams Knative service (if it exists) by bumping a template annotation.
+# the cams pod (if the service exists); it comes back on the same revision.
 set -euo pipefail
 RESET=0
 ARGS=()
@@ -70,11 +70,14 @@ print(json.dumps([{"id": "cam1", "name": "Den", "host": os.environ["REOLINK_IP"]
 PY
 kubectl -n cams describe secret cams-cameras | sed -n '/^Data/,$p'
 if [ "$RESET" = 1 ]; then
-  echo "The running cams pod still holds the old camera password. Restarting the service:"
-  PATCH="{\"spec\":{\"template\":{\"metadata\":{\"annotations\":{\"cams.skylar.technology/restartedAt\":\"$(date -u +%FT%TZ)\"}}}}}"
-  echo "  kubectl -n cams patch ksvc cams --type merge -p '$PATCH'"
+  # Delete the pod rather than patching the ksvc template: min-scale 1 brings a
+  # new pod up on the SAME revision, and because cams-cameras is mounted as a
+  # directory (not subPath) the new pod reads the current cameras.json. No new
+  # revision, and no live-vs-git drift that the next deploy would undo.
+  echo "The running cams pod still holds the old camera password. Restarting it:"
+  echo "  kubectl -n cams delete pod -l serving.knative.dev/service=cams"
   if kubectl -n cams get ksvc cams >/dev/null 2>&1; then
-    kubectl -n cams patch ksvc cams --type merge -p "$PATCH"
+    kubectl -n cams delete pod -l serving.knative.dev/service=cams
   else
     echo "ksvc cams not found in namespace cams; not restarting. Run the command above once it exists."
   fi
