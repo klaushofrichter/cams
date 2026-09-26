@@ -45,10 +45,26 @@ export interface ImagePatch {
   osd?: Partial<ImageSettings['osd']>;
 }
 
+// One camera write. `fields` are the cams fields it carries: several changes
+// to the same camera object travel in one command (two separate writes, each
+// built from the same original, would undo each other).
 export interface SettingsCommand {
-  field: string;
+  fields: string[];
   cmd: string;
   param: object;
+}
+
+// The raw Get replies a save is built from.
+export interface RawDetection {
+  rec: unknown;
+  md: unknown;
+  ai: Record<AiKind, unknown>;
+}
+export interface RawImage {
+  isp: unknown;
+  ir: unknown;
+  wl: unknown;
+  osd: unknown;
 }
 
 const DAYNIGHT: Record<ImageSettings['dayNight'], string> = { auto: 'Auto', color: 'Color', blackwhite: 'Black&White' };
@@ -184,70 +200,106 @@ export function validateImagePatch(body: unknown): { ok: true; patch: ImagePatch
 
 // --- commands: only what changed, in a stable order ---
 
-const table = (key: string, t: Toggle) => ({ Rec: { schedule: { channel: 0, table: { [key]: (t === 'on' ? '1' : '0').repeat(HOURS) } } } });
+// Every write sends the camera's COMPLETE current object with only the
+// changed keys replaced. The firmware resets keys left out of a Set to a
+// default in its saved configuration (measured 2026-09-26: a partial SetIsp
+// changed rotation 0 -> 1, a partial SetOsd watermark 1 -> 0, a partial
+// SetAiAlarm stay_time 3 -> 0, taking effect after a restart). A read-back
+// right after the write does not show this, so it can't be caught by
+// re-reading: the only safe write is a whole object.
+function clone<T>(v: T): T {
+  return JSON.parse(JSON.stringify(v ?? {})) as T;
+}
 
-export function detectionCommands(p: DetectionPatch): SettingsCommand[] {
-  const out: SettingsCommand[] = [];
-  if (p.recording !== undefined) out.push({ field: 'recording', cmd: 'SetRecV20', param: { Rec: { enable: p.recording ? 1 : 0 } } });
-  if (p.motionRecording) out.push({ field: 'motionRecording', cmd: 'SetRecV20', param: table('MD', p.motionRecording) });
+class Writes {
+  private readonly byKey = new Map<string, SettingsCommand & { body: Obj }>();
+  // `key` groups changes to one camera object; `seed` is its full current
+  // value, cloned the first time the object is touched.
+  edit(key: string, cmd: string, wrap: string, seed: () => Obj, field: string, change: (o: Obj) => void): void {
+    let w = this.byKey.get(key);
+    if (!w) {
+      const body = clone(seed());
+      w = { fields: [], cmd, param: { [wrap]: body }, body };
+      this.byKey.set(key, w);
+    }
+    change(w.body);
+    w.fields.push(field);
+  }
+  list(): SettingsCommand[] {
+    return [...this.byKey.values()].map(({ fields, cmd, param }) => ({ fields, cmd, param }));
+  }
+}
+
+export function detectionCommands(p: DetectionPatch, raw: RawDetection): SettingsCommand[] {
+  const w = new Writes();
+  const rec = () => ({ ...obj(obj(raw.rec).Rec) });
+  const setTable = (key: string, t: Toggle) => (o: Obj) => {
+    const sched = (o.schedule = { channel: 0, ...obj(o.schedule) }) as Obj;
+    sched.table = { ...obj(sched.table), [key]: (t === 'on' ? '1' : '0').repeat(HOURS) };
+  };
+  if (p.recording !== undefined) w.edit('rec', 'SetRecV20', 'Rec', rec, 'recording', (o) => (o.enable = p.recording ? 1 : 0));
+  if (p.motionRecording) w.edit('rec', 'SetRecV20', 'Rec', rec, 'motionRecording', setTable('MD', p.motionRecording));
+  for (const kind of AI_KINDS) {
+    const a = p.ai?.[kind];
+    if (a?.record) w.edit('rec', 'SetRecV20', 'Rec', rec, `ai.${kind}.record`, setTable(SCHEDULE_KEY[kind], a.record));
+  }
   if (p.motionSensitivity !== undefined) {
-    out.push({
-      field: 'motionSensitivity',
-      cmd: 'SetMdAlarm',
-      param: { MdAlarm: { channel: 0, useNewSens: 1, newSens: { sensDef: 51 - p.motionSensitivity } } },
+    const sensDef = 51 - p.motionSensitivity;
+    w.edit('md', 'SetMdAlarm', 'MdAlarm', () => ({ channel: 0, ...obj(obj(raw.md).MdAlarm) }), 'motionSensitivity', (o) => {
+      o.useNewSens = 1;
+      o.newSens = { ...obj(o.newSens), sensDef };
     });
   }
   for (const kind of AI_KINDS) {
-    const a = p.ai?.[kind];
-    if (!a) continue;
-    if (a.record) out.push({ field: `ai.${kind}.record`, cmd: 'SetRecV20', param: table(SCHEDULE_KEY[kind], a.record) });
-    if (a.sensitivity !== undefined) {
-      out.push({
-        field: `ai.${kind}.sensitivity`,
-        cmd: 'SetAiAlarm',
-        param: { AiAlarm: { channel: 0, ai_type: AI_TYPE[kind], sensitivity: a.sensitivity } },
-      });
-    }
+    const sensitivity = p.ai?.[kind]?.sensitivity;
+    if (sensitivity === undefined) continue;
+    w.edit(`ai.${kind}`, 'SetAiAlarm', 'AiAlarm', () => ({ channel: 0, ...obj(obj(raw.ai[kind]).AiAlarm), ai_type: AI_TYPE[kind] }), `ai.${kind}.sensitivity`, (o) => {
+      o.sensitivity = sensitivity;
+    });
   }
-  return out;
+  return w.list();
 }
 
-// The untouched half of SetWhiteLed and SetOsd comes from the RAW Get replies,
-// not from imageFrom(): that normalizes values it doesn't know (a custom OSD
-// position, a newer spotlight mode, a missing brightness), and writing the
-// normalized value back would change a setting the user never touched.
-// Keys the camera didn't report are left out: the firmware merges partial
-// params, so an absent key stays as it is.
-function pick(o: Obj, keys: string[]): Obj {
-  const out: Obj = {};
-  for (const k of keys) if (o[k] !== undefined) out[k] = o[k];
-  return out;
-}
-
-export function imageCommands(p: ImagePatch, raw: { wl: unknown; osd: unknown }): SettingsCommand[] {
-  const out: SettingsCommand[] = [];
-  if (p.dayNight) out.push({ field: 'dayNight', cmd: 'SetIsp', param: { Isp: { channel: 0, dayNight: DAYNIGHT[p.dayNight] } } });
-  if (p.irLights) out.push({ field: 'irLights', cmd: 'SetIrLights', param: { IrLights: { channel: 0, state: IR[p.irLights] } } });
+export function imageCommands(p: ImagePatch, raw: RawImage): SettingsCommand[] {
+  const w = new Writes();
+  if (p.dayNight) {
+    const v = DAYNIGHT[p.dayNight];
+    w.edit('isp', 'SetIsp', 'Isp', () => ({ channel: 0, ...obj(obj(raw.isp).Isp) }), 'dayNight', (o) => (o.dayNight = v));
+  }
+  if (p.irLights) {
+    const v = IR[p.irLights];
+    w.edit('ir', 'SetIrLights', 'IrLights', () => ({ channel: 0, ...obj(obj(raw.ir).IrLights) }), 'irLights', (o) => (o.state = v));
+  }
   if (p.spotlight && Object.keys(p.spotlight).length) {
     const s = p.spotlight;
-    const wl = { ...pick(obj(obj(raw.wl).WhiteLed), ['mode', 'bright']) };
-    if (s.mode !== undefined) wl.mode = SPOTLIGHT_MODES.indexOf(s.mode);
-    if (s.brightness !== undefined) wl.bright = s.brightness;
-    out.push({ field: 'spotlight', cmd: 'SetWhiteLed', param: { WhiteLed: { channel: 0, ...wl } } });
+    w.edit('wl', 'SetWhiteLed', 'WhiteLed', () => ({ channel: 0, ...obj(obj(raw.wl).WhiteLed) }), 'spotlight', (o) => {
+      if (s.mode !== undefined) o.mode = SPOTLIGHT_MODES.indexOf(s.mode);
+      if (s.brightness !== undefined) o.bright = s.brightness;
+    });
   }
   if (p.osd && Object.keys(p.osd).length) {
-    const o = p.osd;
-    const osd = obj(obj(raw.osd).Osd);
-    const ch = pick(obj(osd.osdChannel), ['enable', 'name', 'pos']);
-    const time = pick(obj(osd.osdTime), ['enable', 'pos']);
-    if (o.showName !== undefined) ch.enable = o.showName ? 1 : 0;
-    if (o.name !== undefined) ch.name = o.name;
-    if (o.namePosition !== undefined) ch.pos = o.namePosition;
-    if (o.showTime !== undefined) time.enable = o.showTime ? 1 : 0;
-    if (o.timePosition !== undefined) time.pos = o.timePosition;
-    out.push({ field: 'osd', cmd: 'SetOsd', param: { Osd: { channel: 0, osdChannel: ch, osdTime: time } } });
+    const d = p.osd;
+    w.edit('osd', 'SetOsd', 'Osd', () => ({ channel: 0, ...obj(obj(raw.osd).Osd) }), 'osd', (o) => {
+      const ch = (o.osdChannel = { ...obj(o.osdChannel) }) as Obj;
+      const time = (o.osdTime = { ...obj(o.osdTime) }) as Obj;
+      if (d.showName !== undefined) ch.enable = d.showName ? 1 : 0;
+      if (d.name !== undefined) ch.name = d.name;
+      if (d.namePosition !== undefined) ch.pos = d.namePosition;
+      if (d.showTime !== undefined) time.enable = d.showTime ? 1 : 0;
+      if (d.timePosition !== undefined) time.pos = d.timePosition;
+    });
   }
-  return out;
+  return w.list();
+}
+
+// Keys (dotted paths) that differ between two raw objects, for spotting a
+// write that changed something it wasn't asked to.
+export function changedKeys(before: unknown, after: unknown, prefix = ''): string[] {
+  if (isObj(before) && isObj(after)) {
+    const keys = new Set([...Object.keys(before as Obj), ...Object.keys(after as Obj)]);
+    return [...keys].flatMap((k) => changedKeys((before as Obj)[k], (after as Obj)[k], prefix ? `${prefix}.${k}` : k));
+  }
+  return JSON.stringify(before) === JSON.stringify(after) ? [] : [prefix];
 }
 
 // A field counts as saved only if the re-read camera state shows the value

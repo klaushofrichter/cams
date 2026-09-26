@@ -104,17 +104,43 @@ function initialSettings() {
       vehicle: { channel: 0, ai_type: 'vehicle', sensitivity: 60, stay_time: 3 },
       dog_cat: { channel: 0, ai_type: 'dog_cat', sensitivity: 60, stay_time: 3 },
     } as Record<string, { channel: number; ai_type: string; sensitivity: number; stay_time: number }>,
-    Isp: { channel: 0, dayNight: 'Auto', antiFlicker: '60HZ' },
+    Isp: { channel: 0, dayNight: 'Auto', antiFlicker: '60HZ', rotation: 0, mirroring: 0 },
     IrLights: { channel: 0, state: 'Auto' },
-    WhiteLed: { channel: 0, mode: 1, bright: 100, state: 0 },
-    Osd: { channel: 0, osdChannel: { enable: 1, name: 'Den', pos: 'Lower Right' }, osdTime: { enable: 1, pos: 'Top Center' }, watermark: 1 },
+    WhiteLed: { channel: 0, mode: 1, bright: 100, state: 0, LightingSchedule: { StartHour: 18, StartMin: 0, EndHour: 6, EndMin: 0 } },
+    Osd: { channel: 0, osdChannel: { enable: 1, name: 'Den', pos: 'Lower Right' }, osdTime: { enable: 1, pos: 'Top Center' }, watermark: 1, bgcolor: 0 },
     HddInfo: [{ capacity: 61047, size: 60670, mount: 1, format: 1, number: 0, storageType: 2 }],
   };
 }
 export type MockSettings = ReturnType<typeof initialSettings>;
 
-// Deep merge of a partial Set param into the stored object (how the firmware
-// treats partial params, measured 2026-09-26).
+// What the firmware puts in keys a Set leaves out (measured 2026-09-26: a
+// partial SetIsp turned rotation 0 -> 1, a partial SetOsd watermark 1 -> 0, a
+// partial SetAiAlarm stay_time 3 -> 0). The mock applies it at once, so a
+// partial write shows up in the very next read — stricter than the camera,
+// which only shows it after a restart.
+function firmwareDefaults() {
+  const NONE = '0'.repeat(168);
+  return {
+    Rec: { enable: 0, postRec: '1 Minute', preRec: 0, saveDay: 30, schedule: { channel: 0, table: { MD: NONE, AI_PEOPLE: NONE, AI_VEHICLE: NONE, AI_DOG_CAT: NONE, TIMING: NONE } } },
+    MdAlarm: { channel: 0, useNewSens: 0, newSens: { sensDef: 25 } },
+    AiAlarm: { channel: 0, sensitivity: 50, stay_time: 0 },
+    Isp: { channel: 0, dayNight: 'Auto', antiFlicker: 'Off', rotation: 1, mirroring: 1 },
+    IrLights: { channel: 0, state: 'Auto' },
+    WhiteLed: { channel: 0, mode: 0, bright: 0, state: 0, LightingSchedule: { StartHour: 0, StartMin: 0, EndHour: 0, EndMin: 0 } },
+    Osd: { channel: 0, osdChannel: { enable: 0, name: '', pos: 'Upper Left' }, osdTime: { enable: 0, pos: 'Upper Left' }, watermark: 0, bgcolor: 0 },
+  } as Record<string, Record<string, unknown>>;
+}
+
+// A Set replaces the whole stored object: sent keys win, left-out keys (at
+// any depth) take the firmware default.
+function replaceWith(defaults: Record<string, unknown>, sent: Record<string, unknown>): Record<string, unknown> {
+  const out: Record<string, unknown> = JSON.parse(JSON.stringify(defaults));
+  merge(out, sent);
+  return out;
+}
+
+// Deep merge of `patch` into `target` (used to lay a Set's params over the
+// firmware defaults; see replaceWith).
 function merge(target: Record<string, unknown>, patch: Record<string, unknown>): void {
   for (const [k, v] of Object.entries(patch)) {
     if (k === '__proto__' || k === 'constructor' || k === 'prototype') continue;
@@ -366,14 +392,15 @@ export function createMockCamera(opts: MockCameraOptions): MockCamera {
       res.json([{ cmd, code: 0, value: getter() }]);
       return;
     }
+    const D = firmwareDefaults();
     const SETS: Record<string, (p: any) => void> = {
-      SetRecV20: (p) => merge(S.Rec, p.Rec ?? {}),
-      SetMdAlarm: (p) => merge(S.MdAlarm, p.MdAlarm ?? {}),
-      SetAiAlarm: (p) => merge(S.AiAlarm[p.AiAlarm.ai_type], p.AiAlarm),
-      SetIsp: (p) => merge(S.Isp, p.Isp ?? {}),
-      SetIrLights: (p) => merge(S.IrLights, p.IrLights ?? {}),
-      SetWhiteLed: (p) => merge(S.WhiteLed, p.WhiteLed ?? {}),
-      SetOsd: (p) => merge(S.Osd, p.Osd ?? {}),
+      SetRecV20: (p) => (S.Rec = replaceWith(D.Rec, p.Rec ?? {}) as typeof S.Rec),
+      SetMdAlarm: (p) => (S.MdAlarm = replaceWith(D.MdAlarm, p.MdAlarm ?? {}) as typeof S.MdAlarm),
+      SetAiAlarm: (p) => (S.AiAlarm[p.AiAlarm.ai_type] = replaceWith(D.AiAlarm, p.AiAlarm) as (typeof S.AiAlarm)[string]),
+      SetIsp: (p) => (S.Isp = replaceWith(D.Isp, p.Isp ?? {}) as typeof S.Isp),
+      SetIrLights: (p) => (S.IrLights = replaceWith(D.IrLights, p.IrLights ?? {}) as typeof S.IrLights),
+      SetWhiteLed: (p) => (S.WhiteLed = replaceWith(D.WhiteLed, p.WhiteLed ?? {}) as typeof S.WhiteLed),
+      SetOsd: (p) => (S.Osd = replaceWith(D.Osd, p.Osd ?? {}) as typeof S.Osd),
     };
     const setter = Object.hasOwn(SETS, cmd) ? SETS[cmd] : undefined;
     if (setter) {

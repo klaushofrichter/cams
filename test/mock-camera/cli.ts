@@ -9,6 +9,8 @@ createMockCamera({
   password: 'e2e-not-a-real-password',
   settingsFailures: list(process.env.MOCK_SETTINGS_FAILURES),
   ignoreWrites: list(process.env.MOCK_IGNORE_WRITES),
+  // Resets this many valid Downloads, like a camera whose download function is stuck.
+  dropFirstDownloads: Number(process.env.MOCK_DROP_DOWNLOADS ?? 0) || undefined,
 }).app.listen(port, () => {
   console.log(`mock camera listening on ${port}`);
 });

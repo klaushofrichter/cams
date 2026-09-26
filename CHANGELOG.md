@@ -8,3 +8,5 @@ published as [GitHub releases](https://github.com/klaushofrichter/cams/releases)
 
 ## [Unreleased]
 
+
+- Fix: Settings saves write the camera's complete current settings object with only your changes, so nothing else is reset (the firmware resets keys a save leaves out). Unexpected changes are logged.
