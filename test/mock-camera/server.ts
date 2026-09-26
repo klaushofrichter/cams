@@ -95,8 +95,29 @@ function chicagoParts(d: Date): { date: string; dst: boolean } {
   return { date, dst: /CDT/.test(name) };
 }
 
+// Steps back `days` calendar days from `date` (YYYY-MM-DD) using UTC-date
+// arithmetic, not by subtracting days*86400s from a wall-clock instant:
+// the latter can land a day early or late whenever the Chicago-local time
+// of day, combined with a DST transition somewhere in the intervening
+// days, crosses a local midnight boundary.
+function stepBackDate(date: string, days: number): string {
+  const d = new Date(`${date}T00:00:00Z`);
+  d.setUTCDate(d.getUTCDate() - days);
+  return d.toISOString().slice(0, 10);
+}
+
+// Whether DST is in effect in `TZ` on `date`. Evaluated at noon (UTC) of
+// that date rather than at the clip's own time - acceptable since a clip
+// only needs its DST flag to match its own calendar date, and noon is far
+// from either transition hour.
+function isDstOn(date: string): boolean {
+  const name = new Intl.DateTimeFormat('en-US', { timeZone: TZ, timeZoneName: 'short' }).format(new Date(`${date}T12:00:00Z`));
+  return /CDT/.test(name);
+}
+
 function clipNames(clip: MockClip, stream: 'sub' | 'main'): { name: string; size: number; date: string } {
-  const { date, dst } = chicagoParts(new Date(Date.now() - clip.daysAgo * 86400_000));
+  const date = stepBackDate(chicagoParts(new Date()).date, clip.daysAgo);
+  const dst = isDstOn(date);
   const ymd = date.replaceAll('-', '');
   const size = stream === 'sub' ? 0x927c9 : 0x4eb60d;
   const base = `Rec${stream === 'sub' ? 'S' : 'M'}0A_${dst ? 'DST' : ''}${ymd}_${clip.start}_${clip.end}_0_${flagsHex(stream, clip.triggers)}_${size.toString(16).toUpperCase()}.mp4`;

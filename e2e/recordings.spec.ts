@@ -138,12 +138,17 @@ test('the Live page mini timeline opens a recording', async ({ page }) => {
   // actionability scroll) -- so scroll into view ourselves and dispatch a
   // real mouse click at the coordinates we measured, which is reliable here.
   await bar.scrollIntoViewIfNeeded();
-  const barBox = (await bar.boundingBox())!;
-  const segBox = (await seg.boundingBox())!;
-  const x = barBox.x + (segBox.x - barBox.x) + segBox.width / 2;
-  const y = barBox.y + barBox.height / 2;
-  await page.mouse.click(x, y);
-  await expect(page).toHaveURL(/\/app\/recordings\?.*clip=\d{8}-081510-081535/);
+  await expect(seg).toBeInViewport();
+  // Retried as a whole: a scroll that lands mid-animation (or a stale box
+  // measured just before a layout shift) can make a single measure+click
+  // pass land off-target, so re-measure and re-click until the navigation
+  // actually happens.
+  await expect(async () => {
+    const segBox = (await seg.boundingBox())!;
+    const y = segBox.y + segBox.height / 2;
+    await page.mouse.click(segBox.x + segBox.width / 2, y);
+    await expect(page).toHaveURL(/\/app\/recordings\?.*clip=\d{8}-081510-081535/);
+  }).toPass({ timeout: 10_000 });
 });
 
 // --- Pinned review fixes, with no automated coverage yet ---
@@ -212,6 +217,10 @@ test('clip clicks do not re-fetch the day\'s events', async ({ page }) => {
   await page.getByTestId('event-card').nth(1).click();
   await page.getByTestId('event-card').nth(2).click();
   await expect(page.getByTestId('event-card').nth(2)).toHaveAttribute('aria-current', 'true');
+  // Lets any in-flight request actually land before counting: without this,
+  // a slow or still-pending events fetch could resolve after the assertion
+  // below and be missed entirely rather than caught as a failure.
+  await page.waitForLoadState('networkidle');
   expect(eventsRequests).toBe(0);
 });
 
