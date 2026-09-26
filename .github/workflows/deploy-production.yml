@@ -200,10 +200,10 @@ jobs:
             skip && /^## / { skip = 0 }
             !skip { print }
           ' CHANGELOG.md > CHANGELOG.new
-          if cmp -s CHANGELOG.md CHANGELOG.new; then echo "Unreleased already empty"; exit 0; fi
+          if cmp -s CHANGELOG.md CHANGELOG.new; then echo "Unreleased already empty"; rm -rf /tmp/cams-main; exit 0; fi
           mv CHANGELOG.new CHANGELOG.md
           git config user.name "cams-deploy-bot"
           git config user.email "actions@users.noreply.github.com"
           git commit -am "chore: clear Unreleased after v${VERSION}"
-          git push
+          git push || echo "::warning::could not clear [Unreleased] on main (it moved during the deploy); clear it by hand"
           rm -rf /tmp/cams-main
