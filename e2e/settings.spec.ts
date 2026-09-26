@@ -78,6 +78,23 @@ test('a rejected field shows the error next to it while the others save', async 
   await expect(card.getByTestId('save-state')).toHaveAttribute('data-state', 'saved');
 });
 
+// Read-only (nothing is saved): Save stays disabled while the name is invalid.
+test('an OSD name over 31 bytes or with invisible characters cannot be saved', async ({ page }) => {
+  await page.goto('/app/settings');
+  const name = page.getByTestId('osd-name');
+  await expect(name).toHaveValue('Den');
+  await name.fill('門'.repeat(11));
+  await expect(page.getByTestId('osd-name-bytes')).toHaveText('33/31 bytes');
+  await expect(page.getByTestId('osd-name-error')).toContainText('at most 31 bytes');
+  await expect(page.getByTestId('save-image')).toBeDisabled();
+  await name.fill('\u200bDen');
+  await expect(page.getByTestId('osd-name-error')).toContainText('invisible');
+  await expect(page.getByTestId('save-image')).toBeDisabled();
+  await name.fill('Den 2');
+  await expect(page.getByTestId('osd-name-error')).toHaveCount(0);
+  await expect(page.getByTestId('save-image')).toBeEnabled();
+});
+
 test('an offline camera shows a clear message instead of a spinner', async ({ page }) => {
   await page.goto('/app/settings');
   await page.getByTestId('camera-picker').selectOption({ label: 'Garage' });

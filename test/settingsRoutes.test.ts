@@ -69,6 +69,8 @@ describe('settings API', () => {
     ['detection', { motionSensitivity: 99 }],
     ['detection', { ai: { cat: {} } }],
     ['image', { osd: { name: 'x'.repeat(40) } }],
+    ['image', { osd: { name: '門'.repeat(11) } }],
+    ['image', { osd: { name: '\u200bDen' } }],
     ['image', { dayNight: 'Purple' }],
     ['image', { extra: 1 }],
   ])('rejects invalid %s input before calling the camera', async (section, body) => {

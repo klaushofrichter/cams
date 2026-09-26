@@ -66,6 +66,8 @@ describe('validating patches', () => {
       patch: { recording: false, motionSensitivity: 50, ai: { pet: { sensitivity: 0, record: 'off' } } },
     });
     expect(validateImagePatch({ spotlight: { brightness: 0 }, osd: { name: 'Front door' } }).ok).toBe(true);
+    expect(validateImagePatch({ osd: { name: 'x'.repeat(31) } }).ok).toBe(true);
+    expect(validateImagePatch({ osd: { name: '門'.repeat(10) } }).ok).toBe(true); // 30 bytes
   });
 
   // Review focus 2.
@@ -94,6 +96,11 @@ describe('validating patches', () => {
     [{ osd: { name: '' } }],
     [{ osd: { name: 'x'.repeat(32) } }],
     [{ osd: { name: 'bad\nname' } }],
+    [{ osd: { name: '門'.repeat(11) } }], // 11 characters, but 33 bytes
+    [{ osd: { name: '\u200bDen' } }], // zero-width space
+    [{ osd: { name: 'Den\u202e' } }], // bidi override
+    [{ osd: { name: 'Den\u0085' } }], // C1 control
+    [{ osd: { name: '   ' } }],
     [{ osd: { namePosition: 'Middle' } }],
     [{ osd: { extra: true } }],
   ])('rejects image patch %j', (body) => {

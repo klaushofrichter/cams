@@ -147,7 +147,8 @@ function settingsError(cmd: string, p: Record<string, any>): number | null {
   if (cmd === 'SetOsd') {
     const o = p?.Osd ?? {};
     for (const part of [o.osdChannel, o.osdTime]) if (part?.pos !== undefined && !POSITIONS.includes(part.pos)) return -67;
-    if (o.osdChannel?.name !== undefined && (typeof o.osdChannel.name !== 'string' || o.osdChannel.name.length > 31)) return -56;
+    const name = o.osdChannel?.name;
+    if (name !== undefined && (typeof name !== 'string' || Buffer.byteLength(name, 'utf8') > 31 || /\p{C}/u.test(name))) return -56;
   }
   return null;
 }

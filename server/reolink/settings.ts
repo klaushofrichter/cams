@@ -141,6 +141,15 @@ export function validateDetectionPatch(body: unknown): { ok: true; patch: Detect
   return details.length ? { ok: false, details } : { ok: true, patch: b as DetectionPatch };
 }
 
+// The firmware stores the OSD name in 32 bytes (31 plus the terminator), so
+// the limit is UTF-8 bytes, not characters. \p{C} covers control and format
+// characters: C0/C1, bidi overrides and zero-width characters, none of which
+// belong in text burned into the video.
+export const OSD_NAME_MAX_BYTES = 31;
+export function validOsdName(name: unknown): name is string {
+  return typeof name === 'string' && Buffer.byteLength(name, 'utf8') <= OSD_NAME_MAX_BYTES && !/\p{C}/u.test(name) && /\S/u.test(name);
+}
+
 export function validateImagePatch(body: unknown): { ok: true; patch: ImagePatch } | { ok: false; details: string[] } {
   if (!isObj(body)) return { ok: false, details: ['body must be an object'] };
   const b = body as Obj;
@@ -164,9 +173,7 @@ export function validateImagePatch(body: unknown): { ok: true; patch: ImagePatch
       const o = b.osd as Obj;
       onlyKeys(o, ['showName', 'name', 'namePosition', 'showTime', 'timePosition'], 'osd.', details);
       for (const k of ['showName', 'showTime']) if (k in o && typeof o[k] !== 'boolean') details.push(`osd.${k}: must be true or false`);
-      if ('name' in o && (typeof o.name !== 'string' || o.name.length < 1 || o.name.length > 31 || /[\u0000-\u001f\u007f]/.test(o.name))) {
-        details.push('osd.name: 1–31 characters, no control characters');
-      }
+      if ('name' in o && !validOsdName(o.name)) details.push('osd.name: up to 31 bytes (UTF-8), not blank, no control or invisible characters');
       for (const k of ['namePosition', 'timePosition']) {
         if (k in o && !(OSD_POSITIONS as readonly string[]).includes(o[k] as string)) details.push(`osd.${k}: one of ${OSD_POSITIONS.join(', ')}`);
       }

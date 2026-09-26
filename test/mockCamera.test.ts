@@ -223,6 +223,15 @@ describe('mock camera settings', () => {
     expect((await cmd(app, t, 'GetMdAlarm', { channel: 0 })).body[0].value.MdAlarm.newSens.sensDef).toBe(10);
   });
 
+  it('rejects an OSD name over 31 bytes or with control characters, like the firmware', async () => {
+    const { app } = createMockCamera(creds);
+    const t = await tok(app);
+    const osd = (name: string) => cmd(app, t, 'SetOsd', { Osd: { channel: 0, osdChannel: { name } } });
+    expect((await osd('門'.repeat(11))).body[0]).toMatchObject({ code: 1, error: { rspCode: -56 } });
+    expect((await osd('\u200bDen')).body[0]).toMatchObject({ code: 1, error: { rspCode: -56 } });
+    expect((await osd('x'.repeat(31))).body[0].code).toBe(0);
+  });
+
   it('can fail or silently ignore chosen commands', async () => {
     const { app } = createMockCamera({ ...creds, settingsFailures: ['SetWhiteLed'], ignoreWrites: ['SetIrLights'] });
     const t = await tok(app);

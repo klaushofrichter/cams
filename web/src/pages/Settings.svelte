@@ -6,7 +6,7 @@
   import { cameras, selectedCameraId } from '../lib/stores';
   import { getJson } from '../lib/api';
   import {
-    diffPatch, FIELD_LABELS, OSD_POSITIONS, postJson, putJson,
+    diffPatch, FIELD_LABELS, OSD_NAME_MAX_BYTES, OSD_POSITIONS, osdNameProblem, postJson, putJson, utf8Bytes,
     type DetectionSettings, type DeviceInfo, type ImageSettings, type SaveResult,
   } from '../lib/settings';
   import { preferences, preferencesFailed, savePreferences, type Preferences } from '../lib/preferences';
@@ -100,6 +100,8 @@
 
   const detectionDirty = $derived(!!detection && !!detectionEdit && Object.keys(diffPatch(detection, detectionEdit)).length > 0);
   const imageDirty = $derived(!!image && !!imageEdit && Object.keys(diffPatch(image, imageEdit)).length > 0);
+  // Only a changed name is checked: an untouched one isn't sent at all.
+  const osdNameError = $derived(imageEdit && image && imageEdit.osd.name !== image.osd.name ? osdNameProblem(imageEdit.osd.name) : null);
   $effect(() => {
     if (detectionDirty) untrack(() => { if (detectionState !== 'saving' && detectionState !== 'idle') detectionState = 'idle'; });
   });
@@ -335,7 +337,10 @@
         <fieldset>
           <legend>On-screen text</legend>
           <label class="row"><input type="checkbox" data-testid="osd-name-toggle" bind:checked={imageEdit.osd.showName} /> Show camera name</label>
-          <label>Name <input data-testid="osd-name" maxlength="31" bind:value={imageEdit.osd.name} /></label>
+          <label>Name <input data-testid="osd-name" aria-invalid={!!osdNameError} bind:value={imageEdit.osd.name} />
+            <small class="muted" class:err={utf8Bytes(imageEdit.osd.name) > OSD_NAME_MAX_BYTES} data-testid="osd-name-bytes">{utf8Bytes(imageEdit.osd.name)}/{OSD_NAME_MAX_BYTES} bytes</small>
+          </label>
+          {#if osdNameError}<span class="err" data-testid="osd-name-error">{osdNameError}</span>{/if}
           <label>Name position
             <select data-testid="osd-name-pos" bind:value={imageEdit.osd.namePosition}>{#each OSD_POSITIONS as p (p)}<option value={p}>{p}</option>{/each}</select>
           </label>
@@ -352,7 +357,7 @@
       {/if}
       {#snippet footer()}
         <SaveState state={imageState} />
-        <button class="primary" data-testid="save-image" disabled={!imageDirty || imageState === 'saving'} onclick={() => save('image', image!, imageEdit!)}>Save</button>
+        <button class="primary" data-testid="save-image" disabled={!imageDirty || imageState === 'saving' || !!osdNameError} onclick={() => save('image', image!, imageEdit!)}>Save</button>
       {/snippet}
     </SettingsCard>
 

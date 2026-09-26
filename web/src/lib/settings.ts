@@ -93,3 +93,14 @@ export const FIELD_LABELS: Record<string, string> = {
   spotlight: 'Spotlight',
   osd: 'On-screen text',
 };
+
+// The same OSD name limits the server enforces (server/reolink/settings.ts):
+// the camera stores 31 UTF-8 bytes, so a counter in bytes, not characters.
+export const OSD_NAME_MAX_BYTES = 31;
+export const utf8Bytes = (s: string): number => new TextEncoder().encode(s).length;
+export function osdNameProblem(name: string): string | null {
+  if (utf8Bytes(name) > OSD_NAME_MAX_BYTES) return `Too long: at most ${OSD_NAME_MAX_BYTES} bytes (accented and non-Latin letters take 2–4 each).`;
+  if (/\p{C}/u.test(name)) return 'Remove control or invisible characters.';
+  if (!/\S/u.test(name)) return "The name can't be blank.";
+  return null;
+}
