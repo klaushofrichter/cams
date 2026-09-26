@@ -45,3 +45,13 @@ merging `feat/recordings`. Plan 1's and Plan 2's lists still apply.
   (`test/recordingsRoutes.test.ts`) because `send` (used by `res.sendFile`) loads `fs` through
   its own `require()`, separate from the ESM `fs` module `vi.mock`/`vi.spyOn` can intercept.
   Noted as fragile; revisit if a `send` upgrade changes how it loads `fs`.
+
+## Rulings made during execution (from the SDD ledger)
+
+- Ruling R1: T6 sets `days = d.days` (drop the no-op Set expression) — noise in plan — cost if wrong: none.
+- Ruling R2: T6 Recordings page loads days for the cursor's month AND the previous month and merges them, so day-prev works across a month boundary — e2e would fail on the 1st otherwise — cost: one extra cached Search per page load.
+- Ruling R3: kube-setup notes exceeding 2Gi evicts the pod. The cap (1.5 GiB) is enforced after each fill; headroom 512 MiB >> in-flight temp files (sub clips ≤ ~2 MB, max 2 concurrent transfers per camera; main downloads are streamed, never cached) — no plan change — cost if wrong: pod eviction under an unforeseen burst; final review to check.
+- Ruling R4: fix 1-9, 10 (calendar validation), 11 (per-worker CACHE_DIR); park days() single-flight and map bounding (7-day window, bounded in practice) — cost if wrong: small memory growth.
+- Ruling R5: today TTL applies to dates >= cameraToday-1 — simplest cover for DST-enabled-inactive and midnight edge — cost: yesterday re-searched every 30 s while viewed.
+- Ruling R6: no third re-review of T6; C1/I1/picker/zoom behaviours get permanent e2e in Task 7 and the final opus review covers the reactive code — cost if wrong: a defect found in final review instead.
+- Ruling R7: Task 7's task-review folded into the final whole-branch opus review (tests + small Live change; reviewer instructed to cover it explicitly) — cost if wrong: one more fix wave.
