@@ -205,27 +205,40 @@ export function detectionCommands(p: DetectionPatch): SettingsCommand[] {
   return out;
 }
 
-export function imageCommands(p: ImagePatch, current: ImageSettings): SettingsCommand[] {
+// The untouched half of SetWhiteLed and SetOsd comes from the RAW Get replies,
+// not from imageFrom(): that normalizes values it doesn't know (a custom OSD
+// position, a newer spotlight mode, a missing brightness), and writing the
+// normalized value back would change a setting the user never touched.
+// Keys the camera didn't report are left out: the firmware merges partial
+// params, so an absent key stays as it is.
+function pick(o: Obj, keys: string[]): Obj {
+  const out: Obj = {};
+  for (const k of keys) if (o[k] !== undefined) out[k] = o[k];
+  return out;
+}
+
+export function imageCommands(p: ImagePatch, raw: { wl: unknown; osd: unknown }): SettingsCommand[] {
   const out: SettingsCommand[] = [];
   if (p.dayNight) out.push({ field: 'dayNight', cmd: 'SetIsp', param: { Isp: { channel: 0, dayNight: DAYNIGHT[p.dayNight] } } });
   if (p.irLights) out.push({ field: 'irLights', cmd: 'SetIrLights', param: { IrLights: { channel: 0, state: IR[p.irLights] } } });
-  if (p.spotlight) {
-    const s = { ...current.spotlight, ...p.spotlight };
-    out.push({ field: 'spotlight', cmd: 'SetWhiteLed', param: { WhiteLed: { channel: 0, mode: SPOTLIGHT_MODES.indexOf(s.mode), bright: s.brightness } } });
+  if (p.spotlight && Object.keys(p.spotlight).length) {
+    const s = p.spotlight;
+    const wl = { ...pick(obj(obj(raw.wl).WhiteLed), ['mode', 'bright']) };
+    if (s.mode !== undefined) wl.mode = SPOTLIGHT_MODES.indexOf(s.mode);
+    if (s.brightness !== undefined) wl.bright = s.brightness;
+    out.push({ field: 'spotlight', cmd: 'SetWhiteLed', param: { WhiteLed: { channel: 0, ...wl } } });
   }
-  if (p.osd) {
-    const o = { ...current.osd, ...p.osd };
-    out.push({
-      field: 'osd',
-      cmd: 'SetOsd',
-      param: {
-        Osd: {
-          channel: 0,
-          osdChannel: { enable: o.showName ? 1 : 0, name: o.name, pos: o.namePosition },
-          osdTime: { enable: o.showTime ? 1 : 0, pos: o.timePosition },
-        },
-      },
-    });
+  if (p.osd && Object.keys(p.osd).length) {
+    const o = p.osd;
+    const osd = obj(obj(raw.osd).Osd);
+    const ch = pick(obj(osd.osdChannel), ['enable', 'name', 'pos']);
+    const time = pick(obj(osd.osdTime), ['enable', 'pos']);
+    if (o.showName !== undefined) ch.enable = o.showName ? 1 : 0;
+    if (o.name !== undefined) ch.name = o.name;
+    if (o.namePosition !== undefined) ch.pos = o.namePosition;
+    if (o.showTime !== undefined) time.enable = o.showTime ? 1 : 0;
+    if (o.timePosition !== undefined) time.pos = o.timePosition;
+    out.push({ field: 'osd', cmd: 'SetOsd', param: { Osd: { channel: 0, osdChannel: ch, osdTime: time } } });
   }
   return out;
 }

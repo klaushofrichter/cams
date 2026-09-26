@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   detectionCommands, detectionFrom, imageCommands, imageFrom, patchApplied,
-  validateDetectionPatch, validateImagePatch, type ImageSettings,
+  validateDetectionPatch, validateImagePatch,
 } from '../server/reolink/settings';
 
 const ALL = '1'.repeat(168);
@@ -115,8 +115,7 @@ describe('building commands', () => {
   });
 
   it('keeps the unchanged OSD half when only one part changes', () => {
-    const current = imageFrom(REAL) as ImageSettings;
-    expect(imageCommands({ osd: { name: 'Porch' }, dayNight: 'color', spotlight: { mode: 'off' } }, current)).toEqual([
+    expect(imageCommands({ osd: { name: 'Porch' }, dayNight: 'color', spotlight: { mode: 'off' } }, REAL)).toEqual([
       { field: 'dayNight', cmd: 'SetIsp', param: { Isp: { channel: 0, dayNight: 'Color' } } },
       { field: 'spotlight', cmd: 'SetWhiteLed', param: { WhiteLed: { channel: 0, mode: 0, bright: 100 } } },
       {
@@ -125,6 +124,29 @@ describe('building commands', () => {
         param: { Osd: { channel: 0, osdChannel: { enable: 1, name: 'Porch', pos: 'Lower Right' }, osdTime: { enable: 1, pos: 'Top Center' } } },
       },
     ]);
+  });
+
+  // A partial save must never rewrite a field the user didn't touch, even one
+  // imageFrom() can't represent (it would read as "Upper Left" / "off" / 0).
+  it('copies untouched values from the raw replies, not from the normalized settings', () => {
+    const raw = {
+      wl: { WhiteLed: { channel: 0, mode: 5, state: 0 } },
+      osd: { Osd: { channel: 0, osdChannel: { enable: 1, name: 'Den', pos: 'Lower Right' }, osdTime: { enable: 1, pos: 'Custom Pos' } } },
+    };
+    expect(imageCommands({ osd: { name: 'Porch' } }, raw)).toEqual([
+      {
+        field: 'osd',
+        cmd: 'SetOsd',
+        param: { Osd: { channel: 0, osdChannel: { enable: 1, name: 'Porch', pos: 'Lower Right' }, osdTime: { enable: 1, pos: 'Custom Pos' } } },
+      },
+    ]);
+    expect(imageCommands({ spotlight: { brightness: 40 } }, raw)).toEqual([
+      { field: 'spotlight', cmd: 'SetWhiteLed', param: { WhiteLed: { channel: 0, mode: 5, bright: 40 } } },
+    ]);
+  });
+
+  it('sends nothing for an empty spotlight or OSD patch', () => {
+    expect(imageCommands({ spotlight: {}, osd: {} }, REAL)).toEqual([]);
   });
 
   it('checks each field against the re-read state', () => {

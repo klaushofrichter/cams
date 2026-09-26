@@ -11,12 +11,18 @@ export async function readDetection(client: ReolinkClient): Promise<DetectionSet
   return detectionFrom({ rec, md, ai });
 }
 
-export async function readImage(client: ReolinkClient): Promise<ImageSettings> {
+// The raw replies too: a save builds the untouched half of SetWhiteLed and
+// SetOsd from them (see imageCommands).
+export async function readImageRaw(client: ReolinkClient): Promise<{ raw: { wl: unknown; osd: unknown }; settings: ImageSettings }> {
   const isp = await client.command('GetIsp', { channel: 0 });
   const ir = await client.command('GetIrLights', { channel: 0 });
   const wl = await client.command('GetWhiteLed', { channel: 0 });
   const osd = await client.command('GetOsd', { channel: 0 });
-  return imageFrom({ isp, ir, wl, osd });
+  return { raw: { wl, osd }, settings: imageFrom({ isp, ir, wl, osd }) };
+}
+
+export async function readImage(client: ReolinkClient): Promise<ImageSettings> {
+  return (await readImageRaw(client)).settings;
 }
 
 export interface DeviceInfo {

@@ -2,7 +2,7 @@ import { Router, Request, Response, NextFunction } from 'express';
 import { getCamera } from '../cameraRegistry';
 import { CameraError } from '../reolink/client';
 import { getClient } from '../reolink/clients';
-import { readDetection, readDevice, readImage } from '../reolink/device';
+import { readDetection, readDevice, readImage, readImageRaw } from '../reolink/device';
 import {
   detectionCommands, DetectionPatch, imageCommands, ImagePatch, patchApplied,
   SettingsCommand, validateDetectionPatch, validateImagePatch,
@@ -77,7 +77,7 @@ settingsRouter.put('/api/cameras/:id/settings/:section', async (req, res, next) 
     const commands =
       section === 'detection'
         ? detectionCommands(v.patch as DetectionPatch)
-        : imageCommands(v.patch as ImagePatch, await readImage(c.client));
+        : imageCommands(v.patch as ImagePatch, (await readImageRaw(c.client)).raw);
     const fields = await apply(c.client, commands);
     const settings = section === 'detection' ? await readDetection(c.client) : await readImage(c.client);
     for (const [field, r] of Object.entries(fields)) {
