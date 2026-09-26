@@ -66,7 +66,9 @@
       const result = await getJson<CameraStatus>(`/api/cameras/${encodeURIComponent(id)}/status`);
       if (seq === statusRequest) status = result;
     } catch {
-      if (seq === statusRequest) status = { id, online: false, error: 'camera_error' };
+      // The status request itself failed (network or cams down): that says
+      // nothing about the camera, so it gets its own wording.
+      if (seq === statusRequest) status = { id, online: false, error: 'unreachable' };
     } finally {
       if (seq === statusRequest) checking = false;
     }
@@ -192,10 +194,36 @@
   function offlineReason(code: string | undefined): string {
     if (code === 'camera_offline') return 'The camera could not be reached.';
     if (code === 'camera_auth_failed') return 'Signing in to the camera failed.';
+    if (code === 'unreachable') return "cams couldn't check the camera (network or server problem).";
     return 'The camera answered with an error (for example a certificate problem). Check the server logs.';
   }
 
   const stamp = () => new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-');
+
+  // Fetch first, then save: a plain download link would silently save an
+  // error page (or nothing) when the camera can't take a snapshot.
+  let snapshotBusy = $state(false);
+  let snapshotError = $state('');
+  async function saveSnapshot(id: string) {
+    snapshotBusy = true;
+    snapshotError = '';
+    try {
+      const res = await fetch(snapshotUrl(id), { credentials: 'same-origin' });
+      if (!res.ok || !(res.headers.get('content-type') ?? '').startsWith('image/')) throw new Error(String(res.status));
+      const url = URL.createObjectURL(await res.blob());
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${id}-${stamp()}.jpg`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 10_000);
+    } catch {
+      snapshotError = "The snapshot couldn't be taken. The camera may be busy or offline.";
+    } finally {
+      snapshotBusy = false;
+    }
+  }
 
   // Publishes the camera's live status (used for the favicon frame, the tab
   // title and the top-bar logo tooltip). Keep-alive (Task 12) keeps this page
@@ -255,11 +283,12 @@
             {quality === 'main' ? 'HD' : 'SD'}
           </button>
         {/if}
-        <a data-testid="snapshot" href={snapshotUrl(camera.id)} download={`${camera.id}-${stamp()}.jpg`} title="Save a snapshot">
-          <Icon name="camera" size={18} /><span>Snapshot</span>
-        </a>
+        <button data-testid="snapshot" onclick={() => saveSnapshot(camera.id)} disabled={snapshotBusy} title="Save a snapshot">
+          <Icon name="camera" size={18} /><span>{snapshotBusy ? 'Saving…' : 'Snapshot'}</span>
+        </button>
         <button data-testid="fullscreen" onclick={fullscreen} title="Fullscreen"><Icon name="expand" size={18} /></button>
       </div>
+      {#if snapshotError}<p class="snapshot-error" data-testid="snapshot-error" role="alert">{snapshotError}</p>{/if}
       <p class="meta">{status.model} · firmware {status.firmware}</p>
       <div class="today">
         {#if !visible}
@@ -289,6 +318,7 @@
 </section>
 
 <style>
+  .snapshot-error { margin: 0; font-size: 13px; color: var(--danger); }
   .head { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; margin-bottom: 12px; }
   .head h1 { margin: 0; }
   .cam { color: var(--muted); font-size: 15px; }
