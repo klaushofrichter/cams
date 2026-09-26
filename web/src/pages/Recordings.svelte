@@ -165,6 +165,7 @@
       loading = true;
       failed = false;
       events = [];
+      downloads = 'ok'; // another camera or day: don't carry its banner over
     }
     const month = d.slice(0, 7);
     const prevMonth = addDays(`${month}-01`, -1).slice(0, 7);
@@ -280,8 +281,8 @@
         />
         {#if downloads === 'unavailable'}
           <p class="banner" data-testid="recordings-unavailable" role="status">
-            The camera isn't serving recordings right now. This is a camera-side problem; live video, the list and Settings still work.
-            cams retries every minute.
+            The camera isn't serving recordings right now, so clips and thumbnails can't be loaded. This is a camera-side
+            problem; the list of recordings still works, and cams checks again every minute.
           </p>
         {/if}
         {#if loading}
@@ -306,7 +307,7 @@
         {:else}
           <EventList cameraId={cam} events={visible} {filter} date={cursor.date} selectedId={cursor.clipId}
             onfilter={(f) => go({}, { filter: f })}
-            onselect={(e) => go({ clipId: e.id, offsetSec: 0 })} onthumberror={recheckDownloads} />
+            onselect={(e) => go({ clipId: e.id, offsetSec: 0 })} onthumberror={recheckDownloads} downloadsOk={downloads === 'ok'} />
         {/if}
       </aside>
     </div>

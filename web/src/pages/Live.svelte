@@ -77,6 +77,7 @@
   $effect(() => {
     const id = $selectedCameraId;
     status = null;
+    snapshotError = ''; // belongs to the previous camera
     if (id) void checkStatus(id);
   });
 

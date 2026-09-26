@@ -11,6 +11,7 @@
     onfilter,
     onselect,
     onthumberror,
+    downloadsOk = true,
   }: {
     cameraId: string;
     events: EventClip[];
@@ -20,6 +21,7 @@
     onfilter: (f: Filter) => void;
     onselect: (e: EventClip) => void;
     onthumberror?: () => void;
+    downloadsOk?: boolean;
   } = $props();
 
   // Keyed by cameraId|id, not just id: a clip id is only unique within its
@@ -30,6 +32,15 @@
   // The key comes from the element, not from this item's reactive state: the
   // error can land while the item re-renders (the derived_inert warnings seen
   // in production), so the handler reads nothing reactive but `broken`.
+  // When the camera starts serving recordings again, give the failed
+  // thumbnails another try.
+  let wasOk = true;
+  $effect(() => {
+    const ok = downloadsOk;
+    if (ok && !wasOk) broken = new Set();
+    wasOk = ok;
+  });
+
   function markBroken(ev: Event) {
     const key = (ev.currentTarget as HTMLElement | null)?.dataset.brokenKey;
     if (key) broken = new Set([...broken, key]);

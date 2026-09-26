@@ -30,7 +30,7 @@ authRouter.get('/auth/google/login', authRateLimit, (req: Request, res: Response
 authRouter.get('/auth/google/callback', authRateLimit, async (req: Request, res: Response) => {
   // The user cancelled at Google (or Google refused): back to the start page,
   // never a JSON error page.
-  if (typeof req.query.error === 'string') {
+  if (req.query.error !== undefined) {
     clearState(res);
     res.redirect('/');
     return;
