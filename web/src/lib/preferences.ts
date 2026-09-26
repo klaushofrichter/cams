@@ -11,13 +11,19 @@ export interface Preferences {
 }
 
 export const preferences = writable<Preferences | null>(null);
+// Distinguishes "still loading" (both null, false) from "failed to load"
+// (preferences null, this true), so a page waiting on preferences can show
+// an error instead of "Loading…" forever.
+export const preferencesFailed = writable(false);
 
 export async function loadPreferences(): Promise<Preferences | null> {
   try {
     const p = await getJson<Preferences>('/api/preferences');
     preferences.set(p);
+    preferencesFailed.set(false);
     return p;
   } catch {
+    preferencesFailed.set(true);
     return null; // preferences are a convenience; the app works without them
   }
 }

@@ -16,6 +16,12 @@
   import { currentTheme } from './lib/theme';
 
   let loadError = $state('');
+  // Preferences (and the default-camera selection derived from them) must
+  // settle before any page mounts, so a page that reads a preference at
+  // init (Live's initialQuality, Timeline's initial zoom) sees the real
+  // value instead of racing it. This gate covers success and failure
+  // alike -- a failed preferences load still finishes `load()`.
+  let ready = $state(false);
   let drawerPanelEl: HTMLDivElement | undefined = $state();
   let drawerWasOpen = false;
 
@@ -31,6 +37,8 @@
       );
     } catch (err) {
       if (!(err instanceof UnauthorizedError)) loadError = 'Could not load the app. Please reload the page.';
+    } finally {
+      ready = true;
     }
   }
 
@@ -61,14 +69,16 @@
   <div class="side"><Sidebar /></div>
   <main class="main">
     {#if loadError}<div class="error" role="alert">{loadError}</div>{/if}
-    {#key $route.page}
-      <div class="page-wrap" in:fly={{ y: 8, duration: duration(180) }}>
-        {#if $route.page === 'recordings'}<Recordings />
-        {:else if $route.page === 'settings'}<Settings />
-        {:else if $route.page === 'about'}<About />
-        {:else}<Live />{/if}
-      </div>
-    {/key}
+    {#if ready}
+      {#key $route.page}
+        <div class="page-wrap" in:fly={{ y: 8, duration: duration(180) }}>
+          {#if $route.page === 'recordings'}<Recordings />
+          {:else if $route.page === 'settings'}<Settings />
+          {:else if $route.page === 'about'}<About />
+          {:else}<Live />{/if}
+        </div>
+      {/key}
+    {/if}
   </main>
 
   {#if $drawerOpen}

@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { tick, untrack } from 'svelte';
   import SettingsCard from '../components/SettingsCard.svelte';
   import SaveState from '../components/SaveState.svelte';
   import Icon from '../components/Icon.svelte';
@@ -8,7 +9,7 @@
     diffPatch, FIELD_LABELS, OSD_POSITIONS, postJson, putJson,
     type DetectionSettings, type DeviceInfo, type ImageSettings, type SaveResult,
   } from '../lib/settings';
-  import { preferences, savePreferences, type Preferences } from '../lib/preferences';
+  import { preferences, preferencesFailed, savePreferences, type Preferences } from '../lib/preferences';
 
   type State = 'idle' | 'saving' | 'saved' | 'partial' | 'error';
   const AI: { kind: 'person' | 'vehicle' | 'pet'; label: string }[] = [
@@ -36,11 +37,20 @@
     if ($preferences && !prefs) prefs = structuredClone($preferences);
   });
   const prefsDirty = $derived(!!prefs && !!$preferences && Object.keys(diffPatch($preferences, prefs)).length > 0);
+  // Once a save has landed ('saved'/'partial'/'error'), editing again should
+  // clear that stale text rather than leaving it next to unsent changes.
+  $effect(() => {
+    if (prefsDirty) untrack(() => { if (prefsState !== 'saving' && prefsState !== 'idle') prefsState = 'idle'; });
+  });
   async function savePrefs() {
     if (!prefs || !$preferences) return;
     prefsState = 'saving';
-    prefsState = (await savePreferences(diffPatch($preferences, prefs))) ? 'saved' : 'error';
-    if (prefsState === 'saved' && $preferences) prefs = structuredClone($preferences);
+    try {
+      prefsState = (await savePreferences(diffPatch($preferences, prefs))) ? 'saved' : 'error';
+      if (prefsState === 'saved' && $preferences) prefs = structuredClone($preferences);
+    } catch {
+      prefsState = 'error';
+    }
   }
 
   // --- camera cards ---
@@ -60,6 +70,14 @@
     const id = $selectedCameraId;
     const mine = ++seq;
     detection = detectionEdit = image = imageEdit = device = null;
+    // A switch to another camera must not carry over the previous camera's
+    // errors, save states, or an open reboot-confirm step.
+    detectionErrors = {};
+    imageErrors = {};
+    detectionState = 'idle';
+    imageState = 'idle';
+    rebootState = 'idle';
+    confirmReboot = false;
     loadError = '';
     if (!id) return;
     getJson<{ detection: DetectionSettings; image: ImageSettings }>(`/api/cameras/${encodeURIComponent(id)}/settings`)
@@ -82,6 +100,12 @@
 
   const detectionDirty = $derived(!!detection && !!detectionEdit && Object.keys(diffPatch(detection, detectionEdit)).length > 0);
   const imageDirty = $derived(!!image && !!imageEdit && Object.keys(diffPatch(image, imageEdit)).length > 0);
+  $effect(() => {
+    if (detectionDirty) untrack(() => { if (detectionState !== 'saving' && detectionState !== 'idle') detectionState = 'idle'; });
+  });
+  $effect(() => {
+    if (imageDirty) untrack(() => { if (imageState !== 'saving' && imageState !== 'idle') imageState = 'idle'; });
+  });
 
   function errorsOf(fields: Record<string, { ok: boolean; error?: string }>): Record<string, string> {
     const out: Record<string, string> = {};
@@ -91,13 +115,20 @@
 
   // A failed save (anything but 200/207) may have partially applied
   // commands on the camera, so the card is re-fetched to show the true
-  // state rather than trusting the optimistic `edited` copy.
+  // state rather than trusting the optimistic `edited` copy. `cam` and
+  // `mine` are captured fresh here (not just inherited from the caller) so
+  // this also guards a direct call, and every await re-checks `mine` against
+  // the live `seq` so a camera switch mid-request can never write another
+  // camera's response into this one's fields.
   async function reload(section: 'detection' | 'image') {
-    if (!$selectedCameraId) return;
+    const cam = $selectedCameraId;
+    const mine = seq;
+    if (!cam) return;
     try {
       const s = await getJson<{ detection: DetectionSettings; image: ImageSettings }>(
-        `/api/cameras/${encodeURIComponent($selectedCameraId)}/settings`,
+        `/api/cameras/${encodeURIComponent(cam)}/settings`,
       );
+      if (mine !== seq) return;
       if (section === 'detection') {
         detection = s.detection;
         detectionEdit = structuredClone(s.detection);
@@ -111,10 +142,14 @@
   }
 
   async function save<T extends object>(section: 'detection' | 'image', original: T, edited: T) {
+    const cam = $selectedCameraId;
+    const mine = seq;
+    if (!cam) return;
     const set = section === 'detection' ? (s: State) => (detectionState = s) : (s: State) => (imageState = s);
     set('saving');
     try {
-      const res = await putJson<SaveResult<T>>(`/api/cameras/${encodeURIComponent($selectedCameraId!)}/settings/${section}`, diffPatch(original, edited));
+      const res = await putJson<SaveResult<T>>(`/api/cameras/${encodeURIComponent(cam)}/settings/${section}`, diffPatch(original, edited));
+      if (mine !== seq) return;
       if (res.status !== 200 && res.status !== 207) {
         set('error');
         await reload(section);
@@ -132,6 +167,7 @@
       }
       set(res.status === 200 ? 'saved' : 'partial');
     } catch {
+      if (mine !== seq) return;
       set('error');
       await reload(section);
     }
@@ -140,9 +176,33 @@
   // --- reboot (review focus 4: two explicit clicks) ---
   let confirmReboot = $state(false);
   let rebootState: 'idle' | 'rebooting' | 'done' | 'partial' | 'error' = $state('idle');
+  let cancelBtnEl: HTMLButtonElement | undefined = $state();
+
+  const rebootMessage = $derived(
+    rebootState === 'rebooting'
+      ? 'Sending reboot…'
+      : rebootState === 'done'
+        ? 'Rebooting. The camera is back in about a minute.'
+        : rebootState === 'partial'
+          ? "Reboot sent. The camera didn't confirm; it should be back in about a minute."
+          : rebootState === 'error'
+            ? 'The reboot request failed.'
+            : '',
+  );
+
+  async function openRebootConfirm() {
+    confirmReboot = true;
+    await tick();
+    cancelBtnEl?.focus();
+  }
+
   async function reboot() {
+    const cam = $selectedCameraId;
+    const mine = seq;
+    if (!cam) return;
     rebootState = 'rebooting';
-    const res = await postJson<{ ok?: boolean; confirmed?: boolean }>(`/api/cameras/${encodeURIComponent($selectedCameraId!)}/reboot`, { confirm: 'reboot' }).catch(() => null);
+    const res = await postJson<{ ok?: boolean; confirmed?: boolean }>(`/api/cameras/${encodeURIComponent(cam)}/reboot`, { confirm: 'reboot' }).catch(() => null);
+    if (mine !== seq) return;
     rebootState = res?.status === 200 ? 'done' : res?.status === 202 ? 'partial' : 'error';
     confirmReboot = false;
   }
@@ -186,6 +246,8 @@
           </select>
           <small class="muted">Coming back within this time shows the live picture at once. Longer uses more bandwidth.</small>
         </label>
+      {:else if $preferencesFailed}
+        <p class="err" role="alert">Preferences could not be loaded.</p>
       {:else}
         <p class="muted">Loading…</p>
       {/if}
@@ -314,15 +376,13 @@
         <p class="muted">Loading…</p>
       {/if}
       {#snippet footer()}
-        {#if rebootState === 'done'}<span class="muted" role="status">Rebooting. The camera is back in about a minute.</span>{/if}
-        {#if rebootState === 'partial'}<span class="muted" role="status">Reboot sent. The camera didn't confirm; it should be back in about a minute.</span>{/if}
-        {#if rebootState === 'error'}<span class="err" role="alert">The reboot request failed.</span>{/if}
+        <span class="muted" class:err={rebootState === 'error'} role="status" aria-live="polite" data-testid="reboot-status">{rebootMessage}</span>
         {#if confirmReboot}
           <span>Reboot {cameraName}? Recording stops for about a minute.</span>
-          <button data-testid="reboot-cancel" onclick={() => (confirmReboot = false)}>Cancel</button>
+          <button data-testid="reboot-cancel" bind:this={cancelBtnEl} onclick={() => (confirmReboot = false)}>Cancel</button>
           <button class="danger" data-testid="reboot-confirm" disabled={rebootState === 'rebooting'} onclick={reboot}>Reboot now</button>
         {:else}
-          <button data-testid="reboot-button" disabled={!device} onclick={() => (confirmReboot = true)}><Icon name="power" size={14} /> Reboot camera…</button>
+          <button data-testid="reboot-button" disabled={!device} onclick={openRebootConfirm}><Icon name="power" size={14} /> Reboot camera…</button>
         {/if}
       {/snippet}
     </SettingsCard>

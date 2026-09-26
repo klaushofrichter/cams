@@ -32,8 +32,13 @@ export interface SaveResult<T> {
 type Obj = Record<string, unknown>;
 const isObj = (v: unknown): v is Obj => typeof v === 'object' && v !== null && !Array.isArray(v);
 
-// Changed leaves only, as a deep partial. The server rejects 'custom' as a
-// value, and an untouched custom schedule must never be overwritten.
+// Only these keys carry a Schedule ('on' | 'off' | 'custom'). The server
+// rejects 'custom' as a value there, and an untouched custom schedule must
+// never be overwritten -- but 'custom' is an ordinary string elsewhere (for
+// example a user naming their OSD text "custom"), and must not be dropped.
+const SCHEDULE_KEYS = new Set(['motionRecording', 'record']);
+
+// Changed leaves only, as a deep partial.
 export function diffPatch<T extends object>(original: T, edited: T): Partial<T> {
   const out: Obj = {};
   for (const [k, v] of Object.entries(edited as Obj)) {
@@ -41,7 +46,8 @@ export function diffPatch<T extends object>(original: T, edited: T): Partial<T> 
     if (isObj(v) && isObj(was)) {
       const inner = diffPatch(was, v);
       if (Object.keys(inner).length) out[k] = inner;
-    } else if (v !== was && v !== 'custom') {
+    } else if (v !== was) {
+      if (v === 'custom' && SCHEDULE_KEYS.has(k)) continue;
       out[k] = v;
     }
   }
