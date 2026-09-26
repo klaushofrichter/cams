@@ -18,6 +18,14 @@ export const ICONS = {
   volumeOn: 'M11 5 6 9H3v6h3l5 4V5zm4.5 3.5a5 5 0 0 1 0 7m2.8-9.8a9 9 0 0 1 0 12.6',
   expand: 'M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5',
   refresh: 'M20 11a8 8 0 1 0-2.3 5.7M20 4v7h-7',
+  play: 'M8 5v14l11-7z',
+  pause: 'M8 5h3v14H8zM13 5h3v14h-3z',
+  back10: 'M11 7 6 12l5 5M18 7l-5 5 5 5',
+  fwd10: 'M13 7l5 5-5 5M6 7l5 5-5 5',
+  prev: 'M7 6v12M18 6l-8 6 8 6z',
+  next: 'M17 6v12M6 6l8 6-8 6z',
+  calendarPrev: 'M15 6l-6 6 6 6',
+  calendarNext: 'M9 6l6 6-6 6',
 } as const;
 
 export type IconName = keyof typeof ICONS;

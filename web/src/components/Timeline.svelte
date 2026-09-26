@@ -1,0 +1,77 @@
+<script lang="ts">
+  import { dayLength, layoutSegments, secondsIntoDay, timelineWindow, type EventClip, type Zoom } from '../lib/recordings';
+
+  let {
+    events,
+    date,
+    selectedId,
+    onpick,
+    compact = false,
+    testid = 'timeline',
+  }: {
+    events: EventClip[];
+    date: string;
+    selectedId: string | null;
+    onpick: (sec: number) => void;
+    compact?: boolean;
+    testid?: string;
+  } = $props();
+
+  let zoom: Zoom = $state(24);
+  const daySec = $derived(dayLength(date));
+  const selected = $derived(events.find((e) => e.id === selectedId) ?? null);
+  const center = $derived(selected ? secondsIntoDay(selected.start, date) : daySec / 2);
+  const win = $derived(timelineWindow(compact ? 24 : zoom, center, daySec));
+  const segs = $derived(layoutSegments(events, date, win));
+  const ticks = $derived.by(() => {
+    const step = win.end - win.start > 6 * 3600 ? 3 * 3600 : win.end - win.start > 3600 ? 3600 : 600;
+    const out: { left: number; label: string }[] = [];
+    for (let s = Math.ceil(win.start / step) * step; s <= win.end; s += step) {
+      const h = Math.floor(s / 3600) % 24;
+      const m = Math.floor((s % 3600) / 60);
+      out.push({ left: ((s - win.start) / (win.end - win.start)) * 100, label: `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}` });
+    }
+    return out;
+  });
+
+  function click(e: MouseEvent) {
+    const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+    const frac = Math.min(1, Math.max(0, (e.clientX - rect.left) / rect.width));
+    onpick(win.start + frac * (win.end - win.start));
+  }
+</script>
+
+<div class="wrap" class:compact>
+  {#if !compact}
+    <div class="zoom" role="group" aria-label="Timeline zoom">
+      {#each [24, 6, 1] as z (z)}
+        <button data-testid={`zoom-${z}`} aria-pressed={zoom === z} onclick={() => (zoom = z as Zoom)}>{z} h</button>
+      {/each}
+    </div>
+  {/if}
+  <!-- svelte-ignore a11y_click_events_have_key_events -->
+  <div class="bar" data-testid={testid} role="slider" tabindex="0" aria-label="Recordings timeline" aria-valuemin={0} aria-valuemax={daySec} aria-valuenow={Math.round(center)} onclick={click}>
+    {#each segs as s (s.id)}
+      <span class="seg" class:ai={s.ai} class:on={s.id === selectedId} data-testid="timeline-seg" data-clip-id={s.id} style={`left:${s.left}%;width:${s.width}%`}></span>
+    {/each}
+    <div class="ticks">
+      {#each ticks as t (t.left)}<span style={`left:${t.left}%`}>{t.label}</span>{/each}
+    </div>
+  </div>
+</div>
+
+<style>
+  .wrap { display: flex; flex-direction: column; gap: 6px; }
+  .zoom { display: flex; gap: 4px; align-self: flex-end; }
+  .zoom button { font-size: 12px; padding: 3px 9px; border-radius: 8px; border: 1px solid var(--border); background: transparent; color: var(--muted); cursor: pointer; }
+  .zoom button[aria-pressed='true'] { background: var(--surface-2); color: var(--text); border-color: var(--accent); }
+  .bar { position: relative; height: 46px; border-radius: 10px; background: var(--surface-2); border: 1px solid var(--border); cursor: pointer; overflow: hidden; }
+  .compact .bar { height: 30px; }
+  .seg { position: absolute; top: 8px; height: 18px; border-radius: 4px; background: color-mix(in srgb, var(--accent-2) 60%, transparent); transition: transform 0.15s ease; }
+  .compact .seg { top: 6px; height: 12px; }
+  .seg.ai { background: var(--accent); }
+  .seg.on { outline: 2px solid var(--text); outline-offset: 1px; }
+  .ticks { position: absolute; left: 0; right: 0; bottom: 2px; height: 12px; pointer-events: none; }
+  .ticks span { position: absolute; transform: translateX(-50%); font-size: 10px; color: var(--muted); font-family: var(--mono); }
+  .compact .ticks { display: none; }
+</style>
