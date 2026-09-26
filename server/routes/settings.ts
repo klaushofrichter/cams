@@ -100,6 +100,14 @@ settingsRouter.get('/api/cameras/:id/device', async (req, res, next) => {
   }
 });
 
+// A camera takes about a minute to come back; a second reboot in that time
+// (a double click, a second tab) would only restart it again.
+export const REBOOT_COOLDOWN_MS = 120_000;
+const rebootedAt = new Map<string, number>();
+export function resetRebootCooldowns(): void {
+  rebootedAt.clear();
+}
+
 // Review focus 4: only the exact confirmation body reboots.
 settingsRouter.post('/api/cameras/:id/reboot', async (req, res, next) => {
   const c = cameraOr404(req, res);
@@ -108,6 +116,13 @@ settingsRouter.post('/api/cameras/:id/reboot', async (req, res, next) => {
     res.status(400).json({ error: 'bad_request' });
     return;
   }
+  const last = rebootedAt.get(c.cam.id);
+  if (last !== undefined && Date.now() - last < REBOOT_COOLDOWN_MS) {
+    res.status(429).json({ error: 'reboot_cooldown' });
+    return;
+  }
+  // Claimed before sending, so two requests at once can't both reboot.
+  rebootedAt.set(c.cam.id, Date.now());
   const by = currentUser(req)?.email;
   try {
     await c.client.command('Reboot', {});
@@ -115,12 +130,15 @@ settingsRouter.post('/api/cameras/:id/reboot', async (req, res, next) => {
     res.json({ ok: true });
   } catch (err) {
     // The camera may drop the connection as it goes down, before answering.
-    // The command was sent, so report it as sent but unconfirmed.
-    if (err instanceof CameraError && err.code === 'camera_offline') {
+    // If the request was written first, report it as sent but unconfirmed.
+    if (err instanceof CameraError && err.code === 'camera_offline' && err.requestSent) {
       logger.info({ cameraId: c.cam.id, by }, 'camera_reboot_unconfirmed');
       res.status(202).json({ ok: true, confirmed: false });
       return;
     }
+    // Never reached the camera (refused, unreachable, login failed): no
+    // reboot happened, so no cooldown either.
+    rebootedAt.delete(c.cam.id);
     fail(err, c.cam.id, res, next);
   }
 });

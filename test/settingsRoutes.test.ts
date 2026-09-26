@@ -5,6 +5,7 @@ import { AddressInfo } from 'net';
 import { createApp } from '../server/app';
 import { setCameras } from '../server/cameraRegistry';
 import { resetClients } from '../server/reolink/clients';
+import { resetRebootCooldowns } from '../server/routes/settings';
 import { SESSION_COOKIE, signSession } from '../server/session';
 import { createMockCamera, MockCameraOptions, MockState } from './mock-camera/server';
 
@@ -21,6 +22,7 @@ async function start(opts: Partial<MockCameraOptions> = {}) {
   setCameras([{ id: 'cam1', name: 'Den', host: `127.0.0.1:${(cam.address() as AddressInfo).port}`, protocol: 'http', user: 'u', password: 'p' }]);
   resetClients();
 }
+beforeEach(() => resetRebootCooldowns());
 beforeEach(() => start());
 afterEach(async () => {
   await new Promise<void>((r) => cam.close(() => r()));
@@ -114,6 +116,35 @@ describe('settings API', () => {
     const res = await request(createApp()).post('/api/cameras/cam1/reboot').set('Cookie', auth).send({ confirm: 'reboot' });
     expect(res.status).toBe(202);
     expect(res.body).toEqual({ ok: true, confirmed: false });
+    expect(state.reboots).toBe(1);
+  });
+
+  // A camera that can't be reached never got the Reboot: that's 503, not 202.
+  it('reports an offline camera as 503 when the reboot was never sent', async () => {
+    const app = createApp();
+    const reboot = () => request(app).post('/api/cameras/cam1/reboot').set('Cookie', auth).send({ confirm: 'reboot' });
+    // Offline before the first request: the login is dropped, Reboot never sent.
+    state.offline = true;
+    const res = await reboot();
+    expect(res.status).toBe(503);
+    expect(res.body).toEqual({ error: 'camera_offline' });
+    // Signed in, then the port is closed: the Reboot's own connection is refused.
+    state.offline = false;
+    expect((await request(app).get('/api/cameras/cam1/device').set('Cookie', auth)).status).toBe(200);
+    await new Promise<void>((r) => cam.close(() => r()));
+    const refused = await reboot();
+    expect(refused.status).toBe(503);
+    expect(refused.body).toEqual({ error: 'camera_offline' });
+    expect(state.reboots).toBe(0);
+  });
+
+  it('refuses a second reboot of the same camera within two minutes', async () => {
+    const app = createApp();
+    const reboot = () => request(app).post('/api/cameras/cam1/reboot').set('Cookie', auth).send({ confirm: 'reboot' });
+    expect((await reboot()).status).toBe(200);
+    const again = await reboot();
+    expect(again.status).toBe(429);
+    expect(again.body).toEqual({ error: 'reboot_cooldown' });
     expect(state.reboots).toBe(1);
   });
 

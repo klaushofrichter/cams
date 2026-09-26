@@ -4,7 +4,7 @@ import { IncomingMessage } from 'node:http';
 import type { CameraConfig } from '../cameraRegistry';
 import { logger } from '../logger';
 import { TimeInfo, timeInfoFromGetTime } from '../recordings/clipNames';
-import { CameraTarget, openRequest, readBody, ResponseTooLargeError, splitHost } from './http';
+import { CameraTarget, openRequest, readBody, requestWasWritten, ResponseTooLargeError, splitHost } from './http';
 import { Semaphore } from './semaphore';
 
 export type CameraErrorCode = 'camera_offline' | 'camera_auth_failed' | 'camera_error';
@@ -12,9 +12,12 @@ export type CameraErrorCode = 'camera_offline' | 'camera_auth_failed' | 'camera_
 // Messages are for logs only and never contain URLs, tokens or passwords;
 // clients see just the code.
 export class CameraError extends Error {
+  // `requestSent`: the request reached the camera before the failure (the
+  // connection dropped after it was written), so the camera may have acted.
   constructor(
     readonly code: CameraErrorCode,
     message: string,
+    readonly requestSent = false,
   ) {
     super(message);
     this.name = 'CameraError';
@@ -49,13 +52,13 @@ function isTlsCertError(code: string): boolean {
   return code.startsWith('ERR_TLS_') || code.includes('CERT') || code.includes('SIGNATURE');
 }
 
-export function classifyNetworkError(err: unknown): CameraError {
+export function classifyNetworkError(err: unknown, requestSent = requestWasWritten(err)): CameraError {
   const name = err instanceof Error ? err.name : 'Error';
   const code = (err as { code?: string }).code ?? name;
   if (isTlsCertError(code)) {
     return new CameraError('camera_error', `TLS certificate check failed (${code})`);
   }
-  return new CameraError('camera_offline', `camera unreachable (${code})`);
+  return new CameraError('camera_offline', `camera unreachable (${code})`, requestSent);
 }
 
 const SAFE_RECORDING_NAME = /^[A-Za-z0-9_./-]+\.mp4$/;
@@ -112,7 +115,7 @@ export class ReolinkClient {
       } catch (err) {
         if (err instanceof SyntaxError) throw new CameraError('camera_error', `${cmd}: response is not JSON`);
         if (err instanceof ResponseTooLargeError) throw new CameraError('camera_error', `${cmd}: response too large`);
-        throw classifyNetworkError(err);
+        throw classifyNetworkError(err, true); // dropped mid-reply: the request was sent
       }
       const first = Array.isArray(parsed) ? (parsed[0] as ReolinkReply | undefined) : undefined;
       if (!first || typeof first.code !== 'number') throw new CameraError('camera_error', `${cmd}: unexpected response`);
@@ -154,7 +157,14 @@ export class ReolinkClient {
 
   async command<T>(cmd: string, param: object = {}): Promise<T> {
     for (let attempt = 0; attempt < 2; attempt++) {
-      const token = await this.getToken();
+      let token: string;
+      try {
+        token = await this.getToken();
+      } catch (err) {
+        // A failed login never sent `cmd`, whatever happened to the Login.
+        if (err instanceof CameraError && err.requestSent) throw new CameraError(err.code, err.message);
+        throw err;
+      }
       const reply = await this.post(cmd, param, token);
       if (reply.code === 0) return reply.value as T;
       if (attempt === 0 && AUTH_RSP_CODES.has(reply.error?.rspCode ?? 0)) {
@@ -267,7 +277,14 @@ export class ReolinkClient {
   // the connection without a response (see isResetBeforeHeaders).
   private async getWithToken(buildPath: (token: string) => string, accept: RegExp, signal?: AbortSignal): Promise<IncomingMessage> {
     for (let attempt = 0; attempt < 2; attempt++) {
-      const token = await this.getToken();
+      let token: string;
+      try {
+        token = await this.getToken();
+      } catch (err) {
+        // A failed login never sent `cmd`, whatever happened to the Login.
+        if (err instanceof CameraError && err.requestSent) throw new CameraError(err.code, err.message);
+        throw err;
+      }
       let res: IncomingMessage;
       try {
         res = await openRequest(this.target, buildPath(encodeURIComponent(token)), { timeoutMs: this.timeoutMs, signal });
@@ -331,7 +348,14 @@ export class ReolinkClient {
 
   async snapshot(): Promise<Buffer> {
     for (let attempt = 0; attempt < 2; attempt++) {
-      const token = await this.getToken();
+      let token: string;
+      try {
+        token = await this.getToken();
+      } catch (err) {
+        // A failed login never sent `cmd`, whatever happened to the Login.
+        if (err instanceof CameraError && err.requestSent) throw new CameraError(err.code, err.message);
+        throw err;
+      }
       const outcome = await this.snapshotAttempt(token);
       if (outcome.ok) return outcome.body;
       this.clearTokenIfCurrent(token);

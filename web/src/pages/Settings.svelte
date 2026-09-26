@@ -187,7 +187,7 @@
 
   // --- reboot (review focus 4: two explicit clicks) ---
   let confirmReboot = $state(false);
-  let rebootState: 'idle' | 'rebooting' | 'done' | 'partial' | 'error' = $state('idle');
+  let rebootState: 'idle' | 'rebooting' | 'done' | 'partial' | 'cooldown' | 'error' = $state('idle');
   let cancelBtnEl: HTMLButtonElement | undefined = $state();
 
   const rebootMessage = $derived(
@@ -197,9 +197,11 @@
         ? 'Rebooting. The camera is back in about a minute.'
         : rebootState === 'partial'
           ? "Reboot sent. The camera didn't confirm; it should be back in about a minute."
-          : rebootState === 'error'
-            ? 'The reboot request failed.'
-            : '',
+          : rebootState === 'cooldown'
+            ? 'Rebooted recently; wait a minute.'
+            : rebootState === 'error'
+              ? 'The reboot request failed.'
+              : '',
   );
 
   async function openRebootConfirm() {
@@ -215,7 +217,7 @@
     rebootState = 'rebooting';
     const res = await postJson<{ ok?: boolean; confirmed?: boolean }>(`/api/cameras/${encodeURIComponent(cam)}/reboot`, { confirm: 'reboot' }).catch(() => null);
     if (mine !== seq) return;
-    rebootState = res?.status === 200 ? 'done' : res?.status === 202 ? 'partial' : 'error';
+    rebootState = res?.status === 200 ? 'done' : res?.status === 202 ? 'partial' : res?.status === 429 ? 'cooldown' : 'error';
     confirmReboot = false;
   }
 

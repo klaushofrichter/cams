@@ -111,6 +111,15 @@ test('reboot needs a second click and can be cancelled', async ({ page }) => {
   expect(state.reboots).toBe(0);
 });
 
+// The server's answer is faked, so no camera is actually rebooted.
+test('a reboot refused by the cooldown says to wait', async ({ page }) => {
+  await page.route('**/api/cameras/*/reboot', (route) => route.fulfill({ status: 429, json: { error: 'reboot_cooldown' } }));
+  await page.goto('/app/settings');
+  await page.getByTestId('reboot-button').click();
+  await page.getByTestId('reboot-confirm').click();
+  await expect(page.getByTestId('reboot-status')).toHaveText('Rebooted recently; wait a minute.');
+});
+
 test('preferences save and apply', async ({ page }, testInfo) => {
   test.skip(testInfo.project.name !== 'desktop', 'preferences live in one shared file; only run this in one project to avoid a race');
   await page.goto('/app/settings');
