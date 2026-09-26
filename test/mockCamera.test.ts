@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import request from 'supertest';
 import http from 'http';
+import { statSync } from 'fs';
+import { join } from 'path';
 import type { AddressInfo } from 'net';
 import { createMockCamera } from './mock-camera/server';
 
@@ -92,6 +94,32 @@ describe('mock camera', () => {
       res.destroy();
       await new Promise((resolve) => setTimeout(resolve, 100));
       expect(state.activeStreams).toBe(0);
+    } finally {
+      server.close();
+    }
+  });
+
+  // A real camera sends frames as they happen. A 20 s burst followed by
+  // silence left Chrome's software H.264 decoder (Linux CI) holding the last
+  // few frames forever, so e2e playback never started there.
+  it('paces /flv in real time, like a live camera', async () => {
+    const { app } = createMockCamera(creds);
+    const server = app.listen(0);
+    const { port } = server.address() as AddressInfo;
+    try {
+      const token = (await login(app)).body[0].value.Token.name;
+      const total = statSync(join(__dirname, 'mock-camera/fixtures/live.flv')).size;
+      const res = await new Promise<http.IncomingMessage>((resolve) => {
+        http.get(`http://127.0.0.1:${port}/flv?port=1935&app=bcs&stream=channel0_sub.bcs&token=${token}`, resolve);
+      });
+      let received = 0;
+      res.on('data', (chunk: Buffer) => (received += chunk.length));
+      await new Promise((resolve) => setTimeout(resolve, 1000));
+      res.destroy();
+      // About 1 s of a 20 s fixture: some data (headers plus the first
+      // second), and far from all of it.
+      expect(received).toBeGreaterThan(0);
+      expect(received).toBeLessThan(total * 0.25);
     } finally {
       server.close();
     }

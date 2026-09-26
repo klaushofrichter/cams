@@ -1,5 +1,5 @@
 import express, { Express, Request, Response } from 'express';
-import { createReadStream } from 'fs';
+import { readFileSync } from 'fs';
 import { randomBytes } from 'crypto';
 import { join } from 'path';
 
@@ -43,6 +43,30 @@ const notLoggedIn = (cmd: string) => [{ cmd, code: 1, error: { detail: 'please l
 // What real firmware (RLC-1224A, v3.2.0.6011) answers a GET with a bad token:
 // HTTP 200, Content-Type text/html, and this JSON as the body text.
 const NOT_LOGGED_IN_GET_BODY = '[{"code":1,"error":{"rspCode":-6,"detail":"please login first"}}]';
+
+interface FlvTag {
+  ms: number;
+  bytes: Buffer;
+}
+
+let fixture: { header: Buffer; tags: FlvTag[] } | undefined;
+
+// Splits fixtures/live.flv into its file header and its tags (each with its
+// trailing PreviousTagSize), keyed by the tag's timestamp in ms.
+function liveFixture(): { header: Buffer; tags: FlvTag[] } {
+  if (fixture) return fixture;
+  const buf = readFileSync(join(FIXTURES, 'live.flv'));
+  const headerEnd = buf.readUInt32BE(5) + 4; // header, then PreviousTagSize0
+  const tags: FlvTag[] = [];
+  for (let at = headerEnd; at + 11 <= buf.length; ) {
+    const end = at + 11 + buf.readUIntBE(at + 1, 3) + 4;
+    const ms = buf.readUIntBE(at + 4, 3) + buf[at + 7] * 0x1000000;
+    tags.push({ ms, bytes: buf.subarray(at, end) });
+    at = end;
+  }
+  fixture = { header: buf.subarray(0, headerEnd), tags };
+  return fixture;
+}
 
 export function createMockCamera(opts: MockCameraOptions): MockCamera {
   const tokens = new Set<string>();
@@ -118,8 +142,12 @@ export function createMockCamera(opts: MockCameraOptions): MockCamera {
     res.type('image/jpeg').sendFile(join(FIXTURES, 'snapshot.jpg'));
   });
 
-  // Streams the fixture once and then keeps the connection open, like a live
-  // camera that never ends a stream on its own.
+  // Streams the fixture once, paced in real time by its FLV tag timestamps,
+  // and then keeps the connection open, like a live camera that never ends a
+  // stream on its own. Real time matters: a camera never bursts its whole
+  // stream at once, and Chrome's software H.264 decoder (used on Linux) holds
+  // back its last few frames until more input arrives, so a burst followed by
+  // silence never starts playing there.
   app.get('/flv', (req: Request, res: Response) => {
     // Real firmware sends no HTTP response at all for a bad token: it just
     // closes the connection, so the client sees ECONNRESET / "socket hang up".
@@ -133,15 +161,25 @@ export function createMockCamera(opts: MockCameraOptions): MockCamera {
       if (res.destroyed || res.writableEnded) return;
       state.activeStreams++;
       activeResponses.add(res);
-      const file = createReadStream(join(FIXTURES, 'live.flv'));
-      file.on('error', () => res.destroy());
+      const { header, tags } = liveFixture();
+      const began = Date.now();
+      let next = 0;
+      const pump = () => {
+        const due = Date.now() - began;
+        while (next < tags.length && tags[next].ms <= due) res.write(tags[next++].bytes);
+      };
+      const timer = setInterval(() => {
+        pump();
+        if (next >= tags.length) clearInterval(timer);
+      }, 20);
       res.on('close', () => {
         state.activeStreams--;
         activeResponses.delete(res);
-        file.destroy();
+        clearInterval(timer);
       });
       res.status(200).type('video/x-flv');
-      file.pipe(res, { end: false });
+      res.write(header);
+      pump();
     };
     if (opts.flvDelayMs) {
       setTimeout(start, opts.flvDelayMs);
