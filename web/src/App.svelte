@@ -15,6 +15,8 @@
   import { createKeepAlive } from './lib/keepAlive';
   import { duration } from './lib/motion';
   import { currentTheme } from './lib/theme';
+  import { liveStatus, documentTitle } from './lib/liveStatus';
+  import { setFavicon } from './lib/favicon';
 
   let loadError = $state('');
   // Preferences (and the default-camera selection derived from them) must
@@ -55,6 +57,14 @@
     wasLive = onLive;
   });
   $effect(() => () => keepAlive.dispose());
+
+  // The favicon frame and tab title mirror the camera's live status (Task
+  // 13). Signing out is a full page navigation (to a separate entry point,
+  // web/src/landing.ts), which already resets both to their shipped values.
+  $effect(() => {
+    setFavicon($liveStatus.state);
+    document.title = documentTitle($liveStatus);
+  });
 
   async function load() {
     try {

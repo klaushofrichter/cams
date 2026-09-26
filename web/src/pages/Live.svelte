@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { onDestroy } from 'svelte';
   import LivePlayer from '../components/LivePlayer.svelte';
   import Icon from '../components/Icon.svelte';
   import Timeline from '../components/Timeline.svelte';
@@ -12,6 +13,7 @@
   import { pref } from '../lib/preferences';
   import { now } from '../lib/clock';
   import { createTodayRefresher, todayDate } from '../lib/refresh';
+  import { deriveStatus, liveStatus } from '../lib/liveStatus';
 
   interface CameraStatus {
     id: string;
@@ -191,6 +193,24 @@
   }
 
   const stamp = () => new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-');
+
+  // Publishes the camera's live status (used for the favicon frame, the tab
+  // title and the top-bar logo tooltip). Keep-alive (Task 12) keeps this page
+  // mounted in the background after leaving Live, so the indicator stays
+  // green while the stream keeps playing off-screen; onDestroy publishes idle
+  // once the keep-alive expires and this page is actually torn down.
+  $effect(() => {
+    liveStatus.set(
+      deriveStatus({
+        mounted: true,
+        cameraName: camera?.name ?? null,
+        online: status ? status.online : null,
+        offlineReason: status && !status.online ? offlineReason(status.error) : null,
+        player: status?.online ? playerState : null,
+      }),
+    );
+  });
+  onDestroy(() => liveStatus.set(deriveStatus({ mounted: false, cameraName: null, online: null, offlineReason: null, player: null })));
 </script>
 
 <section class="page">

@@ -92,6 +92,22 @@ test('with keep-alive off, leaving Live closes the stream', async ({ page }) => 
   await expect(page.locator('video')).toHaveCount(0);
 });
 
+// Task 13: Live's onDestroy publishes idle once the keep-alive expires and
+// the page is actually torn down (as opposed to just hidden). With
+// keep-alive off, leaving Live tears it down at once, so the indicator goes
+// transparent right away instead of waiting out a real keep-alive window.
+test('with keep-alive off, leaving Live turns the indicator idle', async ({ page }) => {
+  await setKeepAlive(page, 0);
+  await page.goto('/app/live');
+  const video = page.locator('[data-testid="live-video"]:visible');
+  await expect.poll(() => video.evaluate((v: HTMLVideoElement) => v.readyState >= 2), { timeout: 15_000 }).toBe(true);
+  await expect(page.getByTestId('stream-indicator')).toHaveAttribute('data-state', 'streaming');
+
+  await page.getByTestId('sidebar').getByTestId('nav-settings').click();
+  await expect(page.getByTestId('settings-card-prefs')).toBeVisible();
+  await expect(page.getByTestId('stream-indicator')).toHaveAttribute('data-state', 'idle');
+});
+
 // Fix round 1, item 9: hidden Live (kept mounted for the keep-alive) must
 // not keep playing audio the viewer never asked for, and the viewer's own
 // mute choice must come back once Live is visible again.

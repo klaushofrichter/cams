@@ -5,6 +5,7 @@
   import ThemeToggle from './ThemeToggle.svelte';
   import Clock from './Clock.svelte';
   import { cameras, me, drawerOpen, selectedCameraId } from '../lib/stores';
+  import { liveStatus } from '../lib/liveStatus';
 
   const REPO_URL = 'https://github.com/klaushofrichter/cams';
   const selected = $derived($cameras.find((c) => c.id === $selectedCameraId));
@@ -14,7 +15,13 @@
   <button class="hamburger" data-testid="hamburger" aria-label="Open menu" aria-expanded={$drawerOpen} onclick={() => drawerOpen.set(true)}>
     <Icon name="menu" />
   </button>
-  <a class="brand" href="/app/live" aria-label="cams home"><Logo size={28} /><span>cams</span></a>
+  <a class="brand" href="/app/live" aria-label="cams home">
+    <span class="indicator" data-testid="stream-indicator" data-state={$liveStatus.state} title={$liveStatus.detail}>
+      <Logo size={28} />
+    </span>
+    <span>cams</span>
+    <span class="sr-only">{$liveStatus.detail}</span>
+  </a>
   <CameraPicker />
   {#if selected?.webUiUrl}
     <a class="webui" data-testid="camera-webui-link" href={selected.webUiUrl} target="_blank" rel="noopener noreferrer"
@@ -37,6 +44,10 @@
     background: var(--chrome); border-bottom: 1px solid var(--border); position: sticky; top: 0; z-index: 20;
   }
   .brand { display: flex; align-items: center; gap: 9px; color: var(--text); text-decoration: none; font-weight: 700; font-size: 17px; letter-spacing: 0.01em; }
+  .indicator { display: inline-grid; place-items: center; padding: 2px; border-radius: 11px; border: 2px solid transparent; transition: border-color 0.3s ease; }
+  .indicator[data-state='streaming'] { border-color: #22C55E; }
+  .indicator[data-state='error'] { border-color: #EF4444; }
+  .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
   .spacer { flex: 1; }
   .version {
     font-family: var(--mono); font-size: 12px; color: var(--muted); text-decoration: none; opacity: 0.6;
