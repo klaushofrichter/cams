@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
-  addDays, clipAtSecond, cursorSearch, dayLength, dayStartMs, downloadUrl, filterEvents, formatBytes, groupByHour, layoutSegments,
+  addDays, clipAtSecond, cursorSearch, dayLength, dayStartMs, downloadUrl, filterEvents, formatBytes, groupByHour, layoutSegments, legendTicks,
   loadCursor, neighbour, parseCursor, saveCursor, secondsIntoDay, thumbUrl, tickLabel, timelineWindow, videoUrl,
   type EventClip,
 } from './recordings';
@@ -185,7 +185,33 @@ describe('tick labels use real local time', () => {
   });
 });
 
+describe('legendTicks', () => {
+  it('labels the day end 24:00, like the caption', () => {
+    expect(legendTicks('2026-09-26', 86400, 'en-US').map((t) => t.label)).toEqual(['00:00', '06:00', '12:00', '18:00', '24:00']);
+    expect(legendTicks('2026-03-08', 82800, 'en-US').at(-1)).toEqual({ sec: 82800, label: '24:00' });
+  });
+});
+
 describe('groupByHour', () => {
+  // Spring forward (2026-03-08): 02:00 doesn't exist, so the 03:xx hour starts
+  // two hours after midnight; its label comes from the hour, not the offset.
+  it('labels the hour after spring-forward by its wall clock', () => {
+    const g = groupByHour([E('20260308-031500-031520', '2026-03-08T03:15:00-05:00', '2026-03-08T03:15:20-05:00', ['motion'])], '2026-03-08');
+    expect(g.map((x) => [x.hour, x.label])).toEqual([[3, '03:00–04:00']]);
+  });
+
+  // Fall back (2026-11-01): 01:xx happens twice, and both are one group.
+  it('labels the repeated fall-back hour by its wall clock', () => {
+    const g = groupByHour(
+      [
+        E('20261101-011500-011520', '2026-11-01T01:15:00-05:00', '2026-11-01T01:15:20-05:00', ['motion']),
+        E('20261101-011500-011520b', '2026-11-01T01:15:00-06:00', '2026-11-01T01:15:20-06:00', ['motion']),
+      ],
+      '2026-11-01',
+    );
+    expect(g.map((x) => [x.hour, x.label, x.events.length])).toEqual([[1, '01:00–02:00', 2]]);
+  });
+
   it('groups by local hour, in order, skipping empty hours', () => {
     const g = groupByHour(events, DAY); // the three fixtures at 08:15, 12:05, 17:45
     expect(g.map((x) => [x.hour, x.label, x.events.length])).toEqual([

@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { dayLength, formatClock, layoutSegments, localDate, secondsIntoDay, tickLabel, timelineWindow, type EventClip, type Zoom } from '../lib/recordings';
+  import { dayLength, formatClock, layoutSegments, legendTicks, localDate, secondsIntoDay, tickLabel, timelineWindow, type EventClip, type Zoom } from '../lib/recordings';
   import { pref } from '../lib/preferences';
   import { timeZoneLabel } from '../lib/clock';
 
@@ -45,8 +45,8 @@
   });
 
   // Legend mode (the Live mini timeline): fixed ticks every 6 hours plus the
-  // day's end, always through tickLabel so they follow the clock across DST.
-  const legendTicks = $derived.by(() => [0, 6 * 3600, 12 * 3600, 18 * 3600, daySec].map((s) => ({ left: (s / daySec) * 100, label: tickLabel(date, s) })));
+  // day's end ("24:00"), labelled so they follow the clock across DST.
+  const legendTickMarks = $derived(legendTicks(date, daySec).map((t) => ({ left: (t.sec / daySec) * 100, label: t.label })));
 
   const isToday = $derived(date === localDate(new Date()));
   const captionText = $derived(`${isToday ? 'Today' : date}, 00:00–24:00, times in ${timeZoneLabel(new Date())}`);
@@ -98,7 +98,7 @@
   </div>
   {#if legend}
     <div class="ticks legend-ticks">
-      {#each legendTicks as t (t.left)}<span style={`left:${t.left}%`}>{t.label}</span>{/each}
+      {#each legendTickMarks as t (t.left)}<span style={`left:${t.left}%`}>{t.label}</span>{/each}
     </div>
     <p class="caption" data-testid="live-timeline-legend">
       {captionText}{#if updatedAt}, <span data-testid="live-timeline-updated">updated {formatClock(updatedAt.toISOString())}</span>{/if}
