@@ -57,6 +57,8 @@ export function classifyNetworkError(err: unknown): CameraError {
   return new CameraError('camera_offline', `camera unreachable (${code})`);
 }
 
+const SAFE_RECORDING_NAME = /^[A-Za-z0-9_./-]+\.mp4$/;
+
 export class ReolinkClient {
   private token: { value: string; expiresAt: number } | null = null;
   private time: { value: TimeInfo; at: number } | null = null;
@@ -366,9 +368,13 @@ export class ReolinkClient {
   // A recording file as an HTTP stream. Not gated here: the recordings
   // service holds its own per-camera transfer slot for the whole transfer.
   async download(name: string, signal?: AbortSignal): Promise<IncomingMessage> {
+    // Firmware: the source path must be sent as-is. A percent-encoded one
+    // (%2F) makes the camera drop the connection without a response. Names
+    // come from the camera's own Search, but only safe characters pass here.
+    if (!SAFE_RECORDING_NAME.test(name)) throw new CameraError('camera_error', 'unexpected recording name');
     const base = name.slice(name.lastIndexOf('/') + 1);
     return this.getWithToken(
-      (t) => `/cgi-bin/api.cgi?cmd=Download&source=${encodeURIComponent(name)}&output=${encodeURIComponent(base)}&token=${t}`,
+      (t) => `/cgi-bin/api.cgi?cmd=Download&source=${name}&output=${base}&token=${t}`,
       /^video\/mp4/,
       signal,
     );

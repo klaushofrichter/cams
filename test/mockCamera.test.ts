@@ -181,11 +181,13 @@ describe('mock camera recordings', () => {
     const { app, state } = createMockCamera({ ...creds, clips: [{ daysAgo: 0, start: '081510', end: '081535', triggers: ['motion'] }] });
     const t = await token(app);
     const name = (await search(app, t, 0, chicagoToday())).body[0].value.SearchResult.File[0].name;
-    const ok = await request(app).get(`/cgi-bin/api.cgi?cmd=Download&source=${encodeURIComponent(name)}&output=x.mp4&token=${t}`);
+    const ok = await request(app).get(`/cgi-bin/api.cgi?cmd=Download&source=${name}&output=x.mp4&token=${t}`);
     expect(ok.status).toBe(200);
     expect(ok.headers['content-type']).toBe('video/mp4');
     expect(state.downloads).toBe(1);
-    const bad = await request(app).get(`/cgi-bin/api.cgi?cmd=Download&source=${encodeURIComponent(name)}&output=x.mp4&token=nope`);
+    // Firmware: a percent-encoded source makes the camera drop the connection.
+    await expect(request(app).get(`/cgi-bin/api.cgi?cmd=Download&source=${encodeURIComponent(name)}&output=x.mp4&token=${t}`)).rejects.toThrow();
+    const bad = await request(app).get(`/cgi-bin/api.cgi?cmd=Download&source=${name}&output=x.mp4&token=nope`);
     expect(bad.status).toBe(401);
     expect(bad.headers['content-type']).toMatch(/^text\/html/);
     expect(bad.text).toBe('');

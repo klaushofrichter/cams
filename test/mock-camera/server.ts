@@ -259,6 +259,14 @@ export function createMockCamera(opts: MockCameraOptions): MockCamera {
 
   app.get('/cgi-bin/api.cgi', (req: Request, res: Response) => {
     if (req.query.cmd === 'Download') {
+      // Firmware: a percent-encoded source path makes the camera drop the
+      // connection without any response.
+      const rawQuery = req.originalUrl.slice(req.originalUrl.indexOf('?') + 1);
+      const rawSource = rawQuery.split('&').find((kv) => kv.startsWith('source=')) ?? '';
+      if (rawSource.toUpperCase().includes('%2F')) {
+        req.socket.destroy();
+        return;
+      }
       if (!valid(req)) {
         // Firmware: HTTP 401, text/html, empty body.
         res.status(401).type('text/html').end();

@@ -9,4 +9,4 @@ published as [GitHub releases](https://github.com/klaushofrichter/cams/releases)
 ## [Unreleased]
 
 
-- Fix: recordings list failed on the real camera (the firmware rejects concurrent Search requests with rspCode -54); searches now run one at a time per camera.
+- Fix: clip playback, thumbnails and downloads failed on the real camera (it drops a Download whose source path is percent-encoded); one transfer at a time per camera, like the camera's own web UI.

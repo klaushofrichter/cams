@@ -35,7 +35,10 @@ interface DayEntry {
 const TODAY_TTL = 30_000;
 const PAST_TTL = 600_000;
 const MONTH_TTL = 300_000;
-const TRANSFERS_PER_CAMERA = 2;
+// The camera's own web UI allows one download at a time (CheckDownload's
+// downloadTask), and overlapping downloads left it refusing all of them
+// until a power cycle.
+const TRANSFERS_PER_CAMERA = 1;
 const RECENT_WINDOW_MS = 24 * 60 * 60 * 1000;
 
 function cameraToday(offsetMinutes: number, now: number): string {
