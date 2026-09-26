@@ -9,6 +9,9 @@ RUN npm run build
 
 FROM node:26-alpine
 WORKDIR /app
+# Thumbnails of recorded clips (server/recordings/thumbnail.ts).
+RUN apk add --no-cache ffmpeg
+ENV CACHE_DIR=/var/cache/cams
 # Stamped by the deploy; "dev" for local builds, "main" for build-push.
 ARG APP_VERSION=dev
 ENV APP_VERSION=$APP_VERSION
