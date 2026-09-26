@@ -63,6 +63,9 @@ export class ReolinkClient {
   private loginInFlight: Promise<string> | null = null;
   private lastLoginFailure = Number.NEGATIVE_INFINITY;
   private readonly gate: Semaphore;
+  // The firmware runs one Search at a time: a second concurrent Search fails
+  // with rspCode -54, and the one that doesn't fail can come back empty.
+  private readonly searchGate = new Semaphore(1);
   private readonly timeoutMs: number;
   private readonly target: CameraTarget;
 
@@ -327,9 +330,11 @@ export class ReolinkClient {
   }
 
   async searchDay(date: string, stream: 'main' | 'sub'): Promise<{ name: string; size: number }[]> {
-    const value = await this.command<{ SearchResult?: { File?: { name: string; size: string | number }[] } }>('Search', {
-      Search: { channel: 0, onlyStatus: 0, streamType: stream, ...ReolinkClient.dayRange(date) },
-    });
+    const value = await this.searchGate.run(() =>
+      this.command<{ SearchResult?: { File?: { name: string; size: string | number }[] } }>('Search', {
+        Search: { channel: 0, onlyStatus: 0, streamType: stream, ...ReolinkClient.dayRange(date) },
+      }),
+    );
     return (value.SearchResult?.File ?? []).map((f) => ({ name: f.name, size: Number(f.size) }));
   }
 
@@ -337,15 +342,17 @@ export class ReolinkClient {
   async searchMonth(month: string): Promise<string[]> {
     const [year, mon] = month.split('-').map(Number);
     const lastDay = new Date(Date.UTC(year, mon, 0)).getUTCDate();
-    const value = await this.command<{ SearchResult?: { Status?: { year: number; mon: number; table: string }[] } }>('Search', {
-      Search: {
-        channel: 0,
-        onlyStatus: 1,
-        streamType: 'main',
-        StartTime: { year, mon, day: 1, hour: 0, min: 0, sec: 0 },
-        EndTime: { year, mon, day: lastDay, hour: 23, min: 59, sec: 59 },
-      },
-    });
+    const value = await this.searchGate.run(() =>
+      this.command<{ SearchResult?: { Status?: { year: number; mon: number; table: string }[] } }>('Search', {
+        Search: {
+          channel: 0,
+          onlyStatus: 1,
+          streamType: 'main',
+          StartTime: { year, mon, day: 1, hour: 0, min: 0, sec: 0 },
+          EndTime: { year, mon, day: lastDay, hour: 23, min: 59, sec: 59 },
+        },
+      }),
+    );
     const days: string[] = [];
     for (const s of value.SearchResult?.Status ?? []) {
       if (s.year !== year || s.mon !== mon) continue;

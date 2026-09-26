@@ -309,6 +309,21 @@ describe('Semaphore', () => {
 });
 
 describe('ReolinkClient recordings', () => {
+  // Firmware: two Searches at once fail with rspCode -54 (the other may come
+  // back empty), so the client must run a camera's searches one at a time.
+  it('runs concurrent searches one at a time, like the firmware needs', async () => {
+    const client = new ReolinkClient(cam);
+    const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Chicago' }).format(new Date());
+    const [sub, main, days] = await Promise.all([
+      client.searchDay(today, 'sub'),
+      client.searchDay(today, 'main'),
+      client.searchMonth(today.slice(0, 7)),
+    ]);
+    expect(sub.length).toBeGreaterThan(0);
+    expect(main.length).toBe(sub.length);
+    expect(days).toContain(today);
+  });
+
   it('reads camera time into offsets and caches it', async () => {
     const client = new ReolinkClient(cam);
     const t = await client.timeInfo();
