@@ -15,14 +15,13 @@ export default defineConfig({
     colorScheme: 'light',
   },
   projects: [
-    { name: 'desktop', use: { ...devices['Desktop Chrome'], viewport: { width: 1440, height: 900 } } },
-    { name: 'phone', use: { ...devices['Desktop Chrome'], viewport: { width: 390, height: 844 }, hasTouch: true } },
+    { name: 'desktop', use: { ...devices['Desktop Chrome'], channel: 'chrome', viewport: { width: 1440, height: 900 } } },
+    { name: 'phone', use: { ...devices['Desktop Chrome'], channel: 'chrome', viewport: { width: 390, height: 844 }, hasTouch: true } },
   ],
-  // Requires `npm run build` first; runs the production server.
-  webServer: {
-    command: 'npm start',
-    port: E2E_PORT,
-    reuseExistingServer: !process.env.CI,
-    env: E2E_ENV,
-  },
+  // Requires `npm run build` first. The mock camera stands in for the Reolink
+  // (e2e/cameras.json points "Den" at it); "Garage" is deliberately unreachable.
+  webServer: [
+    { command: 'npx tsx test/mock-camera/cli.ts', port: 8098, reuseExistingServer: !process.env.CI },
+    { command: 'npm start', port: E2E_PORT, reuseExistingServer: !process.env.CI, env: E2E_ENV },
+  ],
 });
