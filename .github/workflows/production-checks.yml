@@ -33,9 +33,18 @@ jobs:
       - run: npx playwright install --with-deps chromium
       - run: npm run build
       # playwright.config.ts starts the built server with e2e/env.ts values.
+      # Which browser `channel: 'chrome'` actually launches on this runner.
+      - run: google-chrome --version || echo "no google-chrome on PATH"
       - run: npm run test:e2e
         env:
           CI: 'true'
+      # Traces, screenshots and error context of failed tests.
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: e2e-test-results
+          path: test-results/
+          retention-days: 7
 
   codeql:
     runs-on: ubuntu-latest
