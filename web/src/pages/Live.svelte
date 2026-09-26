@@ -10,6 +10,7 @@
   import { clipAtSecond, cursorSearch, eventsUrl, localDate, saveCursor, secondsIntoDay, type EventClip } from '../lib/recordings';
   import { navigate } from '../lib/router';
   import { pref } from '../lib/preferences';
+  import { now } from '../lib/clock';
 
   interface CameraStatus {
     id: string;
@@ -176,9 +177,19 @@
       </div>
       <p class="meta">{status.model} · firmware {status.firmware}</p>
       <div class="today">
-        <span class="label">Today</span>
         {#if todayEvents.length}
-          <Timeline events={todayEvents} date={today} selectedId={null} onpick={openRecording} onstep={stepEvent} onedge={jumpToEdge} compact testid="live-timeline" />
+          <Timeline
+            events={todayEvents}
+            date={today}
+            selectedId={null}
+            onpick={openRecording}
+            onstep={stepEvent}
+            onedge={jumpToEdge}
+            compact
+            legend
+            now={secondsIntoDay(new Date($now).toISOString(), today)}
+            testid="live-timeline"
+          />
         {:else}
           <span class="none">No recordings yet today.</span>
         {/if}
@@ -208,7 +219,6 @@
   .controls button[aria-pressed='true'] { border-color: var(--accent); }
   .meta { margin: 0; font-size: 12px; color: var(--muted); }
   .today { display: flex; flex-direction: column; gap: 4px; }
-  .today .label { font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.05em; }
   .today .none { font-size: 13px; color: var(--muted); }
   .offline {
     display: flex; align-items: center; gap: 12px; flex-wrap: wrap; padding: 16px 18px; border-radius: 12px;

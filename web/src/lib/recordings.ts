@@ -154,6 +154,17 @@ export function saveCursor(c: string, cursor: Cursor): void {
   }
 }
 
+export function dayStartMs(date: string): number {
+  const [y, m, d] = date.split('-').map(Number);
+  return new Date(y, m - 1, d).getTime();
+}
+
+// The label a wall clock shows `sec` seconds after local midnight. On DST days
+// that differs from sec/3600, so labels come from the real instant.
+export function tickLabel(date: string, sec: number, locale?: string): string {
+  return new Intl.DateTimeFormat(locale, { hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).format(new Date(dayStartMs(date) + sec * 1000));
+}
+
 export function loadCursor(): { cam: string; cursor: Cursor } | null {
   try {
     const raw = sessionStorage.getItem(CURSOR_KEY);

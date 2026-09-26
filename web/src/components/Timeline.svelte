@@ -1,6 +1,7 @@
 <script lang="ts">
-  import { dayLength, layoutSegments, secondsIntoDay, timelineWindow, type EventClip, type Zoom } from '../lib/recordings';
+  import { dayLength, layoutSegments, localDate, secondsIntoDay, tickLabel, timelineWindow, type EventClip, type Zoom } from '../lib/recordings';
   import { pref } from '../lib/preferences';
+  import { timeZoneLabel } from '../lib/clock';
 
   let {
     events,
@@ -11,6 +12,8 @@
     onedge,
     compact = false,
     testid = 'timeline',
+    legend = false,
+    now = null,
   }: {
     events: EventClip[];
     date: string;
@@ -20,6 +23,8 @@
     onedge: (edge: 'start' | 'end') => void;
     compact?: boolean;
     testid?: string;
+    legend?: boolean;
+    now?: number | null;
   } = $props();
 
   let zoom: Zoom = $state(pref('timelineZoom') ?? 24);
@@ -32,12 +37,18 @@
     const step = win.end - win.start > 6 * 3600 ? 3 * 3600 : win.end - win.start > 3600 ? 3600 : 600;
     const out: { left: number; label: string }[] = [];
     for (let s = Math.ceil(win.start / step) * step; s <= win.end; s += step) {
-      const h = Math.floor(s / 3600) % 24;
-      const m = Math.floor((s % 3600) / 60);
-      out.push({ left: ((s - win.start) / (win.end - win.start)) * 100, label: `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}` });
+      out.push({ left: ((s - win.start) / (win.end - win.start)) * 100, label: tickLabel(date, s) });
     }
     return out;
   });
+
+  // Legend mode (the Live mini timeline): fixed ticks every 6 hours plus the
+  // day's end, always through tickLabel so they follow the clock across DST.
+  const legendTicks = $derived.by(() => [0, 6 * 3600, 12 * 3600, 18 * 3600, daySec].map((s) => ({ left: (s / daySec) * 100, label: tickLabel(date, s) })));
+
+  const isToday = $derived(date === localDate(new Date()));
+  const captionText = $derived(`${isToday ? 'Today' : date}, 00:00–24:00, times in ${timeZoneLabel(new Date())}`);
+  const nowLeft = $derived(now !== null && now >= win.start && now <= win.end ? ((now - win.start) / (win.end - win.start)) * 100 : null);
 
   function click(e: MouseEvent) {
     const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
@@ -62,7 +73,7 @@
   }
 </script>
 
-<div class="wrap" class:compact>
+<div class="wrap" class:compact class:legend>
   {#if !compact}
     <div class="zoom" role="group" aria-label="Timeline zoom">
       {#each [24, 6, 1] as z (z)}
@@ -74,10 +85,21 @@
     {#each segs as s (s.id)}
       <span class="seg" class:ai={s.ai} class:on={s.id === selectedId} data-testid="timeline-seg" data-clip-id={s.id} style={`left:${s.left}%;width:${s.width}%`}></span>
     {/each}
-    <div class="ticks">
-      {#each ticks as t (t.left)}<span style={`left:${t.left}%`}>{t.label}</span>{/each}
-    </div>
+    {#if nowLeft !== null}
+      <span class="now" data-testid="timeline-now" style={`left:${nowLeft}%`} aria-label="Now"></span>
+    {/if}
+    {#if !legend}
+      <div class="ticks">
+        {#each ticks as t (t.left)}<span style={`left:${t.left}%`}>{t.label}</span>{/each}
+      </div>
+    {/if}
   </div>
+  {#if legend}
+    <div class="ticks legend-ticks">
+      {#each legendTicks as t (t.left)}<span style={`left:${t.left}%`}>{t.label}</span>{/each}
+    </div>
+    <p class="caption" data-testid="live-timeline-legend">{captionText}</p>
+  {/if}
 </div>
 
 <style>
@@ -91,7 +113,11 @@
   .compact .seg { top: 6px; height: 12px; }
   .seg.ai { background: var(--accent); }
   .seg.on { outline: 2px solid var(--text); outline-offset: 1px; }
+  .now { position: absolute; top: 0; bottom: 0; width: 2px; background: var(--text); opacity: 0.6; pointer-events: none; }
   .ticks { position: absolute; left: 0; right: 0; bottom: 2px; height: 12px; pointer-events: none; }
   .ticks span { position: absolute; transform: translateX(-50%); font-size: 10px; color: var(--muted); font-family: var(--mono); }
   .compact .ticks { display: none; }
+  .legend-ticks { position: relative; height: 16px; pointer-events: none; }
+  .legend-ticks span { position: absolute; transform: translateX(-50%); font-size: 10px; color: var(--muted); font-family: var(--mono); }
+  .caption { margin: 0; font-size: 11px; color: var(--muted); }
 </style>

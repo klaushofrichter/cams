@@ -1,8 +1,8 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
-  addDays, clipAtSecond, cursorSearch, dayLength, downloadUrl, filterEvents, formatBytes, layoutSegments,
-  loadCursor, neighbour, parseCursor, saveCursor, secondsIntoDay, thumbUrl, timelineWindow, videoUrl,
+  addDays, clipAtSecond, cursorSearch, dayLength, dayStartMs, downloadUrl, filterEvents, formatBytes, layoutSegments,
+  loadCursor, neighbour, parseCursor, saveCursor, secondsIntoDay, thumbUrl, tickLabel, timelineWindow, videoUrl,
   type EventClip,
 } from './recordings';
 
@@ -160,5 +160,27 @@ describe('cursor', () => {
       setItem: () => {},
     });
     expect(loadCursor()).toBeNull();
+  });
+});
+
+describe('tick labels use real local time', () => {
+  it('matches the hour on a normal day', () => {
+    expect(tickLabel('2026-09-26', 6 * 3600, 'en-US')).toBe('06:00');
+    expect(tickLabel('2026-09-26', 86400, 'en-US')).toBe('00:00');
+  });
+
+  // Fall back (2026-11-01): the 25-hour day repeats 01:00.
+  it('follows the clock across the fall-back hour', () => {
+    expect(tickLabel('2026-11-01', 2 * 3600, 'en-US')).toBe('01:00');
+    expect(tickLabel('2026-11-01', 3 * 3600, 'en-US')).toBe('02:00');
+  });
+
+  // Spring forward (2026-03-08): 02:00 doesn't exist.
+  it('follows the clock across the spring-forward hour', () => {
+    expect(tickLabel('2026-03-08', 2 * 3600, 'en-US')).toBe('03:00');
+  });
+
+  it('knows local midnight', () => {
+    expect(new Date(dayStartMs('2026-09-26')).toISOString()).toBe('2026-09-26T05:00:00.000Z');
   });
 });
