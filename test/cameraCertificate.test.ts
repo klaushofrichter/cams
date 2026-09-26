@@ -18,7 +18,7 @@ afterEach(async () => {
 });
 
 const client = (host: string, timeoutMs = 2000) =>
-  new ReolinkClient({ id: 'cam1', name: 'Den', host, protocol: 'https', tlsServername: 'cam1.test.local', user: 'u', password: 'p' }, { timeoutMs });
+  new ReolinkClient({ id: 'cam1', name: 'Den', host, protocol: 'https', tlsServername: 'cam1.test.local', user: 'u', password: 'p' }, { timeoutMs, tlsCa: cert });
 
 async function listen(s: TlsServer | TcpServer, host = '127.0.0.1'): Promise<number> {
   server = s;
@@ -40,6 +40,18 @@ describe('cameraCertificate', () => {
   it('works with a bracketed IPv6 host', async () => {
     const port = await listen(createTlsServer({ key, cert }), '::1');
     expect((await client(`[::1]:${port}`).cameraCertificate())?.subject).toBe('cam1.test.local');
+  });
+
+  it('does not trust a certificate that fails verification', async () => {
+    const port = await listen(createTlsServer({ key, cert }));
+    const untrusting = new ReolinkClient({ id: 'cam1', name: 'Den', host: `127.0.0.1:${port}`, protocol: 'https', tlsServername: 'cam1.test.local', user: 'u', password: 'p' }, { timeoutMs: 2000 });
+    expect(await untrusting.cameraCertificate()).toBeNull();
+  });
+
+  it('does not accept a certificate for a different name', async () => {
+    const port = await listen(createTlsServer({ key, cert }));
+    const wrongName = new ReolinkClient({ id: 'cam1', name: 'Den', host: `127.0.0.1:${port}`, protocol: 'https', tlsServername: 'other.example', user: 'u', password: 'p' }, { timeoutMs: 2000, tlsCa: cert });
+    expect(await wrongName.cameraCertificate()).toBeNull();
   });
 
   it('gives up with null when the handshake never completes', async () => {

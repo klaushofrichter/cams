@@ -117,6 +117,7 @@ export type MockSettings = ReturnType<typeof initialSettings>;
 // treats partial params, measured 2026-09-26).
 function merge(target: Record<string, unknown>, patch: Record<string, unknown>): void {
   for (const [k, v] of Object.entries(patch)) {
+    if (k === '__proto__' || k === 'constructor' || k === 'prototype') continue;
     if (v && typeof v === 'object' && !Array.isArray(v) && target[k] && typeof target[k] === 'object') {
       merge(target[k] as Record<string, unknown>, v as Record<string, unknown>);
     } else {
@@ -360,8 +361,9 @@ export function createMockCamera(opts: MockCameraOptions): MockCamera {
       GetOsd: () => ({ Osd: S.Osd }),
       GetHddInfo: () => ({ HddInfo: S.HddInfo }),
     };
-    if (GETS[cmd]) {
-      res.json([{ cmd, code: 0, value: GETS[cmd]() }]);
+    const getter = Object.hasOwn(GETS, cmd) ? GETS[cmd] : undefined;
+    if (getter) {
+      res.json([{ cmd, code: 0, value: getter() }]);
       return;
     }
     const SETS: Record<string, (p: any) => void> = {
@@ -373,14 +375,15 @@ export function createMockCamera(opts: MockCameraOptions): MockCamera {
       SetWhiteLed: (p) => merge(S.WhiteLed, p.WhiteLed ?? {}),
       SetOsd: (p) => merge(S.Osd, p.Osd ?? {}),
     };
-    if (SETS[cmd]) {
+    const setter = Object.hasOwn(SETS, cmd) ? SETS[cmd] : undefined;
+    if (setter) {
       state.setCalls.push(cmd);
       const rsp = (opts.settingsFailures ?? []).includes(cmd) ? -67 : settingsError(cmd, param);
       if (rsp !== null) {
         res.json([{ cmd, code: 1, error: { detail: 'rejected by mock', rspCode: rsp } }]);
         return;
       }
-      if (!(opts.ignoreWrites ?? []).includes(cmd)) SETS[cmd](param);
+      if (!(opts.ignoreWrites ?? []).includes(cmd)) setter(param);
       res.json([{ cmd, code: 0, value: { rspCode: 200 } }]);
       return;
     }

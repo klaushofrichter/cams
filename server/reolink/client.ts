@@ -77,7 +77,8 @@ export class ReolinkClient {
 
   constructor(
     private readonly cam: CameraConfig,
-    private readonly opts: { timeoutMs?: number; maxConcurrent?: number; now?: () => number } = {},
+    // `tlsCa` is a test seam: extra trusted CA certificates for cameraCertificate().
+    private readonly opts: { timeoutMs?: number; maxConcurrent?: number; now?: () => number; tlsCa?: string | Buffer } = {},
   ) {
     this.gate = new Semaphore(opts.maxConcurrent ?? 2);
     this.timeoutMs = opts.timeoutMs ?? DEFAULT_TIMEOUT_MS;
@@ -182,7 +183,10 @@ export class ReolinkClient {
     if (this.cam.protocol !== 'https') return null;
     // Same host parsing as requests (bracketed IPv6 included). This only
     // reads the certificate for display: nothing is sent, and it runs outside
-    // the API gate because it opens no camera session.
+    // the API gate because it opens no camera session. The certificate is
+    // verified against tlsServername like every other request: an invalid or
+    // expired one shows as "not available" here, and expiry is alerted on
+    // separately (Grafana, cam1-cert-push).
     const { hostname, port } = splitHost(this.cam.host);
     const host = hostname.replace(/^\[(.*)\]$/, '$1');
     return new Promise((resolve) => {
@@ -194,7 +198,7 @@ export class ReolinkClient {
         socket.destroy();
         resolve(v);
       };
-      const socket = tlsConnect({ host, port: port ?? 443, servername: this.cam.tlsServername, rejectUnauthorized: false }, () => {
+      const socket = tlsConnect({ host, port: port ?? 443, servername: this.cam.tlsServername ?? host, ca: this.opts.tlsCa }, () => {
         const c = socket.getPeerCertificate();
         const t = c?.valid_to ? Date.parse(c.valid_to) : NaN;
         // A throw here would be an uncaught exception in a socket listener.

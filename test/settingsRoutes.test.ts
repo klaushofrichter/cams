@@ -157,6 +157,18 @@ describe('settings API', () => {
     expect(state.reboots).toBe(1);
   });
 
+  // CSRF: every state-changing route sits behind requireSameOrigin.
+  it.each([
+    ['put', '/api/cameras/cam1/settings/image', { dayNight: 'color' }],
+    ['post', '/api/cameras/cam1/reboot', { confirm: 'reboot' }],
+    ['put', '/api/preferences', { timelineZoom: 6 }],
+  ] as const)('rejects a cross-site %s %s', async (method, url, body) => {
+    const res = await request(createApp())[method](url).set('Cookie', auth).set('Origin', 'https://evil.example').send(body);
+    expect(res.status).toBe(403);
+    expect(state.setCalls).toEqual([]);
+    expect(state.reboots).toBe(0);
+  });
+
   it('lists cameras with a LAN web UI link built from the host without its port', async () => {
     const res = await request(createApp()).get('/api/cameras').set('Cookie', auth);
     expect(res.body).toEqual([{ id: 'cam1', name: 'Den', webUiUrl: 'https://127.0.0.1/' }]);
