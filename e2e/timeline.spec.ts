@@ -41,8 +41,12 @@ test('the Recordings timeline previews the frame under the pointer', async ({ pa
   const bar = page.getByTestId('timeline');
   await expect(bar).toBeVisible();
   const box = (await bar.boundingBox())!;
-  const now = new Date();
-  const frac = (now.getHours() * 3600 + now.getMinutes() * 60 + now.getSeconds() - 120) / 86400; // two minutes ago
+  // Two minutes ago in the browser's time zone (America/Chicago), not the
+  // test runner's (UTC on CI).
+  const frac = await page.evaluate(() => {
+    const now = new Date();
+    return (now.getHours() * 3600 + now.getMinutes() * 60 + now.getSeconds() - 120) / 86400;
+  });
   await expect.poll(async () => {
     await page.mouse.move(box.x + box.width * frac, box.y + box.height / 2);
     return page.getByTestId('scrub-preview').isVisible();
