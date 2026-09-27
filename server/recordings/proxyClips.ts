@@ -35,3 +35,22 @@ export async function openProxyClip(cameraId: string, id: number, signal?: Abort
   const cl = res.headers.get('content-length');
   return { stream: Readable.fromWeb(res.body as import('stream/web').ReadableStream), size: cl && /^\d+$/.test(cl) ? Number(cl) : null };
 }
+
+// The first still the proxy has in [from, to] (unix ms), for thumbnails.
+export async function findProxyStill(cameraId: string, from: number, to: number): Promise<number | null> {
+  const client = getProxyClient(cameraId);
+  if (!client) return null;
+  const stills = await client.json<number[]>(`/api/cameras/${encodeURIComponent(proxyCameraId(cameraId))}/stills`, { from, to });
+  const ts = stills.find((t) => Number.isSafeInteger(t) && t >= from && t <= to);
+  return ts ?? null;
+}
+
+export async function openProxyStill(cameraId: string, ts: number): Promise<Readable> {
+  const client = getProxyClient(cameraId)!;
+  const res = await client.open(`/api/cameras/${encodeURIComponent(proxyCameraId(cameraId))}/stills/${Math.trunc(ts)}.jpg`, undefined, { idleMs: 10_000 });
+  if (!res.ok || !res.body) {
+    await res.body?.cancel();
+    throw new Error(`cam-proxy ${client.host()} answered ${res.status} for still ${ts}`);
+  }
+  return Readable.fromWeb(res.body as import('stream/web').ReadableStream);
+}

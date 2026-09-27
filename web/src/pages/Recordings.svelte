@@ -289,7 +289,7 @@
           onvideoerror={recheckDownloads}
         />
         {#if downloads === 'proxy'}
-          <p class="note" data-testid="recordings-from-proxy" role="status">The camera isn't serving recordings; they play from its camera gateway.</p>
+          <p class="note" data-testid="recordings-from-proxy" role="status">Recordings and thumbnails come from the camera gateway (cam-proxy) where it has them.</p>
         {/if}
         {#if downloads === 'unavailable'}
           <p class="banner" data-testid="recordings-unavailable" role="status">
