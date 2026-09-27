@@ -20,7 +20,10 @@ clip playback and downloads, and camera settings, behind Google sign-in.
 - **cam-proxy (optional, per camera):** a camera can have a [cam-proxy](https://github.com/klaushofrichter/cam-proxy), a gateway that keeps the one camera connection, stores a still per second and receives the camera's clips by FTP. cams talks to it server-side (`server/proxy/`), with the token from the camera's `proxy` entry:
   - **Events at once:** one event-stream subscription per proxied camera (resuming after drops) is relayed to browsers as `GET /api/events/stream`. Recordings and Live reload on a new event or clip instead of polling every minute. Polling continues for cameras without a proxy, and while a proxy is down.
   - **Timeline:** the Timeline page (in the menu when some camera has a proxy) shows a day's stills as one tile per minute, marks event minutes, and steps through a minute's stills.
-  - **Clips:** when the camera refuses a recording download (the real camera does), the clip it uploaded to the proxy plays instead, with seeking, thumbnails and downloads (`…-proxy.mp4`).
+  - **Clips first from the proxy:** a recording plays from the clip the camera uploaded to the proxy (with seeking); the camera is asked only when the proxy has none. Downloads: the sub stream from the proxy (`…-proxy.mp4`), full quality from the camera. The camera should upload the sub stream (cam-proxy `ftp.stream: sub`: H.264, plays in every browser).
+  - **Event thumbnails** are the proxy's still 2 s into the event: no clip transfer, no ffmpeg.
+  - **Scrub preview:** moving over the Recordings timeline shows the frame of that moment (the proxy's preview sprites).
+  - **Live fallback:** while live video isn't playing (or the camera is offline), Live shows the proxy's newest still, updated every second.
 
 ## Cameras
 
