@@ -1,10 +1,11 @@
 import { expect, test } from '@playwright/test';
 import { PREFS_EMAIL } from './env';
 import { signIn } from './session';
+import { simCounters } from './sims';
 
-// Den (cam1) is backed by the mock camera on 8098; Porch is backed by a
+// Den (cam1) is backed by the cam-sim camera on 8098; Porch is backed by a
 // second, separate mock on 8097 that's started with
-// MOCK_SETTINGS_FAILURES=SetWhiteLed (playwright.config.ts), so every
+// a settings.fail fault for SetWhiteLed (e2e/sims.ts), so every
 // spotlight write on Porch comes back rejected. That lets the "partial save"
 // test below exercise a real rejected-field response without making Den's
 // mock -- which live.spec.ts and live-teardown.spec.ts also depend on --
@@ -40,7 +41,7 @@ test('settings cards load the camera state', async ({ page }) => {
 });
 
 test('saving a camera setting shows the success state and persists', async ({ page }, testInfo) => {
-  test.skip(testInfo.project.name !== 'desktop', 'mutates Porch, which is shared mock-camera state; avoid racing with other projects');
+  test.skip(testInfo.project.name !== 'desktop', 'mutates Porch, which is shared simulated-camera state; avoid racing with other projects');
   await page.goto('/app/settings');
   await page.getByTestId('camera-picker').selectOption({ label: 'Porch' });
   const name = page.getByTestId('osd-name');
@@ -63,7 +64,7 @@ test('saving a camera setting shows the success state and persists', async ({ pa
 });
 
 test('a rejected field shows the error next to it while the others save', async ({ page }, testInfo) => {
-  test.skip(testInfo.project.name !== 'desktop', 'mutates Porch, which is shared mock-camera state; avoid racing with other projects');
+  test.skip(testInfo.project.name !== 'desktop', 'mutates Porch, which is shared simulated-camera state; avoid racing with other projects');
   await page.goto('/app/settings');
   await page.getByTestId('camera-picker').selectOption({ label: 'Porch' });
   await expect(page.getByTestId('spotlight-mode')).toBeVisible();
@@ -125,8 +126,7 @@ test('reboot needs a second click and can be cancelled', async ({ page }) => {
   await expect(page.getByTestId('reboot-confirm')).toBeVisible();
   await page.getByTestId('reboot-cancel').click();
   await expect(page.getByTestId('reboot-confirm')).toHaveCount(0);
-  const state = await (await page.request.get('http://127.0.0.1:8098/__state')).json();
-  expect(state.reboots).toBe(0);
+  expect((await simCounters(page, 'den')).reboots).toBe(0);
 });
 
 // The server's answer is faked, so no camera is actually rebooted.
@@ -172,4 +172,15 @@ test('about shows version, build, cameras and licences', async ({ page }) => {
   await expect(page.getByTestId('about-cameras')).toContainText('RLC-1224A');
   await expect(page.getByTestId('about-cameras')).toContainText('Garage: offline');
   await expect(page.getByTestId('about-licences')).toContainText('mpegts.js');
+});
+
+// A camera configured with webUiNote (e2e/cameras.json: Shed, a simulated
+// camera) shows that note instead of a link to a web page it doesn't have.
+test('a camera without a web page shows its note instead of a link', async ({ page }) => {
+  await page.goto('/app/settings');
+  await page.getByTestId('camera-picker').selectOption('shed');
+  await expect(page.getByTestId('camera-webui-link')).toHaveCount(0);
+  await expect(page.getByTestId('camera-webui-note')).toHaveAttribute('title', 'Website not available - simulated camera');
+  await expect(page.getByTestId('device-webui-link')).toHaveCount(0);
+  await expect(page.getByTestId('device-webui-note')).toHaveText('Website not available - simulated camera');
 });

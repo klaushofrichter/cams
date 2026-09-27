@@ -8,7 +8,7 @@ import { signIn } from './session';
 // web/src/lib/keepAlive.test.ts with fake timers; this file doesn't wait out
 // a real minute.
 //
-// Isolation: the mock camera's /__state counters (activeStreams,
+// Isolation: the simulator's counters (activeStreams,
 // streamsOpened) are shared with every other spec running in parallel
 // against Den, so they can't prove anything about THIS page. Instead each
 // test watches its own page's /live requests: a new request means a

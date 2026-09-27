@@ -79,7 +79,7 @@ export function byStartTime(a: { start: string }, b: { start: string }): number 
 // falling back to the other stream when the requested one is missing.
 // `served` names the stream actually picked, which may differ from
 // `quality` - callers must label the result by `served`, not `quality`.
-// Exported for a direct unit test of the fallback (the mock camera always
+// Exported for a direct unit test of the fallback (the simulated camera always
 // has both streams for every clip, so this can't be exercised end-to-end).
 export function pickStream(
   quality: 'sub' | 'main',

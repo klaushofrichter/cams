@@ -8,7 +8,7 @@ import { resetClients } from '../server/reolink/clients';
 import { liveStreamCount, MAX_LIVE_PER_CAMERA } from '../server/routes/cameras';
 import { logger } from '../server/logger';
 import { SESSION_COOKIE, signSession } from '../server/session';
-import { createMockCamera, MockState } from './mock-camera/server';
+import { createMockCamera, MockState } from './camera/sim';
 
 const auth = `${SESSION_COOKIE}=${signSession('klaus@klaushofrichter.net')}`;
 let camServer: Server;
@@ -17,7 +17,7 @@ let appServer: Server;
 let base: string;
 
 beforeEach(async () => {
-  const mock = createMockCamera({ user: 'u', password: 'p' });
+  const mock = await createMockCamera({ user: 'u', password: 'p' });
   camState = mock.state;
   camServer = mock.app.listen(0);
   await new Promise((r) => camServer.once('listening', r));
@@ -151,7 +151,7 @@ describe('camera routes', () => {
   // tight timeout below only passes if release happens promptly.
   it('releases the stream slot when the viewer disconnects before openLive() resolves', async () => {
     const flvDelayMs = 300;
-    const slow = createMockCamera({ user: 'u', password: 'p', flvDelayMs });
+    const slow = await createMockCamera({ user: 'u', password: 'p', flvDelayMs });
     const slowServer = slow.app.listen(0);
     await new Promise((r) => slowServer.once('listening', r));
     const slowPort = (slowServer.address() as AddressInfo).port;

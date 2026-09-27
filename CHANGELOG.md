@@ -8,7 +8,6 @@ published as [GitHub releases](https://github.com/klaushofrichter/cams/releases)
 
 ## [Unreleased]
 
-- When the camera refuses recording downloads, cams stops asking (one check a minute), and Recordings says so with a banner instead of showing blank thumbnails. It recovers by itself when the camera does.
-- A cancelled Google sign-in returns to the start page. Session tokens are pinned to HS256. Return paths with dot segments are rejected.
-- Live explains when cams itself can't reach the camera. A failed snapshot shows a message instead of saving a broken file. The camera picker's arrow follows the theme.
+- A second camera: cam2, a simulated Reolink ([cam-sim](https://github.com/klaushofrichter/cam-sim)) running in the cluster, is in the camera picker next to Den.
+- A camera can have its own web-page link, or a note instead of one. cam2 shows "Website not available - simulated camera" rather than a link that can't open.
 
