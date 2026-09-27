@@ -78,3 +78,29 @@ describe('proxy media routes', () => {
     expect(r.body).toEqual({ error: 'proxy_unavailable' });
   });
 });
+
+// Plan 7: the Live fallback's newest still.
+describe('GET /api/cameras/:id/still/latest.jpg', () => {
+  it('serves the newest still of the last two minutes', async () => {
+    const now = Date.now();
+    const newest = Buffer.concat([JPEG, Buffer.from('newest')]);
+    fake.stills.set('cam1', new Map([[now - 60_000, JPEG], [now - 2000, newest], [now - 500_000, JPEG]]));
+    const r = await get('/api/cameras/den/still/latest.jpg').buffer(true).parse((res, cb) => {
+      const chunks: Buffer[] = [];
+      res.on('data', (c: Buffer) => chunks.push(c));
+      res.on('end', () => cb(null, Buffer.concat(chunks)));
+    });
+    expect(r.status).toBe(200);
+    expect(r.headers['content-type']).toBe('image/jpeg');
+    expect(r.headers['cache-control']).toBe('no-store');
+    expect(r.headers['x-still-time']).toBe(String(now - 2000));
+    expect(Buffer.compare(r.body, newest)).toBe(0);
+  });
+
+  it('answers 404 when there is no recent still, and no_proxy without a proxy', async () => {
+    fake.stills.set('cam1', new Map([[Date.now() - 600_000, JPEG]]));
+    expect((await get('/api/cameras/den/still/latest.jpg')).status).toBe(404);
+    expect((await get('/api/cameras/shed/still/latest.jpg')).body).toEqual({ error: 'no_proxy' });
+    expect((await request(createApp()).get('/api/cameras/den/still/latest.jpg')).status).toBe(401);
+  });
+});
