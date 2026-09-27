@@ -555,6 +555,10 @@ use FTP; clips will arrive through a separate gateway later.
   `TestFtpV20` and `GetFtp` return `rspCode -9` on this firmware.
 - `SetFtpV20` rejects `server: ""` with `rspCode -4`. To disable FTP, leave the
   empty keys out rather than clearing them.
+- `TestFtp` takes the **whole** `Ftp` object (as `GetFtpV20` returns it). A
+  partial object answers `rspCode -56` ("err get data from json"). A server
+  it can't reach answers `rspCode -454` ("ftp connect failed"). Testing
+  changes no settings (measured 2026-09-26).
 - Uploads are named `Den_00_YYYYMMDDHHMMSS.mp4`, where `Den` is the camera
   name, plus a `.jpg` with the same stem.
 - With the main stream, one 24 s clip is H.265, about 7 MB, with the `moov`
