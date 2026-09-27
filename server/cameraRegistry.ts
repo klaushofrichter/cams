@@ -123,6 +123,11 @@ export function listCameras(): CameraSummary[] {
   return cameras.map((c) => ({ id: c.id, name: c.name, ...webUiOf(c), proxy: !!c.proxy }));
 }
 
+// Ids of the cameras that have a cam-proxy.
+export function listProxied(): string[] {
+  return cameras.filter((c) => c.proxy).map((c) => c.id);
+}
+
 export function getCamera(id: string): CameraConfig | undefined {
   return cameras.find((c) => c.id === id);
 }

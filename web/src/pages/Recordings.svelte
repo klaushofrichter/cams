@@ -14,6 +14,7 @@
   } from '../lib/recordings';
   import { preferences } from '../lib/preferences';
   import { createTodayRefresher, todayDate } from '../lib/refresh';
+  import { eventStream } from '../lib/eventStream';
   import { formatNow } from '../lib/clock';
 
   const TABS: { id: Panel; label: string }[] = [
@@ -209,8 +210,16 @@
     // Skips a tick while a load (or an earlier refresh) is still in flight,
     // so a slow response never gets raced by a second request that would
     // otherwise get dropped without ever clearing the skeleton.
-    const r = createTodayRefresher({ isToday: () => date === $todayDate, refresh: () => { if (!loading) refreshTick++; } });
-    return () => r.stop();
+    // While the camera's cam-proxy streams its events, reloads come from
+    // those; the minute poll covers a camera without one, or while it's down.
+    void $cameras; // re-run once the camera list (and whether any has a proxy) is known
+    const stream = eventStream();
+    const r = createTodayRefresher({ isToday: () => date === $todayDate, refresh: () => { if (!loading && !stream?.streaming(cam)) refreshTick++; } });
+    const stopWatch = stream?.watch(() => cam, () => { if (!loading && date === $todayDate) refreshTick++; });
+    return () => {
+      r.stop();
+      stopWatch?.();
+    };
   });
 
   let lastT = 0;

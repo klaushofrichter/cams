@@ -13,6 +13,7 @@
   import { pref } from '../lib/preferences';
   import { now } from '../lib/clock';
   import { createTodayRefresher, todayDate } from '../lib/refresh';
+  import { eventStream } from '../lib/eventStream';
   import { deriveStatus, liveStatus } from '../lib/liveStatus';
 
   interface CameraStatus {
@@ -125,8 +126,16 @@
   // after leaving Live): nobody can see the mini timeline then, so there's
   // no point spending a Search call on the camera for it.
   $effect(() => {
-    const r = createTodayRefresher({ isToday: () => true, refresh: () => { if (visible) refreshTick++; } });
-    return () => r.stop();
+    void $cameras; // re-run once the camera list (and whether any has a proxy) is known
+    const stream = eventStream();
+    const id = () => camera?.id ?? '';
+    // As on Recordings: the proxy's events when it streams, else the poll.
+    const r = createTodayRefresher({ isToday: () => true, refresh: () => { if (visible && !stream?.streaming(id())) refreshTick++; } });
+    const stopWatch = stream?.watch(id, () => { if (visible) refreshTick++; });
+    return () => {
+      r.stop();
+      stopWatch?.();
+    };
   });
 
   // Coming back to Live (visible again after being hidden) refreshes once

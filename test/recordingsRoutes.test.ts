@@ -589,3 +589,18 @@ describe('recordings API', () => {
     expect(res.type).toBe('application/json');
   });
 });
+
+// Plan 6: a cam-proxy message (a new clip, an event's end) drops the cached
+// day, so the next list asks the camera again instead of waiting for the TTL.
+describe('invalidateAround', () => {
+  it('makes the next events list fresh', async () => {
+    const search = vi.spyOn(ReolinkClient.prototype, 'searchDay');
+    await request(createApp()).get(`/api/cameras/cam1/events?date=${today()}`).set('Cookie', auth);
+    await request(createApp()).get(`/api/cameras/cam1/events?date=${today()}`).set('Cookie', auth);
+    const cached = search.mock.calls.length;
+    await getRecordings().invalidateAround('cam1', Date.now());
+    await request(createApp()).get(`/api/cameras/cam1/events?date=${today()}`).set('Cookie', auth);
+    expect(search.mock.calls.length).toBeGreaterThan(cached);
+    search.mockRestore();
+  });
+});

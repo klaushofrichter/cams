@@ -113,6 +113,19 @@ export class RecordingsService {
 
   constructor(private readonly cache: DiskCache) {}
 
+  // A cam-proxy said this camera's recordings changed around `ts`: the next
+  // day and month lists ask the camera again (the day before and after too,
+  // for events near midnight).
+  async invalidateAround(cameraId: string, ts: number): Promise<void> {
+    const time = await this.client(cameraId).timeInfo();
+    const offset = time.stdOffsetMinutes + time.dstOffsetMinutes;
+    for (const t of [ts - 86_400_000, ts, ts + 86_400_000]) {
+      const date = cameraToday(offset, t);
+      this.dayCache.delete(`${cameraId}|${date}`);
+      this.days_.delete(`${cameraId}|${date.slice(0, 7)}`);
+    }
+  }
+
   private client(cameraId: string) {
     const c = getClient(cameraId);
     if (!c) throw new RecordingError('unknown_clip', 'unknown camera');
