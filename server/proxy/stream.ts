@@ -13,6 +13,7 @@ export interface StreamOptions {
   backoffMinMs?: number;
   backoffMaxMs?: number;
   healthyMs?: number; // connected this long: the backoff starts over
+  idleMs?: number; // nothing received this long (cam-proxy pings every 15 s): reconnect
 }
 
 const TYPES = 'camera-event,camera-status,clip';
@@ -68,7 +69,7 @@ export class ProxyStream extends EventEmitter {
     this.abort = abort;
     const connectedAt = Date.now();
     try {
-      const res = await this.client.open('/api/stream', { types: TYPES, since: this.lastId }, { signal: abort.signal, timeoutMs: null });
+      const res = await this.client.open('/api/stream', { types: TYPES, since: this.lastId }, { signal: abort.signal, idleMs: this.o.idleMs ?? 45_000 });
       if (!res.ok || !res.body) {
         await res.body?.cancel();
         throw new ProxyError('proxy_error', `cam-proxy ${this.client.host()} stream answered ${res.status}`, res.status);

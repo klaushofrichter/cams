@@ -19,6 +19,11 @@ test('the Timeline shows the day’s minutes from the camera gateway, and a stil
   await expect.poll(() => still.evaluate((img: HTMLImageElement) => img.naturalWidth)).toBe(896);
   await page.keyboard.press('ArrowRight');
   await expect(page.getByTestId('timeline-still')).toBeVisible();
+  // The URL holds the view: a reload opens the same still.
+  await expect(page).toHaveURL(/cam=cam1&date=\d{4}-\d{2}-\d{2}&t=\d+/);
+  const src = await page.getByTestId('timeline-still').getAttribute('src');
+  await page.reload();
+  await expect(page.getByTestId('timeline-still')).toHaveAttribute('src', src!);
   await page.getByTestId('timeline-close').click();
   await expect(page.getByTestId('timeline-viewer')).toHaveCount(0);
 });

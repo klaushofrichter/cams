@@ -40,21 +40,54 @@ export class ProxyClient {
 
   // The upstream response, whatever its status, for streaming (images, clip
   // files, the event stream). A refused token and a dead proxy still throw.
-  async open(path: string, query?: Query, init: { headers?: Record<string, string>; signal?: AbortSignal; timeoutMs?: number | null } = {}): Promise<Response> {
-    const timeout = init.timeoutMs === null ? undefined : AbortSignal.timeout(init.timeoutMs ?? this.o.timeoutMs ?? 10_000);
-    const signal = timeout && init.signal ? AbortSignal.any([timeout, init.signal]) : (timeout ?? init.signal);
+  // `timeoutMs` bounds the wait for the answer to start (null: none);
+  // `idleMs` ends a body that stops arriving for that long (a large clip may
+  // take minutes to stream, a stalled one must not hang forever).
+  async open(
+    path: string,
+    query?: Query,
+    init: { headers?: Record<string, string>; signal?: AbortSignal; timeoutMs?: number | null; idleMs?: number } = {},
+  ): Promise<Response> {
+    const ctl = new AbortController();
+    const onAbort = () => ctl.abort(init.signal?.reason);
+    init.signal?.addEventListener('abort', onAbort, { once: true });
+    const ms = init.timeoutMs === null ? undefined : (init.timeoutMs ?? this.o.timeoutMs ?? 10_000);
+    const headerTimer = ms === undefined ? undefined : setTimeout(() => ctl.abort(new Error('timeout')), ms);
     let res: Response;
     try {
-      res = await fetch(this.urlOf(path, query), { headers: { ...init.headers, Authorization: `Bearer ${this.p.token}` }, signal, redirect: 'error' });
+      res = await fetch(this.urlOf(path, query), { headers: { ...init.headers, Authorization: `Bearer ${this.p.token}` }, signal: ctl.signal, redirect: 'error' });
     } catch (err) {
+      init.signal?.removeEventListener('abort', onAbort);
       if (init.signal?.aborted) throw err;
       throw new ProxyError('proxy_unreachable', `cam-proxy ${this.host()} unreachable (${(err as Error).name})`);
+    } finally {
+      clearTimeout(headerTimer);
     }
     if (res.status === 401 || res.status === 403) {
       await res.body?.cancel();
       throw new ProxyError('proxy_unauthorized', `cam-proxy ${this.host()} refused the token (${res.status})`, res.status);
     }
-    return res;
+    if (!init.idleMs || !res.body) return res;
+    // A watchdog on the body: every chunk re-arms it.
+    const idle = init.idleMs;
+    let timer: NodeJS.Timeout | undefined;
+    const arm = () => {
+      clearTimeout(timer);
+      timer = setTimeout(() => ctl.abort(new Error('stalled')), idle);
+    };
+    arm();
+    const body = res.body.pipeThrough(
+      new TransformStream<Uint8Array, Uint8Array>({
+        transform(chunk, c) {
+          arm();
+          c.enqueue(chunk);
+        },
+        flush() {
+          clearTimeout(timer);
+        },
+      }),
+    );
+    return new Response(body, { status: res.status, statusText: res.statusText, headers: res.headers });
   }
 
   async json<T>(path: string, query?: Query): Promise<T> {

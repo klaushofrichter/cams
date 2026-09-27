@@ -37,25 +37,58 @@ const parse = (data: string): unknown => {
   }
 };
 
+const REOPEN_MIN_MS = 5_000;
+const REOPEN_MAX_MS = 60_000;
+// A recording still being written when its event ends isn't listed yet.
+const AFTER_EVENT_MS = 60_000;
+
 export function createEventStream(opts: { url?: string; factory?: (url: string) => EventSourceLike } = {}): EventStream {
   const url = opts.url ?? '/api/events/stream';
-  const source = (opts.factory ?? ((u) => new EventSource(u) as unknown as EventSourceLike))(url);
+  const factory = opts.factory ?? ((u) => new EventSource(u) as unknown as EventSourceLike);
   const state = writable<{ connected: boolean; up: Record<string, boolean> }>({ connected: false, up: {} });
-  const watchers = new Set<(c: Change) => void>();
+  const watchers = new Set<{ cam: () => string; fire: (after?: number) => void }>();
+  let source: EventSourceLike;
+  let missed = false; // disconnected since the last open: pages reload once back
+  let reopenMs = REOPEN_MIN_MS;
+  let reopenTimer: ReturnType<typeof setTimeout> | undefined;
+  let closed = false;
 
-  source.onopen = () => state.update((s) => ({ ...s, connected: true }));
-  // The server repeats every camera's state on reconnect.
-  source.onerror = () => state.set({ connected: false, up: {} });
-  source.addEventListener('proxy', (e) => {
-    const p = parse(e.data) as { cam?: unknown; up?: unknown } | undefined;
-    if (!p || typeof p.cam !== 'string' || typeof p.up !== 'boolean') return;
-    state.update((s) => ({ ...s, up: { ...s.up, [p.cam as string]: p.up as boolean } }));
-  });
-  source.addEventListener('change', (e) => {
-    const c = parse(e.data) as Change | undefined;
-    if (!c || typeof c.cam !== 'string') return;
-    for (const w of watchers) w(c);
-  });
+  const open = () => {
+    source = factory(url);
+    source.onopen = () => {
+      state.update((s) => ({ ...s, connected: true }));
+      reopenMs = REOPEN_MIN_MS;
+      if (missed) for (const w of watchers) w.fire();
+      missed = false;
+    };
+    // The server repeats every camera's state on reconnect.
+    source.onerror = () => {
+      state.set({ connected: false, up: {} });
+      missed = true;
+      // A non-200 answer (session expired, rate limit, too many streams, a
+      // rollout) closes an EventSource for good: open a new one later.
+      if (source.readyState === 2 && !closed) {
+        source.close();
+        reopenTimer = setTimeout(open, reopenMs);
+        reopenMs = Math.min(reopenMs * 2, REOPEN_MAX_MS);
+      }
+    };
+    source.addEventListener('proxy', (e) => {
+      const p = parse(e.data) as { cam?: unknown; up?: unknown } | undefined;
+      if (!p || typeof p.cam !== 'string' || typeof p.up !== 'boolean') return;
+      state.update((s) => ({ ...s, up: { ...s.up, [p.cam as string]: p.up as boolean } }));
+    });
+    source.addEventListener('change', (e) => {
+      const c = parse(e.data) as Change | undefined;
+      if (!c || typeof c.cam !== 'string') return;
+      for (const w of watchers) {
+        if (c.cam !== w.cam()) continue;
+        w.fire();
+        if (c.type === 'camera-event') w.fire(AFTER_EVENT_MS);
+      }
+    });
+  };
+  open();
 
   return {
     state,
@@ -65,18 +98,29 @@ export function createEventStream(opts: { url?: string; factory?: (url: string) 
     },
     watch(cam, onChange, debounceMs = 1000) {
       let timer: ReturnType<typeof setTimeout> | undefined;
-      const w = (c: Change) => {
-        if (c.cam !== cam()) return;
-        clearTimeout(timer);
-        timer = setTimeout(onChange, debounceMs);
+      let later: ReturnType<typeof setTimeout> | undefined;
+      const w = {
+        cam,
+        fire(after?: number) {
+          if (after) {
+            clearTimeout(later);
+            later = setTimeout(onChange, after);
+            return;
+          }
+          clearTimeout(timer);
+          timer = setTimeout(onChange, debounceMs);
+        },
       };
       watchers.add(w);
       return () => {
         clearTimeout(timer);
+        clearTimeout(later);
         watchers.delete(w);
       };
     },
     close() {
+      closed = true;
+      clearTimeout(reopenTimer);
       source.close();
       watchers.clear();
     },

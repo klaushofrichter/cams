@@ -29,6 +29,11 @@ class FakeSource implements EventSourceLike {
     this.readyState = 0;
     this.onerror?.();
   }
+  refuse() {
+    // A non-200 answer on reconnect (401, 429, 503): EventSource gives up.
+    this.readyState = 2;
+    this.onerror?.();
+  }
   emit(type: string, data: unknown) {
     for (const fn of this.listeners.get(type) ?? []) fn({ data: JSON.stringify(data) });
   }
@@ -70,6 +75,49 @@ describe('createEventStream', () => {
     FakeSource.last.emit('change', { cam: 'den', type: 'clip', ts: 4 });
     vi.advanceTimersByTime(2000);
     expect(den).toHaveBeenCalledTimes(1);
+    s.close();
+  });
+
+  // Final review I4: an HTTP error closes an EventSource for good; the
+  // stream is opened again after a backoff, and pages reload what they missed.
+  it('opens a new source after a refused reconnect, and tells watchers to reload', () => {
+    vi.useFakeTimers();
+    const s = make();
+    const first = FakeSource.last;
+    first.open();
+    const den = vi.fn();
+    s.watch(() => 'den', den, 1000);
+    first.refuse();
+    expect(first.closed).toBe(true);
+    vi.advanceTimersByTime(5000);
+    const second = FakeSource.last;
+    expect(second).not.toBe(first);
+    second.open();
+    vi.advanceTimersByTime(1000);
+    expect(den).toHaveBeenCalledTimes(1); // the reload after the gap
+    // A transient network error: EventSource reconnects by itself, and the
+    // reload follows once it is back.
+    second.fail();
+    second.open();
+    vi.advanceTimersByTime(1000);
+    expect(den).toHaveBeenCalledTimes(2);
+    expect(FakeSource.last).toBe(second);
+    s.close();
+  });
+
+  // Final review (Minor 9, re-graded): a recording still being written when
+  // its event ends isn't listed yet; a second reload a minute later finds it.
+  it('reloads again a minute after an event ends', () => {
+    vi.useFakeTimers();
+    const s = make();
+    FakeSource.last.open();
+    const den = vi.fn();
+    s.watch(() => 'den', den, 1000);
+    FakeSource.last.emit('change', { cam: 'den', type: 'camera-event', ts: 1 });
+    vi.advanceTimersByTime(1000);
+    expect(den).toHaveBeenCalledTimes(1);
+    vi.advanceTimersByTime(60_000);
+    expect(den).toHaveBeenCalledTimes(2);
     s.close();
   });
 

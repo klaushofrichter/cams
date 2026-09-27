@@ -65,7 +65,7 @@ for (const kind of ['previews', 'stills'] as const) {
     const p = proxied(req, res);
     if (!p) return;
     try {
-      const up = await p.client.open(`/api/cameras/${p.cam}/${kind}/${req.params.file}`);
+      const up = await p.client.open(`/api/cameras/${p.cam}/${kind}/${req.params.file}`, undefined, { idleMs: 10_000 });
       if (!up.ok || !up.body) {
         await up.body?.cancel();
         return void res.status(up.status === 404 ? 404 : 502).json({ error: up.status === 404 ? 'not_found' : 'proxy_unavailable' });

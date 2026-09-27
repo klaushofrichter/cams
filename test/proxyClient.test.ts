@@ -58,6 +58,34 @@ describe('ProxyClient', () => {
     }
   });
 
+  // Final review I2: the deadline is for the answer to start; a large clip
+  // may take longer to stream, and stalls end it instead.
+  it('lets a slow body finish past the header deadline, and ends a stalled one', async () => {
+    const http = await import('http');
+    const server = http.createServer((req, res) => {
+      res.writeHead(200, { 'Content-Type': 'video/mp4' });
+      let n = 0;
+      const stall = req.url === '/stall';
+      const t = setInterval(() => {
+        if (stall && n === 2) return; // stops sending, keeps the connection
+        res.write(Buffer.alloc(100));
+        if (++n === 10) {
+          clearInterval(t);
+          res.end();
+        }
+      }, 60);
+      req.on('close', () => clearInterval(t));
+    });
+    await new Promise<void>((r) => server.listen(0, '127.0.0.1', () => r()));
+    const url = `http://127.0.0.1:${(server.address() as net.AddressInfo).port}`;
+    const c = new ProxyClient({ url, token: FAKE_TOKEN }, { timeoutMs: 200 });
+    const slow = await c.open('/slow', undefined, { idleMs: 200 });
+    expect((await slow.arrayBuffer()).byteLength).toBe(1000); // ~600 ms in total
+    const stalled = await c.open('/stall', undefined, { idleMs: 200 });
+    await expect(stalled.arrayBuffer()).rejects.toThrow();
+    server.close();
+  });
+
   it('answers other failures as proxy_error with the status', async () => {
     fake = await startFakeProxy();
     const e = await errorOf(new ProxyClient({ url: fake.url, token: FAKE_TOKEN }).json('/api/cameras/den/stills', { from: 'x', to: 1 }));

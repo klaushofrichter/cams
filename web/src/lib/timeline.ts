@@ -41,3 +41,47 @@ export function hourGroups(minutes: PreviewMinute[]): { hour: number; minutes: P
   }
   return out;
 }
+
+// cam-proxy's list routes take at most a day: the 25-hour fall-back day
+// goes in parts.
+export function splitRange(from: number, to: number, max = 86_400_000): [number, number][] {
+  const parts: [number, number][] = [];
+  for (let a = from; a <= to; a += max) parts.push([a, Math.min(to, a + max - 1)]);
+  return parts;
+}
+
+// The still to show for `target`: going forward the first at or after it,
+// going back the last at or before it.
+export function stillIndex(stills: number[], target: number, dir: 1 | -1): number {
+  if (dir > 0) {
+    const i = stills.findIndex((t) => t >= target);
+    return i < 0 ? stills.length - 1 : i;
+  }
+  for (let i = stills.length - 1; i >= 0; i--) if (stills[i] <= target) return i;
+  return 0;
+}
+
+export interface TimelineCursor {
+  cam: string | null;
+  date: string;
+  t: number | null; // the open still, unix ms
+}
+
+export function timelineCursor(params: URLSearchParams, today: string): TimelineCursor {
+  const date = params.get('date') ?? '';
+  const t = params.get('t') ?? '';
+  const cam = params.get('cam');
+  return {
+    cam: cam && /^[a-z0-9][a-z0-9-]{0,31}$/.test(cam) ? cam : null,
+    date: /^\d{4}-\d{2}-\d{2}$/.test(date) ? date : today,
+    t: /^\d{1,15}$/.test(t) ? Number(t) : null,
+  };
+}
+
+export function cursorSearch(c: TimelineCursor): string {
+  const p = new URLSearchParams();
+  if (c.cam) p.set('cam', c.cam);
+  p.set('date', c.date);
+  if (c.t !== null) p.set('t', String(c.t));
+  return `?${p.toString()}`;
+}

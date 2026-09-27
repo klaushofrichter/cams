@@ -89,6 +89,28 @@ describe('recordings from cam-proxy clips', () => {
     expect(Buffer.compare(r.body, CLIP)).toBe(0);
   });
 
+  // Final review C1: never another event's clip, which would be cached
+  // under this event's key.
+  it('never plays a clip that ended before the event, or one that starts later', async () => {
+    const app = createApp();
+    const [a, b] = (await events(app)).events;
+    const startA = Date.parse(a.start);
+    fake.clips.push({ id: 21, cam: 'cam1', start: startA - 50_000, end: startA - 10_000, stream: 'main', events: [], body: OTHER });
+    expect((await request(app).get(`/api/cameras/cam1/clips/${a.id}/video`).set('Cookie', auth)).status).toBe(503);
+    const startB = Date.parse(b.start);
+    fake.clips.push({ id: 22, cam: 'cam1', start: startB + 20_000, end: startB + 80_000, stream: 'main', events: [], body: OTHER });
+    expect((await request(app).get(`/api/cameras/cam1/clips/${b.id}/video`).set('Cookie', auth)).status).toBe(503);
+  });
+
+  it('allows a few seconds between the camera’s and the upload’s start times', async () => {
+    const app = createApp();
+    const [ev] = (await events(app)).events;
+    const start = Date.parse(ev.start);
+    fake.clips.push({ id: 23, cam: 'cam1', start: start + 2000, end: start + 30_000, stream: 'main', events: [], body: CLIP });
+    const r = await binary(request(app).get(`/api/cameras/cam1/clips/${ev.id}/video`).set('Cookie', auth));
+    expect(Buffer.compare(r.body, CLIP)).toBe(0);
+  });
+
   it('keeps the camera’s error when the proxy has no clip for the event, or is down', async () => {
     const app = createApp();
     const [a, b] = (await events(app)).events;

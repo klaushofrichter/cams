@@ -86,6 +86,21 @@ describe('ProxyStream (upstream)', () => {
     expect(states).toEqual([true, false, true]);
   });
 
+  // Final review I3: an upstream that goes quiet without closing (a vanished
+  // pod, a lost network) counts as down after idleMs (cam-proxy pings every
+  // 15 s), and is reconnected.
+  it('treats a silent upstream as down and reconnects', async () => {
+    const fake = await fakeProxy(); // the fake never pings
+    const s = new ProxyStream('den', new ProxyClient({ url: fake.url, token: FAKE_TOKEN }), { backoffMinMs: 50, backoffMaxMs: 400, healthyMs: 200, idleMs: 300 });
+    const states: boolean[] = [];
+    s.on('state', (up: boolean) => states.push(up));
+    s.start();
+    cleanup.push(() => s.stop());
+    await until(() => states.length >= 3, 3000);
+    expect(states.slice(0, 3)).toEqual([true, false, true]);
+    expect(fake.requests.filter((r) => r.path === '/api/stream').length).toBeGreaterThanOrEqual(2);
+  });
+
   it('a refused token is down, retried slowly, never logged', async () => {
     const fake = await fakeProxy();
     const { s } = stream(fake, 'wrong-token-'.padEnd(40, 'w'));

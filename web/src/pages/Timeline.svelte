@@ -1,22 +1,30 @@
 <script lang="ts">
+  import { onMount } from 'svelte';
   import { getJson } from '../lib/api';
   import { cameras, selectedCameraId } from '../lib/stores';
   import { eventStream } from '../lib/eventStream';
   import { localDate } from '../lib/recordings';
   import { todayDate } from '../lib/refresh';
-  import { dayRange, hourGroups, tileIndex, tileStyle, type PreviewMinute } from '../lib/timeline';
+  import { cursorSearch, dayRange, hourGroups, minuteOf, splitRange, stillIndex, tileStyle, timelineCursor, type PreviewMinute } from '../lib/timeline';
 
   // A day of the camera's cam-proxy stills (Plan 6): one tile per minute from
-  // the preview sprites, event minutes marked, a click shows the still.
+  // the preview sprites, event minutes marked, a click shows the still. The
+  // URL holds the view (?cam&date&t).
   interface Ev { start: string; end: string; triggers: string[] }
 
-  const initial = new URLSearchParams(location.search).get('date');
-  let date = $state(initial && /^\d{4}-\d{2}-\d{2}$/.test(initial) ? initial : localDate(new Date()));
+  const initial = timelineCursor(new URLSearchParams(location.search), localDate(new Date()));
+  let date = $state(initial.date);
+  let wantT: number | null = initial.t; // a still to open once its day is loaded
   let minutes = $state<PreviewMinute[]>([]);
   let events = $state<Ev[]>([]);
   let message = $state('');
-  let tick = $state(0);
   let open = $state<{ minute: PreviewMinute; stills: number[]; i: number } | null>(null);
+  let refreshTick = $state(0);
+  let showSeq = 0;
+
+  onMount(() => {
+    if (initial.cam && $cameras.some((c) => c.id === initial.cam)) selectedCameraId.set(initial.cam);
+  });
 
   const camera = $derived($cameras.find((c) => c.id === $selectedCameraId) ?? null);
   const base = $derived(camera ? `/api/cameras/${encodeURIComponent(camera.id)}` : '');
@@ -27,65 +35,107 @@
   const clock = (ts: number, seconds = false) =>
     new Date(ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', ...(seconds ? { second: '2-digit' } : {}) });
 
+  // The day's previews (in parts: the fall-back day is 25 h) and events.
+  async function fetchDay(b: string, d: string): Promise<{ m: PreviewMinute[]; ev: Ev[] }> {
+    const [from, to] = dayRange(d);
+    const [parts, ev] = await Promise.all([
+      Promise.all(splitRange(from, to).map(([a, z]) => getJson<PreviewMinute[]>(`${b}/previews?from=${a}&to=${z}`))),
+      getJson<{ events: Ev[] }>(`${b}/events?date=${d}`).catch(() => ({ events: [] as Ev[] })),
+    ]);
+    return { m: parts.flat(), ev: ev.events };
+  }
+
+  // A camera or day change: clear, then load.
   $effect(() => {
-    void tick;
     const cam = camera;
     const d = date;
     minutes = [];
     events = [];
     open = null;
-    if (!cam?.proxy) return;
+    message = '';
+    if (!cam?.proxy || !/^\d{4}-\d{2}-\d{2}$/.test(d)) return;
     message = 'Loading…';
-    const [from, to] = dayRange(d);
     let stale = false;
-    (async () => {
-      try {
-        const [m, ev] = await Promise.all([
-          getJson<PreviewMinute[]>(`${base}/previews?from=${from}&to=${to}`),
-          getJson<{ events: Ev[] }>(`${base}/events?date=${d}`).catch(() => ({ events: [] as Ev[] })),
-        ]);
+    const b = base;
+    fetchDay(b, d).then(
+      ({ m, ev }) => {
         if (stale) return;
         minutes = m;
-        events = ev.events;
+        events = ev;
         message = m.length ? '' : 'No stills for this day.';
-      } catch {
+        const t = wantT;
+        wantT = null;
+        const target = t === null ? undefined : m.find((x) => x.minute === minuteOf(t));
+        if (target && t !== null) void show(target, t, 1);
+      },
+      () => {
         if (!stale) message = 'The camera gateway is not reachable right now.';
-      }
-    })();
+      },
+    );
     return () => (stale = true);
   });
 
-  // New events and clips reload today's view (the gateway's event stream).
+  // A live change on today: refresh in place (the open still stays).
+  $effect(() => {
+    if (!refreshTick) return;
+    const cam = camera;
+    const d = date;
+    if (!cam?.proxy) return;
+    let stale = false;
+    fetchDay(base, d).then(
+      ({ m, ev }) => {
+        if (stale) return;
+        minutes = m;
+        events = ev;
+        if (m.length) message = '';
+        if (open) {
+          const same = m.find((x) => x.minute === open!.minute.minute);
+          if (same) open = { ...open, minute: same };
+        }
+      },
+      () => undefined,
+    );
+    return () => (stale = true);
+  });
+
   $effect(() => {
     void $cameras;
-    const stop = eventStream()?.watch(() => camera?.id ?? '', () => { if (date === $todayDate) tick++; }, 5000);
+    const stop = eventStream()?.watch(() => camera?.id ?? '', () => { if (date === $todayDate) refreshTick++; }, 5000);
     return () => stop?.();
   });
 
-  async function show(m: PreviewMinute, at?: number) {
+  // The URL follows the view.
+  $effect(() => {
+    const search = cursorSearch({ cam: camera?.id ?? null, date, t: open ? open.stills[open.i] : null });
+    if (search !== location.search) history.replaceState(history.state, '', `${location.pathname}${search}`);
+  });
+
+  async function show(m: PreviewMinute, target?: number, dir: 1 | -1 = 1) {
+    const seq = ++showSeq;
     try {
       const stills = await getJson<number[]>(`${base}/stills?from=${m.minute}&to=${m.minute + 59_999}`);
-      if (!stills.length) return;
-      const target = at ?? m.minute + firstTile(m) * m.intervalS * 1000;
-      const i = Math.max(0, stills.findIndex((t) => t >= target));
-      open = { minute: m, stills, i: i < 0 ? 0 : i };
+      if (seq !== showSeq || !stills.length) return;
+      const at = target ?? m.minute + firstTile(m) * m.intervalS * 1000;
+      open = { minute: m, stills, i: stillIndex(stills, at, dir) };
     } catch {
-      message = 'Could not load that minute.';
+      if (seq === showSeq) message = 'Could not load that minute.';
     }
   }
   function step(dir: -1 | 1) {
     if (!open) return;
     const i = open.i + dir;
     if (i >= 0 && i < open.stills.length) return void (open = { ...open, i });
-    // Into the neighbouring minute.
-    const k = minutes.indexOf(open.minute) + dir;
-    if (k >= 0 && k < minutes.length) void show(minutes[k], dir > 0 ? undefined : minutes[k].minute + 59_999);
+    // Into the neighbouring minute: its first still going forward, its last going back.
+    const k = minutes.findIndex((x) => x.minute === open!.minute.minute) + dir;
+    if (k >= 0 && k < minutes.length) void show(minutes[k], dir > 0 ? minutes[k].minute : minutes[k].minute + 59_999, dir);
   }
   function onkey(e: KeyboardEvent) {
-    if (!open) return;
+    if (!open || (e.target as HTMLElement | null)?.tagName === 'INPUT') return;
     if (e.key === 'ArrowLeft') step(-1);
     else if (e.key === 'ArrowRight') step(1);
     else if (e.key === 'Escape') open = null;
+    else return;
+    e.preventDefault();
   }
 
   // Sprites load when their tile scrolls into view (a day is up to 1440).
@@ -140,7 +190,8 @@
         <div class="tiles">
           {#each h.minutes as m (m.minute)}
             {@const ev = eventIn(m)}
-            <button class="tile" class:event={!!ev} class:active={open?.minute === m} title={clock(m.minute) + (ev ? ` · ${ev.triggers.join(', ')}` : '')}
+            <button class="tile" class:event={!!ev} class:active={open?.minute.minute === m.minute} title={clock(m.minute) + (ev ? ` · ${ev.triggers.join(', ')}` : '')}
+              aria-label={`${clock(m.minute)}${ev ? `, event: ${ev.triggers.join(', ')}` : ''}`}
               onclick={() => void show(m)} data-testid="timeline-minute">
               <span class="img" use:lazyStyle={tileStyle(m, firstTile(m), 0.5)}></span>
             </button>
