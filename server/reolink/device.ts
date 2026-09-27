@@ -1,4 +1,4 @@
-import { CameraConfig, webUiUrlOf } from '../cameraRegistry';
+import { CameraConfig, webUiOf } from '../cameraRegistry';
 import { ReolinkClient } from './client';
 import { AI_KINDS, AI_TYPE, detectionFrom, DetectionSettings, imageFrom, ImageSettings, RawDetection, RawImage } from './settings';
 
@@ -38,7 +38,8 @@ export interface DeviceInfo {
   name: string;
   storage: { totalMb: number; usedMb: number; mounted: boolean } | null;
   certificate: { subject: string; issuer: string; validTo: string; daysLeft: number } | null;
-  webUiUrl: string;
+  webUiUrl: string | null;
+  webUiNote?: string;
 }
 
 export async function readDevice(cam: CameraConfig, client: ReolinkClient): Promise<DeviceInfo> {
@@ -53,6 +54,6 @@ export async function readDevice(cam: CameraConfig, client: ReolinkClient): Prom
     // GetHddInfo: capacity is the total and size the FREE space, in MB.
     storage: hdd ? { totalMb: hdd.capacity, usedMb: hdd.capacity - hdd.size, mounted: hdd.mount === 1 } : null,
     certificate: cert ? { ...cert, daysLeft: Math.floor((Date.parse(cert.validTo) - Date.now()) / 86_400_000) } : null,
-    webUiUrl: webUiUrlOf(cam),
+    ...webUiOf(cam),
   };
 }

@@ -22,7 +22,8 @@ export interface DeviceInfo {
   name: string;
   storage: { totalMb: number; usedMb: number; mounted: boolean } | null;
   certificate: { subject: string; issuer: string; validTo: string; daysLeft: number } | null;
-  webUiUrl: string;
+  webUiUrl: string | null;
+  webUiNote?: string;
 }
 export interface SaveResult<T> {
   fields: Record<string, { ok: boolean; error?: string }>;

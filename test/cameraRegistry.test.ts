@@ -64,6 +64,40 @@ describe('loadCameras', () => {
   });
 });
 
+describe('web UI link or note', () => {
+  it('accepts webUiUrl (or null) and webUiNote', () => {
+    const list = loadCameras(file('webui.json', JSON.stringify([
+      { ...cam1, id: 'a', webUiUrl: 'https://192.168.1.103:9443/' },
+      { ...cam1, id: 'b', webUiNote: 'Website not available - simulated camera' },
+      { ...cam1, id: 'c', webUiUrl: null },
+    ])));
+    expect(list.map((c) => [c.webUiUrl, c.webUiNote])).toEqual([
+      ['https://192.168.1.103:9443/', undefined],
+      [undefined, 'Website not available - simulated camera'],
+      [null, undefined],
+    ]);
+  });
+
+  it('rejects a webUiUrl that is not http(s) and an empty or overlong webUiNote', () => {
+    expect(() => loadCameras(file('w1.json', JSON.stringify([{ ...cam1, webUiUrl: 'javascript:alert(1)' }])))).toThrow(/webUiUrl/);
+    expect(() => loadCameras(file('w2.json', JSON.stringify([{ ...cam1, webUiNote: '' }])))).toThrow(/webUiNote/);
+    expect(() => loadCameras(file('w3.json', JSON.stringify([{ ...cam1, webUiNote: 'x'.repeat(121) }])))).toThrow(/webUiNote/);
+  });
+
+  it('lists the configured link, or no link and the note', () => {
+    setCameras([
+      { ...cam1, protocol: 'https', id: 'a', webUiUrl: 'https://192.168.1.103:9443/' },
+      { ...cam1, protocol: 'https', id: 'b', webUiNote: 'Website not available - simulated camera' },
+      { ...cam1, protocol: 'https', id: 'c', webUiUrl: null },
+    ]);
+    expect(listCameras()).toEqual([
+      { id: 'a', name: 'Den', webUiUrl: 'https://192.168.1.103:9443/' },
+      { id: 'b', name: 'Den', webUiUrl: null, webUiNote: 'Website not available - simulated camera' },
+      { id: 'c', name: 'Den', webUiUrl: null },
+    ]);
+  });
+});
+
 describe('listCameras / getCamera', () => {
   it('exposes id, name and webUiUrl', () => {
     setCameras([{ ...cam1, protocol: 'https' }]);
