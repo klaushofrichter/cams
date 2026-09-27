@@ -27,7 +27,7 @@ export default defineConfig({
       use: { ...devices['Desktop Chrome'], channel: 'chrome', viewport: { width: 390, height: 844 }, hasTouch: true },
     },
     // e2e/live-teardown.spec.ts reads the simulators' shared counters, so it
-    // can only run once no other spec file is mid-stream against the mock.
+    // can only run once no other spec file is mid-stream against a simulator.
     // `dependencies` makes Playwright finish every test in `desktop` and
     // `phone` (across all spec files) before this project starts any of its
     // own; `fullyParallel: false` keeps this file from racing itself. See the

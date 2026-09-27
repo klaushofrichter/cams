@@ -8,14 +8,14 @@ import { simCounters } from './sims';
 // even if LiveSession.stop()/player.destroy() did nothing, since Live.svelte
 // unconditionally unmounts LivePlayer on any camera switch.
 //
-// Isolation: /__state's activeStreams counter is shared across the WHOLE
+// Isolation: the simulator's activeStreams counter is shared across the WHOLE
 // simulator process it belongs to (one process per e2e run per port: 8098
 // for Den, 8097 for Porch) -- it isn't scoped per camera id or per browser
-// page, because the app's upstream requests to a given mock never say which
-// cams-camera id they're for. Den and Porch are two separate mock processes
-// (playwright.config.ts, e2e/cameras.json), so this test sums both mocks'
-// /__state rather than reading only 8098. So this test can only be trusted
-// while it is the ONLY thing touching either mock. That's arranged three ways:
+// page, because the app's upstream requests to a given simulator never say which
+// cams-camera id they're for. Den and Porch are two separate cam-sim processes
+// (e2e/sims.ts, e2e/cameras.json), so this test sums both simulators'
+// counters rather than reading only 8098. So this test can only be trusted
+// while it is the ONLY thing touching either simulator. That's arranged three ways:
 //   - test.describe.serial, so this file's own test(s) never run concurrently
 //     with each other;
 //   - `fullyParallel: false` on this file's Playwright project (below,
@@ -26,7 +26,7 @@ import { simCounters } from './sims';
 //     until every dependency project's tests (all of them, across every
 //     other spec file, including e2e/live.spec.ts, which also opens a real
 //     stream to "Den") have completed, so nothing else can be mid-stream on
-//     the mock while this file polls the count. It runs once, not once per
+//     the simulator while this file polls the count. It runs once, not once per
 //     project, since repeating it under `phone` would just re-observe the
 //     same single simulator process's state.
 test.describe.serial('live stream teardown', () => {

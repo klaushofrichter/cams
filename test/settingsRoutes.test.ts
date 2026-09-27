@@ -7,11 +7,11 @@ import { setCameras } from '../server/cameraRegistry';
 import { resetClients } from '../server/reolink/clients';
 import { resetRebootCooldowns } from '../server/routes/settings';
 import { SESSION_COOKIE, signSession } from '../server/session';
-import { createMockCamera, MockCameraOptions, MockState } from './camera/sim';
+import { createSimCamera, SimCameraOptions, SimState } from './camera/sim';
 
 const auth = `${SESSION_COOKIE}=${signSession('klaus@klaushofrichter.net')}`;
 let cam: Server;
-let state: MockState;
+let state: SimState;
 
 // Keep-alive sockets from the previous test would otherwise hold close() open.
 const stop = (server: Server) =>
@@ -20,11 +20,11 @@ const stop = (server: Server) =>
     server.close(() => r());
   });
 
-async function start(opts: Partial<MockCameraOptions> = {}) {
+async function start(opts: Partial<SimCameraOptions> = {}) {
   if (cam) await stop(cam);
-  const mock = await createMockCamera({ user: 'u', password: 'p', ...opts });
-  state = mock.state;
-  cam = mock.app.listen(0);
+  const simCam = await createSimCamera({ user: 'u', password: 'p', ...opts });
+  state = simCam.state;
+  cam = simCam.app.listen(0);
   await new Promise((r) => cam.once('listening', r));
   // Set right before use, after the await: nothing between here and the test
   // can leave cam1 pointing at a closed port.
@@ -104,7 +104,7 @@ describe('settings API', () => {
     const res = await request(createApp()).get('/api/cameras/cam1/device').set('Cookie', auth);
     expect(res.status).toBe(200);
     // The camera reports capacity and FREE space; cams shows used = capacity − free.
-    // (The old mock hardcoded 377 MB used; cam-sim derives it from its recordings.)
+    // (cam-sim derives the used space from its recordings.)
     const used = state.hddInfo.capacity - state.hddInfo.size;
     expect(used).toBeGreaterThan(0);
     expect(res.body).toMatchObject({ model: 'RLC-1224A', storage: { totalMb: 61047, usedMb: used, mounted: true }, certificate: null });

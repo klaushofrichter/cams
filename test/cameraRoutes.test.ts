@@ -8,18 +8,18 @@ import { resetClients } from '../server/reolink/clients';
 import { liveStreamCount, MAX_LIVE_PER_CAMERA } from '../server/routes/cameras';
 import { logger } from '../server/logger';
 import { SESSION_COOKIE, signSession } from '../server/session';
-import { createMockCamera, MockState } from './camera/sim';
+import { createSimCamera, SimState } from './camera/sim';
 
 const auth = `${SESSION_COOKIE}=${signSession('klaus@klaushofrichter.net')}`;
 let camServer: Server;
-let camState: MockState;
+let camState: SimState;
 let appServer: Server;
 let base: string;
 
 beforeEach(async () => {
-  const mock = await createMockCamera({ user: 'u', password: 'p' });
-  camState = mock.state;
-  camServer = mock.app.listen(0);
+  const simCam = await createSimCamera({ user: 'u', password: 'p' });
+  camState = simCam.state;
+  camServer = simCam.app.listen(0);
   await new Promise((r) => camServer.once('listening', r));
   const port = (camServer.address() as AddressInfo).port;
   setCameras([
@@ -69,7 +69,7 @@ describe('camera routes', () => {
   it('reports status for an online camera', async () => {
     const res = await request(appServer).get('/api/cameras/cam1/status').set('Cookie', auth);
     expect(res.status).toBe(200);
-    expect(res.body).toEqual({ id: 'cam1', online: true, model: 'RLC-1224A', firmware: 'v3.2.0.6011_mock' });
+    expect(res.body).toEqual({ id: 'cam1', online: true, model: 'RLC-1224A', firmware: 'v3.2.0.6011_2607012059' });
   });
 
   it('reports an unreachable camera as offline with only an error code', async () => {
@@ -151,7 +151,7 @@ describe('camera routes', () => {
   // tight timeout below only passes if release happens promptly.
   it('releases the stream slot when the viewer disconnects before openLive() resolves', async () => {
     const flvDelayMs = 300;
-    const slow = await createMockCamera({ user: 'u', password: 'p', flvDelayMs });
+    const slow = await createSimCamera({ user: 'u', password: 'p', flvDelayMs });
     const slowServer = slow.app.listen(0);
     await new Promise((r) => slowServer.once('listening', r));
     const slowPort = (slowServer.address() as AddressInfo).port;
@@ -171,7 +171,7 @@ describe('camera routes', () => {
       // slot immediately, not after the delayed camera response arrives.
       await waitFor(() => liveStreamCount('cam1') === 0, { timeoutMs: 150 });
       // Mutation coverage: without abort.abort(), the pending request to the
-      // camera is never cancelled, so the mock's delayed handler still runs
+      // camera is never cancelled, so the simulator's delayed handler still runs
       // at flvDelayMs and starts a stream nobody is listening for. Wait past
       // that delay and confirm it never did.
       await new Promise((r) => setTimeout(r, flvDelayMs + 100));

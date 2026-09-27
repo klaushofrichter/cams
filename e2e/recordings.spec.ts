@@ -4,9 +4,9 @@ import { signIn } from './session';
 // The simulated cameras' demo clips (cam-sim DEMO_CLIPS, CAMSIM_SEED_CLIPS=demo):
 // today 08:15:10 person, 09:30:00 vehicle, 12:05:05 motion, 17:45:40 pet;
 // yesterday 07:00:00 motion, 22:15:10 person. Browser zone = America/Chicago.
-// e2e/cameras.json: cam1 "Den" (mock on 8098) and porch "Porch" (a separate
-// mock on 8097, see playwright.config.ts) both start with the same default
-// clips, since neither mock is given a `clips` option, so they share the
+// e2e/cameras.json: cam1 "Den" (cam-sim on 8098) and porch "Porch" (a separate
+// cam-sim on 8097, see e2e/sims.ts) both start with the same demo
+// clips (CAMSIM_SEED_CLIPS=demo), so they share the
 // same clip data even though they're different processes; garage is offline.
 test.beforeEach(async ({ context, baseURL }) => {
   await signIn(context, baseURL!);
@@ -17,7 +17,7 @@ async function openEvents(page: Page) {
   await expect(page.getByTestId('event-card')).toHaveCount(4);
 }
 
-// The playwright.config.ts timezoneId is America/Chicago; the mock's clips
+// The playwright.config.ts timezoneId is America/Chicago; the simulator's clips
 // are keyed on the browser's local (i.e. Chicago) date, so "today" for the
 // tests must be computed the same way rather than in the runner's own zone.
 function chicagoToday(): string {
@@ -236,7 +236,7 @@ test('ArrowRight with no clip selected selects the first clip', async ({ page })
 
 test('events are grouped by hour and a busy hour starts collapsed', async ({ page }) => {
   await page.goto('/app/recordings?panel=events');
-  await expect(page.getByTestId('hour-group')).toHaveCount(4); // 08, 09, 12, 17 in the mock
+  await expect(page.getByTestId('hour-group')).toHaveCount(4); // 08, 09, 12, 17 in the demo clips
   await expect(page.getByTestId('hour-count').first()).toHaveText('1 event');
 });
 

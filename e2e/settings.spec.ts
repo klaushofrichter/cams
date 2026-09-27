@@ -4,15 +4,15 @@ import { signIn } from './session';
 import { simCounters } from './sims';
 
 // Den (cam1) is backed by the cam-sim camera on 8098; Porch is backed by a
-// second, separate mock on 8097 that's started with
+// second, separate cam-sim on 8097 that's started with
 // a settings.fail fault for SetWhiteLed (e2e/sims.ts), so every
 // spotlight write on Porch comes back rejected. That lets the "partial save"
 // test below exercise a real rejected-field response without making Den's
-// mock -- which live.spec.ts and live-teardown.spec.ts also depend on --
+// simulator -- which live.spec.ts and live-teardown.spec.ts also depend on --
 // reject writes.
 //
 // Isolation: every test that mutates a camera's settings targets Porch, not
-// Den, and restores what it changed at the end, because the mock's
+// Den, and restores what it changed at the end, because the simulator's
 // in-memory state lives for the whole e2e run. Den's OSD name is therefore
 // never written by this file, so the "settings cards load the camera state"
 // test can assert its default value on any project without racing a writer.
@@ -76,7 +76,7 @@ test('a rejected field shows the error next to it while the others save', async 
   await expect(card.getByTestId('field-error-spotlight')).toBeVisible();
   await expect(page.getByTestId('daynight-select')).toHaveValue('color');
   // restore the field that actually changed on the camera; the spotlight
-  // write was rejected by the mock, so the camera's own mode never moved.
+  // write was rejected by the simulator, so the camera's own mode never moved.
   await page.getByTestId('daynight-select').selectOption('auto');
   await page.getByTestId('save-image').click();
   await expect(card.getByTestId('save-state')).toHaveAttribute('data-state', 'saved');
