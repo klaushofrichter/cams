@@ -55,10 +55,9 @@
   // a camera with a cam-proxy shows its stills meanwhile.
   let stuck = $state(false);
   $effect(() => {
-    if (playerState === 'playing') {
-      stuck = false;
-      return;
-    }
+    void camera?.id; // a camera switch starts over
+    stuck = false;
+    if (playerState === 'playing') return;
     const t = setTimeout(() => (stuck = true), 5000);
     return () => clearTimeout(t);
   });
@@ -288,7 +287,7 @@
         <Icon name="refresh" size={16} /> {checking ? 'Checking…' : 'Retry'}
       </button>
     </div>
-    {#if camera.proxy}<LiveStill cameraId={camera.id} />{/if}
+    {#if camera.proxy}<LiveStill cameraId={camera.id} active={visible} />{/if}
   {:else if status?.online}
     <div class="viewer" bind:this={container}>
       <!-- `muted` itself is left untouched while hidden, so the user's own
@@ -296,8 +295,11 @@
            here (not by mutating `muted`) so a hidden Live or a hidden tab
            playing in the background (the keep-alive) never plays audio
            nobody asked for. -->
-      <LivePlayer cameraId={camera.id} {quality} muted={muted || !audible} onstate={(s) => (playerState = s)} />
-      {#if camera.proxy && stuck}<div class="still-overlay"><LiveStill cameraId={camera.id} /></div>{/if}
+      <!-- The stills cover only the player (controls and timeline stay usable). -->
+      <div class="player-box">
+        <LivePlayer cameraId={camera.id} {quality} muted={muted || !audible} onstate={(s) => (playerState = s)} />
+        {#if camera.proxy && stuck}<LiveStill cameraId={camera.id} active={visible} overlay />{/if}
+      </div>
       <div class="controls">
         <button data-testid="mute-toggle" aria-pressed={!muted} onclick={() => (muted = !muted)} title={muted ? 'Unmute' : 'Mute'}>
           <Icon name={muted ? 'volumeOff' : 'volumeOn'} size={18} /><span>{muted ? 'Muted' : 'Sound'}</span>
@@ -349,7 +351,7 @@
   .badge { font-size: 11px; font-weight: 700; letter-spacing: 0.06em; padding: 3px 9px; border-radius: 999px; background: var(--surface-2); color: var(--muted); }
   .badge.ok { background: var(--danger); color: var(--on-grad); }
   .state { font-size: 13px; color: var(--muted); }
-  .viewer { display: flex; flex-direction: column; gap: 10px; max-width: 1280px; position: relative; }
+  .viewer { display: flex; flex-direction: column; gap: 10px; max-width: 1280px; }
   .viewer:fullscreen { max-width: none; background: #000; justify-content: center; }
   .controls { display: flex; gap: 8px; flex-wrap: wrap; }
   .controls button, .controls a {
@@ -371,5 +373,5 @@
     display: inline-flex; align-items: center; gap: 6px; padding: 6px 12px; border-radius: 9px;
     border: 1px solid var(--border); background: var(--surface-2); cursor: pointer;
   }
-  .still-overlay { position: absolute; inset: 0; z-index: 2; display: grid; align-content: center; padding: 8px; background: var(--bg); }
+  .player-box { position: relative; }
 </style>

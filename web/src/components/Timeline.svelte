@@ -36,7 +36,13 @@
     dayStartMs?: number | null;
   } = $props();
 
-  let hover = $state<{ left: number; style: string; label: string } | null>(null);
+  // The box and time follow the pointer at once; the frame (a sprite
+  // download per minute) only once the pointer rests in a minute for 150 ms,
+  // so a sweep across the day doesn't fetch every sprite on the way.
+  const REST_MS = 150;
+  let hover = $state<{ left: number; label: string; minute: number; style: string | null } | null>(null);
+  let restTimer: ReturnType<typeof setTimeout> | undefined;
+  let pendingStyle = '';
   function move(e: PointerEvent) {
     if (!previews.length || dayStartMs === null) return;
     const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
@@ -44,7 +50,25 @@
     const sec = win.start + frac * (win.end - win.start);
     const ts = dayStartMs + sec * 1000;
     const p = previewAt(previews, ts);
-    hover = p ? { left: frac * 100, style: tileStyle(p.minute, p.index, 1), label: new Date(ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }) } : null;
+    if (!p) return leave();
+    const label = new Date(ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+    const style = tileStyle(p.minute, p.index, 1);
+    if (hover && hover.minute === p.minute.minute && hover.style !== null) {
+      hover = { left: frac * 100, label, minute: p.minute.minute, style }; // same sprite: already loaded
+      return;
+    }
+    const sameWait = hover !== null && hover.minute === p.minute.minute; // already waiting for this sprite
+    hover = { left: frac * 100, label, minute: p.minute.minute, style: null };
+    pendingStyle = style;
+    if (sameWait) return;
+    clearTimeout(restTimer);
+    restTimer = setTimeout(() => {
+      if (hover && hover.minute === p.minute.minute) hover = { ...hover, style: pendingStyle };
+    }, REST_MS);
+  }
+  function leave() {
+    clearTimeout(restTimer);
+    hover = null;
   }
 
   let zoom: Zoom = $state(pref('timelineZoom') ?? 24);
@@ -96,7 +120,7 @@
 <div class="wrap" class:compact class:legend>
   {#if hover}
     <div class="scrub" style={`left: clamp(84px, ${hover.left}%, calc(100% - 84px))`} data-testid="scrub-preview" aria-hidden="true">
-      <span class="frame" style={hover.style}></span>
+      <span class="frame" style={hover.style ?? 'width: 160px; height: 90px'}></span>
       <span class="when">{hover.label}</span>
     </div>
   {/if}
@@ -107,7 +131,7 @@
       {/each}
     </div>
   {/if}
-  <div class="bar" data-testid={testid} role="slider" tabindex="0" aria-label="Recordings timeline" aria-valuemin={0} aria-valuemax={daySec} aria-valuenow={Math.round(center)} onclick={click} onkeydown={keydown} onpointermove={move} onpointerleave={() => (hover = null)}>
+  <div class="bar" data-testid={testid} role="slider" tabindex="0" aria-label="Recordings timeline" aria-valuemin={0} aria-valuemax={daySec} aria-valuenow={Math.round(center)} onclick={click} onkeydown={keydown} onpointermove={move} onpointerleave={leave}>
     {#each segs as s (s.id)}
       <span class="seg" class:ai={s.ai} class:on={s.id === selectedId} data-testid="timeline-seg" data-clip-id={s.id} style={`left:${s.left}%;width:${s.width}%`}></span>
     {/each}

@@ -398,19 +398,20 @@ export class RecordingsService {
     this.cache.pin(key);
     try {
       if (priority === 'high') this.gate(cameraId).promote(key);
-      const path = await this.cache.fill(key, (tmp) =>
-        this.gate(cameraId).run(
+      const path = await this.cache.fill(key, async (tmp) => {
+        // A camera with a cam-proxy: its FTP clip first (Plan 7), outside the
+        // camera's one transfer slot (a camera download doesn't hold it up).
+        const first = await this.proxyClip(cameraId, clipId);
+        if (first) {
+          try {
+            await pipeline((await openProxyClip(cameraId, first.id)).stream, createWriteStream(tmp));
+            return;
+          } catch (e) {
+            logger.warn({ cameraId, clipId, message: (e as Error).message }, 'proxy_clip_fetch_failed');
+          }
+        }
+        await this.gate(cameraId).run(
           async () => {
-            // A camera with a cam-proxy: its FTP clip first (Plan 7).
-            const first = await this.proxyClip(cameraId, clipId);
-            if (first) {
-              try {
-                await pipeline((await openProxyClip(cameraId, first.id)).stream, createWriteStream(tmp));
-                return;
-              } catch (e) {
-                logger.warn({ cameraId, clipId, message: (e as Error).message }, 'proxy_clip_fetch_failed');
-              }
-            }
             try {
               const res = await this.downloadWithRetry(cameraId, sub);
               await pipeline(res, createWriteStream(tmp));
@@ -423,8 +424,8 @@ export class RecordingsService {
             }
           },
           { high: priority === 'high', key },
-        ),
-      );
+        );
+      });
       return await use(path);
     } finally {
       this.cache.unpin(key);
@@ -446,7 +447,10 @@ export class RecordingsService {
           const ts = span && (await findProxyStill(cameraId, span.start + 2000, span.start + 12_000));
           if (ts) {
             await pipeline(await openProxyStill(cameraId, ts), createWriteStream(tmp));
-            return;
+            // Only a JPEG becomes the (cached) thumbnail.
+            const head = await fs.readFile(tmp).then((b) => b.subarray(0, 3)).catch(() => Buffer.alloc(0));
+            if (head.length === 3 && head[0] === 0xff && head[1] === 0xd8 && head[2] === 0xff) return;
+            logger.warn({ cameraId, clipId }, 'proxy_still_not_a_jpeg');
           }
         } catch (e) {
           logger.warn({ cameraId, clipId, message: (e as Error).message }, 'proxy_still_failed');

@@ -99,6 +99,42 @@ describe('proxy first (Plan 7)', () => {
     expect(state.downloads).toBe(1);
   });
 
+  // Review I3: the proxy's clip doesn't wait for the camera's one transfer
+  // slot (a slow camera download elsewhere).
+  it('serves a proxy clip while the camera’s transfer slot is busy', async () => {
+    await new Promise<void>((r) => cam.close(() => r()));
+    const sim = await createSimCamera({ user: 'u', password: 'p', downloadDelayMs: 3000 });
+    state = sim.state;
+    cam = sim.app.listen(0);
+    await new Promise((r) => cam.once('listening', r));
+    setCameras([{ id: 'cam1', name: 'Den', host: `127.0.0.1:${(cam.address() as AddressInfo).port}`, protocol: 'http', user: 'u', password: 'p', proxy: { url: fake.url, token: FAKE_TOKEN } }]);
+    resetClients();
+    resetRecordings();
+    const app = createApp();
+    const body = (await request(app).get(`/api/cameras/cam1/events?date=${today()}`).set('Cookie', auth)).body as { events: { id: string; start: string }[] };
+    const [a, b] = body.events;
+    fake.clips.push({ id: 9, cam: 'cam1', start: Date.parse(b.start) - 1000, end: Date.parse(b.start) + 20_000, stream: 'sub', events: [], body: CLIP });
+    // a: no proxy clip, so the camera (3 s per download) holds the slot.
+    const slow = request(app).get(`/api/cameras/cam1/clips/${a.id}/video`).set('Cookie', auth).then((r) => r);
+    await new Promise((r) => setTimeout(r, 200));
+    const t0 = Date.now();
+    const fast = await binary(request(app).get(`/api/cameras/cam1/clips/${b.id}/video`).set('Cookie', auth));
+    expect(Buffer.compare(fast.body, CLIP)).toBe(0);
+    expect(Date.now() - t0).toBeLessThan(1500);
+    await slow;
+  }, 20_000);
+
+  // Review M1: only a JPEG becomes a cached thumbnail.
+  it('falls back to the clip when the proxy’s still isn’t a JPEG', async () => {
+    const app = createApp();
+    const { ev } = await firstEvent(app);
+    const start = Date.parse(ev.start);
+    fake.stills.set('cam1', new Map([[start + 2000, Buffer.from('<html>not an image</html>')]]));
+    const r = await request(app).get(`/api/cameras/cam1/clips/${ev.id}/thumb.jpg`).set('Cookie', auth);
+    expect(r.status).toBe(200);
+    expect(state.downloads).toBe(1); // the clip path made it
+  });
+
   it('makes the event thumbnail from the proxy’s still 2 s into the event, without any clip', async () => {
     const app = createApp();
     const { ev } = await firstEvent(app);
