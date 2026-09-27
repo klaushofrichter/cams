@@ -8,7 +8,3 @@ published as [GitHub releases](https://github.com/klaushofrichter/cams/releases)
 
 ## [Unreleased]
 
-- Settings has a **cam-proxy** switch for each camera that has a proxy. Off,
-  cams uses only the camera for clips, thumbnails, stills and events, for
-  everyone, until it is switched on again; the choice survives restarts.
-
