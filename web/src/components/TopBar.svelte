@@ -28,6 +28,11 @@
       title="Opens the camera's own web page. Works on the home network only." aria-label="Camera web UI (home network only)">
       <Icon name="external" size={16} />
     </a>
+  {:else if selected?.webUiNote}
+    <!-- A camera without a web page (e.g. a simulated one) explains why. -->
+    <span class="webui off" data-testid="camera-webui-note" role="img" title={selected.webUiNote} aria-label={selected.webUiNote}>
+      <Icon name="external" size={16} />
+    </span>
   {/if}
   <div class="spacer"></div>
   <Clock />
@@ -66,6 +71,8 @@
     color: var(--muted); text-decoration: none; transition: background-color 0.15s ease, color 0.15s ease;
   }
   .webui:hover { background: var(--surface-2); color: var(--accent); }
+  .webui.off { opacity: 0.35; cursor: help; }
+  .webui.off:hover { background: none; color: inherit; }
   @media (max-width: 767px) {
     .hamburger { display: grid; }
     .desktop-only { display: none; }

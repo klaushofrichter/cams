@@ -383,12 +383,16 @@
             {/if}
           </dd>
         </dl>
-        <p class="webui">
-          <a data-testid="device-webui-link" href={device.webUiUrl} target="_blank" rel="noopener noreferrer">
-            Open the camera's own web page <Icon name="external" size={14} />
-          </a>
-          <small class="muted">Works on the home network only. The camera's page isn't reachable from the internet.</small>
-        </p>
+        {#if device.webUiUrl}
+          <p class="webui">
+            <a data-testid="device-webui-link" href={device.webUiUrl} target="_blank" rel="noopener noreferrer">
+              Open the camera's own web page <Icon name="external" size={14} />
+            </a>
+            <small class="muted">Works on the home network only. The camera's page isn't reachable from the internet.</small>
+          </p>
+        {:else if device.webUiNote}
+          <p class="webui muted" data-testid="device-webui-note">{device.webUiNote}</p>
+        {/if}
       {:else if loadError}
         <p class="err" role="alert">{loadError}</p>
       {:else}

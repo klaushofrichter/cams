@@ -8,3 +8,6 @@ published as [GitHub releases](https://github.com/klaushofrichter/cams/releases)
 
 ## [Unreleased]
 
+- A second camera: cam2, a simulated Reolink ([cam-sim](https://github.com/klaushofrichter/cam-sim)) running in the cluster, is in the camera picker next to Den.
+- A camera can have its own web-page link, or a note instead of one. cam2 shows "Website not available - simulated camera" rather than a link that can't open.
+

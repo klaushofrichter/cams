@@ -12,12 +12,17 @@ export interface CameraConfig {
   tlsServername?: string;
   user: string;
   password: string;
+  // The camera's own web page. Unset: https://<host>/. null: no link.
+  webUiUrl?: string | null;
+  // Shown instead of a link, e.g. for a simulated camera without a web UI.
+  webUiNote?: string;
 }
 
 export interface CameraSummary {
   id: string;
   name: string;
-  webUiUrl: string;
+  webUiUrl: string | null;
+  webUiNote?: string;
 }
 
 const ID_PATTERN = /^[a-z0-9][a-z0-9-]{0,31}$/;
@@ -63,6 +68,12 @@ export function loadCameras(file: string | undefined = process.env.CAMERAS_FILE)
     if (e.tlsServername !== undefined && (typeof e.tlsServername !== 'string' || e.tlsServername.length === 0)) {
       throw new Error(`camera registry entry ${i}: tlsServername must be a non-empty string`);
     }
+    if (e.webUiUrl !== undefined && e.webUiUrl !== null && !(typeof e.webUiUrl === 'string' && /^https?:\/\/[^\s]+$/.test(e.webUiUrl))) {
+      throw new Error(`camera registry entry ${i}: webUiUrl must be an http(s) URL or null`);
+    }
+    if (e.webUiNote !== undefined && !(typeof e.webUiNote === 'string' && e.webUiNote.length > 0 && e.webUiNote.length <= 120)) {
+      throw new Error(`camera registry entry ${i}: webUiNote must be a string of 1 to 120 characters`);
+    }
     const camera: CameraConfig = {
       id: e.id as string,
       name: e.name as string,
@@ -72,6 +83,8 @@ export function loadCameras(file: string | undefined = process.env.CAMERAS_FILE)
       password: e.password as string,
     };
     if (e.tlsServername !== undefined) camera.tlsServername = e.tlsServername as string;
+    if (e.webUiUrl !== undefined) camera.webUiUrl = e.webUiUrl as string | null;
+    if (e.webUiNote !== undefined) camera.webUiNote = e.webUiNote as string;
     return camera;
   });
 }
@@ -81,11 +94,18 @@ export function setCameras(list: CameraConfig[]): void {
 }
 
 export function listCameras(): CameraSummary[] {
-  return cameras.map((c) => ({ id: c.id, name: c.name, webUiUrl: webUiUrlOf(c) }));
+  return cameras.map((c) => ({ id: c.id, name: c.name, ...webUiOf(c) }));
 }
 
 export function getCamera(id: string): CameraConfig | undefined {
   return cameras.find((c) => c.id === id);
+}
+
+// The link to the camera's web page, or a note instead of one. A configured
+// webUiUrl wins; a note alone means no link; otherwise the LAN address.
+export function webUiOf(cam: CameraConfig): { webUiUrl: string | null; webUiNote?: string } {
+  const webUiUrl = cam.webUiUrl !== undefined ? cam.webUiUrl : cam.webUiNote ? null : webUiUrlOf(cam);
+  return cam.webUiNote ? { webUiUrl, webUiNote: cam.webUiNote } : { webUiUrl };
 }
 
 // The camera's own web UI, by LAN address: it's reachable from the home

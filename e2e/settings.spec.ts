@@ -173,3 +173,14 @@ test('about shows version, build, cameras and licences', async ({ page }) => {
   await expect(page.getByTestId('about-cameras')).toContainText('Garage: offline');
   await expect(page.getByTestId('about-licences')).toContainText('mpegts.js');
 });
+
+// A camera configured with webUiNote (e2e/cameras.json: Shed, a simulated
+// camera) shows that note instead of a link to a web page it doesn't have.
+test('a camera without a web page shows its note instead of a link', async ({ page }) => {
+  await page.goto('/app/settings');
+  await page.getByTestId('camera-picker').selectOption('shed');
+  await expect(page.getByTestId('camera-webui-link')).toHaveCount(0);
+  await expect(page.getByTestId('camera-webui-note')).toHaveAttribute('title', 'Website not available - simulated camera');
+  await expect(page.getByTestId('device-webui-link')).toHaveCount(0);
+  await expect(page.getByTestId('device-webui-note')).toHaveText('Website not available - simulated camera');
+});
