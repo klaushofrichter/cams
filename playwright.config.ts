@@ -40,10 +40,12 @@ export default defineConfig({
       use: { ...devices['Desktop Chrome'], channel: 'chrome', viewport: { width: 1440, height: 900 } },
     },
   ],
-  // Requires `npm run build` first. Three cam-sim cameras (e2e/sims.ts) stand
-  // in for Reolinks: Den, Porch (rejects SetWhiteLed) and Shed (refuses
-  // downloads); e2e/cameras.json points at them, and "Garage" is deliberately
-  // unreachable; Den and Barn have a fake cam-proxy. Playwright merges each `env` with process.env (see
+  // Requires `npm run build` first. Four cam-sim cameras (e2e/sims.ts) stand
+  // in for Reolinks: Den, Porch (rejects SetWhiteLed), Shed (refuses
+  // downloads) and Barn (refuses downloads, live always resets);
+  // e2e/cameras.json points at them, and "Garage" is deliberately
+  // unreachable. Den and Barn have a fake cam-proxy. Playwright merges each
+  // `env` with process.env (see
   // playwright/lib/runner/index.js's WebServerPlugin), so PATH is preserved.
   webServer: [
     ...Object.values(SIMS).map((s) => ({ command: 'npx cam-sim', port: s.http, reuseExistingServer: !process.env.CI, env: simEnv(s) })),
