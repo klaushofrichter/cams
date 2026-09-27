@@ -91,9 +91,9 @@ describe('web UI link or note', () => {
       { ...cam1, protocol: 'https', id: 'c', webUiUrl: null },
     ]);
     expect(listCameras()).toEqual([
-      { id: 'a', name: 'Den', webUiUrl: 'https://192.168.1.103:9443/' },
-      { id: 'b', name: 'Den', webUiUrl: null, webUiNote: 'Website not available - simulated camera' },
-      { id: 'c', name: 'Den', webUiUrl: null },
+      { id: 'a', name: 'Den', webUiUrl: 'https://192.168.1.103:9443/', proxy: false },
+      { id: 'b', name: 'Den', webUiUrl: null, webUiNote: 'Website not available - simulated camera', proxy: false },
+      { id: 'c', name: 'Den', webUiUrl: null, proxy: false },
     ]);
   });
 });
@@ -101,8 +101,51 @@ describe('web UI link or note', () => {
 describe('listCameras / getCamera', () => {
   it('exposes id, name and webUiUrl', () => {
     setCameras([{ ...cam1, protocol: 'https' }]);
-    expect(listCameras()).toEqual([{ id: 'cam1', name: 'Den', webUiUrl: 'https://10.0.0.5/' }]);
+    expect(listCameras()).toEqual([{ id: 'cam1', name: 'Den', webUiUrl: 'https://10.0.0.5/', proxy: false }]);
     expect(getCamera('cam1')).toEqual({ ...cam1, protocol: 'https' });
     expect(getCamera('nope')).toBeUndefined();
+  });
+});
+
+// Plan 6: a camera's cam-proxy. The token is a secret: never in the summary
+// the browser gets, never in an error message.
+describe('proxy', () => {
+  const TOKEN = 'proxy-token-'.padEnd(40, 'x');
+  const load = (proxy: unknown) => loadCameras(file('proxy.json', JSON.stringify([{ ...cam1, proxy }])));
+
+  it('loads url and token, without a trailing slash', () => {
+    expect(load({ url: 'http://cam-proxy.cam-proxy.svc.cluster.local:8480/', token: TOKEN })[0].proxy).toEqual({ url: 'http://cam-proxy.cam-proxy.svc.cluster.local:8480', token: TOKEN });
+  });
+
+  it('rejects bad shapes, never showing the token', () => {
+    const bad: unknown[] = [
+      'http://x',
+      { url: 'ftp://x', token: TOKEN },
+      { url: 'http://user:pw@x', token: TOKEN },
+      { url: 'http://x/?a=1', token: TOKEN },
+      { url: 'http://x/#h', token: TOKEN },
+      { url: 'not a url', token: TOKEN },
+      { url: 'http://x', token: 'short-token' },
+      { url: 'http://x', token: `${TOKEN} space` },
+      { url: 'http://x' },
+    ];
+    for (const proxy of bad) {
+      let msg = '';
+      try {
+        load(proxy);
+      } catch (err) {
+        msg = (err as Error).message;
+      }
+      expect(msg).toMatch(/entry 0: proxy/);
+      expect(msg).not.toContain(TOKEN.slice(0, 20));
+    }
+  });
+
+  it('says proxy: true in the summary, and nothing else about it', () => {
+    setCameras(load({ url: 'http://p:8480', token: TOKEN }));
+    const summary = listCameras();
+    expect(summary).toEqual([{ id: 'cam1', name: 'Den', webUiUrl: 'https://10.0.0.5/', proxy: true }]);
+    expect(JSON.stringify(summary)).not.toContain('p:8480');
+    expect(JSON.stringify(summary)).not.toContain(TOKEN);
   });
 });

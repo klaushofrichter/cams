@@ -30,6 +30,7 @@ The cameras come from a JSON array in the file named by `CAMERAS_FILE`; in the c
 | `tlsServername` | optional | check the camera's certificate against this name (for a camera reached by address) |
 | `webUiUrl` | optional | the link to the camera's own web page; `null` for none. Default: `https://<host>/` (without the port), or no link when only `webUiNote` is set |
 | `webUiNote` | optional | 1 to 120 characters, shown instead of a link |
+| `proxy` | optional | `{"url": "http://cam-proxy…:8480", "token": "<cam-proxy client token>"}`: the camera's [cam-proxy](https://github.com/klaushofrichter/cam-proxy). With it, events arrive at once, the Timeline page shows its stills, and recordings play from its clips when the camera's download fails. The token stays on the server; browsers only learn that a proxy exists. Without it (or while the proxy is down) cams works as before. |
 
 Production has two cameras:
 
