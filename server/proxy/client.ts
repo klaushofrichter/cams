@@ -1,4 +1,5 @@
 import { getCamera } from '../cameraRegistry';
+import { proxyEnabled } from '../proxyState';
 
 // Talks to a camera's cam-proxy with its client token (Bearer). The token
 // never leaves the server: errors and logs name the proxy's host only.
@@ -107,7 +108,9 @@ export class ProxyClient {
 // One client per camera for the life of the process (like reolink/clients).
 const clients = new Map<string, ProxyClient>();
 
+// Undefined for a camera without a cam-proxy or with it switched off.
 export function getProxyClient(id: string): ProxyClient | undefined {
+  if (!proxyEnabled(id)) return undefined;
   const existing = clients.get(id);
   if (existing) return existing;
   const proxy = getCamera(id)?.proxy;

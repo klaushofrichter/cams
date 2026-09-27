@@ -4,7 +4,7 @@ import { tmpdir } from 'os';
 import { join } from 'path';
 import { Readable } from 'stream';
 import { pipeline } from 'stream/promises';
-import { getCamera } from '../cameraRegistry';
+import { proxyActive } from '../cameraRegistry';
 import { getClient } from '../reolink/clients';
 import { logger } from '../logger';
 import { CameraError } from '../reolink/client';
@@ -348,7 +348,7 @@ export class RecordingsService {
   // 'proxy': the camera refuses downloads, and recordings come from its
   // cam-proxy instead (per clip, when the proxy has one).
   downloadsState(cameraId: string): 'ok' | 'proxy' | 'unavailable' {
-    if (getCamera(cameraId)?.proxy) return 'proxy';
+    if (proxyActive(cameraId)) return 'proxy';
     return (this.health.get(cameraId)?.failures ?? 0) >= BREAKER_FAILURES ? 'unavailable' : 'ok';
   }
 
@@ -370,7 +370,7 @@ export class RecordingsService {
   // The proxy's clip for the event, for a camera with a cam-proxy (Plan 7:
   // asked first; Plan 6: when the camera refuses).
   private async proxyClip(cameraId: string, clipId: string): Promise<{ id: number } | null> {
-    if (!getCamera(cameraId)?.proxy) return null;
+    if (!proxyActive(cameraId)) return null;
     try {
       const span = await this.eventSpan(cameraId, clipId);
       if (!span) return null;
@@ -441,7 +441,7 @@ export class RecordingsService {
     return this.cache.fill(jpgKey, async (tmp) => {
       // A camera with a cam-proxy: its still 2 s into the event (Plan 7),
       // no clip transfer and no ffmpeg.
-      if (getCamera(cameraId)?.proxy) {
+      if (proxyActive(cameraId)) {
         try {
           const span = await this.eventSpan(cameraId, clipId);
           const ts = span && (await findProxyStill(cameraId, span.start + 2000, span.start + 12_000));

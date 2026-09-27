@@ -2,6 +2,7 @@
   import { tick, untrack } from 'svelte';
   import SettingsCard from '../components/SettingsCard.svelte';
   import SaveState from '../components/SaveState.svelte';
+  import ProxySwitch from '../components/ProxySwitch.svelte';
   import Icon from '../components/Icon.svelte';
   import { cameras, selectedCameraId } from '../lib/stores';
   import { getJson } from '../lib/api';
@@ -364,6 +365,12 @@
         <button class="primary" data-testid="save-image" disabled={!imageDirty || imageState === 'saving' || !!osdNameError} onclick={() => save('image', image!, imageEdit!)}>Save</button>
       {/snippet}
     </SettingsCard>
+
+    {#if $selectedCameraId && $cameras.find((c) => c.id === $selectedCameraId)?.proxyConfigured}
+      <SettingsCard id="proxy" title="cam-proxy" description="The camera gateway that keeps this camera's clips, stills and events.">
+        <ProxySwitch cameraId={$selectedCameraId} />
+      </SettingsCard>
+    {/if}
 
     <SettingsCard id="device" title="Device and maintenance">
       {#if device}

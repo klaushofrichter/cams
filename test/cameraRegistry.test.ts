@@ -91,9 +91,9 @@ describe('web UI link or note', () => {
       { ...cam1, protocol: 'https', id: 'c', webUiUrl: null },
     ]);
     expect(listCameras()).toEqual([
-      { id: 'a', name: 'Den', webUiUrl: 'https://192.168.1.103:9443/', proxy: false },
-      { id: 'b', name: 'Den', webUiUrl: null, webUiNote: 'Website not available - simulated camera', proxy: false },
-      { id: 'c', name: 'Den', webUiUrl: null, proxy: false },
+      { id: 'a', name: 'Den', webUiUrl: 'https://192.168.1.103:9443/', proxy: false, proxyConfigured: false },
+      { id: 'b', name: 'Den', webUiUrl: null, webUiNote: 'Website not available - simulated camera', proxy: false, proxyConfigured: false },
+      { id: 'c', name: 'Den', webUiUrl: null, proxy: false, proxyConfigured: false },
     ]);
   });
 });
@@ -101,7 +101,7 @@ describe('web UI link or note', () => {
 describe('listCameras / getCamera', () => {
   it('exposes id, name and webUiUrl', () => {
     setCameras([{ ...cam1, protocol: 'https' }]);
-    expect(listCameras()).toEqual([{ id: 'cam1', name: 'Den', webUiUrl: 'https://10.0.0.5/', proxy: false }]);
+    expect(listCameras()).toEqual([{ id: 'cam1', name: 'Den', webUiUrl: 'https://10.0.0.5/', proxy: false, proxyConfigured: false }]);
     expect(getCamera('cam1')).toEqual({ ...cam1, protocol: 'https' });
     expect(getCamera('nope')).toBeUndefined();
   });
@@ -146,10 +146,10 @@ describe('proxy', () => {
     }
   });
 
-  it('says proxy: true in the summary, and nothing else about it', () => {
+  it('says proxy and proxyConfigured in the summary, and nothing else about it', () => {
     setCameras(load({ url: 'http://p:8480', token: TOKEN }));
     const summary = listCameras();
-    expect(summary).toEqual([{ id: 'cam1', name: 'Den', webUiUrl: 'https://10.0.0.5/', proxy: true }]);
+    expect(summary).toEqual([{ id: 'cam1', name: 'Den', webUiUrl: 'https://10.0.0.5/', proxy: true, proxyConfigured: true }]);
     expect(JSON.stringify(summary)).not.toContain('p:8480');
     expect(JSON.stringify(summary)).not.toContain(TOKEN);
   });
