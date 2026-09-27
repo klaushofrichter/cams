@@ -3,6 +3,7 @@
 // clips, stills and previews. Tests set its data and switches directly; e2e
 // runs it as a process (bottom of the file).
 import express, { type Response } from 'express';
+import rateLimit from 'express-rate-limit';
 import { mkdtempSync, writeFileSync } from 'fs';
 import http from 'http';
 import type { AddressInfo } from 'net';
@@ -69,6 +70,8 @@ export async function startFakeProxy(opts: { port?: number; token?: string } = {
 
   const write = (res: Response, m: FakeMessage) => res.write(`id: ${m.id}\nevent: ${m.type}\ndata: ${JSON.stringify({ cam: m.cam, ...m.data })}\n\n`);
 
+  // Far above any test's use; keeps the fake like the real service.
+  app.use(rateLimit({ windowMs: 60_000, limit: 100_000, standardHeaders: false, legacyHeaders: false }));
   app.use((req, res, next) => {
     if (fake.offline) return void req.socket.destroy();
     fake.requests.push({ path: req.path, auth: req.get('authorization') });

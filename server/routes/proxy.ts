@@ -3,7 +3,7 @@ import { Readable } from 'stream';
 import { pipeline } from 'stream/promises';
 import { getCamera } from '../cameraRegistry';
 import { logger } from '../logger';
-import { getProxyClient, proxyCameraId, ProxyError, type ProxyClient } from '../proxy/client';
+import { getProxyClient, ProxyError, type ProxyClient } from '../proxy/client';
 
 // Stills and preview sprites from a camera's cam-proxy, for the Timeline
 // page (Plan 6). cams signs the browser in; the proxy's token is added here.
@@ -18,7 +18,7 @@ function proxied(req: Request, res: Response): { client: ProxyClient; cam: strin
   if (!camera) return void res.status(404).json({ error: 'unknown_camera' }), undefined;
   const client = getProxyClient(id);
   if (!client) return void res.status(404).json({ error: 'no_proxy' }), undefined;
-  return { client, cam: encodeURIComponent(proxyCameraId(id)), base: `/api/cameras/${encodeURIComponent(id)}` };
+  return { client, cam: encodeURIComponent(camera.proxy?.camera ?? camera.id), base: `/api/cameras/${encodeURIComponent(camera.id)}` };
 }
 
 function range(req: Request, res: Response): [number, number] | undefined {
@@ -61,11 +61,14 @@ proxyRouter.get('/api/cameras/:id/stills', async (req: Request, res: Response) =
 // One image, streamed with the proxy's type and caching.
 for (const kind of ['previews', 'stills'] as const) {
   proxyRouter.get(`/api/cameras/:id/${kind}/:file`, async (req: Request, res: Response) => {
-    if (!/^\d{1,15}\.jpg$/.test(String(req.params.file))) return bad(res, 'an image is <unix ms>.jpg');
+    const m = /^(\d{1,15})\.jpg$/.exec(String(req.params.file));
+    if (!m) return bad(res, 'an image is <unix ms>.jpg');
     const p = proxied(req, res);
     if (!p) return;
+    // The proxy path is built from the parsed number, never the raw parameter.
+    const ts = Number(m[1]);
     try {
-      const up = await p.client.open(`/api/cameras/${p.cam}/${kind}/${req.params.file}`, undefined, { idleMs: 10_000 });
+      const up = await p.client.open(`/api/cameras/${p.cam}/${kind}/${ts}.jpg`, undefined, { idleMs: 10_000 });
       if (!up.ok || !up.body) {
         await up.body?.cancel();
         return void res.status(up.status === 404 ? 404 : 502).json({ error: up.status === 404 ? 'not_found' : 'proxy_unavailable' });

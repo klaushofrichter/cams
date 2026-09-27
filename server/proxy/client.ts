@@ -118,8 +118,11 @@ export function getProxyClient(id: string): ProxyClient | undefined {
 }
 
 // The proxy's id for a camera: `proxy.camera`, or else ours.
+// Taken from the configuration, never from the request.
 export function proxyCameraId(id: string): string {
-  return getCamera(id)?.proxy?.camera ?? id;
+  const camera = getCamera(id);
+  if (!camera) throw new Error('unknown camera');
+  return camera.proxy?.camera ?? camera.id;
 }
 
 export function resetProxyClients(): void {
