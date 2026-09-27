@@ -8,4 +8,3 @@ published as [GitHub releases](https://github.com/klaushofrichter/cams/releases)
 
 ## [Unreleased]
 
-- **Live's stills fallback is clearly marked** (camera with a cam-proxy): a STILLS badge on the picture with the still's time and age, and STILLS instead of LIVE in the header.
