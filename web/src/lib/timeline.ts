@@ -85,3 +85,12 @@ export function cursorSearch(c: TimelineCursor): string {
   if (c.t !== null) p.set('t', String(c.t));
   return `?${p.toString()}`;
 }
+
+// The sprite tile showing a moment, for the scrub preview (Plan 7): null
+// when that minute has no sprite or that second no tile.
+export function previewAt(minutes: PreviewMinute[], ts: number): { minute: PreviewMinute; index: number } | null {
+  const m = minutes.find((x) => x.minute === minuteOf(ts));
+  if (!m) return null;
+  const index = tileIndex(m, ts);
+  return m.present[index] ? { minute: m, index } : null;
+}

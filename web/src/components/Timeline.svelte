@@ -2,6 +2,7 @@
   import { dayLength, formatClock, layoutSegments, legendTicks, localDate, secondsIntoDay, tickLabel, timelineWindow, type EventClip, type Zoom } from '../lib/recordings';
   import { pref } from '../lib/preferences';
   import { timeZoneLabel } from '../lib/clock';
+  import { previewAt, tileStyle, type PreviewMinute } from '../lib/timeline';
 
   let {
     events,
@@ -15,6 +16,8 @@
     legend = false,
     now = null,
     updatedAt = null,
+    previews = [],
+    dayStartMs = null,
   }: {
     events: EventClip[];
     date: string;
@@ -27,7 +30,22 @@
     legend?: boolean;
     now?: number | null;
     updatedAt?: Date | null;
+    // Plan 7: the day's preview sprites from the camera's cam-proxy; moving
+    // over the bar shows the frame of that moment.
+    previews?: PreviewMinute[];
+    dayStartMs?: number | null;
   } = $props();
+
+  let hover = $state<{ left: number; style: string; label: string } | null>(null);
+  function move(e: PointerEvent) {
+    if (!previews.length || dayStartMs === null) return;
+    const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+    const frac = Math.min(1, Math.max(0, (e.clientX - rect.left) / rect.width));
+    const sec = win.start + frac * (win.end - win.start);
+    const ts = dayStartMs + sec * 1000;
+    const p = previewAt(previews, ts);
+    hover = p ? { left: frac * 100, style: tileStyle(p.minute, p.index, 1), label: new Date(ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }) } : null;
+  }
 
   let zoom: Zoom = $state(pref('timelineZoom') ?? 24);
   const daySec = $derived(dayLength(date));
@@ -76,6 +94,12 @@
 </script>
 
 <div class="wrap" class:compact class:legend>
+  {#if hover}
+    <div class="scrub" style={`left: clamp(84px, ${hover.left}%, calc(100% - 84px))`} data-testid="scrub-preview" aria-hidden="true">
+      <span class="frame" style={hover.style}></span>
+      <span class="when">{hover.label}</span>
+    </div>
+  {/if}
   {#if !compact}
     <div class="zoom" role="group" aria-label="Timeline zoom">
       {#each [24, 6, 1] as z (z)}
@@ -83,7 +107,7 @@
       {/each}
     </div>
   {/if}
-  <div class="bar" data-testid={testid} role="slider" tabindex="0" aria-label="Recordings timeline" aria-valuemin={0} aria-valuemax={daySec} aria-valuenow={Math.round(center)} onclick={click} onkeydown={keydown}>
+  <div class="bar" data-testid={testid} role="slider" tabindex="0" aria-label="Recordings timeline" aria-valuemin={0} aria-valuemax={daySec} aria-valuenow={Math.round(center)} onclick={click} onkeydown={keydown} onpointermove={move} onpointerleave={() => (hover = null)}>
     {#each segs as s (s.id)}
       <span class="seg" class:ai={s.ai} class:on={s.id === selectedId} data-testid="timeline-seg" data-clip-id={s.id} style={`left:${s.left}%;width:${s.width}%`}></span>
     {/each}
@@ -107,7 +131,10 @@
 </div>
 
 <style>
-  .wrap { display: flex; flex-direction: column; gap: 6px; }
+  .wrap { display: flex; flex-direction: column; gap: 6px; position: relative; }
+  .scrub { position: absolute; bottom: calc(100% + 6px); transform: translateX(-50%); z-index: 5; pointer-events: none; display: grid; gap: 2px; padding: 4px; border-radius: 8px; background: var(--surface); border: 1px solid var(--border); box-shadow: var(--shadow); }
+  .frame { display: block; border-radius: 4px; background-color: var(--surface-2); }
+  .when { font-size: 11px; color: var(--muted); text-align: center; font-family: var(--mono); }
   .zoom { display: flex; gap: 4px; align-self: flex-end; }
   .zoom button { font-size: 12px; padding: 3px 9px; border-radius: 8px; border: 1px solid var(--border); background: transparent; color: var(--muted); cursor: pointer; }
   .zoom button[aria-pressed='true'] { background: var(--surface-2); color: var(--text); border-color: var(--accent); }
