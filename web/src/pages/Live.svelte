@@ -54,6 +54,8 @@
   // Plan 7: live video not playing for 5 s (connecting or reconnecting):
   // a camera with a cam-proxy shows its stills meanwhile.
   let stuck = $state(false);
+  // Whether the gateway's stills are on screen (the header then says STILLS).
+  let stillsShowing = $state(false);
   $effect(() => {
     void camera?.id; // a camera switch starts over
     stuck = false;
@@ -270,7 +272,7 @@
     {#if visible}<h1 data-testid="page-title">Live</h1>{/if}
     {#if camera}<span class="cam">{camera.name}</span>{/if}
     {#if status?.online}
-      <span class="badge" data-testid="live-badge" class:ok={playerState === 'playing'}>● {playerState === 'playing' ? 'LIVE' : '…'}</span>
+      <span class="badge" data-testid="live-badge" class:ok={playerState === 'playing'} class:stills={playerState !== 'playing' && stillsShowing}>● {playerState === 'playing' ? 'LIVE' : stillsShowing ? 'STILLS' : '…'}</span>
       <span class="state" data-testid="live-state">
         {playerState === 'playing' ? 'Live' : playerState === 'reconnecting' ? 'Reconnecting…' : 'Connecting…'}
       </span>
@@ -287,7 +289,7 @@
         <Icon name="refresh" size={16} /> {checking ? 'Checking…' : 'Retry'}
       </button>
     </div>
-    {#if camera.proxy}<LiveStill cameraId={camera.id} active={visible} />{/if}
+    {#if camera.proxy}<LiveStill cameraId={camera.id} active={visible} onactive={(on) => (stillsShowing = on)} />{/if}
   {:else if status?.online}
     <div class="viewer" bind:this={container}>
       <!-- `muted` itself is left untouched while hidden, so the user's own
@@ -298,7 +300,7 @@
       <!-- The stills cover only the player (controls and timeline stay usable). -->
       <div class="player-box">
         <LivePlayer cameraId={camera.id} {quality} muted={muted || !audible} onstate={(s) => (playerState = s)} />
-        {#if camera.proxy && stuck}<LiveStill cameraId={camera.id} active={visible} overlay />{/if}
+        {#if camera.proxy && stuck}<LiveStill cameraId={camera.id} active={visible} overlay onactive={(on) => (stillsShowing = on)} />{/if}
       </div>
       <div class="controls">
         <button data-testid="mute-toggle" aria-pressed={!muted} onclick={() => (muted = !muted)} title={muted ? 'Unmute' : 'Mute'}>
@@ -374,4 +376,5 @@
     border: 1px solid var(--border); background: var(--surface-2); cursor: pointer;
   }
   .player-box { position: relative; }
+  .badge.stills { color: var(--warning-ink); background: var(--warning); border-color: var(--warning); }
 </style>
