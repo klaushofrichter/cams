@@ -173,3 +173,14 @@ test('the picker switches between two simulated cameras, each streaming live', a
   await expect(page.getByTestId('live-state')).toHaveText('Live', { timeout: 15_000 });
   await expect.poll(() => opened('porch')).toBeGreaterThan(before.porch);
 });
+
+// Plan 7 (Klaus, 2026-09-27): when live video fails on a camera with a
+// cam-proxy, Live shows the gateway's stills and says so clearly. Barn's live
+// stream always resets (e2e/sims.ts).
+test('a camera with a gateway falls back to stills, clearly marked, when live video fails', async ({ page }) => {
+  await page.goto('/app/live');
+  await page.getByTestId('camera-picker').selectOption('barn');
+  await expect(page.getByTestId('live-badge')).toHaveText('● STILLS', { timeout: 20_000 });
+  await expect(page.getByTestId('stills-badge')).toContainText(/^STILLS · \d{1,2}:\d{2}:\d{2}.* · \d+ s old$/);
+  await expect(page.getByTestId('live-still').locator('img')).toHaveJSProperty('complete', true);
+});

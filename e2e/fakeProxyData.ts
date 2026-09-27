@@ -30,6 +30,11 @@ export function seed(fake: FakeProxy): void {
     for (let s = 0; s < 60; s += 10) stills.set(m + s * 1000, jpeg);
   }
   fake.stills.set('cam1', stills);
+  // Barn: a still every 5 s from ten minutes before start-up to an hour after,
+  // so the Live fallback always finds a recent one.
+  const barn = new Map<number, Buffer>();
+  for (let t = now - 10 * 60_000; t <= now + 60 * 60_000; t += 5000) barn.set(t, jpeg);
+  fake.stills.set('barn', barn);
   fake.previews.set('cam1', previews);
   const day = new Date();
   const start = new Date(day.getFullYear(), day.getMonth(), day.getDate()).getTime();
