@@ -7,7 +7,8 @@ export const CONTROL_TOKEN = 'e2e-control-token-not-a-secret';
 
 type Sim = { http: number; https: number; control: number; onvif: number; rtsp: number; faults: object[] };
 
-const STRICT = { name: 'settings.strictPartial' }; // the old mock's behaviour
+// A partial write's resets show at once (the firmware waits for a reboot).
+const STRICT = { name: 'settings.strictPartial' };
 
 export const SIMS: Record<'den' | 'porch' | 'shed', Sim> = {
   den: { http: 8098, https: 8198, control: 8298, onvif: 8398, rtsp: 8498, faults: [STRICT] },
@@ -23,8 +24,7 @@ export function simEnv(s: Sim): Record<string, string> {
   return {
     CAMSIM_USERS: 'e2e:admin:e2e-not-a-real-password',
     CAMSIM_CONTROL_TOKEN: CONTROL_TOKEN,
-    CAMSIM_NAME: 'Den', // the old mock's on-screen name, for every camera
-    CAMSIM_FIRMWARE: 'v3.2.0.6011_mock',
+    CAMSIM_NAME: 'Den', // the on-screen name, for every camera
     CAMSIM_SEED_CLIPS: 'demo',
     CAMSIM_SD_MB: '61047', // the real camera's 64 GB card
     CAMSIM_HTTP_PORT: String(s.http),
@@ -39,7 +39,7 @@ export function simEnv(s: Sim): Record<string, string> {
   };
 }
 
-// A simulator's counters (the old mock's /__state), from its control API.
+// A simulator's counters, from its control API.
 export async function simCounters(page: Page, cam: keyof typeof SIMS): Promise<Record<string, number>> {
   const res = await page.request.get(`http://127.0.0.1:${SIMS[cam].control}/sim/api/state`, {
     headers: { Authorization: `Bearer ${CONTROL_TOKEN}` },

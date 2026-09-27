@@ -63,10 +63,21 @@ info = call("GetDevInfo", {}, t)["value"]["DevInfo"]
 print("verified: cams can read", info["model"], info["firmVer"])
 call("Logout", {}, t)
 PY
+# Replaces only cam1's entry; other cameras in the Secret (e.g. cam2, the
+# simulator) are kept as they are.
 python3 - <<'PY' | kubectl -n cams create secret generic cams-cameras --from-file=cameras.json=/dev/stdin --dry-run=client -o yaml | kubectl apply -f -
-import json, os
-print(json.dumps([{"id": "cam1", "name": "Den", "host": os.environ["REOLINK_IP"], "protocol": "https",
-                   "tlsServername": "cam1.skylar.technology", "user": "cams", "password": os.environ["CAMS_CAMERA_PASSWORD"]}]))
+import base64, json, os, subprocess
+r = subprocess.run(["kubectl", "-n", "cams", "get", "secret", "cams-cameras", "-o", "jsonpath={.data.cameras\\.json}"], capture_output=True, text=True)
+cameras = json.loads(base64.b64decode(r.stdout)) if r.returncode == 0 and r.stdout.strip() else []
+cam1 = {"id": "cam1", "name": "Den", "host": os.environ["REOLINK_IP"], "protocol": "https",
+        "tlsServername": "cam1.skylar.technology", "user": "cams", "password": os.environ["CAMS_CAMERA_PASSWORD"]}
+old = next((c for c in cameras if c.get("id") == "cam1"), None)
+if old:
+    cam1 = {**old, **cam1}  # keeps fields such as webUiUrl
+    cameras = [cam1 if c.get("id") == "cam1" else c for c in cameras]
+else:
+    cameras.insert(0, cam1)
+print(json.dumps(cameras))
 PY
 kubectl -n cams describe secret cams-cameras | sed -n '/^Data/,$p'
 if [ "$RESET" = 1 ]; then

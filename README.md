@@ -15,7 +15,28 @@ clip playback and downloads, and camera settings, behind Google sign-in.
 
 - `server/`: Express 5 + TypeScript. Google OAuth, sessions, `/health`, the JSON API, and serving the web build.
 - `web/`: Svelte 5 + Vite. `index.html` is the public landing page; `app.html` is the signed-in app.
-- The app runs as a Knative service on the k3s cluster. Its manifests live in the `kube-setup` repo, not here.
+- The app runs as a Knative service `cams` (namespace `cams`) on the k3s cluster. Its manifests live in the `kube-setup` repo, not here.
+- Notes on the camera's HTTP API, as measured on the real camera: [docs/reolink-api.md](docs/reolink-api.md).
+
+## Cameras
+
+The cameras come from a JSON array in the file named by `CAMERAS_FILE`; in the cluster that is the Secret `cams-cameras`. A missing file means no cameras; invalid JSON or a bad field stops the server at start.
+
+| Field | | |
+|---|---|---|
+| `id` | required | lowercase letters, digits and dashes, up to 32 characters, unique |
+| `name`, `host`, `user`, `password` | required | `host` is an address or name, with an optional `:port` |
+| `protocol` | optional | `https` (default) or `http` |
+| `tlsServername` | optional | check the camera's certificate against this name (for a camera reached by address) |
+| `webUiUrl` | optional | the link to the camera's own web page; `null` for none. Default: `https://<host>/` (without the port), or no link when only `webUiNote` is set |
+| `webUiNote` | optional | 1 to 120 characters, shown instead of a link |
+
+Production has two cameras:
+
+- `cam1` "Den": the real Reolink RLC-1224A, with its own Let's Encrypt certificate for `cam1.skylar.technology`;
+- `cam2`: a [cam-sim](https://github.com/klaushofrichter/cam-sim) simulated camera in the same cluster (`cam2.cam-sim.svc.cluster.local`, TLS name `cam2.skylar.technology`), whose web page `https://cam2.skylar.technology/` works on the LAN only.
+
+`scripts/create-camera-user.sh` creates the dedicated `cams` user on the real camera and writes its entry (`cam1`) into `cams-cameras`, keeping the other cameras.
 
 ## Development
 
@@ -26,6 +47,22 @@ npm run dev              # server on :8080
 npm run dev:web          # Vite on :5173, proxying /api and /auth to :8080
 ```
 
+The Google OAuth client must list the redirect URI: `http://localhost:8080/auth/google/callback` locally, `https://cams.skylar.technology/auth/google/callback` in production.
+
+| Variable | Default | |
+|---|---|---|
+| `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `GOOGLE_REDIRECT_URI`, `COOKIE_SECRET`, `ALLOWED_EMAILS` | required | `ALLOWED_EMAILS` is comma-separated |
+| `CAMERAS_FILE` | none (no cameras) | see [Cameras](#cameras) |
+| `PORT` | `8080` | |
+| `LOG_LEVEL` | `info` | |
+| `PREFS_FILE` | `$TMPDIR/cams-preferences.json` | per-user preferences |
+| `CACHE_DIR`, `CACHE_MAX_BYTES` | `$TMPDIR/cams-cache`, 1.5 GiB | downloaded clips and thumbnails |
+| `FFMPEG_PATH` | `ffmpeg` | for thumbnails |
+| `RECORDINGS_PROBE_MS`, `DOWNLOAD_RETRY_DELAY_MS` | `60000`, `1000` | how often a camera whose downloads fail is retried; the pause before a download's one retry |
+| `RATE_LIMIT_WINDOW_MS`, `RATE_LIMIT_MAX`, `RATE_LIMIT_API_MAX`, `RATE_LIMIT_MEDIA_MAX` | 5 min, `40`, `600`, `3000` | per window: sign-in, API, media |
+
+`scripts/create-secrets.sh` creates the cluster Secrets `cams-oauth` (namespace `cams`) and `runner-pat` (namespace `cams-runner`) from `~/Development/reolink/.env`, keeping an existing `COOKIE_SECRET`. `npm run icons` regenerates the web icons; `npm run check` type-checks `web/`.
+
 ## Testing
 
 ```bash
@@ -33,11 +70,23 @@ npm test                 # vitest: server + web libraries
 npm run build && npm run test:e2e   # Playwright, desktop and phone viewports
 ```
 
-The e2e suite signs its own session cookie with a test secret (`e2e/session.ts`), so it never talks to Google.
+Both suites need **ffmpeg** on the `PATH`, and e2e needs **Google Chrome**. The e2e suite signs its own session cookie with a test secret (`e2e/session.ts`), so it never talks to Google.
+
+**The tests use [cam-sim](https://github.com/klaushofrichter/cam-sim) as the camera.** cam-sim simulates the Reolink RLC-1224A's HTTP API, quirks included, and can switch on faults (refused downloads, failing settings writes, offline, and more). cams has no mock camera of its own.
+
+- **Unit tests** start cam-sim in the test process through `test/camera/sim.ts` (`createSimCamera`). `test/camera/warm.ts` builds cam-sim's test-pattern media once, before the tests run.
+- **e2e** starts three cam-sim processes (`e2e/sims.ts`), listed in `e2e/cameras.json`:
+  - "Den";
+  - "Porch", which rejects `SetWhiteLed`;
+  - "Shed", which refuses downloads like the real camera.
+
+  A fourth camera, "Garage", points at an unused port and stays offline.
+- **Version:** cam-sim is a dev dependency pinned to a release tarball in `package.json`. To update it, change the URL to the new release's `cam-sim-<tag>.tgz` asset, run `npm install`, and run both suites.
+- **The other direction:** cam-sim's own CI runs cams' unit and e2e suites against every cam-sim change, so a simulator change that would break cams fails there first.
 
 ## Deployment and releases
 
-`main` is built and published as `ghcr.io/klaushofrichter/cams:main` but never deployed. A PR from `main` to `production` runs `test`, `e2e` and `codeql`; merging it deploys through the in-cluster runner, smoke-tests the public URL and creates a `vYYYY.MM.DD.N` release.
+`main` is built and published as `ghcr.io/klaushofrichter/cams:main` but never deployed. Every PR to `main` or `production` runs `test`, `e2e` and `codeql`. Merging a PR from `main` to `production` deploys through the in-cluster runner, smoke-tests the public URL and creates a `vYYYY.MM.DD.N` release. The release notes come from the `[Unreleased]` section of `CHANGELOG.md`, which the workflow then empties on `main`.
 
 ## Security
 

@@ -1,23 +1,15 @@
 // The camera for cams' tests: cam-sim (github.com/klaushofrichter/cam-sim),
-// behind the option names and state fields of the old in-repo mock, so the
-// tests only changed where they create the camera.
+// in process. The options switch on cam-sim faults; the state reads its
+// counters and switches.
 import { createCamSim, DEMO_CLIPS, type CamSim, type FaultSpec, type SeedClip } from 'cam-sim';
 
-export interface MockClip {
-  daysAgo: number;
-  start: string;
-  end: string;
-  triggers: ('person' | 'vehicle' | 'pet' | 'motion')[];
-  mainEnd?: string;
-}
-
-export interface MockCameraOptions {
+export interface SimCameraOptions {
   user: string;
   password: string;
   firmware?: string;
   flvDelayMs?: number;
   downloadDelayMs?: number;
-  clips?: MockClip[];
+  clips?: SeedClip[];
   searchDelayMs?: number;
   dropFirstDownloads?: number;
   settingsFailures?: string[];
@@ -26,9 +18,7 @@ export interface MockCameraOptions {
   rebootDropsConnection?: boolean;
 }
 
-export const DEFAULT_MOCK_CLIPS: MockClip[] = DEMO_CLIPS;
-
-export interface MockState {
+export interface SimState {
   readonly logins: number;
   readonly loginAttempts: number;
   readonly activeStreams: number;
@@ -50,10 +40,10 @@ export interface MockState {
   dropDownloads(): void;
 }
 
-export async function createMockCamera(opts: MockCameraOptions): Promise<{ app: CamSim['cameraApp']; state: MockState; sim: CamSim }> {
+export async function createSimCamera(opts: SimCameraOptions): Promise<{ app: CamSim['cameraApp']; state: SimState; sim: CamSim }> {
   const faults: FaultSpec[] = [
-    // The old mock showed a partial write's resets at once; the firmware
-    // (and cam-sim by default) only after a reboot.
+    // A partial write's resets show at once, so tests see them without a
+    // reboot (the firmware, and cam-sim by default, wait for the reboot).
     { name: 'settings.strictPartial' },
   ];
   if (opts.flvDelayMs) faults.push({ name: 'flv.delayMs', ms: opts.flvDelayMs });
@@ -65,19 +55,17 @@ export async function createMockCamera(opts: MockCameraOptions): Promise<{ app: 
 
   const sim = await createCamSim({
     users: [{ name: opts.user, level: 'admin', password: opts.password }],
-    name: 'Mock',
-    firmVer: opts.firmware ?? 'v3.2.0.6011_mock',
+    name: 'Den',
+    ...(opts.firmware ? { firmVer: opts.firmware } : {}),
     faults,
-    seedClips: (opts.clips ?? DEFAULT_MOCK_CLIPS) as SeedClip[],
+    seedClips: opts.clips ?? DEMO_CLIPS,
     reboot: { ms: opts.rebootMs ?? 50, dropsConnection: opts.rebootDropsConnection ?? false },
     sdMb: 61047, // the real camera's 64 GB card
   });
-  // The old mock's device was "Mock" with the on-screen name "Den".
-  for (const s of [sim.engine.settings.running, sim.engine.settings.saved]) s.Osd.osdChannel.name = 'Den';
   const e = sim.engine;
   const c = e.counters;
   const toggle = (name: 'offline' | 'flv.reset', on: boolean) => (on ? e.faults.set({ name }) : e.faults.clear(name));
-  const state: MockState = {
+  const state: SimState = {
     get logins() { return c.logins; },
     get loginAttempts() { return c.loginAttempts; },
     get activeStreams() { return c.activeStreams; },

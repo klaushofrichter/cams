@@ -15,7 +15,7 @@ import { resetClients } from '../server/reolink/clients';
 import { getRecordings, resetRecordings } from '../server/recordings/service';
 import { ReolinkClient } from '../server/reolink/client';
 import { SESSION_COOKIE, signSession } from '../server/session';
-import { createMockCamera, MockState } from './camera/sim';
+import { createSimCamera, SimState } from './camera/sim';
 import * as thumbnailModule from '../server/recordings/thumbnail';
 
 // Partial mock: real implementation by default, so every test except the
@@ -37,9 +37,9 @@ const nodeRequire = createRequire(import.meta.url);
 const auth = `${SESSION_COOKIE}=${signSession('klaus@klaushofrichter.net')}`;
 const today = () => new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Chicago' }).format(new Date());
 let cam: Server;
-let state: MockState;
+let state: SimState;
 
-// This file's clip ids are deterministic (today's mock clips), so a clip
+// This file's clip ids are deterministic (today's demo clips), so a clip
 // cached by one test would otherwise satisfy fill() for a later test with no
 // camera download, breaking the "exactly N downloads" assertions below. Each
 // test gets its own fresh cache directory (the service reads CACHE_DIR when
@@ -56,9 +56,9 @@ afterEach(() => {
 });
 
 beforeEach(async () => {
-  const mock = await createMockCamera({ user: 'u', password: 'p' });
-  state = mock.state;
-  cam = mock.app.listen(0);
+  const simCam = await createSimCamera({ user: 'u', password: 'p' });
+  state = simCam.state;
+  cam = simCam.app.listen(0);
   await new Promise((r) => cam.once('listening', r));
   setCameras([
     { id: 'cam1', name: 'Den', host: `127.0.0.1:${(cam.address() as AddressInfo).port}`, protocol: 'http', user: 'u', password: 'p' },
@@ -79,11 +79,11 @@ async function firstClip(date = today()) {
 
 // Swaps the running simulated camera for a fresh one (with different options,
 // e.g. a download delay), keeping cam1 pointed at it. Closes the old one.
-async function replaceMockCamera(opts: Parameters<typeof createMockCamera>[0]): Promise<void> {
+async function replaceSimCamera(opts: Parameters<typeof createSimCamera>[0]): Promise<void> {
   await new Promise<void>((r) => cam.close(() => r()));
-  const mock = await createMockCamera(opts);
-  state = mock.state;
-  cam = mock.app.listen(0);
+  const simCam = await createSimCamera(opts);
+  state = simCam.state;
+  cam = simCam.app.listen(0);
   await new Promise((r) => cam.once('listening', r));
   setCameras([{ id: 'cam1', name: 'Den', host: `127.0.0.1:${(cam.address() as AddressInfo).port}`, protocol: 'http', user: 'u', password: 'p' }]);
   resetClients();
@@ -93,7 +93,7 @@ describe('recordings API', () => {
   // Real camera, 2026-09-26: one event's sub and main copies ended 2 s apart,
   // and a clip still being recorded was listed with end time 000000.
   it('pairs sub and main copies by start time and hides a clip still being recorded', async () => {
-    await replaceMockCamera({
+    await replaceSimCamera({
       user: 'u',
       password: 'p',
       clips: [
@@ -118,7 +118,7 @@ describe('recordings API', () => {
   });
 
   it('retries once when the camera resets a clip fetch', async () => {
-    await replaceMockCamera({ user: 'u', password: 'p', dropFirstDownloads: 1 });
+    await replaceSimCamera({ user: 'u', password: 'p', dropFirstDownloads: 1 });
     const e = await firstClip();
     const res = await request(createApp()).get(`/api/cameras/cam1/clips/${e.id}/video`).set('Cookie', auth);
     expect(res.status).toBe(200);
@@ -129,7 +129,7 @@ describe('recordings API', () => {
   // Real camera: ~150 KB/s, one transfer at a time. A clip someone opens
   // must not wait behind a page's worth of thumbnail fetches.
   it('fetches a clip someone is watching ahead of queued thumbnails', async () => {
-    await replaceMockCamera({ user: 'u', password: 'p', downloadDelayMs: 300 });
+    await replaceSimCamera({ user: 'u', password: 'p', downloadDelayMs: 300 });
     const app = createApp();
     const events = (await request(app).get(`/api/cameras/cam1/events?date=${today()}`).set('Cookie', auth)).body.events as { id: string }[];
     const [a, b, c, d] = events.map((e) => e.id);
@@ -150,7 +150,7 @@ describe('recordings API', () => {
   });
 
   it('promotes a queued thumbnail fetch when someone opens that clip', async () => {
-    await replaceMockCamera({ user: 'u', password: 'p', downloadDelayMs: 300 });
+    await replaceSimCamera({ user: 'u', password: 'p', downloadDelayMs: 300 });
     const app = createApp();
     const events = (await request(app).get(`/api/cameras/cam1/events?date=${today()}`).set('Cookie', auth)).body.events as { id: string }[];
     const [a, b, c] = events.map((e) => e.id);
@@ -177,7 +177,7 @@ describe('recordings API', () => {
   it('stops asking a camera that refuses downloads, and recovers on a successful probe', async () => {
     process.env.RECORDINGS_PROBE_MS = '200';
     try {
-      await replaceMockCamera({ user: 'u', password: 'p', dropFirstDownloads: 6 });
+      await replaceSimCamera({ user: 'u', password: 'p', dropFirstDownloads: 6 });
       const app = createApp();
       const events = (await request(app).get(`/api/cameras/cam1/events?date=${today()}`).set('Cookie', auth)).body;
       expect(events.downloads).toBe('ok');
@@ -206,7 +206,7 @@ describe('recordings API', () => {
   it('refreshing the events list probes a refusing camera in the background, once per interval', async () => {
     process.env.RECORDINGS_PROBE_MS = '200';
     try {
-      await replaceMockCamera({ user: 'u', password: 'p', dropFirstDownloads: 6 });
+      await replaceSimCamera({ user: 'u', password: 'p', dropFirstDownloads: 6 });
       const app = createApp();
       const ids = ((await request(app).get(`/api/cameras/cam1/events?date=${today()}`).set('Cookie', auth)).body.events as { id: string }[]).map((e) => e.id);
       for (const id of ids.slice(0, 3)) await request(app).get(`/api/cameras/cam1/clips/${id}/thumb.jpg`).set('Cookie', auth);
@@ -232,11 +232,11 @@ describe('recordings API', () => {
   it('keeps serving cached clips while the breaker is open', async () => {
     process.env.RECORDINGS_PROBE_MS = '60000';
     try {
-      await replaceMockCamera({ user: 'u', password: 'p' });
+      await replaceSimCamera({ user: 'u', password: 'p' });
       const app = createApp();
       const ids = ((await request(app).get(`/api/cameras/cam1/events?date=${today()}`).set('Cookie', auth)).body.events as { id: string }[]).map((e) => e.id);
       expect((await request(app).get(`/api/cameras/cam1/clips/${ids[0]}/video`).set('Cookie', auth)).status).toBe(200); // now cached
-      await replaceMockCamera({ user: 'u', password: 'p', dropFirstDownloads: 100 }); // the camera starts refusing
+      await replaceSimCamera({ user: 'u', password: 'p', dropFirstDownloads: 100 }); // the camera starts refusing
       for (const id of ids.slice(1, 4)) await request(app).get(`/api/cameras/cam1/clips/${id}/video`).set('Cookie', auth);
       expect((await request(app).get(`/api/cameras/cam1/clips/${ids[1]}/video`).set('Cookie', auth)).body).toEqual({ error: 'recordings_unavailable' });
       expect((await request(app).get(`/api/cameras/cam1/clips/${ids[0]}/video`).set('Cookie', auth)).status).toBe(200);
@@ -246,10 +246,10 @@ describe('recordings API', () => {
   });
 
   it('keeps a clip that really ends at midnight', async () => {
-    await replaceMockCamera({ user: 'u', password: 'p', clips: [{ daysAgo: 1, start: '235940', end: '000000', triggers: ['motion'] }] });
+    await replaceSimCamera({ user: 'u', password: 'p', clips: [{ daysAgo: 1, start: '235940', end: '000000', triggers: ['motion'] }] });
     const date = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Chicago' }).format(new Date(Date.now() - 86400_000 * 1));
     const res = await request(createApp()).get(`/api/cameras/cam1/events?date=${date}`).set('Cookie', auth);
-    // (stepBackDate in the mock uses calendar days; this matches except in the DST hour.)
+    // (stepBackDate in the simulator uses calendar days; this matches except in the DST hour.)
     expect(res.body.events.map((x: { durationSec: number }) => x.durationSec)).toEqual([20]);
   });
 
@@ -464,7 +464,7 @@ describe('recordings API', () => {
   // sleep before asserting.
   it('frees the camera transfer slot when a client disconnects mid-download', async () => {
     const e = await firstClip();
-    await replaceMockCamera({ user: 'u', password: 'p', downloadDelayMs: 150 });
+    await replaceSimCamera({ user: 'u', password: 'p', downloadDelayMs: 150 });
     const app = createApp();
     const abort = (): Promise<void> => {
       const test = request(app).get(`/api/cameras/cam1/clips/${e.id}/download`).set('Cookie', auth);
@@ -485,13 +485,13 @@ describe('recordings API', () => {
   // camera at all, and must not hold up the slot for anyone else.
   it('aborts a download while it is still queued for a transfer slot, without it ever reaching the camera', async () => {
     const e = await firstClip();
-    await replaceMockCamera({ user: 'u', password: 'p', downloadDelayMs: 150 });
+    await replaceSimCamera({ user: 'u', password: 'p', downloadDelayMs: 150 });
     const app = createApp();
     const start = () => request(app).get(`/api/cameras/cam1/clips/${e.id}/download`).set('Cookie', auth);
     const first = start();
     const doneFirst = first.then(() => {}).catch(() => {});
     // Wait until the first holds the only slot (it reached the camera and is
-    // sitting in the mock's downloadDelayMs delay): only then is the next
+    // sitting in the simulator's downloads.delayMs delay): only then is the next
     // request guaranteed to queue.
     await vi.waitFor(() => expect(state.downloads).toBe(1));
     const third = start(); // TRANSFERS_PER_CAMERA is 1: this one queues behind the first
