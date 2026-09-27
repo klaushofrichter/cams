@@ -21,6 +21,8 @@ Camera viewer for Reolink cameras at cams.skylar.technology. Spec: `docs/superpo
 
 - Don't run Playwright on the self-hosted runner (OOM). It runs in production-checks.yml on GitHub runners.
 - Don't push `:<sha>`, `:v*` or `:latest` from build-push.yml. deploy-production.yml is their only writer.
+- With a cam-proxy configured, clips and stills come from the proxy first (sub stream) and the camera's own Download is the fallback behind a breaker. Keep the fake proxy (`test/proxy/fakeProxy.ts`, seeded by `e2e/fakeProxyData.ts`) in step with cam-proxy's client API.
+- Camera behaviour comes from the real camera, not the Reolink docs: see `docs/reolink-api.md`. A difference between the camera and cam-sim is an issue in the cam-sim repo, not a workaround here.
 - Cluster manifests live in kube-setup (`manifests/cams/`). Ask the kube-setup session for changes; don't edit that repo from here.
 - Never log camera passwords, tokens, cookies or client IPs. Detailed payloads go at debug level only (debug stays in the cluster).
 - Every colour comes from the CSS tokens in `web/src/styles/theme.css`, scrollbars included.
