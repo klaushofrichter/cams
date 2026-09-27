@@ -37,17 +37,22 @@ export function proxyEnabled(cameraId: string): boolean {
   return !off.has(cameraId);
 }
 
-// Writes are serialized and atomic (temp file, then rename).
+// Writes are serialized and atomic (temp file, then rename). The new value
+// takes effect only once it is on disk, so a failed write changes nothing.
 export function setProxyEnabled(cameraId: string, enabled: boolean): Promise<void> {
-  if (enabled) off.delete(cameraId);
-  else off.add(cameraId);
-  const body = JSON.stringify(Object.fromEntries([...off].sort().map((id) => [id, false])));
   const run = writing.then(async () => {
+    const next = new Set(off);
+    if (enabled) next.delete(cameraId);
+    else next.add(cameraId);
     const target = file();
     await fs.mkdir(dirname(target), { recursive: true });
     const tmp = `${target}.${process.pid}.tmp`;
-    await fs.writeFile(tmp, body);
-    await fs.rename(tmp, target);
+    await fs.writeFile(tmp, JSON.stringify(Object.fromEntries([...next].sort().map((id) => [id, false]))));
+    await fs.rename(tmp, target).catch(async (err: unknown) => {
+      await fs.rm(tmp, { force: true });
+      throw err;
+    });
+    off = next;
   });
   writing = run.catch(() => undefined);
   return run;

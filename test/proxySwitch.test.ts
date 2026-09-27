@@ -1,4 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import http from 'http';
+import type { AddressInfo } from 'net';
 import { promises as fs } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
@@ -7,8 +9,9 @@ import { createApp } from '../server/app';
 import { listCameras, listProxied, setCameras } from '../server/cameraRegistry';
 import { getProxyClient, resetProxyClients } from '../server/proxy/client';
 import { loadProxyState, proxyEnabled, setProxyEnabled } from '../server/proxyState';
-import { proxyStates, startProxyStreams, stopProxyStreams } from '../server/proxy/stream';
-import { findProxyClip } from '../server/recordings/proxyClips';
+import { proxyHub, proxyStates, startProxyStream, startProxyStreams, stopProxyStreams } from '../server/proxy/stream';
+import { findProxyClip, openProxyClip } from '../server/recordings/proxyClips';
+import { getRecordings } from '../server/recordings/service';
 import { SESSION_COOKIE, signSession } from '../server/session';
 import { FAKE_TOKEN, JPEG, startFakeProxy, type FakeProxy } from './proxy/fakeProxy';
 
@@ -35,8 +38,9 @@ afterEach(async () => {
   stopProxyStreams();
   await fake.stop();
   setCameras([]);
-  delete process.env.PROXY_STATE_FILE;
+  process.env.PROXY_STATE_FILE = join(tmpdir(), 'cams-proxy-state-none', 'absent.json');
   loadProxyState();
+  delete process.env.PROXY_STATE_FILE;
 });
 
 const put = (id: string, body: unknown) => request(createApp()).put(`/api/cameras/${id}/proxy`).set('Cookie', auth).send(body as object);
@@ -113,5 +117,67 @@ describe('PUT /api/cameras/:id/proxy', () => {
     expect(proxyStates().find((s) => s.cam === 'den')).toBeUndefined();
     await put('den', { enabled: true });
     await expect.poll(() => proxyStates().find((s) => s.cam === 'den')?.up).toBe(true);
+  });
+});
+
+describe('switch edge cases (review)', () => {
+  it('keeps the old setting when the file cannot be written (I1)', async () => {
+    process.env.PROXY_STATE_FILE = await fs.mkdtemp(join(tmpdir(), 'cams-proxy-state-dir-')); // a folder: rename fails
+    const res = await put('den', { enabled: false });
+    expect(res.status).toBe(500);
+    expect(proxyEnabled('den')).toBe(true);
+    expect(listCameras().find((c) => c.id === 'den')?.proxy).toBe(true);
+  });
+
+  it('tells every browser that the camera list changed, and that the proxy is gone (I2)', async () => {
+    startProxyStreams({ backoffMinMs: 50, backoffMaxMs: 400, healthyMs: 200 });
+    await expect.poll(() => proxyStates().find((s) => s.cam === 'den')?.up).toBe(true);
+    const server = http.createServer(createApp()).listen(0, '127.0.0.1');
+    await new Promise((r) => server.once('listening', r));
+    const base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+    const frames: string[] = [];
+    const req = http.get(`${base}/api/events/stream`, { headers: { Cookie: auth } }, (res) => {
+      res.setEncoding('utf8');
+      res.on('data', (d: string) => frames.push(...d.split('\n\n')));
+    });
+    try {
+      await expect.poll(() => frames.some((f) => f.includes('event: proxy'))).toBe(true);
+      const states: unknown[] = [];
+      const onState = (x: unknown) => states.push(x);
+      proxyHub.on('state', onState);
+      await request(base).put('/api/cameras/den/proxy').set('Cookie', auth).send({ enabled: false });
+      proxyHub.off('state', onState);
+      await expect.poll(() => frames.some((f) => f.startsWith('event: cameras'))).toBe(true);
+      expect(frames.some((f) => f.startsWith('event: change') && f.includes('"reset"') && f.includes('"den"'))).toBe(true);
+      expect(states).toEqual([{ cam: 'den', up: false }]); // once (M6)
+    } finally {
+      req.destroy();
+      server.closeAllConnections();
+      server.close();
+    }
+  });
+
+  it('stops reporting recordings as coming from the proxy when it is off (I3)', async () => {
+    expect(getRecordings().downloadsState('den')).toBe('proxy');
+    await put('den', { enabled: false });
+    expect(getRecordings().downloadsState('den')).toBe('ok');
+  });
+
+  it('starts no event stream at boot for a camera switched off (I3)', async () => {
+    await fs.writeFile(file, JSON.stringify({ den: false }));
+    loadProxyState();
+    startProxyStreams({ backoffMinMs: 50, backoffMaxMs: 400, healthyMs: 200 });
+    expect(proxyStates()).toEqual([]);
+  });
+
+  it('fails a clip open with a proxy error, not a crash, once switched off (M5)', async () => {
+    await setProxyEnabled('den', false);
+    await expect(openProxyClip('den', 1)).rejects.toMatchObject({ name: 'ProxyError' });
+  });
+
+  it('starts no stream after shutdown began (M7)', () => {
+    stopProxyStreams(true);
+    startProxyStream('den');
+    expect(proxyStates()).toEqual([]);
   });
 });

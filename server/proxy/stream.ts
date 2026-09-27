@@ -144,16 +144,18 @@ proxyHub.setMaxListeners(0);
 const streams = new Map<string, ProxyStream>();
 
 let options: StreamOptions = {};
+let shuttingDown = false; // set by stopProxyStreams(true) at SIGTERM
 
 export function startProxyStreams(o: StreamOptions = {}): void {
   stopProxyStreams();
+  shuttingDown = false;
   options = o;
   for (const cam of listProxied()) startProxyStream(cam);
 }
 
 // One camera's stream, e.g. after its proxy is switched back on.
 export function startProxyStream(cam: string): void {
-  if (streams.has(cam)) return;
+  if (shuttingDown || streams.has(cam)) return;
   const client = getProxyClient(cam);
   if (!client) return;
   const s = new ProxyStream(cam, client, options);
@@ -168,12 +170,15 @@ export function startProxyStream(cam: string): void {
 export function stopProxyStream(cam: string): void {
   const s = streams.get(cam);
   if (!s) return;
+  const wasUp = s.up(); // an up stream reports its own end when stopped
   s.stop();
   streams.delete(cam);
-  proxyHub.emit('state', { cam, up: false });
+  if (!wasUp) proxyHub.emit('state', { cam, up: false });
 }
 
-export function stopProxyStreams(): void {
+// `final`: the process is shutting down, and no stream may start again.
+export function stopProxyStreams(final = false): void {
+  if (final) shuttingDown = true;
   for (const s of streams.values()) s.stop();
   streams.clear();
 }

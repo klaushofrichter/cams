@@ -1,5 +1,6 @@
 import { get, writable, type Readable } from 'svelte/store';
-import { cameras } from './stores';
+import { cameras, type CameraSummary } from './stores';
+import { getJson } from './api';
 
 // cams' relay of the cameras' cam-proxy events (GET /api/events/stream,
 // Plan 6). While a camera's proxy is up, pages reload on its changes at once
@@ -42,7 +43,13 @@ const REOPEN_MAX_MS = 60_000;
 // A recording still being written when its event ends isn't listed yet.
 const AFTER_EVENT_MS = 60_000;
 
-export function createEventStream(opts: { url?: string; factory?: (url: string) => EventSourceLike } = {}): EventStream {
+// A camera's proxy was switched on or off (Settings, any user): re-read the list.
+const reloadCameras = () =>
+  void getJson<CameraSummary[]>('/api/cameras')
+    .then((list) => cameras.set(list))
+    .catch(() => undefined);
+
+export function createEventStream(opts: { url?: string; factory?: (url: string) => EventSourceLike; onCameras?: () => void } = {}): EventStream {
   const url = opts.url ?? '/api/events/stream';
   const factory = opts.factory ?? ((u) => new EventSource(u) as unknown as EventSourceLike);
   const state = writable<{ connected: boolean; up: Record<string, boolean> }>({ connected: false, up: {} });
@@ -78,6 +85,7 @@ export function createEventStream(opts: { url?: string; factory?: (url: string) 
       if (!p || typeof p.cam !== 'string' || typeof p.up !== 'boolean') return;
       state.update((s) => ({ ...s, up: { ...s.up, [p.cam as string]: p.up as boolean } }));
     });
+    source.addEventListener('cameras', () => (opts.onCameras ?? reloadCameras)());
     source.addEventListener('change', (e) => {
       const c = parse(e.data) as Change | undefined;
       if (!c || typeof c.cam !== 'string') return;
@@ -127,11 +135,12 @@ export function createEventStream(opts: { url?: string; factory?: (url: string) 
   };
 }
 
-// The app's one stream, opened when a camera has a cam-proxy.
+// The app's one stream, opened when a camera has a cam-proxy (even one
+// switched off, so the page hears when it is switched on again).
 let shared: EventStream | undefined;
 export function eventStream(): EventStream | undefined {
   if (shared) return shared;
-  if (!get(cameras).some((c) => c.proxy) || typeof EventSource === 'undefined') return undefined;
+  if (!get(cameras).some((c) => c.proxyConfigured ?? c.proxy) || typeof EventSource === 'undefined') return undefined;
   shared = createEventStream();
   return shared;
 }

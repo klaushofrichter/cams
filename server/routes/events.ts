@@ -45,13 +45,17 @@ eventsRouter.get('/api/events/stream', (req: Request, res: Response) => {
   const onMessage = (m: ProxyMessage) => {
     if (m.type === 'camera-event' || m.type === 'clip' || m.type === 'reset' || m.type === 'camera-status') send('change', { cam: m.cam, type: m.type, ts: tsOf(m) });
   };
+  // A camera's proxy was switched on or off (Settings): re-read /api/cameras.
+  const onCameras = () => send('cameras', {});
   proxyHub.on('state', onState);
   proxyHub.on('message', onMessage);
+  proxyHub.on('cameras', onCameras);
   const ping = setInterval(() => res.write(': ping\n\n'), PING_MS);
   req.on('close', () => {
     clients--;
     clearInterval(ping);
     proxyHub.off('state', onState);
     proxyHub.off('message', onMessage);
+    proxyHub.off('cameras', onCameras);
   });
 });

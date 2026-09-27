@@ -11,16 +11,24 @@
   let saving = $state(false);
   let error = $state('');
 
+  // Another camera picked on Settings: its own state, no leftover error.
+  $effect(() => {
+    void cameraId;
+    error = '';
+  });
+
   async function toggle(e: Event) {
     const box = e.currentTarget as HTMLInputElement;
     const enabled = box.checked;
+    const id = cameraId; // the camera switched, even if the picker moves on
     saving = true;
     error = '';
     try {
-      const res = await putJson<{ enabled?: boolean }>(`/api/cameras/${encodeURIComponent(cameraId)}/proxy`, { enabled });
+      const res = await putJson<{ enabled?: boolean }>(`/api/cameras/${encodeURIComponent(id)}/proxy`, { enabled });
       if (res.status !== 200 || res.body.enabled !== enabled) throw new Error(String(res.status));
-      cameras.update((list) => list.map((c) => (c.id === cameraId ? { ...c, proxy: enabled } : c)));
+      cameras.update((list) => list.map((c) => (c.id === id ? { ...c, proxy: enabled } : c)));
     } catch {
+      if (id !== cameraId) return; // the box now shows another camera
       box.checked = !enabled;
       error = 'Could not change the setting. Try again.';
     } finally {

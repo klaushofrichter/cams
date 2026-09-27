@@ -35,7 +35,9 @@ proxyRouter.put('/api/cameras/:id/proxy', async (req: Request, res: Response) =>
   await setProxyEnabled(id, enabled);
   if (enabled) startProxyStream(id);
   else stopProxyStream(id);
-  // Browsers and the recordings cache reload this camera's events.
+  // Every open browser re-reads the camera list (which cameras use a proxy),
+  // and it and the recordings cache reload this camera's events.
+  proxyHub.emit('cameras');
   proxyHub.emit('message', { cam: id, type: 'reset', data: {} });
   logger.info({ cameraId: id, enabled }, 'proxy_switched');
   res.json({ enabled });

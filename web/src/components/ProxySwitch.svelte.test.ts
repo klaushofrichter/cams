@@ -79,4 +79,28 @@ describe('ProxySwitch', () => {
     expect(get(cameras).find((c) => c.id === 'den')?.proxy).toBe(true);
     expect(target!.querySelector('[data-testid="proxy-error"]')?.textContent).toMatch(/could not/i);
   });
+
+  it('updates the camera it was switched for, even after the picker moved on (M4)', async () => {
+    cameras.set([
+      { id: 'den', name: 'Den', webUiUrl: null, proxy: true, proxyConfigured: true },
+      { id: 'barn', name: 'Barn', webUiUrl: null, proxy: true, proxyConfigured: true },
+    ]);
+    let release!: () => void;
+    vi.stubGlobal('fetch', (url: string, init: RequestInit) => {
+      calls.push({ url, init });
+      return new Promise<Response>((r) => (release = () => r(new Response(JSON.stringify({ enabled: false }), { status: 200 }))));
+    });
+    target = document.createElement('div');
+    document.body.appendChild(target);
+    const props = $state({ cameraId: 'den' });
+    component = mount(ProxySwitch, { target, props });
+    flushSync();
+    box()!.click();
+    props.cameraId = 'barn';
+    flushSync();
+    release();
+    await settle();
+    expect(get(cameras).find((c) => c.id === 'den')?.proxy).toBe(false);
+    expect(get(cameras).find((c) => c.id === 'barn')?.proxy).toBe(true);
+  });
 });

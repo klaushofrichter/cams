@@ -15,6 +15,6 @@ const server = createApp().listen(port, () => {
 // Cameras with a cam-proxy: subscribe to their event streams (Plan 6).
 startProxyStreams();
 process.once('SIGTERM', () => {
-  stopProxyStreams();
+  stopProxyStreams(true);
   server.close();
 });
