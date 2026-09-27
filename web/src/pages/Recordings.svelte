@@ -8,6 +8,7 @@
   import { cameras, selectedCameraId } from '../lib/stores';
   import { navigate, replaceRoute, route, type Panel } from '../lib/router';
   import { getJson } from '../lib/api';
+  import { dayRange, splitRange, type PreviewMinute } from '../lib/timeline';
   import {
     addDays, clipAtSecond, cursorSearch, daysUrl, downloadUrl, eventsUrl, filterEvents, loadCursor, localDate,
     neighbour, parseCursor, saveCursor, secondsIntoDay, videoUrl, type Cursor, type EventClip, type Filter,
@@ -78,6 +79,23 @@
   const cursor: Cursor = $derived(parsed.cursor);
   // Likewise, a primitive projection of cursor.date for the events effect.
   const date = $derived(cursor.date);
+
+  // Plan 7: the day's preview sprites for the timeline's scrub preview, when
+  // the camera has a cam-proxy (in parts on the 25-hour day).
+  let previews = $state<PreviewMinute[]>([]);
+  const dayStartMs = $derived(dayRange(date)[0]);
+  $effect(() => {
+    const c = cam;
+    const d = date;
+    previews = [];
+    if (!c || !$cameras.find((x) => x.id === c)?.proxy) return;
+    let stale = false;
+    const [from, to] = dayRange(d);
+    Promise.all(splitRange(from, to).map(([a, z]) => getJson<PreviewMinute[]>(`/api/cameras/${encodeURIComponent(c)}/previews?from=${a}&to=${z}`)))
+      .then((parts) => { if (!stale) previews = parts.flat(); })
+      .catch(() => undefined);
+    return () => (stale = true);
+  });
   // parseCursor already falls back to 'all' when the URL has no filter, so
   // the stored preference is only applied by overriding that case here.
   // Reads the preferences store reactively (not the pref() snapshot helper,
@@ -289,7 +307,7 @@
           onvideoerror={recheckDownloads}
         />
         {#if downloads === 'proxy'}
-          <p class="note" data-testid="recordings-from-proxy" role="status">The camera isn't serving recordings; they play from its camera gateway.</p>
+          <p class="note" data-testid="recordings-from-proxy" role="status">Recordings and thumbnails come from the camera gateway (cam-proxy) where it has them.</p>
         {/if}
         {#if downloads === 'unavailable'}
           <p class="banner" data-testid="recordings-unavailable" role="status">
@@ -304,7 +322,7 @@
         {:else if events.length === 0}
           <p class="note" data-testid="no-recordings">No recordings on {cursor.date}.</p>
         {:else}
-          <Timeline {events} date={cursor.date} selectedId={cursor.clipId} onpick={pickSecond} onstep={step} onedge={jumpToEdge} />
+          <Timeline {events} date={cursor.date} selectedId={cursor.clipId} onpick={pickSecond} onstep={step} onedge={jumpToEdge} {previews} {dayStartMs} />
         {/if}
       </div>
 

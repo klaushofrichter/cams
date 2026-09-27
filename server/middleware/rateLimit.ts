@@ -15,7 +15,7 @@ const MEDIA_MAX = fromEnv('RATE_LIMIT_MEDIA_MAX', 3000);
 // Matched against req.path once mounted under /api (the prefix is already
 // stripped there): a clip's video, thumbnail and download, and a cam-proxy
 // sprite or still (the Timeline page: a day is up to 1440 sprites).
-const MEDIA_PATH = /^\/cameras\/[^/]+\/(clips\/[^/]+\/(video|thumb\.jpg|download)|(previews|stills)\/\d{1,15}\.jpg)$/;
+const MEDIA_PATH = /^\/cameras\/[^/]+\/(clips\/[^/]+\/(video|thumb\.jpg|download)|(previews|stills)\/\d{1,15}\.jpg|still\/latest\.jpg)$/;
 
 // In-memory stores are correct only because the ksvc is pinned to one
 // replica. Held here so tests can reset them between cases.

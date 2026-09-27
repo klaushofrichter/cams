@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onDestroy } from 'svelte';
   import LivePlayer from '../components/LivePlayer.svelte';
+  import LiveStill from '../components/LiveStill.svelte';
   import Icon from '../components/Icon.svelte';
   import Timeline from '../components/Timeline.svelte';
   import { cameras, selectedCameraId } from '../lib/stores';
@@ -50,6 +51,16 @@
   let quality: Quality = $state(initialQuality());
   let muted = $state(true);
   let playerState: PlayerState = $state('connecting');
+  // Plan 7: live video not playing for 5 s (connecting or reconnecting):
+  // a camera with a cam-proxy shows its stills meanwhile.
+  let stuck = $state(false);
+  $effect(() => {
+    void camera?.id; // a camera switch starts over
+    stuck = false;
+    if (playerState === 'playing') return;
+    const t = setTimeout(() => (stuck = true), 5000);
+    return () => clearTimeout(t);
+  });
   let status: CameraStatus | null = $state(null);
   let checking = $state(false);
   let container: HTMLDivElement | undefined = $state();
@@ -276,6 +287,7 @@
         <Icon name="refresh" size={16} /> {checking ? 'Checking…' : 'Retry'}
       </button>
     </div>
+    {#if camera.proxy}<LiveStill cameraId={camera.id} active={visible} />{/if}
   {:else if status?.online}
     <div class="viewer" bind:this={container}>
       <!-- `muted` itself is left untouched while hidden, so the user's own
@@ -283,7 +295,11 @@
            here (not by mutating `muted`) so a hidden Live or a hidden tab
            playing in the background (the keep-alive) never plays audio
            nobody asked for. -->
-      <LivePlayer cameraId={camera.id} {quality} muted={muted || !audible} onstate={(s) => (playerState = s)} />
+      <!-- The stills cover only the player (controls and timeline stay usable). -->
+      <div class="player-box">
+        <LivePlayer cameraId={camera.id} {quality} muted={muted || !audible} onstate={(s) => (playerState = s)} />
+        {#if camera.proxy && stuck}<LiveStill cameraId={camera.id} active={visible} overlay />{/if}
+      </div>
       <div class="controls">
         <button data-testid="mute-toggle" aria-pressed={!muted} onclick={() => (muted = !muted)} title={muted ? 'Unmute' : 'Mute'}>
           <Icon name={muted ? 'volumeOff' : 'volumeOn'} size={18} /><span>{muted ? 'Muted' : 'Sound'}</span>
@@ -357,4 +373,5 @@
     display: inline-flex; align-items: center; gap: 6px; padding: 6px 12px; border-radius: 9px;
     border: 1px solid var(--border); background: var(--surface-2); cursor: pointer;
   }
+  .player-box { position: relative; }
 </style>
