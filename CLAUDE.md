@@ -4,7 +4,7 @@ Camera viewer for Reolink cameras at cams.skylar.technology. Spec: `docs/superpo
 
 ## Commands
 
-- `npm test`: vitest (server tests in `test/`, web lib tests in `web/src/**/*.test.ts`)
+- `npm test`: vitest, two projects: `node` (server tests in `test/`, web lib tests in `web/src/lib/*.test.ts`) and `components` (Svelte component tests in `web/src/components|pages/*.test.ts`, jsdom). The camera is [cam-sim](https://github.com/klaushofrichter/cam-sim) (a release tarball in package.json); cam-proxy is a fake (`test/proxy/fakeProxy.ts`, also run by e2e on :8095).
 - `npm run build`: `tsc` for the server plus `vite build` for the web app. tsc is the only server type-checker, so run the build.
 - `npm run check`: `tsc --noEmit` over `web/` TypeScript (svelte-check doesn't support TypeScript 7 yet, so .svelte files aren't type-checked)
 - `npm run test:e2e`: Playwright. It runs the BUILT server on :8099 and reuses one already running there locally, so rebuild first.
