@@ -548,7 +548,9 @@ Rules cams follows:
 
 The camera is an FTP **client**: it uploads recordings to a server you name.
 It runs no FTP server itself (ports 20, 21 and 990 are closed). cams does not
-use FTP; clips will arrive through a separate gateway later.
+talk FTP itself: a camera's clips arrive at its
+[cam-proxy](https://github.com/klaushofrichter/cam-proxy) by FTP, and cams
+fetches them from there (`server/recordings/proxyClips.ts`).
 
 - `SetFtpV20` configures it (server, port, user, password, `remoteDir`,
   `ftpSubStream`, schedule), and `TestFtp` tests a configuration.
@@ -586,7 +588,7 @@ use FTP; clips will arrive through a separate gateway later.
 | Unencoded Download `source` | `download()` in `server/reolink/client.ts` | an encoded `source` resets the connection |
 | One transfer at a time, playback ahead of thumbnails | `PriorityGate` (`server/recordings/priorityGate.ts`), `TRANSFERS_PER_CAMERA` in `server/recordings/service.ts` | download order in the `downloadOrder` counter |
 | Occasional Download reset | `downloadWithRetry` in `server/recordings/service.ts` | fault `downloads.dropFirst` |
-| Camera refuses every Download | download-health breaker (`guard`, `noteRefused`, `probeIfDue`) in `server/recordings/service.ts`: after `BREAKER_FAILURES` (3) refusals, clip requests get `503 recordings_unavailable`; one probe per `RECORDINGS_PROBE_MS` (default 60 s) | fault `downloads.refuse` (e2e camera Shed) |
+| Camera refuses every Download | download-health breaker (`guard`, `noteRefused`, `probeIfDue`) in `server/recordings/service.ts`: after `BREAKER_FAILURES` (3) refusals, clip requests get `503 recordings_unavailable`; one probe per `RECORDINGS_PROBE_MS` (default 60 s); with a cam-proxy, clips come from the proxy first (`proxyClip`, `proxyClipFor`) | fault `downloads.refuse` (e2e cameras Shed, and Barn with a proxy) |
 | Sub/main ends differ; still-recording `000000` | `day()` / `isStillRecording` in `server/recordings/service.ts` | main copies end 2 s later; a recording in progress lists end `000000` |
 | Partial Set resets omitted keys | `Writes` in `server/reolink/settings.ts`: one whole-object write per object; `camera_setting_side_effect` log | a Set resets the keys it leaves out, after a reboot (fault `settings.strictPartial`: at once) |
 | Reboot drops the connection | `202` when unconfirmed, 120 s cooldown (`429`) | Reboot drops the connection half the time (seeded) |
