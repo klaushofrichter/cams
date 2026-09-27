@@ -147,7 +147,13 @@ export async function startFakeProxy(opts: { port?: number; token?: string } = {
   return fake;
 }
 
-// e2e runs it as a process (Task 6 adds the seed data).
+// e2e: `npx tsx test/proxy/fakeProxy.ts` (playwright.config.ts), seeded by
+// e2e/fakeProxyData.ts.
 if (require.main === module) {
-  void startFakeProxy({ port: Number(process.argv[2] ?? 8095) }).then((fake) => process.stdout.write(`fake cam-proxy on ${fake.url}\n`));
+  void (async () => {
+    const { FAKE_PROXY_PORT, FAKE_PROXY_TOKEN, seed } = await import('../../e2e/fakeProxyData');
+    const fake = await startFakeProxy({ port: FAKE_PROXY_PORT, token: FAKE_PROXY_TOKEN });
+    seed(fake);
+    process.stdout.write(`fake cam-proxy on ${fake.url}\n`);
+  })();
 }

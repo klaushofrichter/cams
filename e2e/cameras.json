@@ -1,6 +1,6 @@
 [
-  {"id": "cam1", "name": "Den", "host": "127.0.0.1:8098", "protocol": "http", "user": "e2e", "password": "e2e-not-a-real-password"},
+  {"id": "cam1", "name": "Den", "host": "127.0.0.1:8098", "protocol": "http", "user": "e2e", "password": "e2e-not-a-real-password", "proxy": {"url": "http://127.0.0.1:8095", "token": "e2e-fake-proxy-token-not-a-secret-000000"}},
   {"id": "garage", "name": "Garage", "host": "127.0.0.1:9", "protocol": "http", "user": "e2e", "password": "e2e-not-a-real-password"},
   {"id": "porch", "name": "Porch", "host": "127.0.0.1:8097", "protocol": "http", "user": "e2e", "password": "e2e-not-a-real-password"},
-  {"id": "shed", "name": "Shed", "host": "127.0.0.1:8096", "protocol": "http", "user": "e2e", "password": "e2e-not-a-real-password", "webUiNote": "Website not available - simulated camera"}
+  {"id": "shed", "name": "Shed", "host": "127.0.0.1:8096", "protocol": "http", "user": "e2e", "password": "e2e-not-a-real-password", "webUiNote": "Website not available - simulated camera", "proxy": {"url": "http://127.0.0.1:8095", "token": "e2e-fake-proxy-token-not-a-secret-000000"}}
 ]

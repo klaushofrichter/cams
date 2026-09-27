@@ -244,9 +244,10 @@ test('events are grouped by hour and a busy hour starts collapsed', async ({ pag
 // timers wholesale, which is risky alongside the other tests' real video
 // playback (mpegts.js and <video> rely on real timers/rAF).
 test.describe('today auto-refresh', () => {
+  // Porch: no cam-proxy, so it polls (Den's proxy stream replaces polling, Plan 6).
   test('today refreshes on its own and keeps the selection', async ({ page }) => {
     await page.clock.install();
-    await page.goto('/app/recordings?panel=events');
+    await page.goto('/app/recordings?cam=porch&panel=events');
     await expect(page.getByTestId('event-card')).toHaveCount(4);
     await page.getByTestId('event-card').nth(1).click();
     const first = await page.getByTestId('events-updated').textContent();

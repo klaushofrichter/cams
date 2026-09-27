@@ -18,7 +18,8 @@ export interface CameraConfig {
   webUiNote?: string;
   // The camera's cam-proxy (events, stills, clips). The token is a cam-proxy
   // client token: it stays on the server.
-  proxy?: { url: string; token: string };
+  // `camera`: the proxy's id for this camera, when it isn't the same as ours.
+  proxy?: { url: string; token: string; camera?: string };
 }
 
 export interface CameraSummary {
@@ -97,7 +98,7 @@ export function loadCameras(file: string | undefined = process.env.CAMERAS_FILE)
 
 // {url, token}: an http(s) URL without credentials, query or hash, and a
 // token of 32+ characters without whitespace. Errors never quote the token.
-function proxyOf(v: unknown, i: number): { url: string; token: string } {
+function proxyOf(v: unknown, i: number): { url: string; token: string; camera?: string } {
   const fail = (what: string): never => {
     throw new Error(`camera registry entry ${i}: proxy ${what}`);
   };
@@ -112,7 +113,10 @@ function proxyOf(v: unknown, i: number): { url: string; token: string } {
   if (!url || (url.protocol !== 'http:' && url.protocol !== 'https:')) fail('url must be an http(s) URL');
   if (url!.username || url!.password || url!.search || url!.hash) fail('url must have no credentials, query or hash');
   if (typeof p.token !== 'string' || p.token.length < 32 || /\s/.test(p.token)) fail('token must be a string of 32 or more characters without spaces');
-  return { url: String(p.url).replace(/\/+$/, ''), token: p.token as string };
+  if (p.camera !== undefined && !(typeof p.camera === 'string' && ID_PATTERN.test(p.camera))) fail(`camera must match ${ID_PATTERN}`);
+  const out: { url: string; token: string; camera?: string } = { url: String(p.url).replace(/\/+$/, ''), token: p.token as string };
+  if (p.camera !== undefined) out.camera = p.camera as string;
+  return out;
 }
 
 export function setCameras(list: CameraConfig[]): void {

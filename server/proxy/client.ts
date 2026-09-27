@@ -84,6 +84,11 @@ export function getProxyClient(id: string): ProxyClient | undefined {
   return client;
 }
 
+// The proxy's id for a camera: `proxy.camera`, or else ours.
+export function proxyCameraId(id: string): string {
+  return getCamera(id)?.proxy?.camera ?? id;
+}
+
 export function resetProxyClients(): void {
   clients.clear();
 }

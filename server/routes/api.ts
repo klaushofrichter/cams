@@ -9,6 +9,7 @@ import { recordingsRouter } from './recordings';
 import { settingsRouter } from './settings';
 import { preferencesRouter } from './preferences';
 import { eventsRouter } from './events';
+import { proxyRouter } from './proxy';
 
 export const apiRouter = Router();
 
@@ -27,6 +28,7 @@ apiRouter.use(recordingsRouter);
 apiRouter.use(settingsRouter);
 apiRouter.use(preferencesRouter);
 apiRouter.use(eventsRouter);
+apiRouter.use(proxyRouter);
 
 // Last on /api: an unknown API path is JSON, never the SPA's HTML.
 apiRouter.use('/api', (_req: Request, res: Response) => {

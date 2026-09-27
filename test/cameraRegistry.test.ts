@@ -117,6 +117,11 @@ describe('proxy', () => {
     expect(load({ url: 'http://cam-proxy.cam-proxy.svc.cluster.local:8480/', token: TOKEN })[0].proxy).toEqual({ url: 'http://cam-proxy.cam-proxy.svc.cluster.local:8480', token: TOKEN });
   });
 
+  it('takes the proxy’s own name for the camera, when it differs', () => {
+    expect(load({ url: 'http://p', token: TOKEN, camera: 'cam2' })[0].proxy).toEqual({ url: 'http://p', token: TOKEN, camera: 'cam2' });
+    expect(() => load({ url: 'http://p', token: TOKEN, camera: 'Bad Name' })).toThrow(/entry 0: proxy camera/);
+  });
+
   it('rejects bad shapes, never showing the token', () => {
     const bad: unknown[] = [
       'http://x',

@@ -18,6 +18,8 @@ function buildApp(createApiRateLimit: () => express.RequestHandler, createMediaR
   app.use(createApiRateLimit(), createMediaRateLimit());
   app.get('/me', (_req, res) => res.json({ ok: true }));
   app.get('/cameras/:id/clips/:clipId/thumb.jpg', (_req, res) => res.json({ ok: true }));
+  app.get('/cameras/:id/previews/:file', (_req, res) => res.json({ ok: true }));
+  app.get('/cameras/:id/stills/:file', (_req, res) => res.json({ ok: true }));
   return app;
 }
 
@@ -41,6 +43,21 @@ describe('rate limits', () => {
     }
     // The general budget (2) would already be exhausted if media requests
     // had counted against it.
+    expect((await request(app).get('/me')).status).toBe(200);
+  });
+
+  // Plan 6: a day on the Timeline is up to 1440 sprites, plus stills.
+  it('counts proxy sprites and stills as media', async () => {
+    const { createApiRateLimit, createMediaRateLimit } = await freshLimiters({
+      RATE_LIMIT_API_MAX: '2',
+      RATE_LIMIT_MEDIA_MAX: '50',
+      RATE_LIMIT_WINDOW_MS: '60000',
+    });
+    const app = buildApp(createApiRateLimit, createMediaRateLimit);
+    for (let i = 0; i < 10; i++) {
+      expect((await request(app).get(`/cameras/cam1/previews/${i}.jpg`)).status).toBe(200);
+      expect((await request(app).get(`/cameras/cam1/stills/${i}.jpg`)).status).toBe(200);
+    }
     expect((await request(app).get('/me')).status).toBe(200);
   });
 
