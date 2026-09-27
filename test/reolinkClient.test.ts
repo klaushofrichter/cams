@@ -2,13 +2,13 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { AddressInfo } from 'net';
 import { Server } from 'http';
 import express from 'express';
-import { createMockCamera, MockState } from './camera/sim';
+import { createSimCamera, SimState } from './camera/sim';
 import { CameraError, ReolinkClient, classifyNetworkError } from '../server/reolink/client';
 import { Semaphore } from '../server/reolink/semaphore';
 import type { CameraConfig } from '../server/cameraRegistry';
 
 let server: Server;
-let state: MockState;
+let state: SimState;
 let cam: CameraConfig;
 
 // Guards a regression test against a permanent hang: on the pre-fix
@@ -22,9 +22,9 @@ function withDeadline<T>(p: Promise<T>, ms = 3000): Promise<T> {
 }
 
 beforeEach(async () => {
-  const mock = await createMockCamera({ user: 'u', password: 'p' });
-  state = mock.state;
-  server = mock.app.listen(0);
+  const simCam = await createSimCamera({ user: 'u', password: 'p' });
+  state = simCam.state;
+  server = simCam.app.listen(0);
   await new Promise((r) => server.once('listening', r));
   cam = { id: 'cam1', name: 'Den', host: `127.0.0.1:${(server.address() as AddressInfo).port}`, protocol: 'http', user: 'u', password: 'p' };
 });
@@ -33,7 +33,7 @@ afterEach(() => new Promise<void>((r) => server.close(() => r())));
 describe('ReolinkClient', () => {
   it('logs in once and reuses the token', async () => {
     const client = new ReolinkClient(cam);
-    expect(await client.status()).toEqual({ model: 'RLC-1224A', firmware: 'v3.2.0.6011_mock' });
+    expect(await client.status()).toEqual({ model: 'RLC-1224A', firmware: 'v3.2.0.6011_2607012059' });
     await client.status();
     await client.status();
     expect(state.logins).toBe(1);
@@ -113,8 +113,8 @@ describe('ReolinkClient', () => {
   // stay inside the per-camera concurrency gate, same as JSON commands.
   it('keeps snapshots within the per-camera concurrency cap', async () => {
     await new Promise<void>((r) => server.close(() => r()));
-    const mock = await createMockCamera({ user: 'u', password: 'p' });
-    state = mock.state;
+    const simCam = await createSimCamera({ user: 'u', password: 'p' });
+    state = simCam.state;
 
     const counter = { active: 0, peak: 0 };
     const outer = express();
@@ -131,7 +131,7 @@ describe('ReolinkClient', () => {
       res.on('close', finish);
       next();
     });
-    outer.use(mock.app);
+    outer.use(simCam.app);
     server = outer.listen(0);
     await new Promise((r) => server.once('listening', r));
     cam = { ...cam, host: `127.0.0.1:${(server.address() as AddressInfo).port}` };

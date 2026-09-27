@@ -16,6 +16,10 @@ export interface CameraConfig {
   webUiUrl?: string | null;
   // Shown instead of a link, e.g. for a simulated camera without a web UI.
   webUiNote?: string;
+  // The camera's cam-proxy (events, stills, clips). The token is a cam-proxy
+  // client token: it stays on the server.
+  // `camera`: the proxy's id for this camera, when it isn't the same as ours.
+  proxy?: { url: string; token: string; camera?: string };
 }
 
 export interface CameraSummary {
@@ -23,6 +27,7 @@ export interface CameraSummary {
   name: string;
   webUiUrl: string | null;
   webUiNote?: string;
+  proxy: boolean; // whether cams reaches this camera's cam-proxy (never its URL or token)
 }
 
 const ID_PATTERN = /^[a-z0-9][a-z0-9-]{0,31}$/;
@@ -74,6 +79,7 @@ export function loadCameras(file: string | undefined = process.env.CAMERAS_FILE)
     if (e.webUiNote !== undefined && !(typeof e.webUiNote === 'string' && e.webUiNote.length > 0 && e.webUiNote.length <= 120)) {
       throw new Error(`camera registry entry ${i}: webUiNote must be a string of 1 to 120 characters`);
     }
+    const proxy = e.proxy === undefined ? undefined : proxyOf(e.proxy, i);
     const camera: CameraConfig = {
       id: e.id as string,
       name: e.name as string,
@@ -85,8 +91,32 @@ export function loadCameras(file: string | undefined = process.env.CAMERAS_FILE)
     if (e.tlsServername !== undefined) camera.tlsServername = e.tlsServername as string;
     if (e.webUiUrl !== undefined) camera.webUiUrl = e.webUiUrl as string | null;
     if (e.webUiNote !== undefined) camera.webUiNote = e.webUiNote as string;
+    if (proxy) camera.proxy = proxy;
     return camera;
   });
+}
+
+// {url, token}: an http(s) URL without credentials, query or hash, and a
+// token of 32+ characters without whitespace. Errors never quote the token.
+function proxyOf(v: unknown, i: number): { url: string; token: string; camera?: string } {
+  const fail = (what: string): never => {
+    throw new Error(`camera registry entry ${i}: proxy ${what}`);
+  };
+  if (typeof v !== 'object' || v === null) fail('must be an object {url, token}');
+  const p = v as Record<string, unknown>;
+  let url: URL | undefined;
+  try {
+    url = new URL(String(p.url));
+  } catch {
+    fail('url must be an http(s) URL');
+  }
+  if (!url || (url.protocol !== 'http:' && url.protocol !== 'https:')) fail('url must be an http(s) URL');
+  if (url!.username || url!.password || url!.search || url!.hash) fail('url must have no credentials, query or hash');
+  if (typeof p.token !== 'string' || p.token.length < 32 || /\s/.test(p.token)) fail('token must be a string of 32 or more characters without spaces');
+  if (p.camera !== undefined && !(typeof p.camera === 'string' && ID_PATTERN.test(p.camera))) fail(`camera must match ${ID_PATTERN}`);
+  const out: { url: string; token: string; camera?: string } = { url: String(p.url).replace(/\/+$/, ''), token: p.token as string };
+  if (p.camera !== undefined) out.camera = p.camera as string;
+  return out;
 }
 
 export function setCameras(list: CameraConfig[]): void {
@@ -94,7 +124,12 @@ export function setCameras(list: CameraConfig[]): void {
 }
 
 export function listCameras(): CameraSummary[] {
-  return cameras.map((c) => ({ id: c.id, name: c.name, ...webUiOf(c) }));
+  return cameras.map((c) => ({ id: c.id, name: c.name, ...webUiOf(c), proxy: !!c.proxy }));
+}
+
+// Ids of the cameras that have a cam-proxy.
+export function listProxied(): string[] {
+  return cameras.filter((c) => c.proxy).map((c) => c.id);
 }
 
 export function getCamera(id: string): CameraConfig | undefined {

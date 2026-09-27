@@ -8,6 +8,11 @@ published as [GitHub releases](https://github.com/klaushofrichter/cams/releases)
 
 ## [Unreleased]
 
-- A second camera: cam2, a simulated Reolink ([cam-sim](https://github.com/klaushofrichter/cam-sim)) running in the cluster, is in the camera picker next to Den.
-- A camera can have its own web-page link, or a note instead of one. cam2 shows "Website not available - simulated camera" rather than a link that can't open.
+- **cam-proxy support** (optional, per camera, `proxy` in `cams-cameras`):
+  - new events and clips appear at once, instead of after the next minute's poll;
+  - a Timeline page with the day's stills, one tile per minute, event minutes marked;
+  - recordings play from the proxy's clips when the camera refuses the download (the real camera does), with a note instead of the "unavailable" banner.
+- `scripts/create-camera-user.sh` now updates only cam1's entry in `cams-cameras` and keeps the other cameras (it used to rewrite the list with cam1 alone, which would have removed cam2).
+- Tests use cam-sim v2026.09.27.1; the leftovers of the old mock camera are gone (generator scripts, mock names in the test code).
+- README: the camera list, configuration, and how the tests use cam-sim.
 

@@ -27,7 +27,7 @@ export default defineConfig({
       use: { ...devices['Desktop Chrome'], channel: 'chrome', viewport: { width: 390, height: 844 }, hasTouch: true },
     },
     // e2e/live-teardown.spec.ts reads the simulators' shared counters, so it
-    // can only run once no other spec file is mid-stream against the mock.
+    // can only run once no other spec file is mid-stream against a simulator.
     // `dependencies` makes Playwright finish every test in `desktop` and
     // `phone` (across all spec files) before this project starts any of its
     // own; `fullyParallel: false` keeps this file from racing itself. See the
@@ -43,10 +43,12 @@ export default defineConfig({
   // Requires `npm run build` first. Three cam-sim cameras (e2e/sims.ts) stand
   // in for Reolinks: Den, Porch (rejects SetWhiteLed) and Shed (refuses
   // downloads); e2e/cameras.json points at them, and "Garage" is deliberately
-  // unreachable. Playwright merges each `env` with process.env (see
+  // unreachable; Den and Barn have a fake cam-proxy. Playwright merges each `env` with process.env (see
   // playwright/lib/runner/index.js's WebServerPlugin), so PATH is preserved.
   webServer: [
     ...Object.values(SIMS).map((s) => ({ command: 'npx cam-sim', port: s.http, reuseExistingServer: !process.env.CI, env: simEnv(s) })),
+    // A fake cam-proxy (Plan 6) for Den (stills, sprites) and Barn (a clip).
+    { command: 'npx tsx test/proxy/fakeProxy.ts', port: 8095, reuseExistingServer: !process.env.CI },
     { command: 'npm start', port: E2E_PORT, reuseExistingServer: !process.env.CI, env: E2E_ENV },
   ],
   globalSetup: require.resolve('./e2e/global-setup'),

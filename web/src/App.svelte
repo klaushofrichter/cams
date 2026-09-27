@@ -6,6 +6,7 @@
   import Icon from './components/Icon.svelte';
   import Live from './pages/Live.svelte';
   import Recordings from './pages/Recordings.svelte';
+  import Timeline from './pages/Timeline.svelte';
   import Settings from './pages/Settings.svelte';
   import About from './pages/About.svelte';
   import { initRouter, route } from './lib/router';
@@ -143,6 +144,7 @@
         {#key $route.page}
           <div class="page-wrap" in:fly={{ y: 8, duration: duration(180) }}>
             {#if $route.page === 'recordings'}<Recordings />
+            {:else if $route.page === 'timeline'}<Timeline />
             {:else if $route.page === 'settings'}<Settings />
             {:else if $route.page === 'about'}<About />{/if}
           </div>

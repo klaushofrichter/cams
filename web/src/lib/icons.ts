@@ -2,6 +2,7 @@
 export const ICONS = {
   live: 'M5 5h10a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2zm12 5 4-3v10l-4-3',
   history: 'M12 7v5l3 2M3 12a9 9 0 1 0 3-6.7M3 4v4h4',
+  timeline: 'M3 5h7v6H3zM14 5h7v6h-7zM3 15h7v4H3zM14 15h7v4h-7z',
   events: 'M5 21V4m0 0h11l-2 4 2 4H5',
   downloads: 'M12 4v11m0 0-4-4m4 4 4-4M5 20h14',
   settings:
