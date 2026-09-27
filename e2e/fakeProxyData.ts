@@ -1,6 +1,6 @@
 // What the e2e fake cam-proxy (test/proxy/fakeProxy.ts) holds: the last ten
 // minutes of stills and sprites for Den, and one clip covering today for
-// Shed, whose camera refuses downloads like the real one. The media are
+// Barn, whose camera refuses downloads like the real one. The media are
 // ffmpeg test patterns made at start-up (nothing committed).
 import { execFileSync } from 'child_process';
 import { mkdtempSync, readFileSync } from 'fs';
@@ -33,5 +33,5 @@ export function seed(fake: FakeProxy): void {
   fake.previews.set('cam1', previews);
   const day = new Date();
   const start = new Date(day.getFullYear(), day.getMonth(), day.getDate()).getTime();
-  fake.clips.push({ id: 1, cam: 'shed', start, end: start + 86_400_000 - 1, stream: 'main', events: [], body: mp4, snapshot: jpeg });
+  fake.clips.push({ id: 1, cam: 'barn', start, end: start + 86_400_000 - 1, stream: 'main', events: [], body: mp4, snapshot: jpeg });
 }

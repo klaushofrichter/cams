@@ -271,3 +271,13 @@ test('a camera that refuses downloads gets a clear banner', async ({ page }) => 
   await expect(page.getByTestId('recordings-unavailable')).toContainText('camera-side problem');
 });
 
+
+// Plan 6: Barn refuses downloads like Shed, but has a cam-proxy whose clip
+// (the fake in test/proxy/fakeProxy.ts, one clip covering today) plays.
+test('a camera with a cam-proxy plays its recordings from the proxy', async ({ page }) => {
+  await page.goto('/app/recordings?cam=barn&panel=events');
+  await page.getByTestId('event-card').first().click();
+  const video = page.locator('video').first();
+  await expect.poll(() => video.evaluate((v: HTMLVideoElement) => v.readyState), { timeout: 20_000 }).toBeGreaterThanOrEqual(1);
+  await expect(page.getByTestId('recordings-unavailable')).toHaveCount(0);
+});
