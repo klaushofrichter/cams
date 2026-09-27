@@ -19,8 +19,9 @@ export const SIMS: Record<'den' | 'porch' | 'shed' | 'barn', Sim> = {
   // 2026-09-26 (Plan 5 breaker and banner).
   shed: { http: 8096, https: 8196, control: 8296, onvif: 8396, rtsp: 8496, faults: [STRICT, { name: 'downloads.refuse' }] },
   // Barn refuses downloads too, but has a cam-proxy (Plan 6, the fake in
-  // test/proxy/fakeProxy.ts) whose clip plays instead.
-  barn: { http: 8094, https: 8194, control: 8294, onvif: 8394, rtsp: 8494, faults: [STRICT, { name: 'downloads.refuse' }] },
+  // test/proxy/fakeProxy.ts) whose clip plays instead; its live stream always
+  // resets, so Live shows the gateway's stills (Plan 7).
+  barn: { http: 8094, https: 8194, control: 8294, onvif: 8394, rtsp: 8494, faults: [STRICT, { name: 'downloads.refuse' }, { name: 'flv.reset' }] },
 };
 
 export function simEnv(s: Sim): Record<string, string> {
