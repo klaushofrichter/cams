@@ -143,17 +143,34 @@ export const proxyHub = new EventEmitter();
 proxyHub.setMaxListeners(0);
 const streams = new Map<string, ProxyStream>();
 
+let options: StreamOptions = {};
+
 export function startProxyStreams(o: StreamOptions = {}): void {
   stopProxyStreams();
-  for (const cam of listProxied()) {
-    const client = getProxyClient(cam);
-    if (!client) continue;
-    const s = new ProxyStream(cam, client, o);
-    s.on('message', (m) => proxyHub.emit('message', m));
-    s.on('state', (up: boolean) => proxyHub.emit('state', { cam, up }));
-    streams.set(cam, s);
-    s.start();
-  }
+  options = o;
+  for (const cam of listProxied()) startProxyStream(cam);
+}
+
+// One camera's stream, e.g. after its proxy is switched back on.
+export function startProxyStream(cam: string): void {
+  if (streams.has(cam)) return;
+  const client = getProxyClient(cam);
+  if (!client) return;
+  const s = new ProxyStream(cam, client, options);
+  s.on('message', (m) => proxyHub.emit('message', m));
+  s.on('state', (up: boolean) => proxyHub.emit('state', { cam, up }));
+  streams.set(cam, s);
+  s.start();
+}
+
+// One camera's stream, when its proxy is switched off. Browsers hear that the
+// proxy is gone and reload that camera's events from the camera.
+export function stopProxyStream(cam: string): void {
+  const s = streams.get(cam);
+  if (!s) return;
+  s.stop();
+  streams.delete(cam);
+  proxyHub.emit('state', { cam, up: false });
 }
 
 export function stopProxyStreams(): void {

@@ -1,0 +1,52 @@
+<script lang="ts">
+  import { cameras } from '../lib/stores';
+  import { putJson } from '../lib/settings';
+
+  // The "use cam-proxy" switch for one camera, for all users (Klaus,
+  // 2026-09-27). Nothing is shown for a camera without a cam-proxy. The
+  // camera list is updated on success, so Live, Recordings and Timeline follow.
+  let { cameraId }: { cameraId: string } = $props();
+
+  const camera = $derived($cameras.find((c) => c.id === cameraId));
+  let saving = $state(false);
+  let error = $state('');
+
+  async function toggle(e: Event) {
+    const box = e.currentTarget as HTMLInputElement;
+    const enabled = box.checked;
+    saving = true;
+    error = '';
+    try {
+      const res = await putJson<{ enabled?: boolean }>(`/api/cameras/${encodeURIComponent(cameraId)}/proxy`, { enabled });
+      if (res.status !== 200 || res.body.enabled !== enabled) throw new Error(String(res.status));
+      cameras.update((list) => list.map((c) => (c.id === cameraId ? { ...c, proxy: enabled } : c)));
+    } catch {
+      box.checked = !enabled;
+      error = 'Could not change the setting. Try again.';
+    } finally {
+      saving = false;
+    }
+  }
+</script>
+
+{#if camera?.proxyConfigured}
+  <label class="row">
+    <input type="checkbox" data-testid="proxy-toggle" checked={!!camera.proxy} disabled={saving} onchange={toggle} />
+    Use cam-proxy
+  </label>
+  <p class="muted" data-testid="proxy-note">
+    {#if camera.proxy}
+      Clips, event thumbnails, stills and events come from the camera's cam-proxy first, and from the camera when the proxy can't help.
+    {:else}
+      Off: clips, event thumbnails and events come only from the camera. Live shows no stills while the video is down.
+    {/if}
+    Applies to everyone.
+  </p>
+  {#if error}<p class="err" role="alert" data-testid="proxy-error">{error}</p>{/if}
+{/if}
+
+<style>
+  .row { display: flex; align-items: center; gap: 8px; }
+  .muted { margin: 0; color: var(--muted); font-size: 13px; }
+  .err { margin: 0; color: var(--danger); font-size: 13px; }
+</style>

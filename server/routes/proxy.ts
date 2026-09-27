@@ -3,6 +3,8 @@ import { Readable } from 'stream';
 import { pipeline } from 'stream/promises';
 import { getCamera } from '../cameraRegistry';
 import { logger } from '../logger';
+import { setProxyEnabled } from '../proxyState';
+import { proxyHub, startProxyStream, stopProxyStream } from '../proxy/stream';
 import { getProxyClient, ProxyError, type ProxyClient } from '../proxy/client';
 
 // Stills and preview sprites from a camera's cam-proxy, for the Timeline
@@ -20,6 +22,24 @@ function proxied(req: Request, res: Response): { client: ProxyClient; cam: strin
   if (!client) return void res.status(404).json({ error: 'no_proxy' }), undefined;
   return { client, cam: encodeURIComponent(camera.proxy?.camera ?? camera.id), base: `/api/cameras/${encodeURIComponent(camera.id)}` };
 }
+
+// The Settings page's "use cam-proxy" switch, for all users. Off: clips,
+// thumbnails, stills and events come from the camera only.
+proxyRouter.put('/api/cameras/:id/proxy', async (req: Request, res: Response) => {
+  const id = String(req.params.id);
+  const camera = getCamera(id);
+  if (!camera) return void res.status(404).json({ error: 'unknown_camera' });
+  if (!camera.proxy) return void res.status(404).json({ error: 'no_proxy' });
+  const enabled = (req.body as { enabled?: unknown } | undefined)?.enabled;
+  if (typeof enabled !== 'boolean') return bad(res, 'enabled must be true or false');
+  await setProxyEnabled(id, enabled);
+  if (enabled) startProxyStream(id);
+  else stopProxyStream(id);
+  // Browsers and the recordings cache reload this camera's events.
+  proxyHub.emit('message', { cam: id, type: 'reset', data: {} });
+  logger.info({ cameraId: id, enabled }, 'proxy_switched');
+  res.json({ enabled });
+});
 
 function range(req: Request, res: Response): [number, number] | undefined {
   const from = String(req.query.from ?? ''), to = String(req.query.to ?? '');

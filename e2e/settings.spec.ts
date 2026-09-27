@@ -184,3 +184,28 @@ test('a camera without a web page shows its note instead of a link', async ({ pa
   await expect(page.getByTestId('device-webui-link')).toHaveCount(0);
   await expect(page.getByTestId('device-webui-note')).toHaveText('Website not available - simulated camera');
 });
+
+// The "use cam-proxy" switch is server-wide, and both projects share one cams
+// server, so flipping it for real would race the Live and Timeline tests that
+// rely on the proxy. The PUT is answered in the browser instead; the server
+// side is covered by test/proxySwitch.test.ts.
+test('the cam-proxy card switches the proxy for a camera that has one', async ({ page }) => {
+  const puts: unknown[] = [];
+  await page.route('**/api/cameras/cam1/proxy', async (route) => {
+    const body = route.request().postDataJSON() as { enabled: boolean };
+    puts.push(body);
+    await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ enabled: body.enabled }) });
+  });
+  await page.goto('/app/settings');
+  await expect(page.getByTestId('proxy-toggle')).toBeChecked();
+  await page.getByTestId('proxy-toggle').click();
+  await expect(page.getByTestId('proxy-toggle')).not.toBeChecked();
+  await expect(page.getByTestId('proxy-note')).toContainText('only from the camera');
+  await page.getByTestId('proxy-toggle').click();
+  await expect(page.getByTestId('proxy-toggle')).toBeChecked();
+  expect(puts).toEqual([{ enabled: false }, { enabled: true }]);
+
+  // No card for a camera without a cam-proxy.
+  await page.getByTestId('camera-picker').selectOption('shed');
+  await expect(page.getByTestId('settings-card-proxy')).toHaveCount(0);
+});

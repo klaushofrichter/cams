@@ -14,6 +14,7 @@ export const E2E_ENV: Record<string, string> = {
   ALLOWED_EMAILS: `klaus@klaushofrichter.net,${PREFS_EMAIL}`,
   CAMERAS_FILE: 'e2e/cameras.json',
   PREFS_FILE: '/tmp/cams-e2e-prefs.json',
+  PROXY_STATE_FILE: '/tmp/cams-e2e-proxy-state.json',
   APP_VERSION: 'e2e-test-version',
   LOG_LEVEL: 'silent',
   RATE_LIMIT_MAX: '1000',

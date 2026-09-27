@@ -24,15 +24,16 @@ clip playback and downloads, and camera settings, behind Google sign-in.
   - **Event thumbnails** are the proxy's first still 2–12 s into the event (a JPEG): no clip transfer, no ffmpeg. Without one, a frame from the clip as before.
   - **Scrub preview:** moving over the Recordings timeline shows the frame of that moment (the proxy's preview sprites).
   - **Live fallback:** while live video isn't playing for 5 s (or the camera is offline), Live shows the proxy's newest still, updated every second, marked STILLS with the still's time and age (the header says STILLS instead of LIVE).
+  - **Switch:** Settings has a "cam-proxy" card for a camera with a proxy. Switching it off makes cams ignore the proxy for everyone (clips, thumbnails, stills and events from the camera only; the event subscription stops) until it is switched on again. The choice is kept in `proxy-state.json` (see `PROXY_STATE_FILE`) and survives restarts; thumbnails already cached stay.
 
 ## Pages and API
 
-- **Pages** (`/app/…`): Live; Recordings with the History, Events and Downloads panels (`?panel=`, `?cam&date&clip&t`); Timeline (cameras with a cam-proxy; `?cam&date&t`); Settings (the camera's settings, reboot); About (version, build date, cameras).
+- **Pages** (`/app/…`): Live; Recordings with the History, Events and Downloads panels (`?panel=`, `?cam&date&clip&t`); Timeline (cameras with a cam-proxy; `?cam&date&t`); Settings (the camera's settings, the cam-proxy switch, reboot); About (version, build date, cameras).
 - **API** (all need the sign-in cookie and answer JSON 401 otherwise; changes need the same origin; `Cache-Control: no-store`):
   - `GET /api/me`, `GET /api/cameras`, `GET/PUT /api/preferences`;
   - per camera `/api/cameras/:id/…`: `status`, `snapshot.jpg`, `live` (at most 4 per camera), `days`, `events`, `settings` (`PUT settings/:section`), `device`, `POST reboot`;
   - clips: `/api/cameras/:id/clips/:clipId/video|thumb.jpg|download?quality=sub|main`;
-  - cam-proxy: `/api/cameras/:id/previews`, `previews/:minute.jpg`, `stills`, `stills/:ts.jpg`, `still/latest.jpg`, and `GET /api/events/stream` (SSE, at most 20 browsers, a ping every 25 s).
+  - cam-proxy: `PUT /api/cameras/:id/proxy` (`{"enabled": true|false}`, for all users; 404 `no_proxy` without one), `/api/cameras/:id/previews`, `previews/:minute.jpg`, `stills`, `stills/:ts.jpg`, `still/latest.jpg`, and `GET /api/events/stream` (SSE, at most 20 browsers, a ping every 25 s).
 
 ## Cameras
 
@@ -73,6 +74,7 @@ The Google OAuth client must list the redirect URI: `http://localhost:8080/auth/
 | `PORT` | `8080` | |
 | `LOG_LEVEL` | `info` | |
 | `PREFS_FILE` | `$TMPDIR/cams-preferences.json` | per-user preferences |
+| `PROXY_STATE_FILE` | `proxy-state.json` next to `PREFS_FILE` (else `$TMPDIR/cams-proxy-state.json`) | cameras whose cam-proxy is switched off on Settings |
 | `CACHE_DIR`, `CACHE_MAX_BYTES` | `$TMPDIR/cams-cache` (the image: `/var/cache/cams`), 1.5 GiB | downloaded clips and thumbnails |
 | `FFMPEG_PATH` | `ffmpeg` | for thumbnails |
 | `RECORDINGS_PROBE_MS`, `DOWNLOAD_RETRY_DELAY_MS` | `60000`, `1000` | how often a camera whose downloads fail is retried; the pause before a download's one retry |

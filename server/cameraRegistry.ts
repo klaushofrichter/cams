@@ -1,6 +1,7 @@
 import { existsSync, readFileSync } from 'fs';
 import { basename } from 'path';
 import { logger } from './logger';
+import { proxyEnabled } from './proxyState';
 
 export interface CameraConfig {
   id: string;
@@ -27,7 +28,8 @@ export interface CameraSummary {
   name: string;
   webUiUrl: string | null;
   webUiNote?: string;
-  proxy: boolean; // whether cams reaches this camera's cam-proxy (never its URL or token)
+  proxy: boolean; // whether cams uses this camera's cam-proxy now (never its URL or token)
+  proxyConfigured: boolean; // whether the camera has a cam-proxy at all (the switch on Settings)
 }
 
 const ID_PATTERN = /^[a-z0-9][a-z0-9-]{0,31}$/;
@@ -124,12 +126,17 @@ export function setCameras(list: CameraConfig[]): void {
 }
 
 export function listCameras(): CameraSummary[] {
-  return cameras.map((c) => ({ id: c.id, name: c.name, ...webUiOf(c), proxy: !!c.proxy }));
+  return cameras.map((c) => ({ id: c.id, name: c.name, ...webUiOf(c), proxy: proxyActive(c.id), proxyConfigured: !!c.proxy }));
 }
 
-// Ids of the cameras that have a cam-proxy.
+// Ids of the cameras whose cam-proxy is in use.
 export function listProxied(): string[] {
-  return cameras.filter((c) => c.proxy).map((c) => c.id);
+  return cameras.filter((c) => proxyActive(c.id)).map((c) => c.id);
+}
+
+// A camera with a cam-proxy that isn't switched off on the Settings page.
+export function proxyActive(id: string): boolean {
+  return !!getCamera(id)?.proxy && proxyEnabled(id);
 }
 
 export function getCamera(id: string): CameraConfig | undefined {
