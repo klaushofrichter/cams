@@ -20,6 +20,7 @@ function buildApp(createApiRateLimit: () => express.RequestHandler, createMediaR
   app.get('/cameras/:id/clips/:clipId/thumb.jpg', (_req, res) => res.json({ ok: true }));
   app.get('/cameras/:id/previews/:file', (_req, res) => res.json({ ok: true }));
   app.get('/cameras/:id/stills/:file', (_req, res) => res.json({ ok: true }));
+  app.get('/cameras/:id/still/latest.jpg', (_req, res) => res.json({ ok: true }));
   return app;
 }
 
@@ -57,6 +58,7 @@ describe('rate limits', () => {
     for (let i = 0; i < 10; i++) {
       expect((await request(app).get(`/cameras/cam1/previews/${i}.jpg`)).status).toBe(200);
       expect((await request(app).get(`/cameras/cam1/stills/${i}.jpg`)).status).toBe(200);
+      expect((await request(app).get('/cameras/cam1/still/latest.jpg')).status).toBe(200); // the Live fallback, once a second
     }
     expect((await request(app).get('/me')).status).toBe(200);
   });

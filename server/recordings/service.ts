@@ -12,7 +12,7 @@ import { clipIdOf, clipTimes, CLIP_ID, parseClipName, ParsedClip, Trigger } from
 import { DiskCache } from './cache';
 import { PriorityGate } from './priorityGate';
 import { makeThumbnail } from './thumbnail';
-import { findProxyClip, openProxyClip } from './proxyClips';
+import { findProxyClip, findProxyStill, openProxyClip, openProxyStill } from './proxyClips';
 
 export interface EventClip {
   id: string;
@@ -348,20 +348,33 @@ export class RecordingsService {
   // 'proxy': the camera refuses downloads, and recordings come from its
   // cam-proxy instead (per clip, when the proxy has one).
   downloadsState(cameraId: string): 'ok' | 'proxy' | 'unavailable' {
-    if ((this.health.get(cameraId)?.failures ?? 0) < BREAKER_FAILURES) return 'ok';
-    return getCamera(cameraId)?.proxy ? 'proxy' : 'unavailable';
+    if (getCamera(cameraId)?.proxy) return 'proxy';
+    return (this.health.get(cameraId)?.failures ?? 0) >= BREAKER_FAILURES ? 'unavailable' : 'ok';
   }
 
   // The proxy clip for an event when the camera's transfer failed with
   // `err`: only for a refusal or an open breaker, never for an abort.
   private async proxyClipFor(cameraId: string, clipId: string, err: unknown): Promise<{ id: number } | null> {
     const refused = (err instanceof CameraError && err.code === 'camera_offline') || (err instanceof RecordingError && err.code === 'recordings_unavailable');
-    if (!refused || !getCamera(cameraId)?.proxy) return null;
+    if (!refused) return null;
+    return this.proxyClip(cameraId, clipId);
+  }
+
+  // The event's start and end, from the day's list.
+  private async eventSpan(cameraId: string, clipId: string): Promise<{ start: number; end: number } | null> {
+    const date = `${clipId.slice(0, 4)}-${clipId.slice(4, 6)}-${clipId.slice(6, 8)}`;
+    const ev = (await this.day(cameraId, date)).events.find((e) => e.id === clipId);
+    return ev ? { start: Date.parse(ev.start), end: Date.parse(ev.end) } : null;
+  }
+
+  // The proxy's clip for the event, for a camera with a cam-proxy (Plan 7:
+  // asked first; Plan 6: when the camera refuses).
+  private async proxyClip(cameraId: string, clipId: string): Promise<{ id: number } | null> {
+    if (!getCamera(cameraId)?.proxy) return null;
     try {
-      const date = `${clipId.slice(0, 4)}-${clipId.slice(4, 6)}-${clipId.slice(6, 8)}`;
-      const ev = (await this.day(cameraId, date)).events.find((e) => e.id === clipId);
-      if (!ev) return null;
-      const clip = await findProxyClip(cameraId, Date.parse(ev.start), Date.parse(ev.end));
+      const span = await this.eventSpan(cameraId, clipId);
+      if (!span) return null;
+      const clip = await findProxyClip(cameraId, span.start, span.end);
       if (clip) logger.info({ cameraId, clipId, proxyClip: clip.id }, 'recording_from_proxy');
       return clip;
     } catch (e) {
@@ -385,8 +398,19 @@ export class RecordingsService {
     this.cache.pin(key);
     try {
       if (priority === 'high') this.gate(cameraId).promote(key);
-      const path = await this.cache.fill(key, (tmp) =>
-        this.gate(cameraId).run(
+      const path = await this.cache.fill(key, async (tmp) => {
+        // A camera with a cam-proxy: its FTP clip first (Plan 7), outside the
+        // camera's one transfer slot (a camera download doesn't hold it up).
+        const first = await this.proxyClip(cameraId, clipId);
+        if (first) {
+          try {
+            await pipeline((await openProxyClip(cameraId, first.id)).stream, createWriteStream(tmp));
+            return;
+          } catch (e) {
+            logger.warn({ cameraId, clipId, message: (e as Error).message }, 'proxy_clip_fetch_failed');
+          }
+        }
+        await this.gate(cameraId).run(
           async () => {
             try {
               const res = await this.downloadWithRetry(cameraId, sub);
@@ -400,8 +424,8 @@ export class RecordingsService {
             }
           },
           { high: priority === 'high', key },
-        ),
-      );
+        );
+      });
       return await use(path);
     } finally {
       this.cache.unpin(key);
@@ -414,8 +438,30 @@ export class RecordingsService {
   // camera at all.
   async thumbnail(cameraId: string, clipId: string): Promise<string> {
     const jpgKey = this.key(cameraId, clipId, 'jpg');
-    return this.cache.fill(jpgKey, (tmp) =>
-      this.withClip(cameraId, clipId, async (video) => {
+    return this.cache.fill(jpgKey, async (tmp) => {
+      // A camera with a cam-proxy: its still 2 s into the event (Plan 7),
+      // no clip transfer and no ffmpeg.
+      if (getCamera(cameraId)?.proxy) {
+        try {
+          const span = await this.eventSpan(cameraId, clipId);
+          const ts = span && (await findProxyStill(cameraId, span.start + 2000, span.start + 12_000));
+          if (ts) {
+            await pipeline(await openProxyStill(cameraId, ts), createWriteStream(tmp));
+            // Only a JPEG becomes the (cached) thumbnail.
+            const head = await fs.readFile(tmp).then((b) => b.subarray(0, 3)).catch(() => Buffer.alloc(0));
+            if (head.length === 3 && head[0] === 0xff && head[1] === 0xd8 && head[2] === 0xff) return;
+            logger.warn({ cameraId, clipId }, 'proxy_still_not_a_jpeg');
+          }
+        } catch (e) {
+          logger.warn({ cameraId, clipId, message: (e as Error).message }, 'proxy_still_failed');
+        }
+      }
+      await this.clipThumbnail(cameraId, clipId, tmp);
+    });
+  }
+
+  private clipThumbnail(cameraId: string, clipId: string, tmp: string): Promise<void> {
+    return this.withClip(cameraId, clipId, async (video) => {
         try {
           await makeThumbnail(video, tmp);
         } catch {
@@ -423,8 +469,7 @@ export class RecordingsService {
         }
         const stat = await fs.stat(tmp).catch(() => null);
         if (!stat || stat.size === 0) throw new RecordingError('thumbnail_unavailable', 'thumbnail could not be made');
-      }, 'low'),
-    );
+      }, 'low');
   }
 
   // Same pin-before-fill pattern as withClip, but for the jpg: pinned
@@ -460,12 +505,28 @@ export class RecordingsService {
     const t = clipId.slice(9, 15);
     const filename = `${cameraId}-${date}_${t.slice(0, 2)}-${t.slice(2, 4)}-${t.slice(4, 6)}-${served}.mp4`;
 
-    const { ready, release } = this.acquireTransfer(cameraId, signal);
-    await ready;
-    let stream: Readable;
+    let stream!: Readable; // set by the proxy or the camera below
     let size: number | null = null;
     let fromProxy = false;
-    try {
+    // The sub stream from the camera's cam-proxy first (Plan 7); full quality
+    // only the camera has. The camera's one transfer slot is taken only when
+    // the camera is asked.
+    const first = quality === 'sub' ? await this.proxyClip(cameraId, clipId) : null;
+    if (first) {
+      try {
+        ({ stream, size } = await openProxyClip(cameraId, first.id, signal));
+        fromProxy = true;
+      } catch {
+        // the camera below
+      }
+    }
+    let release = () => undefined as void;
+    if (!fromProxy) {
+      const slot = this.acquireTransfer(cameraId, signal);
+      await slot.ready;
+      release = slot.release;
+    }
+    if (!fromProxy) try {
       const res = await this.downloadWithRetry(cameraId, name, signal);
       stream = res;
       const cl = res.headers['content-length'];

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { dayRange, hourGroups, minuteOf, splitRange, stillIndex, tileIndex, tileStyle, timelineCursor, cursorSearch, type PreviewMinute } from './timeline';
+import { dayRange, hourGroups, minuteOf, previewAt, splitRange, stillIndex, tileIndex, tileStyle, timelineCursor, cursorSearch, type PreviewMinute } from './timeline';
 
 // Tests run with TZ=America/Chicago (vitest.config).
 const m = (minute: number, present = Array(60).fill(true)): PreviewMinute => ({ minute, cols: 10, rows: 6, tileW: 160, tileH: 90, intervalS: 1, present, url: `/x/${minute}.jpg` });
@@ -62,5 +62,18 @@ describe('timeline cursor', () => {
     expect(timelineCursor(new URLSearchParams('date=bad&t=x'), '2026-09-28')).toEqual({ cam: null, date: '2026-09-28', t: null });
     expect(cursorSearch({ cam: 'den', date: '2026-09-27', t: null })).toBe('?cam=den&date=2026-09-27');
     expect(cursorSearch({ cam: 'den', date: '2026-09-27', t: 5 })).toBe('?cam=den&date=2026-09-27&t=5');
+  });
+});
+
+// Plan 7: the Recordings timeline's scrub preview.
+describe('previewAt', () => {
+  it('finds the sprite tile for a moment, or nothing where there is none', () => {
+    const minute = Date.UTC(2026, 8, 27, 19, 3);
+    const present = Array(60).fill(true);
+    present[30] = false;
+    const list = [m(minute, present)];
+    expect(previewAt(list, minute + 12_400)).toEqual({ minute: list[0], index: 12 });
+    expect(previewAt(list, minute + 30_500)).toBeNull(); // that second has no tile
+    expect(previewAt(list, minute + 60_000)).toBeNull(); // no sprite for that minute
   });
 });

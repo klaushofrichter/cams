@@ -80,3 +80,25 @@ for (const kind of ['previews', 'stills'] as const) {
     }
   });
 }
+
+// The Live page's fallback while its live stream isn't playing (Plan 7): the
+// proxy's newest still of the last two minutes, never cached, with its time.
+proxyRouter.get('/api/cameras/:id/still/latest.jpg', async (req: Request, res: Response) => {
+  const p = proxied(req, res);
+  if (!p) return;
+  try {
+    const now = Date.now();
+    const stills = await p.client.json<number[]>(`/api/cameras/${p.cam}/stills`, { from: now - 120_000, to: now });
+    const ts = stills.filter((t) => Number.isSafeInteger(t)).at(-1);
+    if (ts === undefined) return void res.status(404).json({ error: 'not_found' });
+    const up = await p.client.open(`/api/cameras/${p.cam}/stills/${ts}.jpg`, undefined, { idleMs: 10_000 });
+    if (!up.ok || !up.body) {
+      await up.body?.cancel();
+      return void res.status(up.status === 404 ? 404 : 502).json({ error: up.status === 404 ? 'not_found' : 'proxy_unavailable' });
+    }
+    res.status(200).set({ 'Content-Type': 'image/jpeg', 'Cache-Control': 'no-store', 'X-Still-Time': String(ts) });
+    await pipeline(Readable.fromWeb(up.body as import('stream/web').ReadableStream), res);
+  } catch (err) {
+    proxyFailed(err, String(req.params.id), res);
+  }
+});
