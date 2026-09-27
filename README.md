@@ -20,10 +20,20 @@ clip playback and downloads, and camera settings, behind Google sign-in.
 - **cam-proxy (optional, per camera):** a camera can have a [cam-proxy](https://github.com/klaushofrichter/cam-proxy), a gateway that keeps the one camera connection, stores a still per second and receives the camera's clips by FTP. cams talks to it server-side (`server/proxy/`), with the token from the camera's `proxy` entry:
   - **Events at once:** one event-stream subscription per proxied camera (resuming after drops) is relayed to browsers as `GET /api/events/stream`. Recordings and Live reload on a new event or clip instead of polling every minute. Polling continues for cameras without a proxy, and while a proxy is down.
   - **Timeline:** the Timeline page (in the menu when some camera has a proxy) shows a day's stills as one tile per minute, marks event minutes, and steps through a minute's stills.
-  - **Clips first from the proxy:** a recording plays from the clip the camera uploaded to the proxy (with seeking); the camera is asked only when the proxy has none. Downloads: the sub stream from the proxy (`…-proxy.mp4`), full quality from the camera. The camera should upload the sub stream (cam-proxy `ftp.stream: sub`: H.264, plays in every browser).
-  - **Event thumbnails** are the proxy's still 2 s into the event: no clip transfer, no ffmpeg.
+  - **Clips first from the proxy:** a recording plays from the clip the camera uploaded to the proxy (with seeking); the camera is asked only when the proxy has none. Downloads: the sub stream from the proxy (`…-proxy.mp4`), full quality from the camera (the proxy's clip if the camera refuses). The camera should upload the sub stream (cam-proxy `ftp.stream: sub`: H.264, plays in every browser).
+  - **Event thumbnails** are the proxy's first still 2–12 s into the event (a JPEG): no clip transfer, no ffmpeg. Without one, a frame from the clip as before.
   - **Scrub preview:** moving over the Recordings timeline shows the frame of that moment (the proxy's preview sprites).
-  - **Live fallback:** while live video isn't playing (or the camera is offline), Live shows the proxy's newest still, updated every second.
+  - **Live fallback:** while live video isn't playing for 5 s (or the camera is offline), Live shows the proxy's newest still, updated every second, marked STILLS with the still's time and age (the header says STILLS instead of LIVE).
+  - **Switch:** Settings has a "cam-proxy" card for a camera with a proxy. Switching it off makes cams ignore the proxy for everyone (clips, thumbnails, stills and events from the camera only; the event subscription stops) until it is switched on again. The choice is kept in `proxy-state.json` (see `PROXY_STATE_FILE`) and survives restarts; thumbnails already cached stay.
+
+## Pages and API
+
+- **Pages** (`/app/…`): Live; Recordings with the History, Events and Downloads panels (`?panel=`, `?cam&date&clip&t`); Timeline (cameras with a cam-proxy; `?cam&date&t`); Settings (the camera's settings, the cam-proxy switch, reboot); About (version, build date, cameras).
+- **API** (all need the sign-in cookie and answer JSON 401 otherwise; changes need the same origin; `Cache-Control: no-store`):
+  - `GET /api/me`, `GET /api/cameras`, `GET/PUT /api/preferences`;
+  - per camera `/api/cameras/:id/…`: `status`, `snapshot.jpg`, `live` (at most 4 per camera), `days`, `events`, `settings` (`PUT settings/:section`), `device`, `POST reboot`;
+  - clips: `/api/cameras/:id/clips/:clipId/video|thumb.jpg|download?quality=sub|main`;
+  - cam-proxy: `PUT /api/cameras/:id/proxy` (`{"enabled": true|false}`, for all users; 404 `no_proxy` without one), `/api/cameras/:id/previews`, `previews/:minute.jpg`, `stills`, `stills/:ts.jpg`, `still/latest.jpg`, and `GET /api/events/stream` (SSE, at most 20 browsers, a ping every 25 s).
 
 ## Cameras
 
@@ -37,12 +47,12 @@ The cameras come from a JSON array in the file named by `CAMERAS_FILE`; in the c
 | `tlsServername` | optional | check the camera's certificate against this name (for a camera reached by address) |
 | `webUiUrl` | optional | the link to the camera's own web page; `null` for none. Default: `https://<host>/` (without the port), or no link when only `webUiNote` is set |
 | `webUiNote` | optional | 1 to 120 characters, shown instead of a link |
-| `proxy` | optional | `{"url": "http://cam-proxy…:8480", "token": "<cam-proxy client token>"}`: the camera's [cam-proxy](https://github.com/klaushofrichter/cam-proxy). With it, events arrive at once, the Timeline page shows its stills, and recordings play from its clips when the camera's download fails. The token stays on the server; browsers only learn that a proxy exists. Without it (or while the proxy is down) cams works as before. |
+| `proxy` | optional | `{"url": "http://cam-proxy…:8480", "token": "<cam-proxy client token>", "camera": "<optional>"}`: the camera's [cam-proxy](https://github.com/klaushofrichter/cam-proxy). `url` is http(s) without credentials, query or hash; `token` has 32+ characters and no spaces; `camera` is the proxy's id for this camera when it differs from `id`. With it, events arrive at once, the Timeline page shows its stills, and recordings and thumbnails come from the proxy first (see above). The token stays on the server; browsers only learn that a proxy exists. Without it (or while the proxy is down) cams works as before. |
 
 Production has two cameras:
 
-- `cam1` "Den": the real Reolink RLC-1224A, with its own Let's Encrypt certificate for `cam1.skylar.technology`;
-- `cam2`: a [cam-sim](https://github.com/klaushofrichter/cam-sim) simulated camera in the same cluster (`cam2.cam-sim.svc.cluster.local`, TLS name `cam2.skylar.technology`), whose web page `https://cam2.skylar.technology/` works on the LAN only.
+- `cam1` "Den": the real Reolink RLC-1224A, with its own Let's Encrypt certificate for `cam1.skylar.technology` (no cam-proxy yet: it comes with the Raspberry Pi next to the camera);
+- `cam2`: a [cam-sim](https://github.com/klaushofrichter/cam-sim) simulated camera in the same cluster (`cam2.cam-sim.svc.cluster.local`, TLS name `cam2.skylar.technology`), whose web page `https://cam2.skylar.technology/` works on the LAN only. It has a `proxy` entry: cam-proxy in the cluster (`http://cam-proxy.cam-proxy.svc.cluster.local:8480`).
 
 `scripts/create-camera-user.sh` creates the dedicated `cams` user on the real camera and writes its entry (`cam1`) into `cams-cameras`, keeping the other cameras.
 
@@ -64,17 +74,19 @@ The Google OAuth client must list the redirect URI: `http://localhost:8080/auth/
 | `PORT` | `8080` | |
 | `LOG_LEVEL` | `info` | |
 | `PREFS_FILE` | `$TMPDIR/cams-preferences.json` | per-user preferences |
-| `CACHE_DIR`, `CACHE_MAX_BYTES` | `$TMPDIR/cams-cache`, 1.5 GiB | downloaded clips and thumbnails |
+| `PROXY_STATE_FILE` | `proxy-state.json` next to `PREFS_FILE` (else `$TMPDIR/cams-proxy-state.json`) | cameras whose cam-proxy is switched off on Settings |
+| `CACHE_DIR`, `CACHE_MAX_BYTES` | `$TMPDIR/cams-cache` (the image: `/var/cache/cams`), 1.5 GiB | downloaded clips and thumbnails |
 | `FFMPEG_PATH` | `ffmpeg` | for thumbnails |
 | `RECORDINGS_PROBE_MS`, `DOWNLOAD_RETRY_DELAY_MS` | `60000`, `1000` | how often a camera whose downloads fail is retried; the pause before a download's one retry |
-| `RATE_LIMIT_WINDOW_MS`, `RATE_LIMIT_MAX`, `RATE_LIMIT_API_MAX`, `RATE_LIMIT_MEDIA_MAX` | 5 min, `40`, `600`, `3000` | per window: sign-in, API, media |
+| `RATE_LIMIT_WINDOW_MS`, `RATE_LIMIT_MAX`, `RATE_LIMIT_API_MAX`, `RATE_LIMIT_MEDIA_MAX` | 5 min, `40`, `600`, `3000` | per window: sign-in, API, media (clip video/thumbnails/downloads and the proxy's sprites and stills) |
+| `APP_VERSION`, `BUILD_DATE`, `WEB_DIST` | `dev`, none, the built `web/` | set by the image build (shown on About and by `/api/me`); where the web build is |
 
 `scripts/create-secrets.sh` creates the cluster Secrets `cams-oauth` (namespace `cams`) and `runner-pat` (namespace `cams-runner`) from `~/Development/reolink/.env`, keeping an existing `COOKIE_SECRET`. `npm run icons` regenerates the web icons; `npm run check` type-checks `web/`.
 
 ## Testing
 
 ```bash
-npm test                 # vitest: server + web libraries
+npm test                 # vitest: server + web libraries (node) and Svelte components (jsdom)
 npm run build && npm run test:e2e   # Playwright, desktop and phone viewports
 ```
 
@@ -87,7 +99,7 @@ Both suites need **ffmpeg** on the `PATH`, and e2e needs **Google Chrome**. The 
   - "Den", with a cam-proxy;
   - "Porch", which rejects `SetWhiteLed`;
   - "Shed", which refuses downloads like the real camera;
-  - "Barn", which refuses downloads too but has a cam-proxy whose clip plays.
+  - "Barn", which refuses downloads too but has a cam-proxy whose clip plays, and whose live stream always resets, so Live shows the proxy's stills.
 
   A fifth camera, "Garage", points at an unused port and stays offline.
 - **cam-proxy in tests** is a small fake (`test/proxy/fakeProxy.ts`) that follows cam-proxy's `openapi.yaml` for the stream, clips, stills and previews. Unit tests set its data directly; e2e runs it as a process, seeded with ffmpeg test patterns (`e2e/fakeProxyData.ts`). The real round trip is checked against cam-proxy in the cluster.

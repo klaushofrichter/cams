@@ -128,4 +128,13 @@ describe('createEventStream', () => {
     expect(s.streaming('den')).toBe(false);
     s.close();
   });
+
+  it('re-reads the camera list when a proxy is switched on or off', () => {
+    const onCameras = vi.fn();
+    const s = createEventStream({ url: '/api/events/stream', factory: (url) => new FakeSource(url), onCameras });
+    FakeSource.last.open();
+    FakeSource.last.emit('cameras', {});
+    expect(onCameras).toHaveBeenCalledTimes(1);
+    s.close();
+  });
 });

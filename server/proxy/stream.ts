@@ -143,20 +143,42 @@ export const proxyHub = new EventEmitter();
 proxyHub.setMaxListeners(0);
 const streams = new Map<string, ProxyStream>();
 
+let options: StreamOptions = {};
+let shuttingDown = false; // set by stopProxyStreams(true) at SIGTERM
+
 export function startProxyStreams(o: StreamOptions = {}): void {
   stopProxyStreams();
-  for (const cam of listProxied()) {
-    const client = getProxyClient(cam);
-    if (!client) continue;
-    const s = new ProxyStream(cam, client, o);
-    s.on('message', (m) => proxyHub.emit('message', m));
-    s.on('state', (up: boolean) => proxyHub.emit('state', { cam, up }));
-    streams.set(cam, s);
-    s.start();
-  }
+  shuttingDown = false;
+  options = o;
+  for (const cam of listProxied()) startProxyStream(cam);
 }
 
-export function stopProxyStreams(): void {
+// One camera's stream, e.g. after its proxy is switched back on.
+export function startProxyStream(cam: string): void {
+  if (shuttingDown || streams.has(cam)) return;
+  const client = getProxyClient(cam);
+  if (!client) return;
+  const s = new ProxyStream(cam, client, options);
+  s.on('message', (m) => proxyHub.emit('message', m));
+  s.on('state', (up: boolean) => proxyHub.emit('state', { cam, up }));
+  streams.set(cam, s);
+  s.start();
+}
+
+// One camera's stream, when its proxy is switched off. Browsers hear that the
+// proxy is gone and reload that camera's events from the camera.
+export function stopProxyStream(cam: string): void {
+  const s = streams.get(cam);
+  if (!s) return;
+  const wasUp = s.up(); // an up stream reports its own end when stopped
+  s.stop();
+  streams.delete(cam);
+  if (!wasUp) proxyHub.emit('state', { cam, up: false });
+}
+
+// `final`: the process is shutting down, and no stream may start again.
+export function stopProxyStreams(final = false): void {
+  if (final) shuttingDown = true;
   for (const s of streams.values()) s.stop();
   streams.clear();
 }

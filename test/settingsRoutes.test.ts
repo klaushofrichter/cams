@@ -202,7 +202,7 @@ describe('settings API', () => {
 
   it('lists cameras with a LAN web UI link built from the host without its port', async () => {
     const res = await request(createApp()).get('/api/cameras').set('Cookie', auth);
-    expect(res.body).toEqual([{ id: 'cam1', name: 'Den', webUiUrl: 'https://127.0.0.1/', proxy: false }]);
+    expect(res.body).toEqual([{ id: 'cam1', name: 'Den', webUiUrl: 'https://127.0.0.1/', proxy: false, proxyConfigured: false }]);
   });
 
   it('maps an offline camera to 503', async () => {
