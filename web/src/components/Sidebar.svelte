@@ -2,7 +2,7 @@
   import Icon from './Icon.svelte';
   import ThemeToggle from './ThemeToggle.svelte';
   import { NAV_ITEMS, isActive, navigate, route } from '../lib/router';
-  import { sidebarCollapsed, drawerOpen } from '../lib/stores';
+  import { sidebarCollapsed, drawerOpen, cameras } from '../lib/stores';
 
   // `drawer` renders the same menu inside the phone drawer, always expanded,
   // with theme and logout added (the top bar hides them on phones).
@@ -18,7 +18,7 @@
 </script>
 
 <nav class="sidebar" class:collapsed class:drawer data-testid={drawer ? 'drawer' : 'sidebar'} aria-label="Main">
-  {#each NAV_ITEMS as item (item.id)}
+  {#each NAV_ITEMS.filter((i) => !i.needsProxy || $cameras.some((c) => c.proxy)) as item (item.id)}
     {@const active = isActive(item, $route)}
     <a
       href={item.href}

@@ -2,7 +2,9 @@ import { promises as fs, createWriteStream } from 'fs';
 import { IncomingMessage } from 'http';
 import { tmpdir } from 'os';
 import { join } from 'path';
+import { Readable } from 'stream';
 import { pipeline } from 'stream/promises';
+import { getCamera } from '../cameraRegistry';
 import { getClient } from '../reolink/clients';
 import { logger } from '../logger';
 import { CameraError } from '../reolink/client';
@@ -10,6 +12,7 @@ import { clipIdOf, clipTimes, CLIP_ID, parseClipName, ParsedClip, Trigger } from
 import { DiskCache } from './cache';
 import { PriorityGate } from './priorityGate';
 import { makeThumbnail } from './thumbnail';
+import { findProxyClip, openProxyClip } from './proxyClips';
 
 export interface EventClip {
   id: string;
@@ -112,6 +115,19 @@ export class RecordingsService {
   private readonly transfers = new Map<string, PriorityGate>();
 
   constructor(private readonly cache: DiskCache) {}
+
+  // A cam-proxy said this camera's recordings changed around `ts`: the next
+  // day and month lists ask the camera again (the day before and after too,
+  // for events near midnight).
+  async invalidateAround(cameraId: string, ts: number): Promise<void> {
+    const time = await this.client(cameraId).timeInfo();
+    const offset = time.stdOffsetMinutes + time.dstOffsetMinutes;
+    for (const t of [ts - 86_400_000, ts, ts + 86_400_000]) {
+      const date = cameraToday(offset, t);
+      this.dayCache.delete(`${cameraId}|${date}`);
+      this.days_.delete(`${cameraId}|${date.slice(0, 7)}`);
+    }
+  }
 
   private client(cameraId: string) {
     const c = getClient(cameraId);
@@ -329,8 +345,29 @@ export class RecordingsService {
     void this.withClip(cameraId, clipId, async () => undefined, 'low').catch(() => undefined);
   }
 
-  downloadsState(cameraId: string): 'ok' | 'unavailable' {
-    return (this.health.get(cameraId)?.failures ?? 0) >= BREAKER_FAILURES ? 'unavailable' : 'ok';
+  // 'proxy': the camera refuses downloads, and recordings come from its
+  // cam-proxy instead (per clip, when the proxy has one).
+  downloadsState(cameraId: string): 'ok' | 'proxy' | 'unavailable' {
+    if ((this.health.get(cameraId)?.failures ?? 0) < BREAKER_FAILURES) return 'ok';
+    return getCamera(cameraId)?.proxy ? 'proxy' : 'unavailable';
+  }
+
+  // The proxy clip for an event when the camera's transfer failed with
+  // `err`: only for a refusal or an open breaker, never for an abort.
+  private async proxyClipFor(cameraId: string, clipId: string, err: unknown): Promise<{ id: number } | null> {
+    const refused = (err instanceof CameraError && err.code === 'camera_offline') || (err instanceof RecordingError && err.code === 'recordings_unavailable');
+    if (!refused || !getCamera(cameraId)?.proxy) return null;
+    try {
+      const date = `${clipId.slice(0, 4)}-${clipId.slice(4, 6)}-${clipId.slice(6, 8)}`;
+      const ev = (await this.day(cameraId, date)).events.find((e) => e.id === clipId);
+      if (!ev) return null;
+      const clip = await findProxyClip(cameraId, Date.parse(ev.start), Date.parse(ev.end));
+      if (clip) logger.info({ cameraId, clipId, proxyClip: clip.id }, 'recording_from_proxy');
+      return clip;
+    } catch (e) {
+      logger.warn({ cameraId, clipId, message: (e as Error).message }, 'proxy_clip_lookup_failed');
+      return null;
+    }
   }
 
   // `priority` 'high' is for someone waiting to watch the clip; thumbnails
@@ -351,8 +388,16 @@ export class RecordingsService {
       const path = await this.cache.fill(key, (tmp) =>
         this.gate(cameraId).run(
           async () => {
-            const res = await this.downloadWithRetry(cameraId, sub);
-            await pipeline(res, createWriteStream(tmp));
+            try {
+              const res = await this.downloadWithRetry(cameraId, sub);
+              await pipeline(res, createWriteStream(tmp));
+            } catch (err) {
+              // The camera refused (or its breaker is open): the clip it
+              // uploaded to its cam-proxy, if there is one.
+              const proxied = await this.proxyClipFor(cameraId, clipId, err);
+              if (!proxied) throw err;
+              await pipeline((await openProxyClip(cameraId, proxied.id)).stream, createWriteStream(tmp));
+            }
           },
           { high: priority === 'high', key },
         ),
@@ -406,7 +451,7 @@ export class RecordingsService {
     clipId: string,
     quality: 'sub' | 'main',
     signal?: AbortSignal,
-  ): Promise<{ stream: IncomingMessage; filename: string; size: number | null }> {
+  ): Promise<{ stream: Readable; filename: string; size: number | null }> {
     const names = await this.names(cameraId, clipId);
     const picked = pickStream(quality, names);
     if (!picked) throw new RecordingError('unknown_clip', 'clip has no file');
@@ -417,12 +462,27 @@ export class RecordingsService {
 
     const { ready, release } = this.acquireTransfer(cameraId, signal);
     await ready;
-    let stream: IncomingMessage;
+    let stream: Readable;
+    let size: number | null = null;
+    let fromProxy = false;
     try {
-      stream = await this.downloadWithRetry(cameraId, name, signal);
+      const res = await this.downloadWithRetry(cameraId, name, signal);
+      stream = res;
+      const cl = res.headers['content-length'];
+      size = typeof cl === 'string' && /^\d+$/.test(cl) ? Number(cl) : null;
     } catch (err) {
-      release();
-      throw err;
+      const proxied = signal?.aborted ? null : await this.proxyClipFor(cameraId, clipId, err);
+      if (!proxied) {
+        release();
+        throw err;
+      }
+      try {
+        ({ stream, size } = await openProxyClip(cameraId, proxied.id, signal));
+        fromProxy = true;
+      } catch {
+        release();
+        throw err;
+      }
     }
     let released = false;
     const releaseOnce = () => {
@@ -436,9 +496,8 @@ export class RecordingsService {
       stream.destroy();
       throw abortError();
     }
-    const cl = stream.headers['content-length'];
-    const size = typeof cl === 'string' && /^\d+$/.test(cl) ? Number(cl) : null;
-    return { stream, filename, size };
+    // The proxy keeps one stream (whichever its FTP setting uploads).
+    return { stream, filename: fromProxy ? filename.replace(/-(sub|main)\.mp4$/, '-proxy.mp4') : filename, size };
   }
 }
 

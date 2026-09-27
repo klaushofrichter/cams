@@ -1,7 +1,7 @@
 import { writable, type Readable } from 'svelte/store';
 import type { IconName } from './icons';
 
-export type Page = 'live' | 'recordings' | 'settings' | 'about';
+export type Page = 'live' | 'recordings' | 'timeline' | 'settings' | 'about';
 export type Panel = 'history' | 'events' | 'downloads';
 
 export interface Route {
@@ -17,9 +17,10 @@ export interface NavItem {
   href: string;
   page: Page;
   panel?: Panel;
+  needsProxy?: boolean; // shown only when some camera has a cam-proxy
 }
 
-const PAGES: Page[] = ['live', 'recordings', 'settings', 'about'];
+const PAGES: Page[] = ['live', 'recordings', 'timeline', 'settings', 'about'];
 const PANELS: Panel[] = ['history', 'events', 'downloads'];
 
 export function parseRoute(pathname: string, search: string): Route {
@@ -38,6 +39,7 @@ export const NAV_ITEMS: NavItem[] = [
   { id: 'history', label: 'History', icon: 'history', href: '/app/recordings?panel=history', page: 'recordings', panel: 'history' },
   { id: 'events', label: 'Events', icon: 'events', href: '/app/recordings?panel=events', page: 'recordings', panel: 'events' },
   { id: 'downloads', label: 'Downloads', icon: 'downloads', href: '/app/recordings?panel=downloads', page: 'recordings', panel: 'downloads' },
+  { id: 'timeline', label: 'Timeline', icon: 'timeline', href: '/app/timeline', page: 'timeline', needsProxy: true },
   { id: 'settings', label: 'Settings', icon: 'settings', href: '/app/settings', page: 'settings' },
   { id: 'about', label: 'About', icon: 'about', href: '/app/about', page: 'about' },
 ];

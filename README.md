@@ -17,6 +17,10 @@ clip playback and downloads, and camera settings, behind Google sign-in.
 - `web/`: Svelte 5 + Vite. `index.html` is the public landing page; `app.html` is the signed-in app.
 - The app runs as a Knative service `cams` (namespace `cams`) on the k3s cluster. Its manifests live in the `kube-setup` repo, not here.
 - Notes on the camera's HTTP API, as measured on the real camera: [docs/reolink-api.md](docs/reolink-api.md).
+- **cam-proxy (optional, per camera):** a camera can have a [cam-proxy](https://github.com/klaushofrichter/cam-proxy), a gateway that keeps the one camera connection, stores a still per second and receives the camera's clips by FTP. cams talks to it server-side (`server/proxy/`), with the token from the camera's `proxy` entry:
+  - **Events at once:** one event-stream subscription per proxied camera (resuming after drops) is relayed to browsers as `GET /api/events/stream`. Recordings and Live reload on a new event or clip instead of polling every minute. Polling continues for cameras without a proxy, and while a proxy is down.
+  - **Timeline:** the Timeline page (in the menu when some camera has a proxy) shows a day's stills as one tile per minute, marks event minutes, and steps through a minute's stills.
+  - **Clips:** when the camera refuses a recording download (the real camera does), the clip it uploaded to the proxy plays instead, with seeking, thumbnails and downloads (`…-proxy.mp4`).
 
 ## Cameras
 
@@ -30,6 +34,7 @@ The cameras come from a JSON array in the file named by `CAMERAS_FILE`; in the c
 | `tlsServername` | optional | check the camera's certificate against this name (for a camera reached by address) |
 | `webUiUrl` | optional | the link to the camera's own web page; `null` for none. Default: `https://<host>/` (without the port), or no link when only `webUiNote` is set |
 | `webUiNote` | optional | 1 to 120 characters, shown instead of a link |
+| `proxy` | optional | `{"url": "http://cam-proxy…:8480", "token": "<cam-proxy client token>"}`: the camera's [cam-proxy](https://github.com/klaushofrichter/cam-proxy). With it, events arrive at once, the Timeline page shows its stills, and recordings play from its clips when the camera's download fails. The token stays on the server; browsers only learn that a proxy exists. Without it (or while the proxy is down) cams works as before. |
 
 Production has two cameras:
 
@@ -75,12 +80,14 @@ Both suites need **ffmpeg** on the `PATH`, and e2e needs **Google Chrome**. The 
 **The tests use [cam-sim](https://github.com/klaushofrichter/cam-sim) as the camera.** cam-sim simulates the Reolink RLC-1224A's HTTP API, quirks included, and can switch on faults (refused downloads, failing settings writes, offline, and more). cams has no mock camera of its own.
 
 - **Unit tests** start cam-sim in the test process through `test/camera/sim.ts` (`createSimCamera`). `test/camera/warm.ts` builds cam-sim's test-pattern media once, before the tests run.
-- **e2e** starts three cam-sim processes (`e2e/sims.ts`), listed in `e2e/cameras.json`:
-  - "Den";
+- **e2e** starts four cam-sim processes (`e2e/sims.ts`), listed in `e2e/cameras.json`:
+  - "Den", with a cam-proxy;
   - "Porch", which rejects `SetWhiteLed`;
-  - "Shed", which refuses downloads like the real camera.
+  - "Shed", which refuses downloads like the real camera;
+  - "Barn", which refuses downloads too but has a cam-proxy whose clip plays.
 
-  A fourth camera, "Garage", points at an unused port and stays offline.
+  A fifth camera, "Garage", points at an unused port and stays offline.
+- **cam-proxy in tests** is a small fake (`test/proxy/fakeProxy.ts`) that follows cam-proxy's `openapi.yaml` for the stream, clips, stills and previews. Unit tests set its data directly; e2e runs it as a process, seeded with ffmpeg test patterns (`e2e/fakeProxyData.ts`). The real round trip is checked against cam-proxy in the cluster.
 - **Version:** cam-sim is a dev dependency pinned to a release tarball in `package.json`. To update it, change the URL to the new release's `cam-sim-<tag>.tgz` asset, run `npm install`, and run both suites.
 - **The other direction:** cam-sim's own CI runs cams' unit and e2e suites against every cam-sim change, so a simulator change that would break cams fails there first.
 

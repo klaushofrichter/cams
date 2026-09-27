@@ -1,6 +1,6 @@
-// The e2e cameras: three cam-sim processes (github.com/klaushofrichter/cam-sim)
-// started by playwright.config.ts. e2e/cameras.json points Den, Porch and
-// Shed at their HTTP ports. Credentials and the control token are test-only.
+// The e2e cameras: four cam-sim processes (github.com/klaushofrichter/cam-sim)
+// started by playwright.config.ts. e2e/cameras.json points Den, Porch, Shed
+// and Barn at their HTTP ports. Credentials and the control token are test-only.
 import type { Page } from '@playwright/test';
 
 export const CONTROL_TOKEN = 'e2e-control-token-not-a-secret';
@@ -10,7 +10,7 @@ type Sim = { http: number; https: number; control: number; onvif: number; rtsp: 
 // A partial write's resets show at once (the firmware waits for a reboot).
 const STRICT = { name: 'settings.strictPartial' };
 
-export const SIMS: Record<'den' | 'porch' | 'shed', Sim> = {
+export const SIMS: Record<'den' | 'porch' | 'shed' | 'barn', Sim> = {
   den: { http: 8098, https: 8198, control: 8298, onvif: 8398, rtsp: 8498, faults: [STRICT] },
   // Porch always rejects SetWhiteLed, so settings.spec.ts can exercise a
   // partial save without making Den unreliable for the live specs.
@@ -18,6 +18,9 @@ export const SIMS: Record<'den' | 'porch' | 'shed', Sim> = {
   // Shed refuses every recording download, like the real RLC-1224A since
   // 2026-09-26 (Plan 5 breaker and banner).
   shed: { http: 8096, https: 8196, control: 8296, onvif: 8396, rtsp: 8496, faults: [STRICT, { name: 'downloads.refuse' }] },
+  // Barn refuses downloads too, but has a cam-proxy (Plan 6, the fake in
+  // test/proxy/fakeProxy.ts) whose clip plays instead.
+  barn: { http: 8094, https: 8194, control: 8294, onvif: 8394, rtsp: 8494, faults: [STRICT, { name: 'downloads.refuse' }] },
 };
 
 export function simEnv(s: Sim): Record<string, string> {

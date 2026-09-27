@@ -29,8 +29,13 @@ describe('parseRoute', () => {
 });
 
 describe('navigation items', () => {
-  it('lists the six menu entries in order', () => {
-    expect(NAV_ITEMS.map((i) => i.label)).toEqual(['Live', 'History', 'Events', 'Downloads', 'Settings', 'About']);
+  it('lists the menu entries in order', () => {
+    expect(NAV_ITEMS.map((i) => i.label)).toEqual(['Live', 'History', 'Events', 'Downloads', 'Timeline', 'Settings', 'About']);
+  });
+
+  it('parses the Timeline page, which needs a cam-proxy', () => {
+    expect(parseRoute('/app/timeline', '?cam=den').page).toBe('timeline');
+    expect(NAV_ITEMS.find((i) => i.id === 'timeline')).toMatchObject({ href: '/app/timeline', page: 'timeline', needsProxy: true });
   });
 
   it('points History, Events and Downloads at the recordings workspace panels', () => {

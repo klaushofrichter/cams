@@ -12,6 +12,7 @@ export interface CameraSummary {
   name: string;
   webUiUrl: string | null;
   webUiNote?: string;
+  proxy?: boolean; // the camera has a cam-proxy (Plan 6); absent in old test fixtures
 }
 
 // A boolean kept in localStorage. Storage failures (private mode) degrade to

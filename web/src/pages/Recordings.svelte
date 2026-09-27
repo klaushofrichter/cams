@@ -14,6 +14,7 @@
   } from '../lib/recordings';
   import { preferences } from '../lib/preferences';
   import { createTodayRefresher, todayDate } from '../lib/refresh';
+  import { eventStream } from '../lib/eventStream';
   import { formatNow } from '../lib/clock';
 
   const TABS: { id: Panel; label: string }[] = [
@@ -29,7 +30,7 @@
   // Whether the camera serves recording downloads (server-side breaker, see
   // server/recordings/service.ts). Comes with every events load, and is
   // re-checked shortly after a thumbnail or clip fails to load.
-  let downloads: 'ok' | 'unavailable' = $state('ok');
+  let downloads: 'ok' | 'proxy' | 'unavailable' = $state('ok');
   let recheckTimer: ReturnType<typeof setTimeout> | null = null;
   function recheckDownloads() {
     if (recheckTimer) return;
@@ -37,7 +38,7 @@
       recheckTimer = null;
       const c = cam;
       if (!c) return;
-      getJson<{ downloads?: 'ok' | 'unavailable' }>(eventsUrl(c, cursor.date))
+      getJson<{ downloads?: 'ok' | 'proxy' | 'unavailable' }>(eventsUrl(c, cursor.date))
         .then((r) => {
           if (c === cam) downloads = r.downloads ?? 'ok';
         })
@@ -178,7 +179,7 @@
       const nextMonth = addDays(`${month}-01`, 32).slice(0, 7);
       dayFetches.push(getJson<{ days: string[] }>(daysUrl(c, nextMonth)).catch(() => ({ days: [] })));
     }
-    Promise.all([getJson<{ events: EventClip[]; downloads?: 'ok' | 'unavailable' }>(eventsUrl(c, d)), getJson<{ days: string[] }>(daysUrl(c, month)), ...dayFetches])
+    Promise.all([getJson<{ events: EventClip[]; downloads?: 'ok' | 'proxy' | 'unavailable' }>(eventsUrl(c, d)), getJson<{ days: string[] }>(daysUrl(c, month)), ...dayFetches])
       .then(([e, d0, ...rest]) => {
         if (seq !== eventsRequest) return;
         events = e.events;
@@ -209,8 +210,16 @@
     // Skips a tick while a load (or an earlier refresh) is still in flight,
     // so a slow response never gets raced by a second request that would
     // otherwise get dropped without ever clearing the skeleton.
-    const r = createTodayRefresher({ isToday: () => date === $todayDate, refresh: () => { if (!loading) refreshTick++; } });
-    return () => r.stop();
+    // While the camera's cam-proxy streams its events, reloads come from
+    // those; the minute poll covers a camera without one, or while it's down.
+    void $cameras; // re-run once the camera list (and whether any has a proxy) is known
+    const stream = eventStream();
+    const r = createTodayRefresher({ isToday: () => date === $todayDate, refresh: () => { if (!loading && !stream?.streaming(cam)) refreshTick++; } });
+    const stopWatch = stream?.watch(() => cam, () => { if (!loading && date === $todayDate) refreshTick++; });
+    return () => {
+      r.stop();
+      stopWatch?.();
+    };
   });
 
   let lastT = 0;
@@ -279,6 +288,9 @@
           unavailable={downloads === 'unavailable'}
           onvideoerror={recheckDownloads}
         />
+        {#if downloads === 'proxy'}
+          <p class="note" data-testid="recordings-from-proxy" role="status">The camera isn't serving recordings; they play from its camera gateway.</p>
+        {/if}
         {#if downloads === 'unavailable'}
           <p class="banner" data-testid="recordings-unavailable" role="status">
             The camera isn't serving recordings right now, so clips and thumbnails can't be loaded. This is a camera-side
@@ -307,7 +319,7 @@
         {:else}
           <EventList cameraId={cam} events={visible} {filter} date={cursor.date} selectedId={cursor.clipId}
             onfilter={(f) => go({}, { filter: f })}
-            onselect={(e) => go({ clipId: e.id, offsetSec: 0 })} onthumberror={recheckDownloads} downloadsOk={downloads === 'ok'} />
+            onselect={(e) => go({ clipId: e.id, offsetSec: 0 })} onthumberror={recheckDownloads} downloadsOk={downloads !== 'unavailable'} />
         {/if}
       </aside>
     </div>
