@@ -71,7 +71,8 @@ test('navigation reaches every page and keeps the URL in sync', async ({ page },
   // plain nav-item href.
   const cases: [string, string | RegExp, string][] = [
     ['history', /^http:\/\/[^/]+\/app\/recordings\?.*[?&]panel=history(&|$)/, 'Recordings'],
-    ['downloads', '/app/recordings?panel=downloads', 'Recordings'],
+    // the strip reports its position into the URL, so match the panel only
+    ['downloads', /^http:\/\/[^/]+\/app\/recordings\?.*[?&]?panel=downloads(&|$)/, 'Recordings'],
     ['settings', '/app/settings', 'Settings'],
     ['about', '/app/about', 'About'],
     ['live', '/app/live', 'Live'],
