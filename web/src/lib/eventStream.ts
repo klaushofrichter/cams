@@ -1,6 +1,7 @@
 import { get, writable, type Readable } from 'svelte/store';
 import { cameras, type CameraSummary } from './stores';
 import { getJson } from './api';
+import { preferences } from './preferences';
 
 // cams' relay of the cameras' cam-proxy events (GET /api/events/stream,
 // Plan 6). While a camera's proxy is up, pages reload on its changes at once
@@ -20,6 +21,15 @@ export interface Change {
   cam: string;
   type: string;
   ts: number | null;
+  kind?: string; // camera events: person, vehicle, pet, motion, …
+  phase?: 'start' | 'end';
+}
+
+// A camera event that just started (the live notification, Klaus 2026-09-28).
+export interface CameraEvent {
+  cam: string;
+  kind: string;
+  ts: number;
 }
 
 export interface EventStream {
@@ -27,6 +37,7 @@ export interface EventStream {
   streaming(cam: string): boolean;
   // Calls onChange (debounced) after changes for the camera cam() names.
   watch(cam: () => string, onChange: () => void, debounceMs?: number): () => void;
+  onCameraEvent(fn: (e: CameraEvent) => void): () => void;
   close(): void;
 }
 
@@ -54,6 +65,7 @@ export function createEventStream(opts: { url?: string; factory?: (url: string) 
   const factory = opts.factory ?? ((u) => new EventSource(u) as unknown as EventSourceLike);
   const state = writable<{ connected: boolean; up: Record<string, boolean> }>({ connected: false, up: {} });
   const watchers = new Set<{ cam: () => string; fire: (after?: number) => void }>();
+  const eventListeners = new Set<(e: CameraEvent) => void>();
   let source: EventSourceLike;
   let missed = false; // disconnected since the last open: pages reload once back
   let reopenMs = REOPEN_MIN_MS;
@@ -89,6 +101,9 @@ export function createEventStream(opts: { url?: string; factory?: (url: string) 
     source.addEventListener('change', (e) => {
       const c = parse(e.data) as Change | undefined;
       if (!c || typeof c.cam !== 'string') return;
+      if (c.type === 'camera-event' && c.phase === 'start' && typeof c.kind === 'string' && typeof c.ts === 'number') {
+        for (const fn of eventListeners) fn({ cam: c.cam, kind: c.kind, ts: c.ts });
+      }
       for (const w of watchers) {
         if (c.cam !== w.cam()) continue;
         w.fire();
@@ -126,21 +141,47 @@ export function createEventStream(opts: { url?: string; factory?: (url: string) 
         watchers.delete(w);
       };
     },
+    onCameraEvent(fn) {
+      eventListeners.add(fn);
+      return () => eventListeners.delete(fn);
+    },
     close() {
       closed = true;
       clearTimeout(reopenTimer);
       source.close();
       watchers.clear();
+      eventListeners.clear();
     },
   };
 }
 
 // The app's one stream, opened when a camera has a cam-proxy (even one
-// switched off, so the page hears when it is switched on again).
+// switched off, so the page hears when it is switched on again), unless live
+// events are off in Settings: then pages poll as before.
 let shared: EventStream | undefined;
+export function closeEventStream(): void {
+  shared?.close();
+  shared = undefined;
+}
 export function eventStream(): EventStream | undefined {
+  if (get(preferences)?.liveEvents === false) {
+    closeEventStream();
+    return undefined;
+  }
   if (shared) return shared;
   if (!get(cameras).some((c) => c.proxyConfigured ?? c.proxy) || typeof EventSource === 'undefined') return undefined;
   shared = createEventStream();
   return shared;
+}
+
+// Live events wait for their recording (Klaus, 2026-09-28): one is dropped
+// once a listed recording starts within 90 s of it (the camera records a few
+// seconds before the event), or after 15 minutes.
+export interface Pending {
+  kind: string;
+  ts: number;
+}
+export function prunePending(pending: Pending[], events: { start: string }[], now: number): Pending[] {
+  const starts = events.map((e) => Date.parse(e.start));
+  return pending.filter((p) => now - p.ts < 15 * 60_000 && !starts.some((s) => Math.abs(s - p.ts) < 90_000));
 }

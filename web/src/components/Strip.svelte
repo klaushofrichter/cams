@@ -8,7 +8,7 @@
   // History's strip (spec 2026-09-27): the playhead stays in the centre and
   // time moves under it. Drag, sideways wheel, click and ←/→ move it.
   let {
-    coverage, events, visibleIds, failedIds, at, now, currentId, previews, thumbFor, onseek, ondrag, onstep, oldest = null,
+    coverage, events, visibleIds, failedIds, at, now, currentId, previews, thumbFor, onseek, ondrag, onstep, oldest = null, pending = [],
   }: {
     coverage: Coverage;
     events: EventClip[];
@@ -23,6 +23,7 @@
     ondrag?: (active: boolean) => void;
     onstep?: (dir: -1 | 1) => void;
     oldest?: number | null; // the oldest content (the left edge); null: not known
+    pending?: { kind: string; ts: number }[]; // live events not listed as recordings yet
   } = $props();
 
   const win = $derived(windowAround(at, $zoom));
@@ -188,6 +189,9 @@
       <span class="seg" class:ai={s.ai} class:on={s.id === currentId} class:dim={!visibleIds.has(s.id)} class:failed={failedIds.has(s.id)}
         data-testid="timeline-seg" data-clip-id={s.id} style={`left:${s.left}%;width:${s.width}%`}></span>
     {/each}
+    {#each pending.filter((p) => p.ts > win.start && p.ts < win.end) as p (p.ts)}
+      <span class="pending" data-testid="strip-pending" title={`${p.kind}, recording…`} style={`left:${pct(p.ts)}%`}></span>
+    {/each}
     {#if nowLeft !== null}<span class="now" data-testid="timeline-now" style={`left:${nowLeft}%`}></span>{/if}
     <span class="playhead" data-testid="strip-playhead" style="left:50%"></span>
     <div class="ticks">
@@ -228,6 +232,8 @@
   .seg.on { outline: 2px solid var(--text); outline-offset: 1px; }
   .seg.dim { opacity: 0.3; }
   .seg.failed { background: var(--no-thumb-bg); }
+  .pending { position: absolute; top: 8px; height: 18px; width: 4px; margin-left: -2px; border-radius: 2px; background: var(--danger); pointer-events: none; animation: pulse 1.2s ease-in-out infinite; }
+  @keyframes pulse { 50% { opacity: 0.35; } }
   .now { position: absolute; top: 0; bottom: 0; width: 2px; background: var(--text); opacity: 0.5; pointer-events: none; }
   .playhead { position: absolute; top: -2px; bottom: -2px; width: 3px; margin-left: -1.5px; background: var(--accent); box-shadow: 0 0 0 1px color-mix(in srgb, var(--bg) 60%, transparent); pointer-events: none; }
   .ticks { position: absolute; left: 0; right: 0; bottom: 2px; height: 12px; pointer-events: none; }

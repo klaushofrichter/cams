@@ -69,6 +69,16 @@ describe('preferences', () => {
     expect((await put(null)).body.lastCamera).toBeNull();
   });
 
+  it('keeps the live-events setting and its types (Klaus, 2026-09-28)', async () => {
+    const put = (body: object) => request(createApp()).put('/api/preferences').set('Cookie', klaus).send(body);
+    const def = (await request(createApp()).get('/api/preferences').set('Cookie', klaus)).body;
+    expect(def.liveEvents).toBe(true);
+    expect(def.liveEventTypes).toEqual(['person', 'vehicle', 'pet', 'motion']);
+    expect((await put({ liveEvents: false, liveEventTypes: ['person'] })).body).toMatchObject({ liveEvents: false, liveEventTypes: ['person'] });
+    expect((await put({ liveEvents: 'yes' })).status).toBe(400);
+    expect((await put({ liveEventTypes: ['person', 'cat'] })).status).toBe(400);
+  });
+
   it('drops stored fields that are unknown or no longer valid', async () => {
     const { writeFileSync } = await import('fs');
     writeFileSync(

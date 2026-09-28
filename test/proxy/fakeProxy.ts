@@ -173,6 +173,17 @@ if (require.main === module) {
     const { FAKE_PROXY_PORT, FAKE_PROXY_TOKEN, seed } = await import('../../e2e/fakeProxyData');
     const fake = await startFakeProxy({ port: FAKE_PROXY_PORT, token: FAKE_PROXY_TOKEN });
     seed(fake);
-    process.stdout.write(`fake cam-proxy on ${fake.url}\n`);
+    // e2e only: POST /push {cam, type, data} makes the fake send a stream
+    // message (live events, Klaus 2026-09-28). A separate local port, so the
+    // fake's own API keeps its token check.
+    const hooks = express();
+    hooks.use(express.json());
+    hooks.post('/push', (req, res) => {
+      const b = req.body as { cam?: unknown; type?: unknown; data?: unknown };
+      if (typeof b.cam !== 'string' || typeof b.type !== 'string' || typeof b.data !== 'object' || !b.data) return void res.status(400).json({ error: 'cam, type and data' });
+      res.json(fake.push({ cam: b.cam, type: b.type, data: b.data as Record<string, unknown> }));
+    });
+    hooks.listen(FAKE_PROXY_PORT - 2, '127.0.0.1');
+    process.stdout.write(`fake cam-proxy on ${fake.url} (test hooks on ${FAKE_PROXY_PORT - 2})\n`);
   })();
 }

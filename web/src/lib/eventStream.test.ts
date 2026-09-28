@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { createEventStream, type EventSourceLike } from './eventStream';
+import { createEventStream, prunePending, type EventSourceLike } from './eventStream';
 
 afterEach(() => vi.useRealTimers());
 
@@ -136,5 +136,30 @@ describe('createEventStream', () => {
     FakeSource.last.emit('cameras', {});
     expect(onCameras).toHaveBeenCalledTimes(1);
     s.close();
+  });
+
+  it('reports a started camera event with its kind (Klaus, 2026-09-28)', () => {
+    const s = make();
+    FakeSource.last.open();
+    const seen: unknown[] = [];
+    const stop = s.onCameraEvent((e) => seen.push(e));
+    FakeSource.last.emit('change', { cam: 'den', type: 'camera-event', ts: 5, kind: 'person', phase: 'start' });
+    FakeSource.last.emit('change', { cam: 'den', type: 'camera-event', ts: 9, kind: 'person', phase: 'end' });
+    FakeSource.last.emit('change', { cam: 'den', type: 'clip', ts: 5 });
+    stop();
+    FakeSource.last.emit('change', { cam: 'den', type: 'camera-event', ts: 12, kind: 'motion', phase: 'start' });
+    expect(seen).toEqual([{ cam: 'den', kind: 'person', ts: 5 }]);
+    s.close();
+  });
+});
+
+
+describe('prunePending (live events waiting for their recording)', () => {
+  const ev = (startMs: number) => ({ id: 'x', start: new Date(startMs).toISOString(), end: new Date(startMs + 20_000).toISOString(), durationSec: 20, triggers: ['motion' as const], sizeSub: 1, sizeMain: 1 });
+  it('drops an event once its recording is listed (the camera starts a few seconds early), or after 15 minutes', () => {
+    const now = 10_000_000;
+    const pending = [{ kind: 'person', ts: now - 200_000 }, { kind: 'motion', ts: now - 16 * 60_000 }, { kind: 'pet', ts: now - 30_000 }];
+    // person: its recording starts 4 s earlier; motion: too old; pet: still waiting
+    expect(prunePending(pending, [ev(now - 204_000)], now)).toEqual([{ kind: 'pet', ts: now - 30_000 }]);
   });
 });

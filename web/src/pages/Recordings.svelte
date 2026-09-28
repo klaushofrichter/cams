@@ -15,7 +15,7 @@
   } from '../lib/recordings';
   import { preferences } from '../lib/preferences';
   import { createTodayRefresher, todayDate } from '../lib/refresh';
-  import { eventStream } from '../lib/eventStream';
+  import { eventStream, prunePending, type Pending } from '../lib/eventStream';
   import { formatNow } from '../lib/clock';
 
   const TABS: { id: Panel; label: string }[] = [
@@ -52,6 +52,30 @@
   let refreshTick = $state(0);
   let updatedAt: Date | null = $state(null);
   let lastKey = '';
+  // Live events of this camera that started and aren't listed yet (Klaus,
+  // 2026-09-28): at the top of the list and on the strip right away.
+  let pending: Pending[] = $state([]);
+  $effect(() => {
+    void $cameras;
+    void $preferences?.liveEvents;
+    const c = cam;
+    pending = [];
+    const stream = eventStream();
+    if (!c || !stream) return;
+    return stream.onCameraEvent((e) => {
+      if (e.cam === c) pending = [...pending.filter((p) => p.ts !== e.ts), { kind: e.kind, ts: e.ts }];
+    });
+  });
+  $effect(() => {
+    const evs = events;
+    untrack(() => (pending = prunePending(pending, evs, Date.now())));
+  });
+  $effect(() => {
+    const id = setInterval(() => (pending = prunePending(pending, events, Date.now())), 30_000);
+    return () => clearInterval(id);
+  });
+  const pendingToday = $derived(cursor.date === $todayDate ? [...pending].sort((a, b) => b.ts - a.ts) : []);
+
   let historyView: { jump: (at: number, play?: boolean) => void } | undefined = $state();
   let playheadClip: string | null = $state(null);
 
@@ -254,7 +278,7 @@
         {#key cam}
           <HistoryView bind:this={historyView} {cam} proxy={!!$cameras.find((x) => x.id === cam)?.proxy}
             date={cursor.date} {initialAt} {filter}
-            unavailable={downloads === 'unavailable'} onposition={onPosition} />
+            unavailable={downloads === 'unavailable'} onposition={onPosition} {pending} />
         {/key}
         {#if downloads === 'proxy'}
           <p class="note" data-testid="recordings-from-proxy" role="status">Recordings and thumbnails come from the camera gateway (cam-proxy) where it has them.</p>
@@ -283,7 +307,7 @@
         {#if panel === 'downloads'}
           <DownloadList cameraId={cam} {events} date={cursor.date} selectedId={playheadClip} />
         {:else}
-          <EventList cameraId={cam} events={visible} {filter} date={cursor.date} selectedId={playheadClip}
+          <EventList cameraId={cam} events={visible} {filter} date={cursor.date} selectedId={playheadClip} pending={pendingToday}
             onfilter={(f) => go({}, { filter: f })}
             onselect={(e) => historyView?.jump(Date.parse(e.start), true)} onthumberror={recheckDownloads} downloadsOk={downloads !== 'unavailable'} />
         {/if}

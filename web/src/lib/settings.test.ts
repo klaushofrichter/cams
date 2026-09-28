@@ -59,3 +59,11 @@ describe('osdNameProblem', () => {
     expect(osdNameProblem('Front door')).toBeNull();
   });
 });
+
+describe('diffPatch with lists', () => {
+  it('treats equal lists as unchanged and sends a changed list whole', () => {
+    expect(diffPatch({ t: ['a', 'b'] }, { t: ['a', 'b'] })).toEqual({});
+    expect(diffPatch({ t: ['a', 'b'] }, { t: ['a'] })).toEqual({ t: ['a'] });
+  });
+});
+

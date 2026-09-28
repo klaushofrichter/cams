@@ -178,6 +178,17 @@ describe('GET /api/events/stream (to browsers)', () => {
     expect(all).not.toContain('clips/7.mp4');
   });
 
+  it('says what kind of event started, for the live notification (Klaus, 2026-09-28)', async () => {
+    const fake = await fakeProxy();
+    const base = await app(fake);
+    const c = open(base, auth);
+    await until(() => c.frames.some((f) => f.includes('event: proxy') && f.includes('"up":true')));
+    fake.push({ cam: 'den', type: 'camera-event', data: { eventId: 3, kind: 'person', phase: 'start', ts: 1790538436000, source: 'onvif' } });
+    await until(() => c.frames.some((f) => f.startsWith('event: change')));
+    const change = c.frames.find((f) => f.startsWith('event: change'))!;
+    expect(JSON.parse(change.split('data: ')[1])).toEqual({ cam: 'den', type: 'camera-event', ts: 1790538436000, kind: 'person', phase: 'start' });
+  });
+
   it('keeps browsers connected while the proxy is down, telling them', async () => {
     const fake = await fakeProxy();
     const base = await app(fake);

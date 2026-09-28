@@ -11,11 +11,13 @@ export interface Preferences {
   liveQuality: 'sub' | 'main';
   eventFilter: 'all' | 'person' | 'vehicle' | 'pet' | 'motion';
   timelineZoom: 24 | 12 | 6 | 3 | 1;
-  liveKeepAlive: 0 | 30 | 60 | 120 | 300 | 900; // seconds; 0 = off
+  liveKeepAlive: 0 | 30 | 60 | 120 | 300 | 900;
+  liveEvents: boolean; // new events at once, with a notification (Klaus, 2026-09-28)
+  liveEventTypes: ('person' | 'vehicle' | 'pet' | 'motion')[]; // which ones notify // seconds; 0 = off
 }
 
 export const KEEP_ALIVE_CHOICES = [0, 30, 60, 120, 300, 900] as const;
-export const DEFAULT_PREFERENCES: Preferences = { defaultCamera: null, lastCamera: null, liveQuality: 'sub', eventFilter: 'all', timelineZoom: 24, liveKeepAlive: 60 };
+export const DEFAULT_PREFERENCES: Preferences = { defaultCamera: null, lastCamera: null, liveQuality: 'sub', eventFilter: 'all', timelineZoom: 24, liveKeepAlive: 60, liveEvents: true, liveEventTypes: ['person', 'vehicle', 'pet', 'motion'] };
 
 const file = () => process.env.PREFS_FILE || join(tmpdir(), 'cams-preferences.json');
 let writing: Promise<unknown> = Promise.resolve();
@@ -126,5 +128,9 @@ export function validatePreferencesPatch(body: unknown): { ok: true; patch: Part
   if ('eventFilter' in b && !['all', 'person', 'vehicle', 'pet', 'motion'].includes(b.eventFilter as string)) details.push('eventFilter: all, person, vehicle, pet or motion');
   if ('timelineZoom' in b && ![24, 12, 6, 3, 1].includes(b.timelineZoom as number)) details.push('timelineZoom: 24, 12, 6, 3 or 1');
   if ('liveKeepAlive' in b && !(KEEP_ALIVE_CHOICES as readonly number[]).includes(b.liveKeepAlive as number)) details.push('liveKeepAlive: 0, 30, 60, 120, 300 or 900');
+  if ('liveEvents' in b && typeof b.liveEvents !== 'boolean') details.push('liveEvents: true or false');
+  if ('liveEventTypes' in b && !(Array.isArray(b.liveEventTypes) && b.liveEventTypes.every((t) => ['person', 'vehicle', 'pet', 'motion'].includes(t as string)) && new Set(b.liveEventTypes).size === b.liveEventTypes.length)) {
+    details.push('liveEventTypes: a list of person, vehicle, pet and motion');
+  }
   return details.length ? { ok: false, details } : { ok: true, patch: b as Partial<Preferences> };
 }

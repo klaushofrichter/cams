@@ -382,3 +382,18 @@ test('the Downloads list shows each recording’s thumbnail', async ({ page }) =
   const thumb = page.locator('[data-testid="download-row"][data-clip-id*="-174540-"] [data-testid="download-thumb"]');
   await expect.poll(() => thumb.evaluate((img: HTMLImageElement) => img.complete && img.naturalWidth > 0), { timeout: 15_000 }).toBe(true);
 });
+
+// Live events (Klaus, 2026-09-28): the fake proxy sends a person event for Den.
+test('a new event shows at once: a top-bar notification and a "recording…" entry', async ({ page }) => {
+  const connected = page.waitForResponse((r) => r.url().includes('/api/events/stream'));
+  await page.goto('/app/recordings?cam=cam1&panel=history');
+  await connected;
+  await expect(page.getByTestId('timeline')).toBeVisible();
+  await page.waitForTimeout(1500); // the page subscribes once the camera list is in
+  const push = () => page.request.post('http://127.0.0.1:8093/push', { data: { cam: 'cam1', type: 'camera-event', data: { eventId: 99, kind: 'person', phase: 'start', ts: Date.now(), source: 'onvif' } } });
+  expect((await push()).ok()).toBe(true);
+  // Den and Barn share one fake proxy in e2e, so both announce it; the newer replaces the older.
+  await expect(page.getByTestId('live-notice')).toHaveText(/^Person on (Den|Barn)$/);
+  await expect(page.getByTestId('live-notice')).toHaveCount(0, { timeout: 3000 }); // gone after 1.4 s
+  await expect(page.getByTestId('event-pending').first()).toContainText('Person');
+});

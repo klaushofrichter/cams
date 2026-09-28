@@ -9,6 +9,8 @@ export interface Preferences {
   eventFilter: 'all' | 'person' | 'vehicle' | 'pet' | 'motion';
   timelineZoom: 24 | 12 | 6 | 3 | 1;
   liveKeepAlive: 0 | 30 | 60 | 120 | 300 | 900;
+  liveEvents?: boolean; // new events at once, with a notification (default on)
+  liveEventTypes?: ('person' | 'vehicle' | 'pet' | 'motion')[]; // which ones notify
 }
 
 export const preferences = writable<Preferences | null>(null);

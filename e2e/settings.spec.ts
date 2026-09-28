@@ -154,6 +154,24 @@ test('preferences save and apply', async ({ page, context, baseURL }, testInfo) 
   await expect(page.getByTestId('settings-card-prefs').getByTestId('save-state')).toHaveAttribute('data-state', 'saved');
 });
 
+test('live events can be turned off and filtered by type (Klaus, 2026-09-28)', async ({ page, context, baseURL }, testInfo) => {
+  test.skip(testInfo.project.name !== 'desktop', "PREFS_EMAIL's preferences are shared by the projects; only run this in one to avoid a race");
+  await signIn(context, baseURL!, PREFS_EMAIL);
+  await page.goto('/app/settings');
+  await expect(page.getByTestId('pref-live-events')).toBeChecked();
+  await page.getByTestId('pref-live-motion').uncheck();
+  await page.getByTestId('save-prefs').click();
+  await expect(page.getByTestId('settings-card-prefs').getByTestId('save-state')).toHaveAttribute('data-state', 'saved');
+  expect((await (await page.request.get('/api/preferences')).json()).liveEventTypes).toEqual(['person', 'vehicle', 'pet']);
+  await page.getByTestId('pref-live-events').uncheck();
+  await expect(page.getByTestId('pref-live-person')).toBeDisabled();
+  // restore
+  await page.getByTestId('pref-live-events').check();
+  await page.getByTestId('pref-live-motion').check();
+  await page.getByTestId('save-prefs').click();
+  await expect(page.getByTestId('settings-card-prefs').getByTestId('save-state')).toHaveAttribute('data-state', 'saved');
+});
+
 test('the app opens on the last camera used (Klaus, 2026-09-28)', async ({ page, context, baseURL }, testInfo) => {
   test.skip(testInfo.project.name !== 'desktop', "PREFS_EMAIL's preferences are shared by the projects; only run this in one to avoid a race");
   await signIn(context, baseURL!, PREFS_EMAIL);

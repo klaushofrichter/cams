@@ -256,6 +256,26 @@
             <option value={24}>24 hours</option><option value={12}>12 hours</option><option value={6}>6 hours</option><option value={3}>3 hours</option><option value={1}>1 hour</option>
           </select>
         </label>
+        <!-- Live events (Klaus, 2026-09-28). -->
+        <fieldset class="live-events">
+          <legend>Live events</legend>
+          <label class="row"><input type="checkbox" data-testid="pref-live-events" bind:checked={prefs.liveEvents} /> Show new events at once, with a notification</label>
+          <div class="types">
+            {#each ['person', 'vehicle', 'pet', 'motion'] as t (t)}
+              <label class="row">
+                <input type="checkbox" data-testid={`pref-live-${t}`} disabled={prefs.liveEvents === false}
+                  checked={(prefs.liveEventTypes ?? []).includes(t as 'person')}
+                  onchange={(e) => {
+                    const on = (e.currentTarget as HTMLInputElement).checked;
+                    const cur = prefs!.liveEventTypes ?? [];
+                    prefs!.liveEventTypes = (['person', 'vehicle', 'pet', 'motion'] as const).filter((x) => (x === t ? on : cur.includes(x)));
+                  }} />
+                {t.charAt(0).toUpperCase() + t.slice(1)}
+              </label>
+            {/each}
+          </div>
+          <small class="muted">The notification shows the types ticked here; the lists show every event.</small>
+        </fieldset>
         <label>Keep live video running after leaving Live
           <select data-testid="pref-keepalive" bind:value={prefs.liveKeepAlive}>
             <option value={0}>Off (stop at once)</option><option value={30}>30 seconds</option><option value={60}>1 minute</option>
@@ -440,4 +460,7 @@
   button:disabled { opacity: 0.45; cursor: default; }
   button.primary { background: var(--accent); color: var(--accent-ink); border-color: transparent; }
   button.danger { background: var(--danger); color: #fff; border-color: transparent; }
+  .live-events { border: 1px solid var(--border); border-radius: 10px; padding: 8px 12px; display: grid; gap: 6px; }
+  .live-events legend { font-size: 13px; padding: 0 4px; }
+  .live-events .types { display: flex; gap: 14px; flex-wrap: wrap; }
 </style>

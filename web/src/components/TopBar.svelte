@@ -4,6 +4,7 @@
   import CameraPicker from './CameraPicker.svelte';
   import ThemeToggle from './ThemeToggle.svelte';
   import Clock from './Clock.svelte';
+  import LiveNotice from './LiveNotice.svelte';
   import { cameras, me, drawerOpen, selectedCameraId } from '../lib/stores';
   import { liveStatus } from '../lib/liveStatus';
 
@@ -35,6 +36,7 @@
     </span>
   {/if}
   <div class="spacer"></div>
+  <LiveNotice />
   <Clock />
   {#if $me}
     <a class="version" data-testid="version-link" href={REPO_URL} target="_blank" rel="noopener noreferrer" title="cams on GitHub">{$me.version}</a>
