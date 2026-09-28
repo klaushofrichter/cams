@@ -9,6 +9,9 @@
   --surface-2: #16213A;
   --no-thumb: #0C1424;
   --no-thumb-line: #1A2640;
+  --strip-empty: #1B2233;
+  --strip-future: #05080F;
+  --strip-preview: #131D33;
   --border: #1C2940;
   --text: #E6EDF7;
   --muted: #9FB0CC;
@@ -44,6 +47,9 @@
   --surface-2: #EEF3FA;
   --no-thumb: #E2E8F1;
   --no-thumb-line: #D2DBE8;
+  --strip-empty: #C9D2DF;
+  --strip-future: #9AA6B8;
+  --strip-preview: #E4EBF5;
   --border: #D8E1EE;
   --text: #0F1B2D;
   --muted: #55657F;
@@ -71,6 +77,9 @@
     --surface-2: #EEF3FA;
     --no-thumb: #E2E8F1;
     --no-thumb-line: #D2DBE8;
+    --strip-empty: #C9D2DF;
+    --strip-future: #9AA6B8;
+    --strip-preview: #E4EBF5;
     --border: #D8E1EE;
     --text: #0F1B2D;
     --muted: #55657F;
