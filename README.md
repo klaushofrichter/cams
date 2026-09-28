@@ -30,7 +30,7 @@ clip playback and downloads, and camera settings, behind Google sign-in.
 
 - **Pages** (`/app/…`): Live; Recordings with the History strip and the Events and Downloads panels (`?panel=`, `?cam&date&at`; old `clip&t` links still work); Timeline (cameras with a cam-proxy; `?cam&date&t`); Settings (the camera's settings, the cam-proxy switch, reboot); About (version, build date, cameras).
 - **API** (all need the sign-in cookie and answer JSON 401 otherwise; changes need the same origin; `Cache-Control: no-store`):
-  - `GET /api/me`, `GET /api/cameras`, `GET/PUT /api/preferences`;
+  - `GET /api/me`, `GET /api/cameras`, `GET/PUT /api/preferences`, `GET /api/cameras/:id/extent` (`{oldest}`: the oldest content on the SD card or at the cam-proxy);
   - per camera `/api/cameras/:id/…`: `status`, `snapshot.jpg`, `live` (at most 4 per camera), `days`, `events`, `settings` (`PUT settings/:section`), `device`, `POST reboot`;
   - clips: `/api/cameras/:id/clips/:clipId/video|thumb.jpg|download?quality=sub|main`;
   - cam-proxy: `PUT /api/cameras/:id/proxy` (`{"enabled": true|false}`, for all users; 404 `no_proxy` without one), `/api/cameras/:id/previews`, `previews/:minute.jpg`, `stills`, `stills/:ts.jpg`, `still/latest.jpg`, and `GET /api/events/stream` (SSE, at most 20 browsers, a ping every 25 s).

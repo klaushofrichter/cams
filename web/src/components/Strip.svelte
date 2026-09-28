@@ -8,7 +8,7 @@
   // History's strip (spec 2026-09-27): the playhead stays in the centre and
   // time moves under it. Drag, sideways wheel, click and ←/→ move it.
   let {
-    coverage, events, visibleIds, failedIds, at, now, currentId, previews, thumbFor, onseek, ondrag, onstep,
+    coverage, events, visibleIds, failedIds, at, now, currentId, previews, thumbFor, onseek, ondrag, onstep, oldest = null,
   }: {
     coverage: Coverage;
     events: EventClip[];
@@ -22,9 +22,17 @@
     onseek: (at: number) => void;
     ondrag?: (active: boolean) => void;
     onstep?: (dir: -1 | 1) => void;
+    oldest?: number | null; // the oldest content (the left edge); null: not known
   } = $props();
 
   const win = $derived(windowAround(at, $zoom));
+  // The edges (Klaus, 2026-09-28): not before the oldest content, not after
+  // now (2 s back, so a still shows) or the end of the latest known clip (a
+  // camera clock ahead of the browser's).
+  const lo = $derived(oldest ?? -Infinity);
+  const hi = $derived(Math.max(now - 2000, ...events.map((e) => Date.parse(e.end))));
+  const clampT = (t: number) => Math.min(hi, Math.max(lo, t));
+  const seekTo = (t: number) => onseek(clampT(t));
   const span = $derived(win.end - win.start);
   const pct = (t: number) => ((t - win.start) / span) * 100;
   const spans = $derived(stripSpans(coverage, win, now));
@@ -82,7 +90,7 @@
         hover = null;
         ondrag?.(true);
       }
-      if (press.moved) onseek(press.at - (dx / el.getBoundingClientRect().width) * span);
+      if (press.moved) seekTo(press.at - (dx / el.getBoundingClientRect().width) * span);
       return;
     }
     hoverAt(timeAtX(e, el), e, el);
@@ -101,16 +109,17 @@
     const el = e.currentTarget as HTMLElement;
     const r = el.getBoundingClientRect();
     const p = ((e.clientX - r.left) / r.width) * 100;
-    const hit = segs.find((s) => p >= s.left && p <= s.left + s.width);
+    const tol = (3 / r.width) * 100; // 3 px either side: tiny segments are hard to hit
+    const hit = segs.find((s) => p >= s.left - tol && p <= s.left + s.width + tol);
     const t = timeAtX(e, el);
     // Inside the clip's real span: that moment; on its drawn edge: its start.
-    onseek(hit && (t < hit.start || t >= hit.end) ? hit.start : t);
+    seekTo(hit && (t < hit.start || t >= hit.end) ? hit.start : t);
   }
   function wheel(e: WheelEvent) {
     const dx = e.deltaX || (e.shiftKey ? e.deltaY : 0);
     if (!dx) return;
     e.preventDefault();
-    onseek(at + (dx / (e.currentTarget as HTMLElement).getBoundingClientRect().width) * span);
+    seekTo(at + (dx / (e.currentTarget as HTMLElement).getBoundingClientRect().width) * span);
   }
   function keydown(e: KeyboardEvent) {
     if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
@@ -162,6 +171,11 @@
       {/each}
     </div>
   </div>
+  <div class="row">
+  <div class="edge">
+    <button data-testid="strip-oldest" title="The oldest recording" aria-label="Go to the oldest recording" disabled={oldest === null || at <= lo} onclick={() => seekTo(lo)}>⇤</button>
+    <button data-testid="strip-back" title={`Back ${$zoom} h`} aria-label={`Back ${$zoom} hours`} disabled={at <= lo} onclick={() => seekTo(at - span)}>‹</button>
+  </div>
   <div class="bar" data-testid="timeline" role="slider" tabindex="0" aria-label="Recordings timeline" aria-valuenow={Math.round(at / 1000)}
     onpointerdown={down} onpointermove={move} onpointerup={up} onpointercancel={cancel} onlostpointercapture={cancel} onpointerleave={leave} onwheel={wheel} onkeydown={keydown}>
     {#each spans as s, i (i)}
@@ -177,10 +191,20 @@
       {#each ticks as t (t.left)}<span data-testid="strip-tick" style={`left:${t.left}%`}>{t.label}</span>{/each}
     </div>
   </div>
+  <div class="edge">
+    <button data-testid="strip-forward" title={`Forward ${$zoom} h`} aria-label={`Forward ${$zoom} hours`} disabled={at >= hi} onclick={() => seekTo(at + span)}>›</button>
+    <button data-testid="strip-now" title="Now" aria-label="Go to now" disabled={at >= now - 5000} onclick={() => onseek(Math.max(lo, now - 2000))}>⇥</button>
+  </div>
+  </div>
 </div>
 
 <style>
   .wrap { display: flex; flex-direction: column; gap: 6px; position: relative; }
+  .row { display: flex; align-items: stretch; gap: 6px; }
+  .row .bar { flex: 1; min-width: 0; }
+  .edge { display: flex; gap: 4px; }
+  .edge button { width: 30px; border-radius: 8px; border: 1px solid var(--border); background: var(--surface-2); color: var(--text); cursor: pointer; font-size: 15px; line-height: 1; padding: 0; }
+  .edge button:disabled { opacity: 0.35; cursor: default; }
   .scrub { position: absolute; bottom: calc(100% + 6px); transform: translateX(-50%); z-index: 5; pointer-events: none; display: grid; gap: 2px; padding: 4px; border-radius: 8px; background: var(--surface); border: 1px solid var(--border); box-shadow: var(--shadow); }
   .frame { display: block; border-radius: 4px; background-color: var(--surface-2); }
   img.frame { width: 160px; height: 90px; object-fit: cover; }
@@ -191,7 +215,7 @@
   .zoom button[aria-pressed='true'] { background: var(--surface-2); color: var(--text); border-color: var(--accent); }
   .bar { position: relative; height: 46px; border-radius: 10px; background: var(--strip-empty); border: 1px solid var(--border); cursor: grab; overflow: hidden; touch-action: pan-y; user-select: none; }
   .span { position: absolute; top: 0; bottom: 0; pointer-events: none; }
-  .span.stills { background: var(--surface-2); }
+  .span.stills { background: var(--strip-stills); }
   .span.preview { background: var(--strip-preview); }
   .span.none { background: var(--strip-empty); }
   .span.future { background: var(--strip-future); }

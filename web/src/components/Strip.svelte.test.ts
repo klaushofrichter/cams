@@ -137,5 +137,36 @@ describe('Strip', () => {
     bar.dispatchEvent(new PointerEvent('pointerup', { clientX: 350, bubbles: true }));
     expect(onseek).toHaveBeenCalledWith(T + 5 * 60_000);
   });
+
+  it('has buttons to the oldest content, one window back and forward, and now (Klaus, 2026-09-28)', () => {
+    const onseek = vi.fn();
+    const oldest = T - 5 * 3_600_000;
+    render({ onseek, oldest, now: T + 1_800_000 }); // 1 h window
+    q('strip-back')!.click();
+    expect(onseek).toHaveBeenLastCalledWith(T - 3_600_000);
+    q('strip-forward')!.click();
+    expect(onseek).toHaveBeenLastCalledWith(T + 1_800_000 - 2000); // not past now: stops at the edge
+    q('strip-oldest')!.click();
+    expect(onseek).toHaveBeenLastCalledWith(oldest);
+    q('strip-now')!.click();
+    expect(onseek).toHaveBeenLastCalledWith(T + 1_800_000 - 2000);
+  });
+
+  it('disables the buttons that point past an edge', () => {
+    render({ oldest: T, now: T + 2000 });
+    expect((q('strip-oldest') as HTMLButtonElement).disabled).toBe(true);
+    expect((q('strip-back') as HTMLButtonElement).disabled).toBe(true);
+    expect((q('strip-forward') as HTMLButtonElement).disabled).toBe(true);
+    expect((q('strip-now') as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it('never seeks past the edges by dragging', () => {
+    const onseek = vi.fn();
+    const bar = render({ onseek, oldest: T - 60_000, now: T + 60_000 });
+    bar.dispatchEvent(new PointerEvent('pointerdown', { clientX: 300, bubbles: true }));
+    bar.dispatchEvent(new PointerEvent('pointermove', { clientX: 0, bubbles: true })); // 30 min later: past now
+    bar.dispatchEvent(new PointerEvent('pointerup', { clientX: 0, bubbles: true }));
+    expect(onseek).toHaveBeenLastCalledWith(T + 60_000 - 2000);
+  });
 });
 

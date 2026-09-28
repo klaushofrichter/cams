@@ -3,7 +3,7 @@
   import { untrack } from 'svelte';
   import Icon from './Icon.svelte';
   import { nextChange, sourceAt, type Coverage, type Source } from '../lib/strip';
-  import { downloadUrl, videoUrl } from '../lib/recordings';
+  import { downloadUrl, TRIGGER_LABELS, videoUrl } from '../lib/recordings';
   import { previewAt, tileStyle, type PreviewMinute } from '../lib/timeline';
 
   // History's player (spec 2026-09-27): one clock, `at`. A clip's <video>
@@ -215,6 +215,7 @@
       skip(e.key === 'ArrowLeft' ? -10_000 : 10_000);
     }
   }
+  const triggers = $derived(source.kind === 'clip' ? source.clip.triggers.map((t) => TRIGGER_LABELS[t]).join(', ') : '');
   const clock = $derived(new Date(at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }));
 </script>
 
@@ -249,7 +250,6 @@
         <small>{clock}</small>
       </div>
     {/if}
-    <span class="badge" class:clip={source.kind === 'clip'} data-testid="source-badge">{BADGE[source.kind]}</span>
   </div>
   <div class="controls">
     <button data-testid="prev-clip" title="Previous event" onclick={() => onstep(-1)}><Icon name="prev" size={16} /></button>
@@ -259,7 +259,12 @@
     </button>
     <button data-testid="fwd-10" title="Forward 10 seconds" onclick={() => skip(10_000)}><span>10</span><Icon name="fwd10" size={16} /></button>
     <button data-testid="next-clip" title="Next event" onclick={() => onstep(1)}><Icon name="next" size={16} /></button>
-    <span class="time" data-testid="clip-time">{clock}</span>
+    <!-- Time, source and why the clip was recorded, in one line (Klaus, 2026-09-28). -->
+    <span class="info" data-testid="strip-info">
+      <span class="time" data-testid="clip-time">{clock}</span>
+      · <span class="src" class:clip={source.kind === 'clip'} data-testid="source-badge">{BADGE[source.kind]}</span>
+      {#if triggers}· <span data-testid="clip-triggers">{triggers}</span>{/if}
+    </span>
     {#if source.kind === 'clip' && !unavailable}
       <a class="dl" data-testid="clip-download" href={downloadUrl(cam, source.clip.id, 'main')} title="Download (full quality)"><Icon name="downloads" size={16} /></a>
     {/if}
@@ -274,8 +279,9 @@
   .tile-wrap { overflow: hidden; }
   .tile { position: absolute; left: 0; top: 0; transform-origin: 0 0; }
   .empty { display: grid; place-content: center; gap: 4px; text-align: center; color: var(--muted); background: var(--strip-empty); }
-  .badge { position: absolute; top: 10px; left: 10px; font-size: 11px; font-weight: 700; letter-spacing: 0.04em; padding: 3px 9px; border-radius: 999px; background: var(--scrim); color: var(--on-grad); }
-  .badge.clip { background: var(--accent); color: var(--accent-ink); }
+  .info { font-size: 13px; color: var(--muted); }
+  .info .time { font-family: var(--mono); }
+  .info .src.clip { color: var(--accent); font-weight: 600; }
   .controls { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
   .controls button, .dl { display: inline-flex; align-items: center; gap: 4px; height: 34px; padding: 0 10px; border-radius: 9px; border: 1px solid var(--border); background: var(--surface-2); color: var(--text); cursor: pointer; text-decoration: none; }
   .controls button.primary { background: var(--grad); color: var(--on-grad); border: none; }
