@@ -8,7 +8,3 @@ published as [GitHub releases](https://github.com/klaushofrichter/cams/releases)
 
 ## [Unreleased]
 
-- Wide windows centre the whole app (top bar included) with equal margins,
-  instead of a gap between the sidebar and the video.
-- The frames under the strip get a visible gap and a thin frame.
-
