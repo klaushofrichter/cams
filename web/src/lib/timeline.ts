@@ -94,3 +94,30 @@ export function previewAt(minutes: PreviewMinute[], ts: number): { minute: Previ
   const index = tileIndex(m, ts);
   return m.present[index] ? { minute: m, index } : null;
 }
+
+// The parts of a timeline window that have a thumbnail to show on hover: the
+// proxy's preview minutes and the events (their own thumbnails), merged, as
+// percent of the window. The rest is drawn as "no thumbnail".
+export function thumbCoverage(
+  previews: PreviewMinute[],
+  events: { start: number; end: number }[], // seconds into the day
+  dayStartMs: number,
+  win: { start: number; end: number },
+): { left: number; width: number }[] {
+  const spans = [
+    ...previews.map((p) => ({ start: (p.minute - dayStartMs) / 1000, end: (p.minute - dayStartMs) / 1000 + 60 })),
+    ...events,
+  ]
+    .map((s) => ({ start: Math.max(s.start, win.start), end: Math.min(s.end, win.end) }))
+    .filter((s) => s.end > s.start)
+    .sort((a, b) => a.start - b.start);
+  const merged: { start: number; end: number }[] = [];
+  for (const s of spans) {
+    const last = merged.at(-1);
+    if (last && s.start <= last.end) last.end = Math.max(last.end, s.end);
+    else merged.push({ ...s });
+  }
+  const len = win.end - win.start;
+  return merged.map((s) => ({ left: ((s.start - win.start) / len) * 100, width: ((s.end - s.start) / len) * 100 }));
+}
+

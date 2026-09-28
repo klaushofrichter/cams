@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { dayRange, hourGroups, minuteOf, previewAt, splitRange, stillIndex, tileIndex, tileStyle, timelineCursor, cursorSearch, type PreviewMinute } from './timeline';
+import { dayRange, hourGroups, thumbCoverage, minuteOf, previewAt, splitRange, stillIndex, tileIndex, tileStyle, timelineCursor, cursorSearch, type PreviewMinute } from './timeline';
 
 // Tests run with TZ=America/Chicago (vitest.config).
 const m = (minute: number, present = Array(60).fill(true)): PreviewMinute => ({ minute, cols: 10, rows: 6, tileW: 160, tileH: 90, intervalS: 1, present, url: `/x/${minute}.jpg` });
@@ -77,3 +77,24 @@ describe('previewAt', () => {
     expect(previewAt(list, minute + 60_000)).toBeNull(); // no sprite for that minute
   });
 });
+
+describe('thumbCoverage (where the timeline has a thumbnail)', () => {
+  const day = Date.UTC(2026, 8, 27, 5); // local midnight, 2026-09-27
+  const win = { start: 0, end: 7200 }; // 00:00–02:00
+
+  it('covers the proxy’s preview minutes and the events, merged, as percent of the window', () => {
+    const previews = [m(day), m(day + 60_000), m(day + 3600_000)];
+    const events = [{ start: 90, end: 150 }, { start: 5400, end: 5460 }];
+    expect(thumbCoverage(previews, events, day, win)).toEqual([
+      { left: 0, width: (150 / 7200) * 100 }, // minutes 0–1 plus an event ending 02:30
+      { left: 50, width: (60 / 7200) * 100 },
+      { left: 75, width: (60 / 7200) * 100 },
+    ]);
+  });
+
+  it('clips to the window and is empty without anything', () => {
+    expect(thumbCoverage([], [], day, win)).toEqual([]);
+    expect(thumbCoverage([], [{ start: 7100, end: 7300 }], day, win)).toEqual([{ left: (7100 / 7200) * 100, width: (100 / 7200) * 100 }]);
+  });
+});
+

@@ -201,6 +201,8 @@
   .card:hover { background: var(--surface-2); }
   .card[aria-current='true'] { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 10%, var(--surface)); }
   .thumb { width: 96px; height: 54px; object-fit: cover; border-radius: 6px; background: var(--surface-2); flex: none; }
+  /* No thumbnail: the same look as the timeline where there is none. */
+  .thumb.placeholder { background: var(--no-thumb-bg); }
   .placeholder { display: block; }
   .meta { display: flex; flex-direction: column; gap: 2px; min-width: 0; font-size: 13px; }
   .dur { color: var(--muted); font-size: 12px; }

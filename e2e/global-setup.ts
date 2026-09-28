@@ -8,4 +8,5 @@ import { E2E_ENV } from './env';
 // whatever a prior run last saved.
 export default function globalSetup(): void {
   rmSync(E2E_ENV.PREFS_FILE, { force: true });
+  rmSync(E2E_ENV.PROXY_STATE_FILE, { force: true });
 }

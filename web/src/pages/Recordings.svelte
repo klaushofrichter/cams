@@ -11,7 +11,7 @@
   import { dayRange, splitRange, type PreviewMinute } from '../lib/timeline';
   import {
     addDays, clipAtSecond, cursorSearch, daysUrl, downloadUrl, eventsUrl, filterEvents, loadCursor, localDate,
-    neighbour, parseCursor, saveCursor, secondsIntoDay, videoUrl, type Cursor, type EventClip, type Filter,
+    neighbour, parseCursor, saveCursor, secondsIntoDay, thumbUrl, videoUrl, type Cursor, type EventClip, type Filter,
   } from '../lib/recordings';
   import { preferences } from '../lib/preferences';
   import { createTodayRefresher, todayDate } from '../lib/refresh';
@@ -273,6 +273,13 @@
     jumpToEdge(dir === 1 ? 'start' : 'end');
   }
 
+  // ‹ › on a zoomed timeline past the day's edge: the neighbouring day.
+  function stepDay(dir: -1 | 1) {
+    const d = addDays(cursor.date, dir);
+    if (d > $todayDate) return;
+    go({ date: d, clipId: null, offsetSec: 0 });
+  }
+
   function jumpToEdge(edge: 'start' | 'end') {
     if (visible.length === 0) return;
     const target = edge === 'start' ? visible[0] : visible[visible.length - 1];
@@ -283,8 +290,10 @@
 <section class="page">
   <header class="head">
     <h1 data-testid="page-title">Recordings</h1>
-    {#if cam}<DayPicker date={cursor.date} {days} today={$todayDate} onchange={(d) => go({ date: d, clipId: null, offsetSec: 0 })} />{/if}
-    {#if cam && date === $todayDate && updatedAt}<span class="updated" data-testid="events-updated">Updated {formatNow(updatedAt)}</span>{/if}
+    <span class="center">{#if cam}<DayPicker date={cursor.date} {days} today={$todayDate} onchange={(d) => go({ date: d, clipId: null, offsetSec: 0 })} />{/if}</span>
+    <!-- Three fixed columns, so the day picker stays centred whether or not
+         "Updated" is shown (Klaus, 2026-09-27). -->
+    <span class="updated">{#if cam && date === $todayDate && updatedAt}<span data-testid="events-updated">Updated {formatNow(updatedAt)}</span>{/if}</span>
   </header>
 
   {#if !cam}
@@ -322,7 +331,8 @@
         {:else if events.length === 0}
           <p class="note" data-testid="no-recordings">No recordings on {cursor.date}.</p>
         {:else}
-          <Timeline {events} date={cursor.date} selectedId={cursor.clipId} onpick={pickSecond} onstep={step} onedge={jumpToEdge} {previews} {dayStartMs} />
+          <Timeline {events} date={cursor.date} selectedId={cursor.clipId} onpick={pickSecond} onstep={step} onedge={jumpToEdge} onday={stepDay}
+            thumbFor={downloads === 'unavailable' ? undefined : (id) => thumbUrl(cam!, id)} {previews} {dayStartMs} />
         {/if}
       </div>
 
@@ -346,10 +356,16 @@
 
 <style>
   .banner { margin: 0; padding: 10px 12px; border-radius: 10px; font-size: 13px; background: color-mix(in srgb, var(--danger) 12%, var(--surface)); border: 1px solid color-mix(in srgb, var(--danger) 35%, var(--border)); }
-  .head { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 14px; }
+  .head { display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; gap: 12px; margin-bottom: 14px; }
   .head h1 { margin: 0; }
-  .updated { color: var(--muted); font-size: 12px; }
-  .workspace { display: grid; grid-template-columns: minmax(0, 1fr) 340px; gap: 18px; align-items: start; }
+  .updated { color: var(--muted); font-size: 12px; justify-self: end; text-align: right; }
+  @media (max-width: 640px) {
+    .head { grid-template-columns: 1fr auto; }
+    .updated { grid-column: 1 / -1; justify-self: start; }
+  }
+  /* The player column is as wide as Live's player (--player-max-w), so the
+     video keeps its size between pages and the page itself doesn't scroll. */
+  .workspace { display: grid; grid-template-columns: minmax(0, var(--player-max-w)) 340px; gap: 18px; align-items: start; }
   .main { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
   .side { display: flex; flex-direction: column; gap: 10px; max-height: calc(100vh - 170px); overflow: auto; }
   .tabs { display: flex; gap: 6px; }
@@ -359,7 +375,7 @@
   .bar-skeleton { height: 46px; border-radius: 10px; background: linear-gradient(90deg, var(--surface-2), var(--surface), var(--surface-2)); background-size: 200% 100%; animation: shimmer 1.2s linear infinite; }
   @keyframes shimmer { from { background-position: 200% 0; } to { background-position: 0 0; } }
   @media (max-width: 1199px) {
-    .workspace { grid-template-columns: 1fr; }
+    .workspace { grid-template-columns: minmax(0, var(--player-max-w)); }
     .side { max-height: none; }
   }
 </style>

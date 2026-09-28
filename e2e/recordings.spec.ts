@@ -199,7 +199,18 @@ test('a picker choice made on Live survives navigating through the sidebar', asy
   await expect(page).toHaveURL(/[?&]cam=porch(&|$)/);
 });
 
-test('zoom is kept when an event card is clicked', async ({ page }) => {
+// Picking a zoom saves it as a preference; every test here shares one user,
+// so the save is answered in the browser and never reaches the server.
+async function keepZoomLocal(page: import('@playwright/test').Page) {
+  const current = await (await page.request.get('/api/preferences')).json();
+  await page.route('**/api/preferences', async (route) => {
+    if (route.request().method() !== 'PUT') return route.fallback();
+    await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ...current, ...route.request().postDataJSON() }) });
+  });
+}
+
+test('zoom is kept when an event card is clicked, and across pages', async ({ page }) => {
+  await keepZoomLocal(page);
   await openEvents(page);
   await page.getByTestId('zoom-1').click();
   await expect(page.getByTestId('zoom-1')).toHaveAttribute('aria-pressed', 'true');
@@ -207,6 +218,15 @@ test('zoom is kept when an event card is clicked', async ({ page }) => {
   await expect(page.getByTestId('zoom-1')).toHaveAttribute('aria-pressed', 'true');
   await expect(page.locator('.bar-skeleton')).toHaveCount(0);
   await expect(page.getByTestId('timeline')).toBeVisible();
+  // Another page and back, without a reload.
+  await page.evaluate(() => { history.pushState({}, '', '/app/live'); dispatchEvent(new PopStateEvent('popstate')); });
+  await expect(page.getByTestId('page-title')).toHaveText('Live');
+  await page.evaluate(() => history.back());
+  await expect(page.getByTestId('zoom-1')).toHaveAttribute('aria-pressed', 'true');
+  // ‹ moves the one-hour window an hour earlier.
+  const before = await page.getByTestId('timeline-range').textContent();
+  await page.getByTestId('timeline-prev').click();
+  await expect(page.getByTestId('timeline-range')).not.toHaveText(before!);
 });
 
 test('clip clicks do not re-fetch the day\'s events', async ({ page }) => {

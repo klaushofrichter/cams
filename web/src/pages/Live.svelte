@@ -353,7 +353,7 @@
   .badge { font-size: 11px; font-weight: 700; letter-spacing: 0.06em; padding: 3px 9px; border-radius: 999px; background: var(--surface-2); color: var(--muted); }
   .badge.ok { background: var(--danger); color: var(--on-grad); }
   .state { font-size: 13px; color: var(--muted); }
-  .viewer { display: flex; flex-direction: column; gap: 10px; max-width: 1280px; }
+  .viewer { display: flex; flex-direction: column; gap: 10px; max-width: var(--player-max-w); }
   .viewer:fullscreen { max-width: none; background: #000; justify-content: center; }
   .controls { display: flex; gap: 8px; flex-wrap: wrap; }
   .controls button, .controls a {

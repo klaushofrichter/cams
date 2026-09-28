@@ -7,6 +7,8 @@
   --chrome: #0F1829;
   --surface: #121C31;
   --surface-2: #16213A;
+  --no-thumb: #0C1424;
+  --no-thumb-line: #1A2640;
   --border: #1C2940;
   --text: #E6EDF7;
   --muted: #9FB0CC;
@@ -25,6 +27,11 @@
   --scrim: rgba(3, 8, 18, 0.55);
   --on-grad: #FFFFFF;
   --radius: 10px;
+  /* Where a timeline or an event has no thumbnail (Klaus, 2026-09-27). */
+  --no-thumb-bg: repeating-linear-gradient(135deg, var(--no-thumb) 0 6px, var(--no-thumb-line) 6px 8px);
+  /* Live and History players: the same size, and never taller than the
+     window leaves room for (controls, timeline). */
+  --player-max-w: min(1280px, max(360px, calc((100dvh - 330px) * 16 / 9)));
   --font: Inter, ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
   --mono: ui-monospace, SFMono-Regular, Menlo, monospace;
 }
@@ -35,6 +42,8 @@
   --chrome: #FFFFFF;
   --surface: #FFFFFF;
   --surface-2: #EEF3FA;
+  --no-thumb: #E2E8F1;
+  --no-thumb-line: #D2DBE8;
   --border: #D8E1EE;
   --text: #0F1B2D;
   --muted: #55657F;
@@ -60,6 +69,8 @@
     --chrome: #FFFFFF;
     --surface: #FFFFFF;
     --surface-2: #EEF3FA;
+    --no-thumb: #E2E8F1;
+    --no-thumb-line: #D2DBE8;
     --border: #D8E1EE;
     --text: #0F1B2D;
     --muted: #55657F;
