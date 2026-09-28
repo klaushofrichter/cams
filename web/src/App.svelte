@@ -9,7 +9,7 @@
   import Settings from './pages/Settings.svelte';
   import About from './pages/About.svelte';
   import { initRouter, route } from './lib/router';
-  import { cameras, drawerOpen, me, selectedCameraId, theme, type CameraSummary, type Me } from './lib/stores';
+  import { cameras, drawerOpen, me, selectedCameraId, sidebarCollapsed, theme, type CameraSummary, type Me } from './lib/stores';
   import { getJson, UnauthorizedError } from './lib/api';
   import { loadPreferences, preferences, rememberCamera, startCamera } from './lib/preferences';
   import { liveStreamHeld } from './lib/liveUi';
@@ -92,7 +92,9 @@
   });
 </script>
 
-<div class="shell">
+<!-- The app is as wide as sidebar + video + panel at most; a wider window
+     gets equal margins either side, top bar included (Klaus, 2026-09-28). -->
+<div class="shell" style={`--sidebar-w: ${$sidebarCollapsed ? 64 : 220}px`}>
   <TopBar />
   <div class="side"><Sidebar /></div>
   <main class="main">
@@ -132,6 +134,10 @@
 
 <style>
   .shell {
+    /* sidebar (+1 px border), the page's 28 px padding either side, the
+       player, the 18 px gap and the 340 px panel */
+    --app-max-w: calc(var(--sidebar-w) + 1px + 56px + var(--player-max-w) + 18px + 340px);
+    max-width: var(--app-max-w); margin: 0 auto; box-shadow: 0 0 0 1px var(--border);
     height: 100vh; display: grid;
     grid-template-columns: auto 1fr; grid-template-rows: auto 1fr;
     grid-template-areas: 'top top' 'side main';
@@ -148,7 +154,7 @@
   .drawer-panel { position: fixed; top: 0; bottom: 0; left: 0; z-index: 31; background: var(--chrome); box-shadow: var(--shadow); padding-top: 48px; }
   .close { position: absolute; top: 10px; right: 10px; width: 36px; height: 36px; display: grid; place-items: center; border: 0; background: transparent; cursor: pointer; }
   @media (max-width: 767px) {
-    .shell { grid-template-columns: 1fr; grid-template-areas: 'top' 'main'; }
+    .shell { max-width: none; box-shadow: none; grid-template-columns: 1fr; grid-template-areas: 'top' 'main'; }
     .side { display: none; }
     .main { padding: 16px; }
   }

@@ -135,11 +135,13 @@ test.describe('desktop sidebar', () => {
     await page.getByTestId('sidebar-toggle').click();
     const sidebar = page.getByTestId('sidebar');
     await expect.poll(async () => (await sidebar.boundingBox())!.width).toBe(64);
+    // A window wider than the app centres it (Klaus, 2026-09-28): measure from the column's left edge.
+    const left = (await sidebar.boundingBox())!.x;
     for (const id of ['live', 'history', 'downloads', 'settings', 'about']) {
       const box = await sidebar.getByTestId(`nav-${id}`).locator('svg').boundingBox();
       expect(box, `icon for ${id}`).not.toBeNull();
       expect(box!.width, `icon width for ${id}`).toBeGreaterThanOrEqual(18);
-      expect(box!.x + box!.width, `icon for ${id} inside the column`).toBeLessThanOrEqual(64);
+      expect(box!.x - left + box!.width, `icon for ${id} inside the column`).toBeLessThanOrEqual(64);
     }
     const chevron = await page.getByTestId('sidebar-toggle').locator('svg').boundingBox();
     expect(chevron!.width).toBeGreaterThanOrEqual(18);
