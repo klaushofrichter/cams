@@ -400,3 +400,10 @@ test('a new event shows at once: a top-bar notification and a "recording…" ent
   await expect(page.getByTestId('event-pending').first()).toContainText('Person');
 });
 
+
+test('names the source of recordings and thumbnails: cam-proxy or camera (Klaus, 2026-09-28)', async ({ page }) => {
+  await page.goto('/app/recordings?panel=history&cam=cam1');
+  await expect(page.getByTestId('recordings-source')).toHaveText('Source of recordings and thumbnails: cam-proxy');
+  await page.goto('/app/recordings?panel=history&cam=porch');
+  await expect(page.getByTestId('recordings-source')).toHaveText('Source of recordings and thumbnails: camera');
+});

@@ -400,8 +400,8 @@
             unavailable={downloads === 'unavailable'} onposition={onPosition} {pending}
             live={panel === 'live'} bind:glued liveBox={liveWanted ? liveBoxSnippet : undefined} />
         {/key}
-        {#if downloads === 'proxy'}
-          <p class="note" data-testid="recordings-from-proxy" role="status">Recordings and thumbnails come from the camera gateway (cam-proxy) where it has them.</p>
+        {#if downloads !== 'unavailable' && !loading}
+          <p class="note" data-testid="recordings-source" role="status">Source of recordings and thumbnails: {downloads === 'proxy' ? 'cam-proxy' : 'camera'}</p>
         {/if}
         {#if downloads === 'unavailable'}
           <p class="banner" data-testid="recordings-unavailable" role="status">
