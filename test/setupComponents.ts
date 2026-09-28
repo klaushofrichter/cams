@@ -7,3 +7,13 @@ if (!Element.prototype.scrollIntoView) {
     // no-op: jsdom has no layout, so there's nothing to actually scroll.
   };
 }
+
+// Svelte's bind:clientWidth observes size with ResizeObserver, which jsdom
+// lacks; a no-op stand-in (jsdom has no layout, so sizes stay 0).
+if (!('ResizeObserver' in globalThis)) {
+  (globalThis as unknown as { ResizeObserver: unknown }).ResizeObserver = class {
+    observe() {}
+    unobserve() {}
+    disconnect() {}
+  };
+}

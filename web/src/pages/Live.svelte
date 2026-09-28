@@ -170,7 +170,7 @@
     const id = $selectedCameraId;
     const e = clipAtSecond(todayEvents, $todayDate, sec);
     if (!id || !e) return;
-    const c = { date: $todayDate, clipId: e.id, offsetSec: 0 };
+    const c = { date: $todayDate, clipId: e.id, offsetSec: 0, at: null };
     saveCursor(id, c);
     navigate(`/app/recordings${cursorSearch(id, c, 'history', 'all')}`);
   }

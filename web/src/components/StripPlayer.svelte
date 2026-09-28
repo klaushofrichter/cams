@@ -1,0 +1,285 @@
+<!-- web/src/components/StripPlayer.svelte -->
+<script lang="ts">
+  import { untrack } from 'svelte';
+  import Icon from './Icon.svelte';
+  import { nextChange, sourceAt, type Coverage, type Source } from '../lib/strip';
+  import { downloadUrl, videoUrl } from '../lib/recordings';
+  import { previewAt, tileStyle, type PreviewMinute } from '../lib/timeline';
+
+  // History's player (spec 2026-09-27): one clock, `at`. A clip's <video>
+  // drives it while a clip plays; otherwise a real-time ticker does, showing
+  // stills, preview tiles or "No recording". Two <video> elements take turns
+  // so the next clip is loaded 3 s before it starts.
+  let {
+    cam, coverage, previews, now, at = $bindable(), playing = $bindable(), unavailable = false, onclipfail, onstep,
+  }: {
+    cam: string;
+    coverage: Coverage;
+    previews: PreviewMinute[];
+    now: number;
+    at: number;
+    playing: boolean;
+    unavailable?: boolean;
+    onclipfail: (clipId: string) => void;
+    onstep: (dir: -1 | 1) => void;
+  } = $props();
+
+  const TICK_MS = 250;
+  const PRELOAD_MS = 3000;
+  const BADGE: Record<Source['kind'], string> = {
+    clip: 'SD 10 FPS', still: 'Stills 1 FPS', preview: 'Preview 1 FPS', none: 'No recording', future: 'Live is on the Live page',
+  };
+  const stillUrl = (ts: number) => `/api/cameras/${encodeURIComponent(cam)}/stills/${ts}.jpg`;
+
+  const source = $derived(sourceAt(coverage, at, now));
+
+  // --- video A/B ---
+  let vids: (HTMLVideoElement | undefined)[] = $state([undefined, undefined]);
+  let srcs = $state<[string | null, string | null]>([null, null]);
+  let active = $state(0);
+  const failedOnce = new Set<string>();
+  let followVideo = false; // true while the active video drives `at`
+  const idOf = new Map<string, string>(); // video url → clip id (for errors on either slot)
+  const awaitingMeta = [false, false]; // a slot's new src: its position isn't the clip's yet
+
+  function urlOf(id: string) {
+    const url = videoUrl(cam, id);
+    idOf.set(url, id);
+    return url;
+  }
+  function failClip(id: string) {
+    if (failedOnce.has(id)) return;
+    failedOnce.add(id);
+    onclipfail(id);
+  }
+  // Put the clip in the active slot (swapping when the other slot preloaded it).
+  $effect(() => {
+    const s = source;
+    const wantPlay = playing; // read first: every early return below still re-runs on play/pause
+    if (s.kind !== 'clip') {
+      followVideo = false;
+      vids[active]?.pause();
+      return;
+    }
+    const url = urlOf(s.clip.id);
+    if (srcs[active] !== url) {
+      if (srcs[1 - active] === url) {
+        active = 1 - active; // preloaded (its metadata may still be on the way)
+        if (vids[active]?.error) return failClip(s.clip.id);
+        if (awaitingMeta[active]) {
+          followVideo = false;
+          return;
+        }
+      } else {
+        // A new source resets the element's position to 0: don't follow it
+        // until loadedmetadata has put it at the wanted offset.
+        srcs[active] = url;
+        awaitingMeta[active] = true;
+        followVideo = false;
+        return;
+      }
+    }
+    const v = vids[active];
+    if (!v || awaitingMeta[active]) return;
+    const want = s.offsetMs / 1000;
+    if (!followVideo || Math.abs((v.currentTime || 0) - want) > 1.5) {
+      try {
+        v.currentTime = want;
+      } catch {
+        // before metadata: applied on loadedmetadata below
+      }
+    }
+    followVideo = true;
+    if (wantPlay) tryPlay(v);
+    else v.pause();
+  });
+  // Preload the next clip into the idle slot 3 s ahead.
+  $effect(() => {
+    if (!playing) return;
+    const next = nextChange(coverage, at, now);
+    if (next === null || next - at > PRELOAD_MS) return;
+    const s = sourceAt(coverage, next, now);
+    if (s.kind === 'clip' && srcs[active] !== urlOf(s.clip.id) && srcs[1 - active] !== urlOf(s.clip.id)) {
+      srcs[1 - active] = urlOf(s.clip.id);
+      awaitingMeta[1 - active] = true;
+    }
+  });
+  // Only the browser's autoplay block stops playback; a play() that fails
+  // because the new clip isn't loaded yet is retried on canplay.
+  function tryPlay(v: HTMLVideoElement) {
+    void v.play().catch((e: unknown) => {
+      if (e instanceof DOMException && e.name === 'NotAllowedError') playing = false;
+    });
+  }
+  function onCanPlay(i: number) {
+    const v = vids[i];
+    if (v && i === active && playing && source.kind === 'clip' && v.paused) tryPlay(v);
+  }
+  function onVideoTime(i: number) {
+    const s = source;
+    if (i !== active || s.kind !== 'clip' || !followVideo) return;
+    const v = vids[i]!;
+    at = Date.parse(s.clip.start) + v.currentTime * 1000;
+  }
+  function onVideoEnded(i: number) {
+    const s = source;
+    if (i !== active || s.kind !== 'clip') return;
+    at = Date.parse(s.clip.end);
+  }
+  // Either slot: a preloaded clip that fails is failed before its turn.
+  function onVideoError(i: number) {
+    const id = srcs[i] ? idOf.get(srcs[i]!) : undefined;
+    if (id) failClip(id);
+  }
+  function onMeta(i: number) {
+    const s = source;
+    awaitingMeta[i] = false;
+    if (i !== active || s.kind !== 'clip' || srcs[i] !== urlOf(s.clip.id)) return;
+    vids[i]!.currentTime = s.offsetMs / 1000;
+    followVideo = true;
+    if (playing) tryPlay(vids[i]!);
+  }
+
+  // --- the real-time ticker (not for clips) ---
+  $effect(() => {
+    if (!playing) return;
+    let last = Date.now();
+    const id = setInterval(() => {
+      const t = Date.now();
+      const dt = t - last;
+      last = t;
+      if (source.kind === 'clip') return;
+      const next = Math.min(at + dt, now);
+      at = next;
+      if (next >= now) playing = false;
+    }, TICK_MS);
+    return () => clearInterval(id);
+  });
+
+  // --- stills: shown once loaded; a failed one keeps the last good frame.
+  // Each still is asked for once; a failed one not again for 10 s (a proxy
+  // that went away must not turn playback into a request storm).
+  const STILL_RETRY_MS = 10_000;
+  let stillShown = $state<string | null>(null);
+  const stillState = new Map<string, number>(); // url → 0 loading, 1 loaded, else the time it failed
+  function loadStill(ts: number, show: boolean) {
+    const url = stillUrl(ts);
+    const st = stillState.get(url);
+    if (st === 1) {
+      if (show) stillShown = url;
+      return;
+    }
+    if (st === 0 || (st !== undefined && Date.now() - st < STILL_RETRY_MS)) return;
+    stillState.set(url, 0);
+    const img = new Image();
+    img.onload = () => {
+      stillState.set(url, 1);
+      if (source.kind === 'still' && stillUrl(source.ts) === url) stillShown = url;
+    };
+    img.onerror = () => stillState.set(url, Date.now());
+    img.src = url;
+    // Keep the map to the last ten minutes or so of seconds.
+    if (stillState.size > 700) for (const k of [...stillState.keys()].slice(0, 100)) stillState.delete(k);
+  }
+  const stillTs = $derived(source.kind === 'still' ? source.ts : null);
+  $effect(() => {
+    const ts = stillTs;
+    if (ts === null) return;
+    untrack(() => {
+      loadStill(ts, true);
+      for (let k = 1; k <= 3; k++) loadStill(ts + k * 1000, false);
+    });
+  });
+
+  // --- preview tile, scaled up to the box ---
+  let boxW = $state(0);
+  const tile = $derived(source.kind === 'preview' ? previewAt(previews, source.ts) : null);
+
+  function toggle() {
+    if (source.kind === 'future') return;
+    playing = !playing;
+  }
+  // Not clamped to now: a clip may lie after it (a camera clock ahead), and
+  // past now the panel says so and the ticker doesn't run.
+  function skip(ms: number) {
+    at = Math.max(0, at + ms);
+  }
+  // Space plays or pauses; ←/→ step 10 s (spec: Player / Controls).
+  function keydown(e: KeyboardEvent) {
+    if (e.target instanceof HTMLButtonElement || e.target instanceof HTMLAnchorElement) return;
+    if (e.key === ' ') {
+      e.preventDefault();
+      toggle();
+    } else if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
+      e.preventDefault();
+      skip(e.key === 'ArrowLeft' ? -10_000 : 10_000);
+    }
+  }
+  const clock = $derived(new Date(at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }));
+</script>
+
+<!-- svelte-ignore a11y_no_noninteractive_tabindex -->
+<div class="player" data-testid="strip-player" tabindex="0" onkeydown={keydown}>
+  <div class="box" bind:clientWidth={boxW}>
+    {#each [0, 1] as i (i)}
+      <video
+        bind:this={vids[i]}
+        class:hidden={source.kind !== 'clip' || i !== active}
+        data-testid={i === active ? 'clip-video' : 'clip-video-idle'}
+        src={srcs[i] ?? undefined}
+        preload="auto"
+        muted
+        playsinline
+        ontimeupdate={() => onVideoTime(i)}
+        onended={() => onVideoEnded(i)}
+        onerror={() => onVideoError(i)}
+        onloadedmetadata={() => onMeta(i)}
+        oncanplay={() => onCanPlay(i)}
+      ></video>
+    {/each}
+    {#if source.kind === 'still' && stillShown}
+      <img class="layer" data-testid="strip-still" src={stillShown} alt="" />
+    {:else if source.kind === 'preview' && tile}
+      <div class="layer tile-wrap" data-testid="strip-preview">
+        <span class="tile" style={`${tileStyle(tile.minute, tile.index, 1)};transform:scale(${boxW / 160})`}></span>
+      </div>
+    {:else if source.kind === 'none' || source.kind === 'future'}
+      <div class="layer empty" data-testid="strip-empty">
+        <span>{source.kind === 'future' ? 'Live is on the Live page' : 'No recording'}</span>
+        <small>{clock}</small>
+      </div>
+    {/if}
+    <span class="badge" class:clip={source.kind === 'clip'} data-testid="source-badge">{BADGE[source.kind]}</span>
+  </div>
+  <div class="controls">
+    <button data-testid="prev-clip" title="Previous event" onclick={() => onstep(-1)}><Icon name="prev" size={16} /></button>
+    <button data-testid="back-10" title="Back 10 seconds" onclick={() => skip(-10_000)}><Icon name="back10" size={16} /><span>10</span></button>
+    <button data-testid="play-toggle" class="primary" aria-pressed={playing} title={playing ? 'Pause' : 'Play'} disabled={source.kind === 'future'} onclick={toggle}>
+      <Icon name={playing ? 'pause' : 'play'} size={16} />
+    </button>
+    <button data-testid="fwd-10" title="Forward 10 seconds" onclick={() => skip(10_000)}><span>10</span><Icon name="fwd10" size={16} /></button>
+    <button data-testid="next-clip" title="Next event" onclick={() => onstep(1)}><Icon name="next" size={16} /></button>
+    <span class="time" data-testid="clip-time">{clock}</span>
+    {#if source.kind === 'clip' && !unavailable}
+      <a class="dl" data-testid="clip-download" href={downloadUrl(cam, source.clip.id, 'main')} title="Download (full quality)"><Icon name="downloads" size={16} /></a>
+    {/if}
+  </div>
+</div>
+
+<style>
+  .player { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+  .box { position: relative; width: 100%; aspect-ratio: 16 / 9; background: #000; border-radius: 12px; overflow: hidden; }
+  video, .layer { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; }
+  video.hidden { visibility: hidden; }
+  .tile-wrap { overflow: hidden; }
+  .tile { position: absolute; left: 0; top: 0; transform-origin: 0 0; }
+  .empty { display: grid; place-content: center; gap: 4px; text-align: center; color: var(--muted); background: var(--strip-empty); }
+  .badge { position: absolute; top: 10px; left: 10px; font-size: 11px; font-weight: 700; letter-spacing: 0.04em; padding: 3px 9px; border-radius: 999px; background: var(--scrim); color: var(--on-grad); }
+  .badge.clip { background: var(--accent); color: var(--accent-ink); }
+  .controls { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+  .controls button, .dl { display: inline-flex; align-items: center; gap: 4px; height: 34px; padding: 0 10px; border-radius: 9px; border: 1px solid var(--border); background: var(--surface-2); color: var(--text); cursor: pointer; text-decoration: none; }
+  .controls button.primary { background: var(--grad); color: var(--on-grad); border: none; }
+  .controls button:disabled { opacity: 0.5; cursor: default; }
+  .time { font-family: var(--mono); font-size: 13px; color: var(--muted); }
+  .dl { margin-left: auto; }
+</style>

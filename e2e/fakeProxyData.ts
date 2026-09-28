@@ -33,7 +33,9 @@ export function seed(fake: FakeProxy): void {
   // Barn: a still every 5 s from ten minutes before start-up to an hour after,
   // so the Live fallback always finds a recent one.
   const barn = new Map<number, Buffer>();
-  for (let t = now - 10 * 60_000; t <= now + 60 * 60_000; t += 5000) barn.set(t, jpeg);
+  // One still per second for the last 15 minutes, as the real proxy keeps them
+  // (the History strip plays them at 1 fps).
+  for (let t = now - 15 * 60_000; t <= now; t += 1000) barn.set(t, jpeg);
   fake.stills.set('barn', barn);
   fake.previews.set('cam1', previews);
   // Covers 36 hours back and 12 ahead, so "today" is inside it in the

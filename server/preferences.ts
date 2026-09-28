@@ -9,7 +9,7 @@ export interface Preferences {
   defaultCamera: string | null;
   liveQuality: 'sub' | 'main';
   eventFilter: 'all' | 'person' | 'vehicle' | 'pet' | 'motion';
-  timelineZoom: 24 | 6 | 1;
+  timelineZoom: 24 | 12 | 6 | 3 | 1;
   liveKeepAlive: 0 | 30 | 60 | 120 | 300 | 900; // seconds; 0 = off
 }
 
@@ -122,7 +122,7 @@ export function validatePreferencesPatch(body: unknown): { ok: true; patch: Part
   if ('defaultCamera' in b && b.defaultCamera !== null && !(typeof b.defaultCamera === 'string' && getCamera(b.defaultCamera))) details.push('defaultCamera: a configured camera id or null');
   if ('liveQuality' in b && b.liveQuality !== 'sub' && b.liveQuality !== 'main') details.push('liveQuality: sub or main');
   if ('eventFilter' in b && !['all', 'person', 'vehicle', 'pet', 'motion'].includes(b.eventFilter as string)) details.push('eventFilter: all, person, vehicle, pet or motion');
-  if ('timelineZoom' in b && ![24, 6, 1].includes(b.timelineZoom as number)) details.push('timelineZoom: 24, 6 or 1');
+  if ('timelineZoom' in b && ![24, 12, 6, 3, 1].includes(b.timelineZoom as number)) details.push('timelineZoom: 24, 12, 6, 3 or 1');
   if ('liveKeepAlive' in b && !(KEEP_ALIVE_CHOICES as readonly number[]).includes(b.liveKeepAlive as number)) details.push('liveKeepAlive: 0, 30, 60, 120, 300 or 900');
   return details.length ? { ok: false, details } : { ok: true, patch: b as Partial<Preferences> };
 }

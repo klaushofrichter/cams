@@ -8,12 +8,11 @@ published as [GitHub releases](https://github.com/klaushofrichter/cams/releases)
 
 ## [Unreleased]
 
-- History: the video is the same size as on Live and never taller than the
-  window, so the page no longer scrolls next to the event list.
-- History: the day picker stays centred, with or without "Updated".
-- History timeline: the chosen zoom (24/6/1 h) is saved and kept across
-  pages; a zoomed window moves with ‹ › (whole hours, into the previous or
-  next day at the edges) and shows its range; hovering shows the preview
-  frame or the event's thumbnail; where no thumbnail exists the bar is
-  hatched, as are event cards without a thumbnail.
+- History is one continuous strip: the playhead stays in the centre (24, 12,
+  6, 3 or 1 h) and playback runs in real time through clips (SD), the
+  camera gateway's stills (1 fps), preview tiles and stretches with nothing
+  recorded, across midnight. A badge on the video names the source. Drag,
+  scroll sideways or click the strip to move; the URL keeps the moment
+  (`at`), and old links still work. The ‹ › window buttons are gone.
+- The Timeline page links a still to that moment in History.
 
