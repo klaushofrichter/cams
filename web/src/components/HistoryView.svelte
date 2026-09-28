@@ -2,6 +2,7 @@
 <script lang="ts">
   import { onDestroy, untrack } from 'svelte';
   import Strip from './Strip.svelte';
+  import { getJson } from '../lib/api';
   import StripPlayer from './StripPlayer.svelte';
   import { createStripData, type StripData } from '../lib/stripData';
   import { EMPTY_COVERAGE, windowAround, type Coverage } from '../lib/strip';
@@ -45,6 +46,39 @@
       u3();
       d.destroy();
     };
+  });
+  // The left edge: the oldest content the camera and its proxy have (asked
+  // again every minute; retention moves it).
+  let oldest: number | null = $state(null);
+  $effect(() => {
+    const c = cam;
+    let stale = false;
+    const load = () =>
+      getJson<{ oldest: number | null }>(`/api/cameras/${encodeURIComponent(c)}/extent`)
+        .then((r) => { if (!stale) oldest = typeof r.oldest === 'number' ? r.oldest : null; })
+        .catch(() => undefined);
+    void load();
+    const id = setInterval(load, 60_000);
+    return () => {
+      stale = true;
+      clearInterval(id);
+    };
+  });
+  // The right edge: now, or the end of the latest known clip (a camera clock
+  // ahead of the browser's). Every move is kept within the two.
+  const latest = $derived(Math.max(now, ...allEvents.map((e) => Date.parse(e.end))));
+  $effect(() => {
+    const t = at;
+    const lo = oldest ?? -Infinity;
+    if (t < lo) at = lo;
+    // Only once the day's events are known: a link to a clip after now (a
+    // camera clock ahead) must not be pulled back before that clip is loaded.
+    else if (t > latest) {
+      const day = untrack(() => data.eventsOn(localDate(new Date(t))));
+      if (day === null) return;
+      const limit = Math.max(latest, ...day.map((e) => Date.parse(e.end)));
+      if (t > limit) at = limit;
+    }
   });
   const shown = $derived(filterEvents(allEvents, filter));
   const visibleIds = $derived(new Set(shown.map((e) => e.id)));
@@ -159,7 +193,7 @@
       failed = new Set(failed).add(id);
     }}
     onstep={step} />
-  <Strip {coverage} events={allEvents} {visibleIds} failedIds={failed} {at} {now} currentId={current} {previews}
+  <Strip {oldest} {coverage} events={allEvents} {visibleIds} failedIds={failed} {at} {now} currentId={current} {previews}
     thumbFor={unavailable ? undefined : (id) => thumbUrl(cam, id)}
     onseek={(t) => seek(t)}
     ondrag={(active) => {

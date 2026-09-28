@@ -98,6 +98,16 @@ export async function startFakeProxy(opts: { port?: number; token?: string } = {
     const from = Number(q.from), to = Number(q.to);
     return /^\d+$/.test(String(q.from)) && /^\d+$/.test(String(q.to)) && to >= from ? [from, to] : undefined;
   };
+  // Like the real one: the oldest clip, still and preview it holds.
+  app.get('/api/cameras/:cam/extent', (req, res) => {
+    const cam = req.params.cam;
+    const min = (xs: number[]) => (xs.length ? Math.min(...xs) : null);
+    res.json({
+      clips: min(fake.clips.filter((c) => c.cam === cam).map((c) => c.start)),
+      stills: min([...(fake.stills.get(cam)?.keys() ?? [])]),
+      previews: min([...(fake.previews.get(cam)?.keys() ?? [])]),
+    });
+  });
   app.get('/api/cameras/:cam/clips', (req, res) => {
     const r = range(req.query);
     if (!r) return void res.status(400).json({ error: 'invalid' });

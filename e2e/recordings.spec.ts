@@ -115,8 +115,9 @@ test('previous day shows yesterday\'s recordings; a day without any says so', as
   await openEvents(page);
   await page.getByTestId('day-prev').click();
   await expect(page.getByTestId('event-card')).toHaveCount(2);
+  // Before the oldest content: History opens on the oldest day instead.
   await page.goto('/app/recordings?date=2001-01-01&panel=events');
-  await expect(page.getByTestId('no-recordings')).toBeVisible();
+  await expect.poll(() => new URL(page.url()).searchParams.get('date')).not.toBe('2001-01-01');
 });
 
 test('downloads return MP4 attachments with readable names', async ({ page }) => {
@@ -351,4 +352,17 @@ test('on a phone the strip and controls fit the width', async ({ page }, testInf
   await expect(page.getByTestId('timeline')).toBeVisible();
   const overflow = await page.evaluate(() => document.documentElement.scrollWidth - innerWidth);
   expect(overflow).toBeLessThanOrEqual(0);
+});
+
+// Edges and the info line (Klaus, 2026-09-28).
+test('⇥ goes to now and stops there; the line under the video names time, source and trigger', async ({ page }) => {
+  await page.goto('/app/recordings?cam=barn&panel=history&at=' + (Date.now() - 5 * 60_000));
+  await page.getByTestId('strip-now').click();
+  await expect(page.getByTestId('strip-now')).toBeDisabled();
+  // Within seconds of now (the fake proxy's stills stop when it started, so
+  // the source there may be stills or nothing).
+  await expect.poll(async () => Date.now() - Number(new URL(page.url()).searchParams.get('at'))).toBeLessThan(15_000);
+  await openEvents(page);
+  await page.getByTestId('event-card').first().click(); // 08:15:10, person
+  await expect(page.getByTestId('strip-info')).toContainText(/SD 10 FPS · Person/);
 });
