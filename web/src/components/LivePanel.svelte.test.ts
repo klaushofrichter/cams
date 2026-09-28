@@ -83,4 +83,14 @@ describe('LivePanel', () => {
     q('mute-toggle')!.click();
     expect(get(liveUi).muted).toBe(false);
   });
+
+  it('puts the controls above the most recent event, which has a title (Klaus, 2026-09-28)', () => {
+    liveUi.update((u) => ({ ...u, status: { id: 'cam2', online: true } }));
+    render();
+    const controls = q('live-controls')!;
+    const recent = q('live-recent')!;
+    expect(controls.compareDocumentPosition(recent) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(recent.textContent).toContain('Most recent event');
+    expect(recent.contains(q('live-latest'))).toBe(true);
+  });
 });

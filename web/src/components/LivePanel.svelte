@@ -57,24 +57,8 @@
     {/if}
   </section>
 
-  {#if newestPending}
-    <section class="tile latest pending" data-testid="live-latest-pending">
-      <span class="dot"></span>
-      <span>{label(newestPending.kind)} · recording…</span>
-    </section>
-  {:else if latest}
-    <button class="tile latest" data-testid="live-latest" title="Play this event" onclick={() => onplay(latest)}>
-      <img src={thumbUrl(camera.id, latest.id)} alt="" loading="lazy" />
-      <span class="what">
-        <strong>{latest.triggers.map((t) => TRIGGER_LABELS[t]).join(', ') || 'Recording'}</strong>
-        <span>{formatClock(latest.start)}</span>
-        <span data-testid="live-latest-ago">{timeAgo(Date.parse(latest.start), nowMs)}</span>
-      </span>
-    </button>
-  {/if}
-
   {#if status?.online}
-    <section class="tile controls">
+    <section class="tile controls" data-testid="live-controls">
       <button data-testid="mute-toggle" aria-pressed={!$liveUi.muted} onclick={() => toggleMute()} title={$liveUi.muted ? 'Unmute' : 'Mute'}>
         <Icon name={$liveUi.muted ? 'volumeOff' : 'volumeOn'} size={18} /><span>{$liveUi.muted ? 'Muted' : 'Sound'}</span>
       </button>
@@ -90,6 +74,28 @@
       {#if $liveUi.snapshotError}<p class="snapshot-error" data-testid="snapshot-error" role="alert">{$liveUi.snapshotError}</p>{/if}
     </section>
   {/if}
+
+  {#if newestPending || latest}
+  <!-- Under the controls, with a title (Klaus, 2026-09-28). -->
+  <section class="tile recent" data-testid="live-recent">
+    <h3>Most recent event</h3>
+    {#if newestPending}
+      <div class="latest pending" data-testid="live-latest-pending">
+        <span class="dot"></span>
+        <span>{label(newestPending.kind)} · recording…</span>
+      </div>
+    {:else if latest}
+      <button class="latest" data-testid="live-latest" title="Play this event" onclick={() => onplay(latest)}>
+        <img src={thumbUrl(camera.id, latest.id)} alt="" loading="lazy" />
+        <span class="what">
+          <strong>{latest.triggers.map((t) => TRIGGER_LABELS[t]).join(', ') || 'Recording'}</strong>
+          <span>{formatClock(latest.start)}</span>
+          <span data-testid="live-latest-ago">{timeAgo(Date.parse(latest.start), nowMs)}</span>
+        </span>
+      </button>
+    {/if}
+  </section>
+  {/if}
 </div>
 
 <style>
@@ -99,8 +105,9 @@
   .kind { font-size: 13px; }
   .meta, .state { font-size: 12px; color: var(--muted); }
   a.meta { color: var(--accent); }
-  .latest { flex-direction: row; align-items: center; gap: 12px; text-align: left; color: var(--text); font: inherit; cursor: pointer; }
-  .latest:hover { border-color: var(--accent); }
+  h3 { margin: 0 0 4px; font-size: 13px; font-weight: 600; color: var(--muted); }
+  .latest { display: flex; align-items: center; gap: 12px; text-align: left; color: var(--text); font: inherit; padding: 6px; margin: -6px; border: 1px solid transparent; border-radius: 8px; background: none; cursor: pointer; }
+  button.latest:hover { border-color: var(--accent); }
   .latest img { width: 96px; aspect-ratio: 16 / 9; object-fit: cover; border-radius: 6px; background: var(--no-thumb-bg); flex: none; }
   .what { display: flex; flex-direction: column; gap: 2px; font-size: 13px; }
   .what span { color: var(--muted); }
