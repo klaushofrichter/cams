@@ -36,7 +36,9 @@ export function seed(fake: FakeProxy): void {
   for (let t = now - 10 * 60_000; t <= now + 60 * 60_000; t += 5000) barn.set(t, jpeg);
   fake.stills.set('barn', barn);
   fake.previews.set('cam1', previews);
-  const day = new Date();
-  const start = new Date(day.getFullYear(), day.getMonth(), day.getDate()).getTime();
-  fake.clips.push({ id: 1, cam: 'barn', start, end: start + 86_400_000 - 1, stream: 'main', events: [], body: mp4, snapshot: jpeg });
+  // Covers 36 hours back and 12 ahead, so "today" is inside it in the
+  // browser's time zone (America/Chicago) whatever the runner's is: local
+  // midnight on a UTC runner missed Chicago's day between 00:00 and 05:00 UTC.
+  const start = Date.now() - 36 * 3_600_000;
+  fake.clips.push({ id: 1, cam: 'barn', start, end: Date.now() + 12 * 3_600_000, stream: 'main', events: [], body: mp4, snapshot: jpeg });
 }
