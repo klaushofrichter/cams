@@ -13,7 +13,7 @@ import { proxyHub, proxyStates, startProxyStream, startProxyStreams, stopProxySt
 import { findProxyClip, openProxyClip } from '../server/recordings/proxyClips';
 import { getRecordings } from '../server/recordings/service';
 import { SESSION_COOKIE, signSession } from '../server/session';
-import { FAKE_TOKEN, JPEG, startFakeProxy, type FakeProxy } from './proxy/fakeProxy';
+import { FAKE_ADMIN_TOKEN, FAKE_TOKEN, JPEG, startFakeProxy, type FakeProxy } from './proxy/fakeProxy';
 
 // The per-camera "use cam-proxy" switch: one server-side setting per camera,
 // for all users, kept across restarts.
@@ -207,3 +207,44 @@ describe('GET /api/cameras/:id/proxy/info (the Settings link, Klaus 2026-09-28)'
   });
 });
 
+
+// A signed-in cams user opens the proxy's UI without its token (Klaus,
+// 2026-09-28): cams mints a one-time link with the proxy's admin token.
+describe('POST /api/cameras/:id/proxy/login-link', () => {
+  const link = (id: string, cookie = auth) => request(createApp()).post(`/api/cameras/${id}/proxy/login-link`).set('Cookie', cookie);
+  const withAdmin = () => setCameras([
+    { id: 'den', name: 'Den', host: '127.0.0.1:9', protocol: 'http', user: 'u', password: 'p', proxy: { url: fake.url, token: FAKE_TOKEN, adminToken: FAKE_ADMIN_TOKEN, camera: 'cam1' } },
+  ]);
+
+  it('answers a one-time link into the proxy UI at its public address', async () => {
+    withAdmin();
+    fake.publicUrl = 'https://proxy.example';
+    const r = await link('den');
+    expect(r.status).toBe(200);
+    expect(r.body).toEqual({ url: 'https://proxy.example/control/login-link?code=fake-code-1' });
+    expect(fake.requests.find((q) => q.path === '/control/login-links')?.auth).toBe(`Bearer ${FAKE_ADMIN_TOKEN}`);
+  });
+
+  it('needs a signed-in user', async () => {
+    withAdmin();
+    expect((await link('den', 'x=y')).status).toBe(401);
+    expect(fake.loginLinks).toBe(0);
+  });
+
+  it('says so when it can’t: no admin token, no public address, or the proxy down', async () => {
+    fake.publicUrl = 'https://proxy.example';
+    expect((await link('den')).body).toEqual({ error: 'no_login_link' }); // den has no admin token here
+    withAdmin();
+    fake.publicUrl = null;
+    expect((await link('den')).body).toEqual({ error: 'no_login_link' });
+    fake.publicUrl = 'https://proxy.example';
+    await fake.stop();
+    expect((await link('den')).status).toBe(502);
+    fake = await startFakeProxy();
+  });
+
+  it('never shows the admin token in the camera list', async () => {
+    withAdmin();
+    expect(JSON.stringify(listCameras())).not.toContain(FAKE_ADMIN_TOKEN);
+  });
+});

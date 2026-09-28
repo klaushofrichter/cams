@@ -10,6 +10,7 @@ import { mount, unmount } from 'svelte';
 import { afterEach, describe, expect, it } from 'vitest';
 import EventList from './EventList.svelte';
 import { makeEvents } from './testing/eventFixtures';
+import { ALL_KINDS } from '../lib/recordings';
 
 const DATE = '2026-09-26';
 
@@ -31,7 +32,7 @@ describe('EventList does not build thumbnails for a busy hour on first render', 
     const props = {
       cameraId: 'cam1',
       events: makeEvents(DATE, 11, 15), // 15 > COLLAPSE_OVER (10), no selection
-      filter: 'all' as const,
+      filter: ALL_KINDS,
       date: DATE,
       selectedId: null as string | null,
       onfilter: () => {},

@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { openProxyUi } from '../lib/proxyLink';
   import Icon from './Icon.svelte';
   import { checkLiveStatus, liveFullscreen, liveUi, offlineReason, saveSnapshot, toggleMute, toggleQuality, type StreamInfo } from '../lib/liveUi';
   import { formatClock, thumbUrl, TRIGGER_LABELS, type EventClip } from '../lib/recordings';
@@ -53,7 +54,8 @@
     {/if}
     {#if streams}<span class="meta" data-testid="live-camera-streams">{streams}</span>{/if}
     {#if proxyInfo?.webUrl}
-      <a class="meta" data-testid="live-proxy-link" href={proxyInfo.webUrl} target="_blank" rel="noopener">cam-proxy {proxyInfo.reachable ? '' : '(down)'}</a>
+      <a class="meta" data-testid="live-proxy-link" href={proxyInfo.webUrl} target="_blank" rel="noopener noreferrer"
+        onclick={(e) => { e.preventDefault(); void openProxyUi(camera.id, proxyInfo!.webUrl!); }}>cam-proxy {proxyInfo.reachable ? '' : '(down)'}</a>
     {/if}
   </section>
 

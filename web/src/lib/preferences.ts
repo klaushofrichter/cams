@@ -6,7 +6,7 @@ export interface Preferences {
   defaultCamera: string | null; // null: the last camera used
   lastCamera?: string | null;
   liveQuality: 'sub' | 'main';
-  eventFilter: 'all' | 'person' | 'vehicle' | 'pet' | 'motion';
+  eventFilter: ('person' | 'vehicle' | 'pet' | 'motion')[]; // several kinds; all four is All
   timelineZoom: 24 | 12 | 6 | 3 | 1 | 0.5;
   liveKeepAlive: 0 | 30 | 60 | 120 | 300 | 900;
   liveEvents?: boolean; // new events at once, with a notification (default on)

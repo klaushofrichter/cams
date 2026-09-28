@@ -10,6 +10,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import EventList from './EventList.svelte';
 import DownloadList from './DownloadList.svelte';
 import { makeEvents } from './testing/eventFixtures';
+import { ALL_KINDS } from '../lib/recordings';
 
 const DATE = '2026-09-26';
 
@@ -31,7 +32,7 @@ describe('hour-group state is keyed per camera', () => {
     const props = $state({
       cameraId: 'camA',
       events: makeEvents(DATE, 14, 3), // 3 clips: open by default (<= COLLAPSE_OVER)
-      filter: 'all' as const,
+      filter: ALL_KINDS,
       date: DATE,
       selectedId: null as string | null,
       onfilter: () => {},

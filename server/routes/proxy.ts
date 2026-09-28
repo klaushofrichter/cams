@@ -47,21 +47,56 @@ proxyRouter.put('/api/cameras/:id/proxy', async (req: Request, res: Response) =>
 // 2026-09-28). cams only knows the proxy's internal URL; the proxy reports
 // where people reach it (its publicUrl). Asked directly (even with the proxy
 // switched off), with a short timeout.
+async function proxyInfo(id: string, proxy: { url: string; token: string }): Promise<{ reachable: boolean; webUrl: string | null }> {
+  let list: unknown;
+  try {
+    list = await new ProxyClient(proxy, { timeoutMs: 3000 }).json<unknown>('/api/cameras');
+  } catch {
+    return { reachable: false, webUrl: null };
+  }
+  // It answered: reachable. A link only for this camera's own entry.
+  const mine = Array.isArray(list) ? (list as { id?: unknown; publicUrl?: unknown }[]).find((c) => c?.id === proxyCameraId(id)) : undefined;
+  const url = mine?.publicUrl;
+  return { reachable: true, webUrl: typeof url === 'string' && /^https?:\/\/[^\s]+$/.test(url) ? url : null };
+}
+
 proxyRouter.get('/api/cameras/:id/proxy/info', async (req: Request, res: Response) => {
   const id = String(req.params.id);
   const camera = getCamera(id);
   if (!camera) return void res.status(404).json({ error: 'unknown_camera' });
   if (!camera.proxy) return void res.status(404).json({ error: 'no_proxy' });
-  let list: unknown;
+  res.json(await proxyInfo(id, camera.proxy));
+});
+
+// A signed-in cams user opens the proxy's UI without its token (Klaus,
+// 2026-09-28): a one-time link, minted with the proxy's admin token. The
+// token never leaves the server; the code works once, for 60 s.
+proxyRouter.post('/api/cameras/:id/proxy/login-link', async (req: Request, res: Response) => {
+  const id = String(req.params.id);
+  const camera = getCamera(id);
+  if (!camera) return void res.status(404).json({ error: 'unknown_camera' });
+  if (!camera.proxy) return void res.status(404).json({ error: 'no_proxy' });
+  if (!camera.proxy.adminToken) return void res.status(409).json({ error: 'no_login_link' });
+  const info = await proxyInfo(id, camera.proxy);
+  if (!info.reachable) return void res.status(502).json({ error: 'proxy_unavailable' });
+  if (!info.webUrl) return void res.status(409).json({ error: 'no_login_link' });
   try {
-    list = await new ProxyClient(camera.proxy, { timeoutMs: 3000 }).json<unknown>('/api/cameras');
-  } catch {
-    return void res.json({ reachable: false, webUrl: null });
+    const r = await fetch(`${camera.proxy.url}/control/login-links`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${camera.proxy.adminToken}` },
+      signal: AbortSignal.timeout(3000),
+      redirect: 'error',
+    });
+    const body = (await r.json().catch(() => null)) as { code?: unknown } | null;
+    if (!r.ok || typeof body?.code !== 'string' || !/^[A-Za-z0-9_-]{8,128}$/.test(body.code)) {
+      logger.warn({ cameraId: id, status: r.status }, 'proxy_login_link_refused');
+      return void res.status(502).json({ error: 'proxy_unavailable' });
+    }
+    res.json({ url: `${info.webUrl.replace(/\/+$/, '')}/control/login-link?code=${encodeURIComponent(body.code)}` });
+  } catch (err) {
+    logger.warn({ cameraId: id, message: (err as Error).message }, 'proxy_login_link_failed');
+    res.status(502).json({ error: 'proxy_unavailable' });
   }
-  // It answered: reachable. A link only for this camera's own entry.
-  const mine = Array.isArray(list) ? (list as { id?: unknown; publicUrl?: unknown }[]).find((c) => c?.id === proxyCameraId(id)) : undefined;
-  const url = mine?.publicUrl;
-  res.json({ reachable: true, webUrl: typeof url === 'string' && /^https?:\/\/[^\s]+$/.test(url) ? url : null });
 });
 
 function range(req: Request, res: Response): [number, number] | undefined {

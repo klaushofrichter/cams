@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { ALL_KINDS, TRIGGER_LABELS, isAllKinds } from '../lib/recordings';
   import { tick, untrack } from 'svelte';
   import SettingsCard from '../components/SettingsCard.svelte';
   import SaveState from '../components/SaveState.svelte';
@@ -250,11 +251,34 @@
             <option value="main">HD (needs HEVC support)</option>
           </select>
         </label>
-        <label>Event filter
-          <select data-testid="pref-filter" bind:value={prefs.eventFilter}>
-            <option value="all">All</option><option value="person">Person</option><option value="vehicle">Vehicle</option><option value="pet">Pet</option><option value="motion">Motion</option>
-          </select>
-        </label>
+        <!-- Several kinds at once; All ticks every kind (Klaus, 2026-09-28). -->
+        <fieldset class="live-events" data-testid="pref-filter">
+          <legend>Event filter</legend>
+          <div class="types">
+            <label class="row">
+              <input type="checkbox" data-testid="pref-filter-all" checked={isAllKinds(prefs.eventFilter ?? ALL_KINDS)}
+                onchange={(e) => {
+                  (e.currentTarget as HTMLInputElement).checked = true; // All can't be unticked: tick kinds instead
+                  prefs!.eventFilter = [...ALL_KINDS];
+                }} />
+              All
+            </label>
+            {#each ALL_KINDS as t (t)}
+              <label class="row">
+                <input type="checkbox" data-testid={`pref-filter-${t}`}
+                  checked={(prefs.eventFilter ?? ALL_KINDS).includes(t)}
+                  onchange={(e) => {
+                    const on = (e.currentTarget as HTMLInputElement).checked;
+                    const cur = prefs!.eventFilter ?? ALL_KINDS;
+                    const next = ALL_KINDS.filter((x) => (x === t ? on : cur.includes(x)));
+                    prefs!.eventFilter = next.length ? next : [...ALL_KINDS]; // none ticked reads as All
+                  }} />
+                {TRIGGER_LABELS[t]}
+              </label>
+            {/each}
+          </div>
+          <small class="muted">What History lists by default; the chips there change it for the moment.</small>
+        </fieldset>
         <label>Timeline zoom
           <select data-testid="pref-zoom" bind:value={prefs.timelineZoom}>
             <option value={24}>24 hours</option><option value={12}>12 hours</option><option value={6}>6 hours</option><option value={3}>3 hours</option><option value={1}>1 hour</option><option value={0.5}>30 minutes</option>

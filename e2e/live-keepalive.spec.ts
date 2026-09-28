@@ -250,11 +250,14 @@ test('moving into playback keeps the live stream for the keep-alive; ⇥ shows i
   const video = page.getByTestId('live-video');
   await expect.poll(() => video.evaluate((v: HTMLVideoElement) => v.readyState >= 2), { timeout: 15_000 }).toBe(true);
   const opened = streams.opened.length;
-  await page.getByTestId('back-10').click(); // playback
+  await page.getByTestId('back-10').click(); // playback: History (Klaus, 2026-09-28)
   await expect(page.getByTestId('live-badge')).toHaveCount(0);
-  await expect(page).toHaveURL(/\/app\/live\?.*at=\d+/);
+  await expect(page).toHaveURL(/\/app\/recordings\?.*at=\d+.*panel=history/);
+  await expect(page.getByTestId('sidebar').getByTestId('nav-history')).toHaveAttribute('aria-current', 'page');
+  await expect(page.getByTestId('panel-tab-history')).toHaveAttribute('aria-selected', 'true');
   expect(streams.open()).toBe(1); // kept
-  await page.getByTestId('strip-now').click(); // live again
+  await page.getByTestId('play-toggle').click();
+  await page.getByTestId('strip-now').click(); // playing: ⇥ is Live again
   await expect(page.getByTestId('live-badge')).toHaveText('● LIVE');
   await expect(page).toHaveURL(/\/app\/live$/);
   expect(streams.opened.length).toBe(opened);
@@ -278,16 +281,47 @@ test('another page’s URL doesn’t move the kept-alive live view; the Live men
   await expect(page.getByTestId('live-badge')).toHaveText('● LIVE');
 });
 
-test('on the Live panel, the Live tab and the Live menu go back to live from playback', async ({ page }) => {
+test('from History after leaving live, the Live tab and the Live menu go back to live', async ({ page }) => {
   await setKeepAlive(page, 60);
   await page.goto('/app/live');
   await expect(page.getByTestId('live-badge')).toHaveText('● LIVE', { timeout: 15_000 });
   await page.getByTestId('back-10').click();
-  await expect(page).toHaveURL(/\/app\/live\?.*at=\d+/);
+  await expect(page).toHaveURL(/\/app\/recordings\?.*panel=history/);
   await page.getByTestId('panel-tab-live').click();
   await expect(page.getByTestId('live-badge')).toHaveText('● LIVE');
   await page.getByTestId('back-10').click();
-  await expect(page).toHaveURL(/\/app\/live\?.*at=\d+/);
+  await expect(page).toHaveURL(/\/app\/recordings\?.*panel=history/);
   await page.getByTestId('sidebar').getByTestId('nav-live').click();
   await expect(page.getByTestId('live-badge')).toHaveText('● LIVE');
+});
+
+test('⇥ on History while paused stays on History; playing, it goes to Live (Klaus, 2026-09-28)', async ({ page }) => {
+  await setKeepAlive(page, 60);
+  await page.goto('/app/live');
+  await expect(page.getByTestId('live-badge')).toHaveText('● LIVE', { timeout: 15_000 });
+  await page.getByTestId('back-10').click();
+  await expect(page).toHaveURL(/panel=history/);
+  await page.getByTestId('strip-now').click(); // paused
+  await page.waitForTimeout(500);
+  await expect(page).toHaveURL(/panel=history/);
+  await expect(page.getByTestId('live-badge')).toHaveCount(0);
+  await page.getByTestId('back-10').click();
+  await page.getByTestId('play-toggle').click();
+  await page.getByTestId('strip-now').click(); // playing
+  await expect(page).toHaveURL(/\/app\/live$/);
+  await expect(page.getByTestId('sidebar').getByTestId('nav-live')).toHaveAttribute('aria-current', 'page');
+  await expect(page.getByTestId('live-badge')).toHaveText('● LIVE');
+  // Back returns to History, not a loop into Live.
+  await page.goBack();
+  await expect(page).toHaveURL(/panel=history/);
+});
+
+// Final review (batch 2).
+test('an old /app/live?at= link opens History without trapping Back', async ({ page }) => {
+  await page.goto('/app/settings');
+  await expect(page.getByTestId('settings-card-prefs')).toBeVisible();
+  await page.goto(`/app/live?at=${Date.now() - 3_600_000}`);
+  await expect(page).toHaveURL(/panel=history/);
+  await page.goBack();
+  await expect(page).toHaveURL(/\/app\/settings$/);
 });

@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import HistoryView from './HistoryView.svelte';
 import { resetDayCache } from '../lib/dayCache';
 import { preferences } from '../lib/preferences';
+import { ALL_KINDS, type Filter } from '../lib/recordings';
 
 // TZ=America/Chicago; the clock is 2026-09-27 20:00 CDT.
 const NOW = Date.parse('2026-09-27T20:00:00-05:00');
@@ -16,7 +17,7 @@ let component: Record<string, unknown> | undefined;
 let target: HTMLDivElement | undefined;
 beforeEach(() => {
   resetDayCache();
-  preferences.set({ defaultCamera: null, liveQuality: 'sub', eventFilter: 'all', timelineZoom: 1, liveKeepAlive: 60 });
+  preferences.set({ defaultCamera: null, liveQuality: 'sub', eventFilter: ['person', 'vehicle', 'pet', 'motion'], timelineZoom: 1, liveKeepAlive: 60 });
   vi.useFakeTimers({ now: NOW, toFake: ['Date', 'setTimeout', 'clearTimeout', 'setInterval', 'clearInterval'] });
   requested.length = 0;
   vi.stubGlobal('fetch', async (url: string) => {
@@ -36,7 +37,7 @@ afterEach(() => {
 });
 async function render(extra: Record<string, unknown> = {}) {
   const onposition = vi.fn();
-  const props = $state({ cam: 'den', proxy: false, date: '2026-09-27', initialAt: null as number | null, filter: 'all' as 'all' | 'person', live: false, unavailable: false, onposition, ...extra });
+  const props = $state({ cam: 'den', proxy: false, date: '2026-09-27', initialAt: null as number | null, filter: ALL_KINDS as Filter, live: false, unavailable: false, onposition, ...extra });
   target = document.createElement('div');
   document.body.appendChild(target);
   component = mount(HistoryView, { target, props });
@@ -109,7 +110,7 @@ describe('HistoryView', () => {
   });
 
   it('steps to the next event the filter shows, on any day (review #14)', async () => {
-    const { onposition } = await render({ initialAt: Date.parse(E1.start), filter: 'person' });
+    const { onposition } = await render({ initialAt: Date.parse(E1.start), filter: ['person'] as Filter });
     (target!.querySelector('[data-testid="next-clip"]') as HTMLElement).click();
     flushSync();
     expect(onposition).toHaveBeenLastCalledWith(Date.parse(E3.start), E3.id);
@@ -204,3 +205,31 @@ describe('the live end (glue, spec 2026-09-28)', () => {
   });
 });
 
+describe('History ⇥ and playback to Live (Klaus, 2026-09-28)', () => {
+  it('⇥ while playing goes to Live', async () => {
+    const onlive = vi.fn();
+    await render({ live: false, initialAt: NOW - 3_600_000, onlive });
+    (target!.querySelector('[data-testid="play-toggle"]') as HTMLElement).click();
+    flushSync();
+    (target!.querySelector('[data-testid="strip-now"]') as HTMLElement).click();
+    expect(onlive).toHaveBeenCalledTimes(1);
+  });
+
+  it('⇥ while paused stays on History, at now', async () => {
+    const onlive = vi.fn();
+    const { onposition } = await render({ live: false, initialAt: NOW - 3_600_000, onlive });
+    (target!.querySelector('[data-testid="strip-now"]') as HTMLElement).click();
+    await vi.advanceTimersByTimeAsync(2500); // a seek's report is throttled (2 s)
+    expect(onlive).not.toHaveBeenCalled();
+    expect(onposition.mock.calls.at(-1)![0]).toBeGreaterThanOrEqual(NOW - 3000);
+  });
+
+  it('playback catching up with now goes to Live', async () => {
+    const onlive = vi.fn();
+    await render({ live: false, initialAt: NOW - 20_000, onlive });
+    (target!.querySelector('[data-testid="play-toggle"]') as HTMLElement).click();
+    await vi.advanceTimersByTimeAsync(1000);
+    flushSync();
+    expect(onlive).toHaveBeenCalledTimes(1);
+  });
+});

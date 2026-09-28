@@ -10,7 +10,7 @@ import { cameras } from '../lib/stores';
 import { preferences, type Preferences } from '../lib/preferences';
 import type { CameraEvent } from '../lib/eventStream';
 
-const PREFS: Preferences = { defaultCamera: null, liveQuality: 'sub', eventFilter: 'all', timelineZoom: 24, liveKeepAlive: 60, liveEvents: true, liveEventTypes: ['person', 'vehicle', 'pet', 'motion'] };
+const PREFS: Preferences = { defaultCamera: null, liveQuality: 'sub', eventFilter: ['person', 'vehicle', 'pet', 'motion'], timelineZoom: 24, liveKeepAlive: 60, liveEvents: true, liveEventTypes: ['person', 'vehicle', 'pet', 'motion'] };
 let fire: (e: CameraEvent) => void = () => undefined;
 const source = { onCameraEvent: (fn: (e: CameraEvent) => void) => { fire = fn; return () => { fire = () => undefined; }; } };
 let component: Record<string, unknown> | undefined;
