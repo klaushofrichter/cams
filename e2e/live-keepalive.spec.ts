@@ -231,6 +231,7 @@ test('changing the camera while Live is kept alive ends the stream at once', asy
   await expect(page.getByTestId('live-video')).toBeHidden(); // kept alive
   const opened = streams.opened.length;
   await page.getByTestId('camera-picker').selectOption({ label: 'Porch' });
+  await expect(page).toHaveURL(/\/app\/settings$/); // the hidden video page doesn't take the user back (final review)
   await expect.poll(() => streams.open(), { timeout: 5_000 }).toBe(0);
   await expect(page.locator('video')).toHaveCount(0);
   expect(streams.opened.length).toBe(opened); // no stream for Porch while away
@@ -238,4 +239,55 @@ test('changing the camera while Live is kept alive ends the stream at once', asy
   await page.getByTestId('sidebar').getByTestId('nav-live').click();
   await expect.poll(() => video.evaluate((v: HTMLVideoElement) => v.readyState >= 2), { timeout: 15_000 }).toBe(true);
   expect(streams.open()).toBe(1);
+});
+
+// Live is the strip's right end (spec 2026-09-28): playback on the Live panel
+// keeps the stream for the keep-alive, and ⇥ shows it again at once.
+test('moving into playback keeps the live stream for the keep-alive; ⇥ shows it again at once', async ({ page }) => {
+  await setKeepAlive(page, 60);
+  const streams = watchStreams(page);
+  await page.goto('/app/live');
+  const video = page.getByTestId('live-video');
+  await expect.poll(() => video.evaluate((v: HTMLVideoElement) => v.readyState >= 2), { timeout: 15_000 }).toBe(true);
+  const opened = streams.opened.length;
+  await page.getByTestId('back-10').click(); // playback
+  await expect(page.getByTestId('live-badge')).toHaveCount(0);
+  await expect(page).toHaveURL(/\/app\/live\?.*at=\d+/);
+  expect(streams.open()).toBe(1); // kept
+  await page.getByTestId('strip-now').click(); // live again
+  await expect(page.getByTestId('live-badge')).toHaveText('● LIVE');
+  await expect(page).toHaveURL(/\/app\/live$/);
+  expect(streams.opened.length).toBe(opened);
+});
+
+// Final review: the video page kept alive behind another page must not follow
+// that page's URL (a Timeline day), and the Live menu opens live again.
+test('another page’s URL doesn’t move the kept-alive live view; the Live menu is live', async ({ page }) => {
+  await setKeepAlive(page, 60);
+  await page.goto('/app/live');
+  await expect(page.getByTestId('live-badge')).toHaveText('● LIVE', { timeout: 15_000 });
+  await page.getByTestId('sidebar').getByTestId('nav-timeline').click();
+  await expect(page.getByTestId('timeline-page')).toBeVisible();
+  // As browser Back to a Timeline link on another day would.
+  await page.evaluate(() => {
+    history.pushState({}, '', '/app/timeline?cam=cam1&date=2026-01-02');
+    dispatchEvent(new PopStateEvent('popstate'));
+  });
+  await page.getByTestId('sidebar').getByTestId('nav-live').click();
+  await expect(page).toHaveURL(/\/app\/live$/);
+  await expect(page.getByTestId('live-badge')).toHaveText('● LIVE');
+});
+
+test('on the Live panel, the Live tab and the Live menu go back to live from playback', async ({ page }) => {
+  await setKeepAlive(page, 60);
+  await page.goto('/app/live');
+  await expect(page.getByTestId('live-badge')).toHaveText('● LIVE', { timeout: 15_000 });
+  await page.getByTestId('back-10').click();
+  await expect(page).toHaveURL(/\/app\/live\?.*at=\d+/);
+  await page.getByTestId('panel-tab-live').click();
+  await expect(page.getByTestId('live-badge')).toHaveText('● LIVE');
+  await page.getByTestId('back-10').click();
+  await expect(page).toHaveURL(/\/app\/live\?.*at=\d+/);
+  await page.getByTestId('sidebar').getByTestId('nav-live').click();
+  await expect(page.getByTestId('live-badge')).toHaveText('● LIVE');
 });

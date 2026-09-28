@@ -133,29 +133,26 @@ test('downloads return MP4 attachments with readable names', async ({ page }) =>
   expect(res.headers()['content-disposition']).toMatch(/^attachment; filename="cam1-\d{4}-\d{2}-\d{2}_17-45-40-main\.mp4"$/); // the newest is first
 });
 
-test('the Live page mini timeline opens a recording', async ({ page }) => {
+test('the Live panel’s latest event plays it', async ({ page }) => {
   await page.goto('/app/live');
-  const bar = page.getByTestId('live-timeline');
-  const seg = bar.getByTestId('timeline-seg').first();
-  await expect(seg).toBeVisible();
-  // On the phone viewport the timeline sits below the fold. Locator.click()
-  // with a `position` offset re-derives the element's box internally right
-  // before dispatching, and on this page that lands the synthetic event
-  // off-target (the surrounding sticky top bar interferes with its
-  // actionability scroll) -- so scroll into view ourselves and dispatch a
-  // real mouse click at the coordinates we measured, which is reliable here.
-  await bar.scrollIntoViewIfNeeded();
-  await expect(seg).toBeInViewport();
-  // Retried as a whole: a scroll that lands mid-animation (or a stale box
-  // measured just before a layout shift) can make a single measure+click
-  // pass land off-target, so re-measure and re-click until the navigation
-  // actually happens.
-  await expect(async () => {
-    const segBox = (await seg.boundingBox())!;
-    const y = segBox.y + segBox.height / 2;
-    await page.mouse.click(segBox.x + segBox.width / 2, y);
-    await expect(page).toHaveURL(/\/app\/recordings\?.*clip=\d{8}-081510-081535/);
-  }).toPass({ timeout: 10_000 });
+  await page.getByTestId('live-latest').click();
+  await expect(page.getByTestId('live-badge')).toHaveCount(0);
+  await expect(page.getByTestId('source-badge')).toContainText(/SD 10 FPS|Stills|No recording/);
+  await expect(page).toHaveURL(/\/app\/live\?.*at=\d+/);
+});
+
+test('the video stays in place between Live, History and Downloads', async ({ page }) => {
+  await page.goto('/app/live');
+  const box = () => page.locator('.player .box').boundingBox();
+  await expect(page.getByTestId('live-panel')).toBeVisible();
+  const a = await box();
+  await page.getByTestId('panel-tab-history').click();
+  await expect(page.getByTestId('page-title')).toHaveText('Recordings');
+  const b = await box();
+  await page.getByTestId('panel-tab-downloads').click();
+  const c = await box();
+  expect(b).toEqual(a);
+  expect(c).toEqual(a);
 });
 
 // --- Pinned review fixes, with no automated coverage yet ---

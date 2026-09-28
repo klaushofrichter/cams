@@ -1,7 +1,7 @@
 // web/src/lib/strip.test.ts
 import { describe, expect, it } from 'vitest';
 import {
-  clipRuns, clipStartFromId, inRuns, localDaysBetween, mergeRuns, nextChange, previewRuns, sourceAt, stillRuns, stripSpans, windowAround,
+  STRIP_ZOOMS, clipRuns, clipStartFromId, inRuns, localDaysBetween, mergeRuns, nextChange, previewRuns, sourceAt, stillRuns, stripSpans, windowAround,
   type Coverage,
 } from './strip';
 import type { EventClip } from './recordings';
@@ -68,6 +68,11 @@ describe('sourceAt / nextChange', () => {
 });
 
 describe('window and spans', () => {
+  it('has a 30-minute window', () => {
+    expect(windowAround(10 * 3_600_000, 0.5)).toEqual({ start: 9.75 * 3_600_000, end: 10.25 * 3_600_000 });
+    expect(STRIP_ZOOMS).toEqual([24, 12, 6, 3, 1, 0.5]);
+  });
+
   it('centres the window on t', () => {
     expect(windowAround(10 * 3_600_000, 1)).toEqual({ start: 9.5 * 3_600_000, end: 10.5 * 3_600_000 });
     expect(windowAround(10 * 3_600_000, 24)).toEqual({ start: -2 * 3_600_000, end: 22 * 3_600_000 });

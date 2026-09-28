@@ -10,7 +10,7 @@ export interface Preferences {
   lastCamera: string | null; // remembered on every camera switch
   liveQuality: 'sub' | 'main';
   eventFilter: 'all' | 'person' | 'vehicle' | 'pet' | 'motion';
-  timelineZoom: 24 | 12 | 6 | 3 | 1;
+  timelineZoom: 24 | 12 | 6 | 3 | 1 | 0.5;
   liveKeepAlive: 0 | 30 | 60 | 120 | 300 | 900; // seconds; 0 = off
   liveEvents: boolean; // new events at once, with a notification (Klaus, 2026-09-28)
   liveEventTypes: ('person' | 'vehicle' | 'pet' | 'motion')[]; // which ones notify
@@ -126,7 +126,7 @@ export function validatePreferencesPatch(body: unknown): { ok: true; patch: Part
   if ('lastCamera' in b && b.lastCamera !== null && !(typeof b.lastCamera === 'string' && getCamera(b.lastCamera))) details.push('lastCamera: a configured camera id or null');
   if ('liveQuality' in b && b.liveQuality !== 'sub' && b.liveQuality !== 'main') details.push('liveQuality: sub or main');
   if ('eventFilter' in b && !['all', 'person', 'vehicle', 'pet', 'motion'].includes(b.eventFilter as string)) details.push('eventFilter: all, person, vehicle, pet or motion');
-  if ('timelineZoom' in b && ![24, 12, 6, 3, 1].includes(b.timelineZoom as number)) details.push('timelineZoom: 24, 12, 6, 3 or 1');
+  if ('timelineZoom' in b && ![24, 12, 6, 3, 1, 0.5].includes(b.timelineZoom as number)) details.push('timelineZoom: 24, 12, 6, 3, 1 or 0.5');
   if ('liveKeepAlive' in b && !(KEEP_ALIVE_CHOICES as readonly number[]).includes(b.liveKeepAlive as number)) details.push('liveKeepAlive: 0, 30, 60, 120, 300 or 900');
   if ('liveEvents' in b && typeof b.liveEvents !== 'boolean') details.push('liveEvents: true or false');
   if ('liveEventTypes' in b && !(Array.isArray(b.liveEventTypes) && b.liveEventTypes.every((t) => ['person', 'vehicle', 'pet', 'motion'].includes(t as string)) && new Set(b.liveEventTypes).size === b.liveEventTypes.length)) {

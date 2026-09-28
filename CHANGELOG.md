@@ -8,16 +8,13 @@ published as [GitHub releases](https://github.com/klaushofrichter/cams/releases)
 
 ## [Unreleased]
 
-- History strip: after now and before the oldest content is striped.
-- Lists are newest first (hour groups and events).
-- One History panel: Events is merged into it (old `panel=events` links open History).
-- Downloads show a thumbnail per recording.
-- Settings: the cam-proxy card links to the camera's cam-proxy web page while
-  it answers (the proxy reports its address; cam-proxy v2026.09.28.2).
-- Default camera: "Last camera used" (remembered on every switch) replaces
-  "First camera".
-- Live events (Settings, on by default): a new event shows at once at the top
-  of the History list and on the strip ("recording…" until the camera lists
-  it), and a notification in the top bar ("Person on Den", 1 s, then fading)
-  for the types chosen in Settings.
+- One video page: Live, History and Downloads share the video, the line
+  under it and the strip; the menu switches the panel on the right. On Live
+  the strip's playhead sits at now (the live stream); moving back plays the
+  recording, ⇥ is live again. The Live panel shows the camera (simulated or
+  not, model, streams), the latest event (click to play) and the live
+  controls. Wide windows get spacers so the panel sits on the right.
+- A 30-minute zoom.
+- Leaving the live stream (playback or another page) keeps it for the
+  keep-alive time, as before.
 

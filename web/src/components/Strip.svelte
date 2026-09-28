@@ -8,7 +8,7 @@
   // History's strip (spec 2026-09-27): the playhead stays in the centre and
   // time moves under it. Drag, sideways wheel, click and ←/→ move it.
   let {
-    coverage, events, visibleIds, failedIds, at, now, currentId, previews, thumbFor, onseek, ondrag, onstep, oldest = null, pending = [],
+    coverage, events, visibleIds, failedIds, at, now, currentId, previews, thumbFor, onseek, ondrag, onstep, oldest = null, pending = [], onglue,
   }: {
     coverage: Coverage;
     events: EventClip[];
@@ -20,6 +20,7 @@
     previews: PreviewMinute[];
     thumbFor?: (clipId: string) => string;
     onseek: (at: number) => void;
+    onglue?: () => void; // the Live panel: ⇥ goes back to live
     ondrag?: (active: boolean) => void;
     onstep?: (dir: -1 | 1) => void;
     oldest?: number | null; // the oldest content (the left edge); null: not known
@@ -49,7 +50,7 @@
   // time zone), labelled with the wall clock (the repeated hour on the 25-hour
   // day shows twice); a date at midnight.
   const ticks = $derived.by(() => {
-    const h = $zoom >= 12 ? 3 : $zoom === 6 ? 1 : $zoom === 3 ? 0.5 : 0.25;
+    const h = $zoom >= 12 ? 3 : $zoom === 6 ? 1 : $zoom === 3 ? 0.5 : $zoom === 1 ? 0.25 : 5 / 60;
     const step = h * 3_600_000;
     const out: { left: number; label: string }[] = [];
     const times: number[] = [];
@@ -168,7 +169,7 @@
   <div class="tools">
     <div class="zoom" role="group" aria-label="Timeline zoom">
       {#each STRIP_ZOOMS as z (z)}
-        <button data-testid={`zoom-${z}`} aria-pressed={$zoom === z} onclick={() => void pickZoom(z)}>{z} h</button>
+        <button data-testid={`zoom-${z}`} aria-pressed={$zoom === z} onclick={() => void pickZoom(z)}>{z >= 1 ? `${z} h` : `${z * 60} min`}</button>
       {/each}
     </div>
   </div>
@@ -201,7 +202,7 @@
   </div>
   <div class="edge">
     <button data-testid="strip-forward" title={`Forward ${$zoom} h`} aria-label={`Forward ${$zoom} hours`} disabled={at >= hi} onclick={() => seekTo(at + span)}>›</button>
-    <button data-testid="strip-now" title="Now" aria-label="Go to now" disabled={at >= now - 5000} onclick={() => onseek(Math.max(lo, now - 2000))}>⇥</button>
+    <button data-testid="strip-now" title="Now" aria-label="Go to now" disabled={!onglue && at >= now - 5000} onclick={() => (onglue ? onglue() : onseek(Math.max(lo, now - 2000)))}>⇥</button>
   </div>
   </div>
 </div>

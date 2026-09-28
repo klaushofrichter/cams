@@ -47,8 +47,8 @@ describe('preferences', () => {
     expect(res.status).toBe(400);
   });
 
-  it('accepts the strip zooms 24, 12, 6, 3 and 1', async () => {
-    for (const z of [24, 12, 6, 3, 1]) {
+  it('accepts the strip zooms 24, 12, 6, 3, 1 and 0.5', async () => {
+    for (const z of [24, 12, 6, 3, 1, 0.5]) {
       const res = await request(createApp()).put('/api/preferences').set('Cookie', klaus).send({ timelineZoom: z });
       expect(res.status).toBe(200);
       expect(res.body.timelineZoom).toBe(z);

@@ -257,7 +257,7 @@
         </label>
         <label>Timeline zoom
           <select data-testid="pref-zoom" bind:value={prefs.timelineZoom}>
-            <option value={24}>24 hours</option><option value={12}>12 hours</option><option value={6}>6 hours</option><option value={3}>3 hours</option><option value={1}>1 hour</option>
+            <option value={24}>24 hours</option><option value={12}>12 hours</option><option value={6}>6 hours</option><option value={3}>3 hours</option><option value={1}>1 hour</option><option value={0.5}>30 minutes</option>
           </select>
         </label>
         <!-- Live events (Klaus, 2026-09-28). -->

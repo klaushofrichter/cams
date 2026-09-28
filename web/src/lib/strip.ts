@@ -6,8 +6,8 @@ import type { PreviewMinute } from './timeline';
 // moment, from the runs of clips, stills and preview tiles a camera has.
 // Times are UTC ms; runs are [start, end).
 
-export type StripZoom = 24 | 12 | 6 | 3 | 1;
-export const STRIP_ZOOMS: StripZoom[] = [24, 12, 6, 3, 1];
+export type StripZoom = 24 | 12 | 6 | 3 | 1 | 0.5;
+export const STRIP_ZOOMS: StripZoom[] = [24, 12, 6, 3, 1, 0.5];
 
 export interface Run { start: number; end: number }
 export interface ClipRun extends Run { clip: EventClip }
