@@ -13,7 +13,7 @@
   import { clipStartFromId } from '../lib/strip';
   import {
     addDays, cursorSearch, daysUrl, filterEvents, loadCursor, localDate,
-    parseCursor, saveCursor, type Cursor, type EventClip, type Filter,
+    parseCursor, parseFilter, saveCursor, type Cursor, type EventClip, type Filter,
   } from '../lib/recordings';
   import { liveEventsOn, preferences } from '../lib/preferences';
   import { createTodayRefresher, todayDate } from '../lib/refresh';
@@ -101,7 +101,7 @@
     if (r.page === 'video') vroute = r;
   });
 
-  let historyView: { jump: (at: number, play?: boolean) => void } | undefined = $state();
+  let historyView: { jump: (at: number, play?: boolean) => void; position: () => number } | undefined = $state();
   // Glued: the Live panel's playhead is at now and the player shows live.
   let glued = $state(untrack(() => $route.panel === 'live' && !$route.params.has('at')));
   // Each navigation to the Live panel without a position (menu, tab,
@@ -152,6 +152,28 @@
     });
     liveCamera = id;
   });
+  // Live and History are one strip (Klaus, 2026-09-28): leaving live on the
+  // Live panel (strip, ±10 s, an event) is History at that moment, and the
+  // menu and tabs say so. Pushed, so Back returns to Live.
+  $effect(() => {
+    if (panel !== 'live' || glued || !pageVisible || !cam) return;
+    untrack(() => {
+      const t = historyView?.position() ?? Date.now();
+      const c: Cursor = { date: localDate(new Date(t)), clipId: null, offsetSec: 0, at: t };
+      reportedAt = Math.floor(t);
+      saveCursor(cam, c);
+      // An old /app/live?at= link (earlier versions wrote them) is replaced,
+      // so Back doesn't land on it and bounce here again.
+      if (vroute.params.has('at')) replaceRoute(hrefFor(cam, c, 'history', filter));
+      else navigate(hrefFor(cam, c, 'history', filter));
+    });
+  });
+  // History: ⇥ while playing, or playback catching up with now, is Live.
+  // Never from behind another page (kept alive): that page owns the URL.
+  function toLive() {
+    if (pageVisible) navigate('/app/live');
+  }
+
   // The Live panel's camera status: checked on opening it and on another
   // camera, whether or not the stream is open.
   const liveShown = $derived(panel === 'live' && pageVisible);
@@ -205,7 +227,7 @@
   // Reads the preferences store reactively (not the pref() snapshot helper,
   // which uses get() and would not update this derived value if the
   // preference arrived or changed after the page mounted).
-  const filter: Filter = $derived(vroute.params.has('filter') ? parsed.filter : ($preferences?.eventFilter ?? 'all'));
+  const filter: Filter = $derived(vroute.params.has('filter') ? parsed.filter : parseFilter($preferences?.eventFilter));
   const panel: Panel = $derived(vroute.panel);
   const visible = $derived(filterEvents(events, filter));
   // The strip's first position: the URL's `at`, else an old link's clip and
@@ -216,6 +238,8 @@
   function onPosition(at: number, clipId: string | null) {
     playheadClip = clipId;
     reportedAt = at;
+    // Leaving live on the Live panel: the effect below moves to History.
+    if (panel === 'live' && !glued) return;
     // Kept alive behind another page: the URL is that page's.
     if (!cam || !pageVisible) return;
     const c: Cursor = { date: localDate(new Date(at)), clipId, offsetSec: 0, at };
@@ -398,10 +422,10 @@
           <HistoryView bind:this={historyView} {cam} proxy={camProxy}
             date={cursor.date} {initialAt} {filter}
             unavailable={downloads === 'unavailable'} onposition={onPosition} {pending}
-            live={panel === 'live'} bind:glued liveBox={liveWanted ? liveBoxSnippet : undefined} />
+            live={panel === 'live'} bind:glued onlive={panel === 'history' && pageVisible ? toLive : undefined} liveBox={liveWanted ? liveBoxSnippet : undefined} />
         {/key}
-        {#if downloads === 'proxy'}
-          <p class="note" data-testid="recordings-from-proxy" role="status">Recordings and thumbnails come from the camera gateway (cam-proxy) where it has them.</p>
+        {#if downloads !== 'unavailable' && !loading}
+          <p class="note" data-testid="recordings-source" role="status">Source of recordings and thumbnails: {downloads === 'proxy' ? 'cam-proxy' : 'camera'}</p>
         {/if}
         {#if downloads === 'unavailable'}
           <p class="banner" data-testid="recordings-unavailable" role="status">

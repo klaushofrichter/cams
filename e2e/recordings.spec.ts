@@ -138,7 +138,7 @@ test('the Live panel’s latest event plays it', async ({ page }) => {
   await page.getByTestId('live-latest').click();
   await expect(page.getByTestId('live-badge')).toHaveCount(0);
   await expect(page.getByTestId('source-badge')).toContainText(/SD 10 FPS|Stills|No recording/);
-  await expect(page).toHaveURL(/\/app\/live\?.*at=\d+/);
+  await expect(page).toHaveURL(/\/app\/recordings\?.*at=\d+.*panel=history/); // History (Klaus, 2026-09-28)
 });
 
 test('the video stays in place between Live, History and Downloads', async ({ page }) => {
@@ -400,3 +400,19 @@ test('a new event shows at once: a top-bar notification and a "recording…" ent
   await expect(page.getByTestId('event-pending').first()).toContainText('Person');
 });
 
+
+test('names the source of recordings and thumbnails: cam-proxy or camera (Klaus, 2026-09-28)', async ({ page }) => {
+  await page.goto('/app/recordings?panel=history&cam=cam1');
+  await expect(page.getByTestId('recordings-source')).toHaveText('Source of recordings and thumbnails: cam-proxy');
+  await page.goto('/app/recordings?panel=history&cam=porch');
+  await expect(page.getByTestId('recordings-source')).toHaveText('Source of recordings and thumbnails: camera');
+});
+
+// Final review (batch 2): only History goes to Live.
+test('Downloads stays on Downloads when ⇥ is pressed while playing', async ({ page }) => {
+  await page.goto(`/app/recordings?panel=downloads&cam=cam1&at=${Date.now() - 600_000}`);
+  await page.getByTestId('play-toggle').click();
+  await page.getByTestId('strip-now').click();
+  await page.waitForTimeout(500);
+  await expect(page).toHaveURL(/panel=downloads/);
+});

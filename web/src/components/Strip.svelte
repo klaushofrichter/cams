@@ -4,11 +4,12 @@
   import { zoom, pickZoom } from '../lib/zoomPref';
   import { previewAt, tileStyle, type PreviewMinute } from '../lib/timeline';
   import { addDays, localDate, type EventClip } from '../lib/recordings';
+  import { filmFrames, FILM_GAP, FILM_H, FILM_W } from '../lib/film';
 
   // History's strip (spec 2026-09-27): the playhead stays in the centre and
   // time moves under it. Drag, sideways wheel, click and ←/→ move it.
   let {
-    coverage, events, visibleIds, failedIds, at, now, currentId, previews, thumbFor, onseek, ondrag, onstep, oldest = null, pending = [], onglue,
+    coverage, events, visibleIds, failedIds, at, now, currentId, previews, thumbFor, onseek, ondrag, onstep, oldest = null, pending = [], onglue, filmWidth,
   }: {
     coverage: Coverage;
     events: EventClip[];
@@ -25,6 +26,7 @@
     onstep?: (dir: -1 | 1) => void;
     oldest?: number | null; // the oldest content (the left edge); null: not known
     pending?: { kind: string; ts: number }[]; // live events not listed as recordings yet
+    filmWidth?: number; // tests only: jsdom has no layout
   } = $props();
 
   const win = $derived(windowAround(at, $zoom));
@@ -79,6 +81,7 @@
     const r = el.getBoundingClientRect();
     return at + ((e.clientX - r.left - r.width / 2) / r.width) * span;
   }
+  let dragging = $state(false);
   function down(e: PointerEvent) {
     press = { x: e.clientX, at, moved: false };
     (e.currentTarget as HTMLElement).setPointerCapture?.(e.pointerId);
@@ -89,7 +92,9 @@
       const dx = e.clientX - press.x;
       if (!press.moved && Math.abs(dx) >= 4) {
         press.moved = true;
+        dragging = true;
         hover = null;
+        cursor = null;
         ondrag?.(true);
       }
       if (press.moved) seekTo(press.at - (dx / el.getBoundingClientRect().width) * span);
@@ -100,11 +105,13 @@
   function cancel() {
     if (press?.moved) ondrag?.(false);
     press = null;
+    dragging = false;
   }
   function up(e: PointerEvent) {
     if (!press) return;
     const moved = press.moved;
     press = null;
+    dragging = false;
     if (moved) return ondrag?.(false);
     // A click on a drawn event goes to its start: short clips are drawn wider
     // than they are (a minimum width), so the pixel may be past the clip.
@@ -135,13 +142,17 @@
   const REST_MS = 150;
   let hover = $state<{ left: number; label: string; style: string | null; img?: string } | null>(null);
   let rest: ReturnType<typeof setTimeout> | undefined;
+  // A line and the time under the pointer, precise where a hand wasn't
+  // (Klaus, 2026-09-28); the picture above it only where there is one.
+  let cursor = $state<{ left: number; label: string } | null>(null);
   function hoverAt(t: number, e: PointerEvent, el: HTMLElement) {
     const r = el.getBoundingClientRect();
     const left = ((e.clientX - r.left) / r.width) * 100;
     const label = new Date(t).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+    cursor = { left, label };
     const p = previewAt(previews, t);
     const ev = !p && thumbFor ? events.find((x) => t >= Date.parse(x.start) && t < Date.parse(x.end)) : undefined;
-    if (!p && !ev) return leave();
+    if (!p && !ev) return hidePicture();
     const style = p ? tileStyle(p.minute, p.index, 1) : null;
     const img = ev && thumbFor ? thumbFor(ev.id) : undefined;
     const same = hover && (hover.style === style || (img && hover.img === img));
@@ -152,10 +163,18 @@
       if (hover) hover = { ...hover, style, img };
     }, REST_MS);
   }
-  function leave() {
+  function hidePicture() {
     clearTimeout(rest);
     hover = null;
   }
+  function leave() {
+    hidePicture();
+    cursor = null;
+  }
+
+  // The band of small frames under the bar (Klaus, 2026-09-28).
+  let measured = $state(0);
+  const film = $derived(filmFrames(win, filmWidth ?? measured, previews));
 </script>
 
 <div class="wrap">
@@ -163,7 +182,7 @@
     <div class="scrub" style={`left: clamp(84px, ${hover.left}%, calc(100% - 84px))`} data-testid="scrub-preview" aria-hidden="true">
       {#if hover.img}<img class="frame" src={hover.img} alt="" width="160" height="90" onerror={() => hover && (hover = { ...hover, img: undefined })} />
       {:else}<span class="frame" style={hover.style ?? 'width: 160px; height: 90px'}></span>{/if}
-      <span class="when">{hover.label}</span>
+      <span class="when" data-testid="strip-cursor-time">{hover.label}</span>
     </div>
   {/if}
   <div class="tools">
@@ -181,7 +200,7 @@
   <div class="barwrap">
   <!-- The playhead's mark above the bar (Klaus, 2026-09-28: more prominent). -->
   <span class="mark" data-testid="strip-playhead-mark" aria-hidden="true"></span>
-  <div class="bar" data-testid="timeline" role="slider" tabindex="0" aria-label="Recordings timeline" aria-valuenow={Math.round(at / 1000)}
+  <div class="bar" class:dragging data-testid="timeline" role="slider" tabindex="0" aria-label="Recordings timeline" aria-valuenow={Math.round(at / 1000)}
     onpointerdown={down} onpointermove={move} onpointerup={up} onpointercancel={cancel} onlostpointercapture={cancel} onpointerleave={leave} onwheel={wheel} onkeydown={keydown}>
     {#each spans as s, i (i)}
       <span class={`span ${s.kind}`} data-testid="strip-span" data-kind={s.kind} style={`left:${s.left}%;width:${s.width}%`}></span>
@@ -195,6 +214,10 @@
     {/each}
     {#if nowLeft !== null}<span class="now" data-testid="timeline-now" style={`left:${nowLeft}%`}></span>{/if}
     <span class="playhead" data-testid="strip-playhead" style="left:50%"></span>
+    {#if cursor}
+      <span class="cursor" data-testid="strip-cursor" style={`left:${cursor.left}%`}></span>
+      {#if !hover}<span class="cursor-time" class:flip={cursor.left > 80} data-testid="strip-cursor-time" style={`left:${cursor.left}%`}>{cursor.label}</span>{/if}
+    {/if}
     <div class="ticks">
       {#each ticks as t (t.left)}<span data-testid="strip-tick" style={`left:${t.left}%`}>{t.label}</span>{/each}
     </div>
@@ -204,6 +227,17 @@
     <button data-testid="strip-forward" title={`Forward ${$zoom} h`} aria-label={`Forward ${$zoom} hours`} disabled={at >= hi} onclick={() => seekTo(at + span)}>›</button>
     <button data-testid="strip-now" title="Now" aria-label="Go to now" disabled={!onglue && at >= now - 5000} onclick={() => (onglue ? onglue() : onseek(Math.max(lo, now - 2000)))}>⇥</button>
   </div>
+  </div>
+  <!-- Aligned with the bar: the edge buttons' width either side. -->
+  <div class="film-row">
+    <div class="film" data-testid="strip-film" bind:clientWidth={measured} style={`height:${FILM_H}px`}>
+      {#each film as f (f.t)}
+        <button class="frame-btn" data-testid="strip-film-frame" data-t={f.t} tabindex="-1" aria-label={new Date(f.t).toLocaleTimeString()}
+          style={`left:calc(${f.left}% - ${FILM_W / 2}px);width:${FILM_W}px;height:${FILM_H}px`} onclick={() => seekTo(f.t)}>
+          {#if f.tile}<span class="tile" style={tileStyle(f.tile.minute, f.tile.index, FILM_W / f.tile.minute.tileW)}></span>{/if}
+        </button>
+      {/each}
+    </div>
   </div>
 </div>
 
@@ -223,7 +257,15 @@
   .zoom { display: flex; gap: 4px; }
   .zoom button { font-size: 12px; padding: 3px 9px; border-radius: 8px; border: 1px solid var(--border); background: transparent; color: var(--muted); cursor: pointer; }
   .zoom button[aria-pressed='true'] { background: var(--surface-2); color: var(--text); border-color: var(--accent); }
-  .bar { position: relative; height: 46px; border-radius: 10px; background: var(--strip-empty); border: 1px solid var(--border); cursor: grab; overflow: hidden; touch-action: pan-y; user-select: none; }
+  .bar { position: relative; height: 46px; border-radius: 10px; background: var(--strip-empty); border: 1px solid var(--border); cursor: crosshair; overflow: hidden; touch-action: pan-y; user-select: none; }
+  .bar.dragging { cursor: grabbing; }
+  .cursor { position: absolute; top: 0; bottom: 0; width: 1px; background: var(--text); opacity: 0.7; pointer-events: none; }
+  .cursor-time { position: absolute; top: 2px; margin-left: 4px; font-size: 10px; font-family: var(--mono); color: var(--text); background: color-mix(in srgb, var(--surface) 80%, transparent); padding: 0 3px; border-radius: 3px; pointer-events: none; white-space: nowrap; }
+  .cursor-time.flip { transform: translateX(calc(-100% - 8px)); }
+  .film-row { padding: 0 70px; } /* two 30 px edge buttons, their 4 px gap and the row's 6 px gap, each side */
+  .film { position: relative; overflow: hidden; }
+  .frame-btn { position: absolute; top: 0; padding: 0; border: 0; border-radius: 3px; overflow: hidden; background: var(--no-thumb-bg); cursor: pointer; }
+  .frame-btn .tile { display: block; }
   .span { position: absolute; top: 0; bottom: 0; pointer-events: none; }
   .span.pictures { background: var(--strip-stills); }
   .span.none { background: var(--strip-empty); }

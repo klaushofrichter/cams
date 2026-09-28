@@ -38,7 +38,7 @@ describe('pending live events', () => {
   });
 
   it('mark the strip where they started', () => {
-    preferences.set({ defaultCamera: null, liveQuality: 'sub', eventFilter: 'all', timelineZoom: 1, liveKeepAlive: 60 });
+    preferences.set({ defaultCamera: null, liveQuality: 'sub', eventFilter: ['person', 'vehicle', 'pet', 'motion'], timelineZoom: 1, liveKeepAlive: 60 });
     mountIt(Strip, { coverage: { clips: [], stills: [], previews: [] }, events: [], visibleIds: new Set(), failedIds: new Set(), at: T, now: T + 600_000, currentId: null, previews: [], onseek: () => {}, pending: [{ kind: 'motion', ts: T + 60_000 }] });
     const m = target!.querySelector('[data-testid="strip-pending"]') as HTMLElement;
     expect(m).not.toBeNull();

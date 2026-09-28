@@ -1,5 +1,8 @@
 export type Trigger = 'person' | 'vehicle' | 'pet' | 'motion' | 'timer';
-export type Filter = 'all' | 'person' | 'vehicle' | 'pet' | 'motion';
+// The event filter: the kinds shown, several at once (Klaus, 2026-09-28);
+// all four is "All". Always in ALL_KINDS order.
+export type FilterKind = 'person' | 'vehicle' | 'pet' | 'motion';
+export type Filter = FilterKind[];
 export type Zoom = 24 | 12 | 6 | 3 | 1 | 0.5;
 
 export interface EventClip {
@@ -26,7 +29,22 @@ export const TRIGGER_LABELS: Record<Trigger, string> = {
   motion: 'Motion',
   timer: 'Scheduled',
 };
-export const FILTERS: Filter[] = ['all', 'person', 'vehicle', 'pet', 'motion'];
+export const ALL_KINDS: FilterKind[] = ['person', 'vehicle', 'pet', 'motion'];
+export const isAllKinds = (f: Filter) => ALL_KINDS.every((k) => f.includes(k));
+// A URL value, a stored preference (a list, or an old single value), or junk.
+export function parseFilter(v: string | string[] | null | undefined): Filter {
+  const parts = Array.isArray(v) ? v : typeof v === 'string' ? v.split(',') : [];
+  const f = ALL_KINDS.filter((k) => parts.includes(k));
+  return f.length ? f : [...ALL_KINDS];
+}
+export const filterParam = (f: Filter) => (isAllKinds(f) ? 'all' : f.join(','));
+// A chip: from All, a kind shows only it; the last kind off is All again.
+export function toggleFilter(f: Filter, k: FilterKind | 'all'): Filter {
+  if (k === 'all') return [...ALL_KINDS];
+  if (isAllKinds(f)) return [k];
+  const next = f.includes(k) ? f.filter((x) => x !== k) : [...f, k];
+  return next.length ? ALL_KINDS.filter((x) => next.includes(x)) : [...ALL_KINDS];
+}
 const AI: Trigger[] = ['person', 'vehicle', 'pet'];
 const DATE = /^\d{4}-\d{2}-\d{2}$/;
 const CLIP = /^\d{8}-\d{6}-\d{6}$/;
@@ -119,7 +137,7 @@ export function neighbour(events: EventClip[], id: string, dir: -1 | 1): EventCl
 }
 
 export function filterEvents(events: EventClip[], filter: Filter): EventClip[] {
-  return filter === 'all' ? events : events.filter((e) => e.triggers.includes(filter));
+  return isAllKinds(filter) ? events : events.filter((e) => e.triggers.some((t) => (filter as string[]).includes(t)));
 }
 
 export function formatBytes(n: number | null): string {
@@ -144,7 +162,6 @@ export function parseCursor(params: URLSearchParams, today: string): { cam: stri
   const date = params.get('date') ?? '';
   const clip = params.get('clip') ?? '';
   const t = Number(params.get('t'));
-  const f = params.get('filter') as Filter;
   const atRaw = params.get('at') ?? '';
   return {
     cam: params.get('cam'),
@@ -154,7 +171,7 @@ export function parseCursor(params: URLSearchParams, today: string): { cam: stri
       offsetSec: Number.isFinite(t) && t > 0 ? Math.floor(t) : 0,
       at: /^\d{12,14}$/.test(atRaw) ? Number(atRaw) : null,
     },
-    filter: FILTERS.includes(f) ? f : 'all',
+    filter: parseFilter(params.get('filter')),
   };
 }
 
@@ -164,7 +181,7 @@ export function cursorSearch(c: string, cursor: Cursor, panel: string, filter: F
   if (cursor.clipId) p.set('clip', cursor.clipId);
   if (cursor.at === null) p.set('t', String(Math.floor(cursor.offsetSec)));
   p.set('panel', panel);
-  p.set('filter', filter);
+  p.set('filter', filterParam(filter));
   return `?${p.toString()}`;
 }
 

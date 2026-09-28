@@ -20,7 +20,9 @@ export interface CameraConfig {
   // The camera's cam-proxy (events, stills, clips). The token is a cam-proxy
   // client token: it stays on the server.
   // `camera`: the proxy's id for this camera, when it isn't the same as ours.
-  proxy?: { url: string; token: string; camera?: string };
+  // adminToken: optional, the proxy's admin token, used only to mint one-time
+  // sign-in links into its UI for a signed-in user (Klaus, 2026-09-28).
+  proxy?: { url: string; token: string; adminToken?: string; camera?: string };
 }
 
 export interface CameraSummary {
@@ -100,7 +102,7 @@ export function loadCameras(file: string | undefined = process.env.CAMERAS_FILE)
 
 // {url, token}: an http(s) URL without credentials, query or hash, and a
 // token of 32+ characters without whitespace. Errors never quote the token.
-function proxyOf(v: unknown, i: number): { url: string; token: string; camera?: string } {
+function proxyOf(v: unknown, i: number): { url: string; token: string; adminToken?: string; camera?: string } {
   const fail = (what: string): never => {
     throw new Error(`camera registry entry ${i}: proxy ${what}`);
   };
@@ -115,8 +117,10 @@ function proxyOf(v: unknown, i: number): { url: string; token: string; camera?: 
   if (!url || (url.protocol !== 'http:' && url.protocol !== 'https:')) fail('url must be an http(s) URL');
   if (url!.username || url!.password || url!.search || url!.hash) fail('url must have no credentials, query or hash');
   if (typeof p.token !== 'string' || p.token.length < 32 || /\s/.test(p.token)) fail('token must be a string of 32 or more characters without spaces');
+  if (p.adminToken !== undefined && (typeof p.adminToken !== 'string' || p.adminToken.length < 32 || /\s/.test(p.adminToken))) fail('adminToken must be a string of 32 or more characters without spaces');
   if (p.camera !== undefined && !(typeof p.camera === 'string' && ID_PATTERN.test(p.camera))) fail(`camera must match ${ID_PATTERN}`);
-  const out: { url: string; token: string; camera?: string } = { url: String(p.url).replace(/\/+$/, ''), token: p.token as string };
+  const out: { url: string; token: string; adminToken?: string; camera?: string } = { url: String(p.url).replace(/\/+$/, ''), token: p.token as string };
+  if (p.adminToken !== undefined) out.adminToken = p.adminToken as string;
   if (p.camera !== undefined) out.camera = p.camera as string;
   return out;
 }

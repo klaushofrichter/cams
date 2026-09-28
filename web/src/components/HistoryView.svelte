@@ -14,7 +14,7 @@
   // the page only hears about it (onposition) and can jump it (jump()).
   let {
     cam, proxy, date, initialAt, filter, unavailable, onposition, pending = [],
-    live = false, glued = $bindable(untrack(() => live)), liveBox,
+    live = false, glued = $bindable(untrack(() => live)), liveBox, onlive,
   }: {
     cam: string;
     proxy: boolean;
@@ -27,6 +27,7 @@
     live?: boolean; // the Live panel: the strip's right end is the live stream (spec 2026-09-28)
     glued?: boolean; // the playhead is glued to now and the player shows live
     liveBox?: Snippet; // the live stream, shown while glued
+    onlive?: () => void; // History: ⇥ while playing, or playback catching up, goes to Live (Klaus, 2026-09-28)
   } = $props();
 
   let now = $state(Date.now());
@@ -192,9 +193,14 @@
   // past the last clip and within 30 s of now counts as having reached it.
   const CATCH_UP = 30_000;
   $effect(() => {
-    if (live && !glued && playing && current === null && at >= now - CATCH_UP) {
-      playing = false;
-      glued = true;
+    if (!glued && playing && current === null && at >= now - CATCH_UP) {
+      if (live) {
+        playing = false;
+        glued = true;
+      } else if (onlive) {
+        playing = false;
+        untrack(() => onlive());
+      }
     }
   });
   function glue() {
@@ -206,6 +212,9 @@
     report(true);
   }
 
+  export function position(): number {
+    return at;
+  }
   export function jump(t: number, play = false) {
     glued = false;
     at = t;
@@ -238,7 +247,7 @@
   <Strip {oldest} {pending} {coverage} events={allEvents} {visibleIds} failedIds={failed} {at} {now} currentId={current} {previews}
     thumbFor={unavailable ? undefined : (id) => thumbUrl(cam, id)}
     onseek={(t) => seek(t)}
-    onglue={live ? glue : undefined}
+    onglue={live ? glue : playing && onlive ? () => { playing = false; onlive(); } : undefined}
     ondrag={(active) => {
       if (active) {
         dragResume = playing;
