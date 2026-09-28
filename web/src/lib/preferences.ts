@@ -7,7 +7,7 @@ export interface Preferences {
   lastCamera?: string | null;
   liveQuality: 'sub' | 'main';
   eventFilter: 'all' | 'person' | 'vehicle' | 'pet' | 'motion';
-  timelineZoom: 24 | 12 | 6 | 3 | 1;
+  timelineZoom: 24 | 12 | 6 | 3 | 1 | 0.5;
   liveKeepAlive: 0 | 30 | 60 | 120 | 300 | 900;
   liveEvents?: boolean; // new events at once, with a notification (default on)
   liveEventTypes?: ('person' | 'vehicle' | 'pet' | 'motion')[]; // which ones notify

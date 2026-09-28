@@ -49,7 +49,7 @@
   // time zone), labelled with the wall clock (the repeated hour on the 25-hour
   // day shows twice); a date at midnight.
   const ticks = $derived.by(() => {
-    const h = $zoom >= 12 ? 3 : $zoom === 6 ? 1 : $zoom === 3 ? 0.5 : 0.25;
+    const h = $zoom >= 12 ? 3 : $zoom === 6 ? 1 : $zoom === 3 ? 0.5 : $zoom === 1 ? 0.25 : 5 / 60;
     const step = h * 3_600_000;
     const out: { left: number; label: string }[] = [];
     const times: number[] = [];
@@ -168,7 +168,7 @@
   <div class="tools">
     <div class="zoom" role="group" aria-label="Timeline zoom">
       {#each STRIP_ZOOMS as z (z)}
-        <button data-testid={`zoom-${z}`} aria-pressed={$zoom === z} onclick={() => void pickZoom(z)}>{z} h</button>
+        <button data-testid={`zoom-${z}`} aria-pressed={$zoom === z} onclick={() => void pickZoom(z)}>{z >= 1 ? `${z} h` : `${z * 60} min`}</button>
       {/each}
     </div>
   </div>
