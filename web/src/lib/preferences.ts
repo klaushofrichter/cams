@@ -6,7 +6,7 @@ export interface Preferences {
   defaultCamera: string | null;
   liveQuality: 'sub' | 'main';
   eventFilter: 'all' | 'person' | 'vehicle' | 'pet' | 'motion';
-  timelineZoom: 24 | 6 | 1;
+  timelineZoom: 24 | 12 | 6 | 3 | 1;
   liveKeepAlive: 0 | 30 | 60 | 120 | 300 | 900;
 }
 

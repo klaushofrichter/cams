@@ -33,7 +33,7 @@ describe('preferences', () => {
 
   it.each([
     [{ liveQuality: 'ultra' }],
-    [{ timelineZoom: 12 }],
+    [{ timelineZoom: 5 }],
     [{ eventFilter: 'cat' }],
     [{ defaultCamera: 'nope' }],
     [{ theme: 'dark' }],
@@ -45,6 +45,14 @@ describe('preferences', () => {
   ])('rejects %j', async (body) => {
     const res = await request(createApp()).put('/api/preferences').set('Cookie', klaus).send(body);
     expect(res.status).toBe(400);
+  });
+
+  it('accepts the strip zooms 24, 12, 6, 3 and 1', async () => {
+    for (const z of [24, 12, 6, 3, 1]) {
+      const res = await request(createApp()).put('/api/preferences').set('Cookie', klaus).send({ timelineZoom: z });
+      expect(res.status).toBe(200);
+      expect(res.body.timelineZoom).toBe(z);
+    }
   });
 
   it('accepts a configured camera and null as the default camera', async () => {

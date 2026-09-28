@@ -1,6 +1,6 @@
 export type Trigger = 'person' | 'vehicle' | 'pet' | 'motion' | 'timer';
 export type Filter = 'all' | 'person' | 'vehicle' | 'pet' | 'motion';
-export type Zoom = 24 | 6 | 1;
+export type Zoom = 24 | 12 | 6 | 3 | 1;
 
 export interface EventClip {
   id: string;
