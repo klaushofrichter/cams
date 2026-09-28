@@ -27,6 +27,15 @@ export class CameraError extends Error {
 export interface CameraStatus {
   model: string;
   firmware: string;
+  simulator: string | null; // cam-sim's one extra GetDevInfo field
+  streams: { main: StreamInfo | null; sub: StreamInfo | null };
+}
+
+export interface StreamInfo { codec: 'h264' | 'h265'; width: number; height: number; fps: number }
+interface RawStream { vType?: string; width?: number; height?: number; frameRate?: number }
+function toStream(s: RawStream | undefined): StreamInfo | null {
+  if (!s || typeof s.width !== 'number' || typeof s.height !== 'number' || typeof s.frameRate !== 'number') return null;
+  return { codec: s.vType === 'h265' ? 'h265' : 'h264', width: s.width, height: s.height, fps: s.frameRate };
 }
 
 interface ReolinkReply {
@@ -213,8 +222,30 @@ export class ReolinkClient {
   }
 
   async status(): Promise<CameraStatus> {
-    const value = await this.command<{ DevInfo?: { model?: string; firmVer?: string } }>('GetDevInfo');
-    return { model: value.DevInfo?.model ?? 'unknown', firmware: value.DevInfo?.firmVer ?? 'unknown' };
+    const value = await this.command<{ DevInfo?: { model?: string; firmVer?: string; simulator?: unknown } }>('GetDevInfo');
+    return {
+      model: value.DevInfo?.model ?? 'unknown',
+      firmware: value.DevInfo?.firmVer ?? 'unknown',
+      // cam-sim's one extra field (a real camera never sends it).
+      simulator: typeof value.DevInfo?.simulator === 'string' ? value.DevInfo.simulator : null,
+      streams: await this.streams(),
+    };
+  }
+
+  // GetEnc changes rarely: asked once per 10 minutes; a failure only leaves
+  // the streams out of the status.
+  private enc?: { at: number; streams: { main: StreamInfo | null; sub: StreamInfo | null } };
+  private async streams(): Promise<{ main: StreamInfo | null; sub: StreamInfo | null }> {
+    if (this.enc && Date.now() - this.enc.at < 600_000) return this.enc.streams;
+    let streams: { main: StreamInfo | null; sub: StreamInfo | null } = { main: null, sub: null };
+    try {
+      const v = await this.command<{ Enc?: { mainStream?: RawStream; subStream?: RawStream } }>('GetEnc', { channel: 0 });
+      streams = { main: toStream(v.Enc?.mainStream), sub: toStream(v.Enc?.subStream) };
+    } catch {
+      // extra information: the status stands without it
+    }
+    this.enc = { at: Date.now(), streams };
+    return streams;
   }
 
   // Real firmware limits concurrent sessions and never gets a Logout when we

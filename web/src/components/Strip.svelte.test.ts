@@ -179,5 +179,15 @@ describe('Strip', () => {
     render({});
     expect(q('strip-playhead-mark')).not.toBeNull();
   });
+
+  it('offers 30 minutes, with ticks every 5 minutes', () => {
+    render({});
+    preferences.set({ ...PREFS, timelineZoom: 0.5 });
+    flushSync();
+    expect(q('zoom-0.5')!.textContent).toBe('30 min');
+    const labels = [...target!.querySelectorAll('[data-testid="strip-tick"]')].map((e) => e.textContent);
+    expect(labels).toContain('12:05');
+    expect(labels).toContain('11:50');
+  });
 });
 

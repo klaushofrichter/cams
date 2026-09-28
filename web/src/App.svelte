@@ -1,11 +1,10 @@
 <script lang="ts">
-  import { onMount, untrack } from 'svelte';
+  import { onMount } from 'svelte';
   import { fly, fade } from 'svelte/transition';
   import TopBar from './components/TopBar.svelte';
   import Sidebar from './components/Sidebar.svelte';
   import Icon from './components/Icon.svelte';
-  import Live from './pages/Live.svelte';
-  import Recordings from './pages/Recordings.svelte';
+  import Video from './pages/Video.svelte';
   import Timeline from './pages/Timeline.svelte';
   import Settings from './pages/Settings.svelte';
   import About from './pages/About.svelte';
@@ -13,7 +12,7 @@
   import { cameras, drawerOpen, me, selectedCameraId, theme, type CameraSummary, type Me } from './lib/stores';
   import { getJson, UnauthorizedError } from './lib/api';
   import { loadPreferences, preferences, rememberCamera, startCamera } from './lib/preferences';
-  import { createKeepAlive } from './lib/keepAlive';
+  import { liveStreamHeld } from './lib/liveUi';
   import { duration } from './lib/motion';
   import { currentTheme } from './lib/theme';
   import { liveStatus, documentTitle } from './lib/liveStatus';
@@ -29,59 +28,20 @@
   let drawerPanelEl: HTMLDivElement | undefined = $state();
   let drawerWasOpen = false;
 
-  // The Live page stays mounted (but hidden) for the chosen keep-alive time
-  // after the user leaves it, so its stream keeps playing in the background
-  // and coming back shows the picture at once. When the time runs out, Live
-  // is unmounted and its onDestroy closes the stream. Live's <video> is never
+  // The video page (Live, History, Downloads) stays mounted but hidden
+  // while it holds the live stream for the keep-alive after the user left
+  // (spec 2026-09-28); the page runs that countdown itself. When it lets go,
+  // the page unmounts and the stream closes. The page's <video> is never
   // moved in the DOM: removing a media element pauses it.
-  let liveMounted = $state(false);
-  const keepAlive = createKeepAlive(() => (liveMounted = false));
-  // "On screen" means the Live page is showing AND the browser tab is
-  // visible: a hidden tab or minimised window is off-screen too, so the
-  // countdown also runs there (Klaus, 2026-09-26).
+  // "On screen" also needs the browser tab visible: a hidden tab or
+  // minimised window is off-screen too (Klaus, 2026-09-26).
   let tabVisible = $state(typeof document === 'undefined' || document.visibilityState !== 'hidden');
   $effect(() => {
     const onVisibility = () => (tabVisible = document.visibilityState !== 'hidden');
     document.addEventListener('visibilitychange', onVisibility);
     return () => document.removeEventListener('visibilitychange', onVisibility);
   });
-  let wasOnScreen = false;
-  let leftWith: number | null = null;
-  $effect(() => {
-    // Nothing before `ready`: the router store starts out on 'live' until
-    // initRouter() syncs it, and a deep link to another page must not
-    // briefly mount Live (and open a stream nobody asked for).
-    if (!ready) return;
-    const onScreen = $route.page === 'live' && tabVisible;
-    const seconds = $preferences?.liveKeepAlive ?? 60;
-    if (onScreen) {
-      liveMounted = true;
-      leftWith = null;
-      keepAlive.enter();
-    } else if (wasOnScreen || (liveMounted && leftWith !== null && seconds !== leftWith)) {
-      // Just went off-screen (another page, or the tab was hidden), or the
-      // keep-alive preference changed while away: restart the countdown
-      // with the new time ("off" stops at once).
-      leftWith = seconds;
-      keepAlive.leave(seconds);
-    }
-    wasOnScreen = onScreen;
-  });
-  $effect(() => () => keepAlive.dispose());
-  // Picking another camera while Live is off-screen (kept alive) would switch
-  // the hidden player to a stream nobody watches: unmount Live at once
-  // instead. It mounts fresh, on the new camera, on return.
-  let liveCamera: string | null | undefined;
-  $effect(() => {
-    const id = $selectedCameraId;
-    untrack(() => {
-      if (liveCamera !== undefined && id !== liveCamera && liveMounted && !($route.page === 'live' && tabVisible)) {
-        keepAlive.enter(); // cancels the countdown: nothing left to expire
-        liveMounted = false;
-      }
-    });
-    liveCamera = id;
-  });
+  const videoMounted = $derived($route.page === 'video' || $liveStreamHeld);
 
   // The favicon frame and tab title mirror the camera's live status (Task
   // 13). Signing out is a full page navigation (to a separate entry point,
@@ -138,15 +98,14 @@
   <main class="main">
     {#if loadError}<div class="error" role="alert">{loadError}</div>{/if}
     {#if ready}
-      <!-- Outside the {#key} below: a route change must not remount Live. -->
-      {#if liveMounted}
-        <div class="live-host" hidden={$route.page !== 'live'} in:fly={{ y: 8, duration: duration(180) }}><Live visible={$route.page === 'live'} audible={$route.page === 'live' && tabVisible} /></div>
+      <!-- Outside the {#key} below: a route change must not remount the video page. -->
+      {#if videoMounted}
+        <div class="video-host" hidden={$route.page !== 'video'} in:fly={{ y: 8, duration: duration(180) }}><Video pageVisible={$route.page === 'video'} {tabVisible} /></div>
       {/if}
-      {#if $route.page !== 'live'}
+      {#if $route.page !== 'video'}
         {#key $route.page}
           <div class="page-wrap" in:fly={{ y: 8, duration: duration(180) }}>
-            {#if $route.page === 'recordings'}<Recordings />
-            {:else if $route.page === 'timeline'}<Timeline />
+            {#if $route.page === 'timeline'}<Timeline />
             {:else if $route.page === 'settings'}<Settings />
             {:else if $route.page === 'about'}<About />{/if}
           </div>

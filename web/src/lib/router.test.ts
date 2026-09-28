@@ -3,15 +3,15 @@ import { NAV_ITEMS, isActive, parseRoute } from './router';
 
 describe('parseRoute', () => {
   it.each([
-    ['/app/live', '', 'live'],
-    ['/app/recordings', '', 'recordings'],
+    ['/app/live', '', 'video'],
+    ['/app/recordings', '', 'video'],
     ['/app/settings', '', 'settings'],
     ['/app/about', '', 'about'],
-    ['/app', '', 'live'],
-    ['/app/', '', 'live'],
+    ['/app', '', 'video'],
+    ['/app/', '', 'video'],
     // Review focus 5: unknown pages fall back to Live, never a blank shell.
-    ['/app/nope', '', 'live'],
-    ['/app/recordings/extra', '', 'recordings'],
+    ['/app/nope', '', 'video'],
+    ['/app/recordings/extra', '', 'video'],
   ])('%s -> %s', (path, search, page) => {
     expect(parseRoute(path, search).page).toBe(page);
   });
@@ -21,6 +21,15 @@ describe('parseRoute', () => {
     expect(parseRoute('/app/recordings', '?panel=downloads').panel).toBe('downloads');
     expect(parseRoute('/app/recordings', '?panel=bogus').panel).toBe('history');
     expect(parseRoute('/app/recordings', '').panel).toBe('history');
+  });
+
+  it('routes Live and the recordings panels to one video page (spec 2026-09-28)', () => {
+    expect(parseRoute('/app/live', '')).toMatchObject({ page: 'video', panel: 'live' });
+    expect(parseRoute('/app/recordings', '?panel=downloads')).toMatchObject({ page: 'video', panel: 'downloads' });
+    expect(parseRoute('/app/recordings', '?panel=events')).toMatchObject({ page: 'video', panel: 'history' });
+    expect(parseRoute('/app/recordings', '')).toMatchObject({ page: 'video', panel: 'history' });
+    expect(parseRoute('/app/nope', '')).toMatchObject({ page: 'video', panel: 'live' });
+    expect(parseRoute('/app/live', '?panel=downloads').panel).toBe('live');
   });
 
   it('keeps other query params for later plans', () => {
