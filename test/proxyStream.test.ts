@@ -39,6 +39,21 @@ function stream(fake: FakeProxy, token = FAKE_TOKEN) {
 }
 
 describe('ProxyStream (upstream)', () => {
+  it('passes on only its own camera’s messages when a proxy serves several (review #5)', async () => {
+    const fake = await fakeProxy();
+    const s = new ProxyStream('den', new ProxyClient({ url: fake.url, token: FAKE_TOKEN }), { backoffMinMs: 50, backoffMaxMs: 400, healthyMs: 200, remoteCam: 'cam1' });
+    const got: { data: Record<string, unknown> }[] = [];
+    s.on('message', (m) => got.push(m));
+    s.start();
+    cleanup.push(() => s.stop());
+    await until(() => s.up());
+    fake.push({ cam: 'barn', type: 'camera-event', data: { eventId: 1, kind: 'person', phase: 'start', ts: 1000 } });
+    fake.push({ cam: 'cam1', type: 'camera-event', data: { eventId: 2, kind: 'motion', phase: 'start', ts: 2000 } });
+    await until(() => got.length >= 1);
+    await new Promise((r) => setTimeout(r, 100));
+    expect(got.map((m) => m.data.eventId)).toEqual([2]);
+  });
+
   it('relays the proxy’s messages and reports up', async () => {
     const fake = await fakeProxy();
     const { s, got, states } = stream(fake);
@@ -176,6 +191,17 @@ describe('GET /api/events/stream (to browsers)', () => {
     expect(all).not.toContain(FAKE_TOKEN);
     expect(all).not.toContain(fake.url);
     expect(all).not.toContain('clips/7.mp4');
+  });
+
+  it('says what kind of event started, for the live notification (Klaus, 2026-09-28)', async () => {
+    const fake = await fakeProxy();
+    const base = await app(fake);
+    const c = open(base, auth);
+    await until(() => c.frames.some((f) => f.includes('event: proxy') && f.includes('"up":true')));
+    fake.push({ cam: 'den', type: 'camera-event', data: { eventId: 3, kind: 'person', phase: 'start', ts: 1790538436000, source: 'onvif' } });
+    await until(() => c.frames.some((f) => f.startsWith('event: change')));
+    const change = c.frames.find((f) => f.startsWith('event: change'))!;
+    expect(JSON.parse(change.split('data: ')[1])).toEqual({ cam: 'den', type: 'camera-event', ts: 1790538436000, kind: 'person', phase: 'start' });
   });
 
   it('keeps browsers connected while the proxy is down, telling them', async () => {

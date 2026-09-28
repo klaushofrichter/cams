@@ -43,7 +43,15 @@ eventsRouter.get('/api/events/stream', (req: Request, res: Response) => {
   for (const s of proxyStates()) send('proxy', s);
   const onState = (s: { cam: string; up: boolean }) => send('proxy', s);
   const onMessage = (m: ProxyMessage) => {
-    if (m.type === 'camera-event' || m.type === 'clip' || m.type === 'reset' || m.type === 'camera-status') send('change', { cam: m.cam, type: m.type, ts: tsOf(m) });
+    if (m.type === 'camera-event' || m.type === 'clip' || m.type === 'reset' || m.type === 'camera-status') {
+      // A camera event also says what (person, motion, …) and whether it
+      // started or ended: the browser's live notification (Klaus, 2026-09-28).
+      const extra =
+        m.type === 'camera-event' && typeof m.data.kind === 'string' && (m.data.phase === 'start' || m.data.phase === 'end')
+          ? { kind: m.data.kind, phase: m.data.phase }
+          : {};
+      send('change', { cam: m.cam, type: m.type, ts: tsOf(m), ...extra });
+    }
   };
   // A camera's proxy was switched on or off (Settings): re-read /api/cameras.
   const onCameras = () => send('cameras', {});

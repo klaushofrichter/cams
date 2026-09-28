@@ -1,10 +1,12 @@
 <script lang="ts">
   import { tick, untrack } from 'svelte';
-  import { defaultGroupOpen, downloadUrl, formatBytes, formatClock, groupByHour, type EventClip } from '../lib/recordings';
+  import { defaultGroupOpen, downloadUrl, formatBytes, formatClock, groupByHour, thumbUrl, type EventClip } from '../lib/recordings';
 
   let { cameraId, events, date, selectedId }: { cameraId: string; events: EventClip[]; date: string; selectedId: string | null } = $props();
 
   const groups = $derived(groupByHour(events, date));
+  // Thumbnails that failed to load (per camera and clip): the hatched placeholder instead.
+  let broken = $state(new Set<string>());
 
   // Open/closed state per `cameraId|date|hour` -- not just `date|hour`:
   // switching cameras (without changing the date) must not carry over a
@@ -70,6 +72,12 @@
           <ul class="rows">
             {#each g.events as e (e.id)}
               <li class="row" data-testid="download-row" data-clip-id={e.id} aria-current={e.id === selectedId ? 'true' : undefined}>
+                {#if broken.has(`${cameraId}|${e.id}`)}
+                  <span class="thumb placeholder" data-testid="download-thumb"></span>
+                {:else}
+                  <img class="thumb" data-testid="download-thumb" loading="lazy" alt="" src={thumbUrl(cameraId, e.id)}
+                    onerror={() => (broken = new Set(broken).add(`${cameraId}|${e.id}`))} />
+                {/if}
                 <span class="when">{formatClock(e.start)} · {e.durationSec} s</span>
                 <a data-testid="download-sub" href={downloadUrl(cameraId, e.id, 'sub')} download>SD <small>{formatBytes(e.sizeSub)}</small></a>
                 <a data-testid="download-main" href={downloadUrl(cameraId, e.id, 'main')} download>Full <small>{formatBytes(e.sizeMain)}</small></a>
@@ -84,6 +92,8 @@
 
 <style>
   .groups { display: flex; flex-direction: column; gap: 10px; }
+  .thumb { width: 64px; height: 36px; object-fit: cover; border-radius: 5px; background: var(--surface-2); flex: none; display: block; }
+  .thumb.placeholder { background: var(--no-thumb-bg); }
   .group-head {
     position: sticky; top: 0; z-index: 1; display: flex; align-items: center; justify-content: space-between; gap: 8px;
     width: 100%; padding: 6px 8px; border-radius: 8px; border: 1px solid var(--border); background: var(--surface);

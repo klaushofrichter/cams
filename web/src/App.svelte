@@ -12,7 +12,7 @@
   import { initRouter, route } from './lib/router';
   import { cameras, drawerOpen, me, selectedCameraId, theme, type CameraSummary, type Me } from './lib/stores';
   import { getJson, UnauthorizedError } from './lib/api';
-  import { loadPreferences, preferences } from './lib/preferences';
+  import { loadPreferences, preferences, rememberCamera, startCamera } from './lib/preferences';
   import { createKeepAlive } from './lib/keepAlive';
   import { duration } from './lib/motion';
   import { currentTheme } from './lib/theme';
@@ -96,17 +96,19 @@
       const [profile, list, prefs] = await Promise.all([getJson<Me>('/api/me'), getJson<CameraSummary[]>('/api/cameras'), loadPreferences()]);
       me.set(profile);
       cameras.set(list);
-      selectedCameraId.update((id) =>
-        list.some((c) => c.id === id)
-          ? id
-          : (prefs?.defaultCamera && list.some((c) => c.id === prefs.defaultCamera) ? prefs.defaultCamera : (list[0]?.id ?? null)),
-      );
+      selectedCameraId.update((id) => (list.some((c) => c.id === id) ? id : startCamera(list, prefs)));
     } catch (err) {
       if (!(err instanceof UnauthorizedError)) loadError = 'Could not load the app. Please reload the page.';
     } finally {
       ready = true;
     }
   }
+
+  // Remember the camera on every switch (the default when none is chosen).
+  $effect(() => {
+    const id = $selectedCameraId;
+    if (ready && id) rememberCamera(id);
+  });
 
   onMount(() => {
     theme.set(currentTheme());

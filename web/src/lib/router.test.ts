@@ -17,7 +17,7 @@ describe('parseRoute', () => {
   });
 
   it('reads the recordings panel, defaulting to history', () => {
-    expect(parseRoute('/app/recordings', '?panel=events').panel).toBe('events');
+    expect(parseRoute('/app/recordings', '?panel=events').panel).toBe('history'); // Events is History now (Klaus, 2026-09-28)
     expect(parseRoute('/app/recordings', '?panel=downloads').panel).toBe('downloads');
     expect(parseRoute('/app/recordings', '?panel=bogus').panel).toBe('history');
     expect(parseRoute('/app/recordings', '').panel).toBe('history');
@@ -30,7 +30,7 @@ describe('parseRoute', () => {
 
 describe('navigation items', () => {
   it('lists the menu entries in order', () => {
-    expect(NAV_ITEMS.map((i) => i.label)).toEqual(['Live', 'History', 'Events', 'Downloads', 'Timeline', 'Settings', 'About']);
+    expect(NAV_ITEMS.map((i) => i.label)).toEqual(['Live', 'History', 'Downloads', 'Timeline', 'Settings', 'About']);
   });
 
   it('parses the Timeline page, which needs a cam-proxy', () => {
@@ -38,16 +38,15 @@ describe('navigation items', () => {
     expect(NAV_ITEMS.find((i) => i.id === 'timeline')).toMatchObject({ href: '/app/timeline', page: 'timeline', needsProxy: true });
   });
 
-  it('points History, Events and Downloads at the recordings workspace panels', () => {
+  it('points History and Downloads at the recordings workspace panels', () => {
     const hrefs = Object.fromEntries(NAV_ITEMS.map((i) => [i.id, i.href]));
     expect(hrefs.history).toBe('/app/recordings?panel=history');
-    expect(hrefs.events).toBe('/app/recordings?panel=events');
     expect(hrefs.downloads).toBe('/app/recordings?panel=downloads');
   });
 
   it('marks exactly one item active', () => {
     const r = parseRoute('/app/recordings', '?panel=events');
-    expect(NAV_ITEMS.filter((i) => isActive(i, r)).map((i) => i.id)).toEqual(['events']);
+    expect(NAV_ITEMS.filter((i) => isActive(i, r)).map((i) => i.id)).toEqual(['history']);
     const live = parseRoute('/app/live', '');
     expect(NAV_ITEMS.filter((i) => isActive(i, live)).map((i) => i.id)).toEqual(['live']);
   });

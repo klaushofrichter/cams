@@ -12,6 +12,7 @@
     onselect,
     onthumberror,
     downloadsOk = true,
+    pending = [],
   }: {
     cameraId: string;
     events: EventClip[];
@@ -22,6 +23,8 @@
     onselect: (e: EventClip) => void;
     onthumberror?: () => void;
     downloadsOk?: boolean;
+    // Live events that started and aren't listed as recordings yet (Klaus, 2026-09-28).
+    pending?: { kind: string; ts: number }[];
   } = $props();
 
   // Keyed by cameraId|id, not just id: a clip id is only unique within its
@@ -143,7 +146,17 @@
   {/each}
 </div>
 
-{#if events.length === 0}
+{#each pending as p (p.ts)}
+  <div class="card pending" data-testid="event-pending" role="status">
+    <span class="dot" aria-hidden="true"></span>
+    <span class="meta">
+      <strong>{new Date(p.ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}</strong>
+      <span class="tags"><span class="tag">{TRIGGER_LABELS[p.kind as keyof typeof TRIGGER_LABELS] ?? p.kind}</span></span>
+      <span class="dur">recording…</span>
+    </span>
+  </div>
+{/each}
+{#if events.length === 0 && pending.length === 0}
   <p class="none" data-testid="no-events">No {filter === 'all' ? '' : TRIGGER_LABELS[filter].toLowerCase() + ' '}events on this day.</p>
 {:else}
   <div class="groups" bind:this={listEl}>
@@ -210,4 +223,7 @@
   .tag { font-size: 10px; padding: 1px 7px; border-radius: 999px; background: color-mix(in srgb, var(--accent-2) 22%, transparent); color: var(--text); }
   .tag.ai { background: color-mix(in srgb, var(--accent) 22%, transparent); }
   .none { color: var(--muted); font-size: 14px; }
+  .pending { display: flex; align-items: center; gap: 10px; padding: 8px 10px; border-radius: 10px; border: 1px dashed var(--accent); background: var(--surface); margin-bottom: 8px; }
+  .pending .dot { width: 10px; height: 10px; border-radius: 50%; background: var(--danger); animation: pulse 1.2s ease-in-out infinite; flex: none; }
+  @keyframes pulse { 50% { opacity: 0.3; } }
 </style>

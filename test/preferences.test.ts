@@ -62,11 +62,28 @@ describe('preferences', () => {
     expect((await put(null)).body.defaultCamera).toBeNull();
   });
 
+  it('remembers the last camera used (Klaus, 2026-09-28)', async () => {
+    const put = (lastCamera: unknown) => request(createApp()).put('/api/preferences').set('Cookie', klaus).send({ lastCamera });
+    expect((await put('cam1')).body.lastCamera).toBe('cam1');
+    expect((await put('nope')).status).toBe(400);
+    expect((await put(null)).body.lastCamera).toBeNull();
+  });
+
+  it('keeps the live-events setting and its types (Klaus, 2026-09-28)', async () => {
+    const put = (body: object) => request(createApp()).put('/api/preferences').set('Cookie', klaus).send(body);
+    const def = (await request(createApp()).get('/api/preferences').set('Cookie', klaus)).body;
+    expect(def.liveEvents).toBe(true);
+    expect(def.liveEventTypes).toEqual(['person', 'vehicle', 'pet', 'motion']);
+    expect((await put({ liveEvents: false, liveEventTypes: ['person'] })).body).toMatchObject({ liveEvents: false, liveEventTypes: ['person'] });
+    expect((await put({ liveEvents: 'yes' })).status).toBe(400);
+    expect((await put({ liveEventTypes: ['person', 'cat'] })).status).toBe(400);
+  });
+
   it('drops stored fields that are unknown or no longer valid', async () => {
     const { writeFileSync } = await import('fs');
     writeFileSync(
       process.env.PREFS_FILE!,
-      JSON.stringify({ 'klaus@klaushofrichter.net': { liveQuality: 'nonsense', timelineZoom: 6, extraOldField: 'legacy', defaultCamera: 'removed-cam' } }),
+      JSON.stringify({ 'klaus@klaushofrichter.net': { liveQuality: 'nonsense', timelineZoom: 6, extraOldField: 'legacy', defaultCamera: 'removed-cam', lastCamera: 'removed-cam' } }),
     );
     const res = await request(createApp()).get('/api/preferences').set('Cookie', klaus);
     expect(res.body).toEqual({ ...DEFAULT_PREFERENCES, timelineZoom: 6 });

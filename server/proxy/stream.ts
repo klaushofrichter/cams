@@ -1,7 +1,7 @@
 import { EventEmitter } from 'events';
 import { listProxied } from '../cameraRegistry';
 import { logger } from '../logger';
-import { getProxyClient, ProxyError, type ProxyClient } from './client';
+import { getProxyClient, ProxyError, type ProxyClient, proxyCameraId } from './client';
 
 // One upstream subscription to a camera's cam-proxy event stream (SSE).
 // It resumes from the last id after a drop, starts over on `reset`, and
@@ -14,6 +14,7 @@ export interface StreamOptions {
   backoffMaxMs?: number;
   healthyMs?: number; // connected this long: the backoff starts over
   idleMs?: number; // nothing received this long (cam-proxy pings every 15 s): reconnect
+  remoteCam?: string; // the proxy's id for this camera: messages for others are dropped
 }
 
 const TYPES = 'camera-event,camera-status,clip';
@@ -134,6 +135,8 @@ export class ProxyStream extends EventEmitter {
       return;
     }
     if (id !== undefined) this.lastId = id;
+    // A proxy can serve several cameras: pass on only this camera's messages.
+    if (typeof parsed.cam === 'string' && parsed.cam !== (this.o.remoteCam ?? this.cam)) return;
     this.emit('message', { cam: this.cam, type: event, data: parsed });
   }
 }
@@ -158,7 +161,7 @@ export function startProxyStream(cam: string): void {
   if (shuttingDown || streams.has(cam)) return;
   const client = getProxyClient(cam);
   if (!client) return;
-  const s = new ProxyStream(cam, client, options);
+  const s = new ProxyStream(cam, client, { ...options, remoteCam: proxyCameraId(cam) });
   s.on('message', (m) => proxyHub.emit('message', m));
   s.on('state', (up: boolean) => proxyHub.emit('state', { cam, up }));
   streams.set(cam, s);

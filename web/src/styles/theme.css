@@ -11,7 +11,8 @@
   --no-thumb-line: #1A2640;
   --strip-stills: #2B3D63;
   --strip-empty: #111827;
-  --strip-future: #05080F;
+  --strip-outside-a: #070A12;
+  --strip-outside-b: #1C2436;
   --border: #1C2940;
   --text: #E6EDF7;
   --muted: #9FB0CC;
@@ -32,6 +33,8 @@
   --radius: 10px;
   /* Where a timeline or an event has no thumbnail (Klaus, 2026-09-27). */
   --no-thumb-bg: repeating-linear-gradient(135deg, var(--no-thumb) 0 6px, var(--no-thumb-line) 6px 8px);
+  /* The strip after now and before the oldest content (Klaus, 2026-09-28). */
+  --strip-outside-bg: repeating-linear-gradient(135deg, var(--strip-outside-a) 0 5px, var(--strip-outside-b) 5px 10px);
   /* Live and History players: the same size, and never taller than the
      window leaves room for (controls, timeline). */
   --player-max-w: min(1280px, max(360px, calc((100vh - 370px) * 16 / 9)));
@@ -49,7 +52,8 @@
   --no-thumb-line: #D2DBE8;
   --strip-stills: #EEF3FA;
   --strip-empty: #C9D2DF;
-  --strip-future: #9AA6B8;
+  --strip-outside-a: #F5F8FC;
+  --strip-outside-b: #B8C3D3;
   --border: #D8E1EE;
   --text: #0F1B2D;
   --muted: #55657F;
@@ -79,7 +83,8 @@
     --no-thumb-line: #D2DBE8;
     --strip-stills: #EEF3FA;
     --strip-empty: #C9D2DF;
-    --strip-future: #9AA6B8;
+    --strip-outside-a: #F5F8FC;
+    --strip-outside-b: #B8C3D3;
     --border: #D8E1EE;
     --text: #0F1B2D;
     --muted: #55657F;
