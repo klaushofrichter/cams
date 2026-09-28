@@ -24,6 +24,7 @@ test('the Timeline shows the day’s minutes from the camera gateway, and a stil
   const src = await page.getByTestId('timeline-still').getAttribute('src');
   await page.reload();
   await expect(page.getByTestId('timeline-still')).toHaveAttribute('src', src!);
+  await expect(page.getByTestId('timeline-open-history')).toHaveAttribute('href', /panel=history&at=\d+/);
   await page.getByTestId('timeline-close').click();
   await expect(page.getByTestId('timeline-viewer')).toHaveCount(0);
 });
@@ -48,4 +49,13 @@ test('the Recordings timeline previews the frame under the pointer', async ({ pa
   }, { timeout: 10_000 }).toBe(true);
   await page.mouse.move(box.x + box.width / 2, box.y - 40);
   await expect(page.getByTestId('scrub-preview')).toHaveCount(0);
+});
+
+test('a still opens that moment in History', async ({ page }) => {
+  await page.goto('/app/timeline');
+  await page.getByTestId('camera-picker').selectOption('cam1');
+  await page.getByTestId('timeline-minute').first().click();
+  await page.getByTestId('timeline-open-history').click();
+  await expect(page).toHaveURL(/\/app\/recordings\?.*at=\d+.*panel=history/);
+  await expect(page.getByTestId('source-badge')).toBeVisible();
 });

@@ -299,3 +299,56 @@ test('a camera with a cam-proxy plays its recordings from the proxy', async ({ p
   await expect.poll(() => video.evaluate((v: HTMLVideoElement) => v.readyState), { timeout: 20_000 }).toBeGreaterThanOrEqual(1);
   await expect(page.getByTestId('recordings-unavailable')).toHaveCount(0);
 });
+
+// The continuous strip (spec 2026-09-27).
+test('the strip plays proxy stills in real time, and says so', async ({ page }) => {
+  const at = Date.now() - 5 * 60_000;
+  await page.goto(`/app/recordings?cam=barn&panel=history&at=${at}`);
+  await expect(page.getByTestId('source-badge')).toHaveText('Stills 1 FPS');
+  await expect.poll(() => page.getByTestId('strip-still').evaluate((img: HTMLImageElement) => img.naturalWidth)).toBeGreaterThan(0);
+  const before = new URL(page.url()).searchParams.get('at');
+  await page.getByTestId('play-toggle').click();
+  await expect.poll(() => new URL(page.url()).searchParams.get('at'), { timeout: 10_000 }).not.toBe(before);
+});
+
+test('a stretch with nothing recorded says so', async ({ page }) => {
+  const d = new Date();
+  const earlyToday = new Date(d.getFullYear(), d.getMonth(), d.getDate(), 0, 1).getTime(); // Shed: no proxy, no event at 00:01
+  await page.goto(`/app/recordings?cam=shed&panel=history&at=${earlyToday}`);
+  await expect(page.getByTestId('source-badge')).toHaveText('No recording');
+  await expect(page.getByTestId('strip-empty')).toBeVisible();
+});
+
+test('dragging the strip to yesterday changes the date and the list', async ({ page }) => {
+  await keepZoomLocal(page); // the zoom is a shared user's preference
+  const d = new Date();
+  const earlyToday = new Date(d.getFullYear(), d.getMonth(), d.getDate(), 0, 30).getTime();
+  await page.goto(`/app/recordings?panel=history&at=${earlyToday}`);
+  await page.getByTestId('zoom-3').click();
+  const bar = page.getByTestId('timeline');
+  const box = (await bar.boundingBox())!;
+  await page.mouse.move(box.x + box.width / 2, box.y + 20);
+  await page.mouse.down();
+  await page.mouse.move(box.x + box.width * 0.95, box.y + 20, { steps: 8 }); // ~1.35 h back
+  await page.mouse.up();
+  const today = await page.evaluate(() => { const n = new Date(); return `${n.getFullYear()}-${String(n.getMonth() + 1).padStart(2, '0')}-${String(n.getDate()).padStart(2, '0')}`; });
+  await expect.poll(() => new URL(page.url()).searchParams.get('date')).not.toBe(today);
+  await expect(page.getByTestId('day-picker')).not.toHaveValue(today);
+});
+
+test('an old link with clip and t opens at that moment', async ({ page }) => {
+  await openEvents(page);
+  const id = await page.getByTestId('event-card').nth(2).getAttribute('data-clip-id');
+  const date = new URL(page.url()).searchParams.get('date');
+  await page.goto(`/app/recordings?date=${date}&clip=${id}&t=3&panel=history`);
+  await expect(page.locator('[data-testid="event-card"][aria-current="true"]')).toHaveAttribute('data-clip-id', id!);
+  await expect(page.getByTestId('source-badge')).toHaveText('SD 10 FPS');
+});
+
+test('on a phone the strip and controls fit the width', async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== 'phone', 'phone layout');
+  await page.goto('/app/recordings?panel=history');
+  await expect(page.getByTestId('timeline')).toBeVisible();
+  const overflow = await page.evaluate(() => document.documentElement.scrollWidth - innerWidth);
+  expect(overflow).toBeLessThanOrEqual(0);
+});

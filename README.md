@@ -22,13 +22,13 @@ clip playback and downloads, and camera settings, behind Google sign-in.
   - **Timeline:** the Timeline page (in the menu when some camera has a proxy) shows a day's stills as one tile per minute, marks event minutes, and steps through a minute's stills.
   - **Clips first from the proxy:** a recording plays from the clip the camera uploaded to the proxy (with seeking); the camera is asked only when the proxy has none. Downloads: the sub stream from the proxy (`…-proxy.mp4`), full quality from the camera (the proxy's clip if the camera refuses). The camera should upload the sub stream (cam-proxy `ftp.stream: sub`: H.264, plays in every browser).
   - **Event thumbnails** are the proxy's first still 2–12 s into the event (a JPEG): no clip transfer, no ffmpeg. Without one, a frame from the clip as before.
-  - **Scrub preview:** moving over the Recordings timeline shows the frame of that moment (the proxy's preview sprites).
+  - **History strip:** the playhead stays centred and playback runs in real time through clips, the proxy's stills (1 fps, 24 h) and preview tiles (1 fps, 72 h), and stretches without anything ("No recording"), across days; a badge names the source. Hovering the strip shows that moment's frame.
   - **Live fallback:** while live video isn't playing for 5 s (or the camera is offline), Live shows the proxy's newest still, updated every second, marked STILLS with the still's time and age (the header says STILLS instead of LIVE).
   - **Switch:** Settings has a "cam-proxy" card for a camera with a proxy. Switching it off makes cams ignore the proxy for everyone (clips, thumbnails, stills and events from the camera only; the event subscription stops) until it is switched on again. The choice is kept in `proxy-state.json` (see `PROXY_STATE_FILE`) and survives restarts; thumbnails already cached stay.
 
 ## Pages and API
 
-- **Pages** (`/app/…`): Live; Recordings with the History, Events and Downloads panels (`?panel=`, `?cam&date&clip&t`); Timeline (cameras with a cam-proxy; `?cam&date&t`); Settings (the camera's settings, the cam-proxy switch, reboot); About (version, build date, cameras).
+- **Pages** (`/app/…`): Live; Recordings with the History strip and the Events and Downloads panels (`?panel=`, `?cam&date&at`; old `clip&t` links still work); Timeline (cameras with a cam-proxy; `?cam&date&t`); Settings (the camera's settings, the cam-proxy switch, reboot); About (version, build date, cameras).
 - **API** (all need the sign-in cookie and answer JSON 401 otherwise; changes need the same origin; `Cache-Control: no-store`):
   - `GET /api/me`, `GET /api/cameras`, `GET/PUT /api/preferences`;
   - per camera `/api/cameras/:id/…`: `status`, `snapshot.jpg`, `live` (at most 4 per camera), `days`, `events`, `settings` (`PUT settings/:section`), `device`, `POST reboot`;

@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { navigate } from '../lib/router';
   import { onMount } from 'svelte';
   import { getJson } from '../lib/api';
   import { cameras, selectedCameraId } from '../lib/stores';
@@ -179,6 +180,8 @@
           <button onclick={() => step(-1)} aria-label="Previous second">◀</button>
           <span class="mono">{clock(ts, true)}</span>
           <button onclick={() => step(1)} aria-label="Next second">▶</button>
+          <a data-testid="timeline-open-history" href={`/app/recordings?cam=${encodeURIComponent(camera.id)}&panel=history&at=${ts}`}
+            onclick={(e) => { if (e.button === 0 && !e.metaKey && !e.ctrlKey && !e.shiftKey) { e.preventDefault(); navigate((e.currentTarget as HTMLAnchorElement).getAttribute('href')!); } }}>Open in History</a>
           <button onclick={() => (open = null)} data-testid="timeline-close">Close</button>
         </div>
       </div>
