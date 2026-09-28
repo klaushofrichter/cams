@@ -2,7 +2,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   addDays, clipAtSecond, cursorSearch, dayLength, dayStartMs, downloadUrl, filterEvents, formatBytes, groupByHour, layoutSegments, legendTicks,
-  loadCursor, neighbour, parseCursor, saveCursor, secondsIntoDay, thumbUrl, tickLabel, timelineWindow, videoUrl,
+  loadCursor, neighbour, panWindow, parseCursor, saveCursor, secondsIntoDay, thumbUrl, tickLabel, timelineWindow, videoUrl,
   type EventClip,
 } from './recordings';
 
@@ -35,6 +35,10 @@ describe('timeline', () => {
     expect(timelineWindow(1, 600)).toEqual({ start: 0, end: 3600 });
     expect(timelineWindow(1, 86000)).toEqual({ start: 82800, end: 86400 });
     expect(timelineWindow(6, 43200)).toEqual({ start: 32400, end: 54000 });
+    // whole hours (Klaus: "3 PM to 4 PM"): the hour containing the moment
+    expect(timelineWindow(1, 43200)).toEqual({ start: 43200, end: 46800 });
+    expect(timelineWindow(1, 45000)).toEqual({ start: 43200, end: 46800 });
+    expect(timelineWindow(6, 45000)).toEqual({ start: 36000, end: 57600 });
   });
 
   it('lays out segments inside the window with AI marked', () => {
@@ -230,3 +234,19 @@ describe('groupByHour', () => {
     expect(g[0].events).toHaveLength(25);
   });
 });
+
+describe('panWindow (moving a zoomed timeline)', () => {
+  it('moves by one window length within the day', () => {
+    expect(panWindow({ start: 15 * 3600, end: 16 * 3600 }, -1)).toEqual({ start: 14 * 3600, end: 15 * 3600 });
+    expect(panWindow({ start: 15 * 3600, end: 16 * 3600 }, 1)).toEqual({ start: 16 * 3600, end: 17 * 3600 });
+  });
+
+  it('stops at the day’s edge, and asks for the next or previous day only from the edge window', () => {
+    expect(panWindow({ start: 1800, end: 1800 + 3600 }, -1)).toEqual({ start: 0, end: 3600 });
+    expect(panWindow({ start: 0, end: 3600 }, -1)).toBe('prev-day');
+    // a 25-hour day (DST ends): the last 6-hour window ends at the day's end
+    expect(panWindow({ start: 60_000, end: 60_000 + 6 * 3600 }, 1, 90_000)).toEqual({ start: 90_000 - 6 * 3600, end: 90_000 });
+    expect(panWindow({ start: 86400 - 3600, end: 86400 }, 1)).toBe('next-day');
+  });
+});
+

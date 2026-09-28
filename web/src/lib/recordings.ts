@@ -55,8 +55,26 @@ export function dayLength(date: string): number {
 export function timelineWindow(zoom: Zoom, centerSec: number, daySec = 86400): { start: number; end: number } {
   if (zoom === 24) return { start: 0, end: daySec };
   const span = zoom * 3600;
-  const start = Math.min(Math.max(0, centerSec - span / 2), daySec - span);
+  // Whole hours: at 1 h the hour containing the moment, at 6 h the nearest
+  // whole hour to centre it. Kept inside the day.
+  const H = 3600;
+  const want = zoom === 1 ? Math.floor(centerSec / H) * H : Math.round((centerSec - span / 2) / H) * H;
+  const start = Math.min(Math.max(0, want), daySec - span);
   return { start, end: start + span };
+}
+
+// The zoomed window one window length earlier or later, kept inside the day.
+// From the day's first (last) window it asks for the previous (next) day.
+export function panWindow(win: { start: number; end: number }, dir: -1 | 1, daySec = 86400): { start: number; end: number } | 'prev-day' | 'next-day' {
+  const span = win.end - win.start;
+  if (dir < 0) {
+    if (win.start <= 0) return 'prev-day';
+    const start = Math.max(0, win.start - span);
+    return { start, end: start + span };
+  }
+  if (win.end >= daySec) return 'next-day';
+  const end = Math.min(daySec, win.end + span);
+  return { start: end - span, end };
 }
 
 export function layoutSegments(

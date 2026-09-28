@@ -94,3 +94,42 @@ export function previewAt(minutes: PreviewMinute[], ts: number): { minute: Previ
   const index = tileIndex(m, ts);
   return m.present[index] ? { minute: m, index } : null;
 }
+
+// The parts of a timeline window that have a thumbnail to show on hover: the
+// proxy's preview minutes and the events (their own thumbnails), merged, as
+// percent of the window. The rest is drawn as "no thumbnail".
+export function thumbCoverage(
+  previews: PreviewMinute[],
+  events: { start: number; end: number }[], // seconds into the day
+  dayStartMs: number,
+  win: { start: number; end: number },
+): { left: number; width: number }[] {
+  const spans = [
+    // each run of present tiles in a minute (a tile covers intervalS seconds)
+    ...previews.flatMap((p) => {
+      const base = (p.minute - dayStartMs) / 1000;
+      const out: { start: number; end: number }[] = [];
+      p.present.forEach((on, i) => {
+        if (!on) return;
+        const s0 = base + i * p.intervalS;
+        const last = out.at(-1);
+        if (last && last.end === s0) last.end = s0 + p.intervalS;
+        else out.push({ start: s0, end: s0 + p.intervalS });
+      });
+      return out;
+    }),
+    ...events,
+  ]
+    .map((s) => ({ start: Math.max(s.start, win.start), end: Math.min(s.end, win.end) }))
+    .filter((s) => s.end > s.start)
+    .sort((a, b) => a.start - b.start);
+  const merged: { start: number; end: number }[] = [];
+  for (const s of spans) {
+    const last = merged.at(-1);
+    if (last && s.start <= last.end) last.end = Math.max(last.end, s.end);
+    else merged.push({ ...s });
+  }
+  const len = win.end - win.start;
+  return merged.map((s) => ({ left: ((s.start - win.start) / len) * 100, width: ((s.end - s.start) / len) * 100 }));
+}
+
