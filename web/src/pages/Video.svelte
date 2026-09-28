@@ -162,12 +162,16 @@
       const c: Cursor = { date: localDate(new Date(t)), clipId: null, offsetSec: 0, at: t };
       reportedAt = Math.floor(t);
       saveCursor(cam, c);
-      navigate(hrefFor(cam, c, 'history', filter));
+      // An old /app/live?at= link (earlier versions wrote them) is replaced,
+      // so Back doesn't land on it and bounce here again.
+      if (vroute.params.has('at')) replaceRoute(hrefFor(cam, c, 'history', filter));
+      else navigate(hrefFor(cam, c, 'history', filter));
     });
   });
   // History: ⇥ while playing, or playback catching up with now, is Live.
+  // Never from behind another page (kept alive): that page owns the URL.
   function toLive() {
-    navigate('/app/live');
+    if (pageVisible) navigate('/app/live');
   }
 
   // The Live panel's camera status: checked on opening it and on another
@@ -418,7 +422,7 @@
           <HistoryView bind:this={historyView} {cam} proxy={camProxy}
             date={cursor.date} {initialAt} {filter}
             unavailable={downloads === 'unavailable'} onposition={onPosition} {pending}
-            live={panel === 'live'} bind:glued onlive={toLive} liveBox={liveWanted ? liveBoxSnippet : undefined} />
+            live={panel === 'live'} bind:glued onlive={panel === 'history' && pageVisible ? toLive : undefined} liveBox={liveWanted ? liveBoxSnippet : undefined} />
         {/key}
         {#if downloads !== 'unavailable' && !loading}
           <p class="note" data-testid="recordings-source" role="status">Source of recordings and thumbnails: {downloads === 'proxy' ? 'cam-proxy' : 'camera'}</p>

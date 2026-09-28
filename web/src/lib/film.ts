@@ -16,7 +16,8 @@ export interface FilmFrame {
 }
 
 // The preview tile at t, or the nearest present one within 3 s (cam-sim
-// drops tiles); only minutes already loaded, so the band adds no requests.
+// drops tiles). Only minutes whose metadata is loaded; each frame shows its
+// minute's sprite, fetched once (finished minutes are cached 7 days).
 function tileNear(byMinute: Map<number, PreviewMinute>, t: number): FilmFrame['tile'] {
   for (const d of [0, -1000, 1000, -2000, 2000, -3000, 3000]) {
     const s = t + d;

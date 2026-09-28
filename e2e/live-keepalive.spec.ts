@@ -315,3 +315,13 @@ test('⇥ on History while paused stays on History; playing, it goes to Live (Kl
   await page.goBack();
   await expect(page).toHaveURL(/panel=history/);
 });
+
+// Final review (batch 2).
+test('an old /app/live?at= link opens History without trapping Back', async ({ page }) => {
+  await page.goto('/app/settings');
+  await expect(page.getByTestId('settings-card-prefs')).toBeVisible();
+  await page.goto(`/app/live?at=${Date.now() - 3_600_000}`);
+  await expect(page).toHaveURL(/panel=history/);
+  await page.goBack();
+  await expect(page).toHaveURL(/\/app\/settings$/);
+});
