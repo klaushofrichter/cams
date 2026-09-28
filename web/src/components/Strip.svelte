@@ -4,7 +4,7 @@
   import { zoom, pickZoom } from '../lib/zoomPref';
   import { previewAt, tileStyle, type PreviewMinute } from '../lib/timeline';
   import { addDays, localDate, type EventClip } from '../lib/recordings';
-  import { filmFrames, FILM_GAP, FILM_H, FILM_W } from '../lib/film';
+  import { filmFrames, FILM_H, FILM_W } from '../lib/film';
 
   // History's strip (spec 2026-09-27): the playhead stays in the centre and
   // time moves under it. Drag, sideways wheel, click and ←/→ move it.
@@ -234,7 +234,7 @@
       {#each film as f (f.t)}
         <button class="frame-btn" data-testid="strip-film-frame" data-t={f.t} tabindex="-1" aria-label={new Date(f.t).toLocaleTimeString()}
           style={`left:calc(${f.left}% - ${FILM_W / 2}px);width:${FILM_W}px;height:${FILM_H}px`} onclick={() => seekTo(f.t)}>
-          {#if f.tile}<span class="tile" style={tileStyle(f.tile.minute, f.tile.index, FILM_W / f.tile.minute.tileW)}></span>{/if}
+          {#if f.tile}<span class="tile" style={tileStyle(f.tile.minute, f.tile.index, (FILM_W - 2) / f.tile.minute.tileW)}></span>{/if}
         </button>
       {/each}
     </div>
@@ -264,7 +264,8 @@
   .cursor-time.flip { transform: translateX(calc(-100% - 8px)); }
   .film-row { padding: 0 70px; } /* two 30 px edge buttons, their 4 px gap and the row's 6 px gap, each side */
   .film { position: relative; overflow: hidden; }
-  .frame-btn { position: absolute; top: 0; padding: 0; border: 0; border-radius: 3px; overflow: hidden; background: var(--no-thumb-bg); cursor: pointer; }
+  .frame-btn { position: absolute; top: 0; padding: 0; border: 1px solid var(--border); box-sizing: border-box; border-radius: 4px; overflow: hidden; background: var(--no-thumb-bg); cursor: pointer; }
+  .frame-btn:hover { border-color: var(--accent); }
   .frame-btn .tile { display: block; }
   .span { position: absolute; top: 0; bottom: 0; pointer-events: none; }
   .span.pictures { background: var(--strip-stills); }

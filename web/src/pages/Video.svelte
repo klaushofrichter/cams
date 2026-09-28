@@ -416,7 +416,6 @@
     <div class="placeholder">No cameras are configured.</div>
   {:else}
     <div class="workspace" data-panel={panel}>
-      <div class="spacer"></div>
       <div class="main">
         {#key cam}
           <HistoryView bind:this={historyView} {cam} proxy={camProxy}
@@ -484,10 +483,9 @@
   }
   /* The player column is as wide as Live's player (--player-max-w), so the
      video keeps its size between pages and the page itself doesn't scroll. */
-  /* Wide windows: the spacer takes the extra width, so the panel sits
-     against the right edge and the video keeps its size (Klaus, 2026-09-28). */
-  .workspace { display: grid; grid-template-columns: 1fr minmax(0, var(--player-max-w)) 340px; gap: 18px; align-items: start; }
-  .spacer { background: var(--bg); min-height: 1px; }
+  /* Wide windows centre the whole app (App.svelte), so the columns are just
+     the player and the panel (Klaus, 2026-09-28). */
+  .workspace { display: grid; grid-template-columns: minmax(0, var(--player-max-w)) 340px; gap: 18px; align-items: start; }
   .center.off, .updated.off { visibility: hidden; }
   .main { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
   .side { display: flex; flex-direction: column; gap: 10px; max-height: calc(100vh - 170px); overflow: auto; }
@@ -499,7 +497,6 @@
   @keyframes shimmer { from { background-position: 200% 0; } to { background-position: 0 0; } }
   @media (max-width: 1199px) {
     .workspace { grid-template-columns: minmax(0, var(--player-max-w)); }
-    .spacer { display: none; }
     .side { max-height: none; }
   }
 </style>
