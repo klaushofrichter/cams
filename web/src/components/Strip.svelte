@@ -176,6 +176,9 @@
     <button data-testid="strip-oldest" title="The oldest recording" aria-label="Go to the oldest recording" disabled={oldest === null || at <= lo} onclick={() => seekTo(lo)}>⇤</button>
     <button data-testid="strip-back" title={`Back ${$zoom} h`} aria-label={`Back ${$zoom} hours`} disabled={at <= lo} onclick={() => seekTo(at - span)}>‹</button>
   </div>
+  <div class="barwrap">
+  <!-- The playhead's mark above the bar (Klaus, 2026-09-28: more prominent). -->
+  <span class="mark" data-testid="strip-playhead-mark" aria-hidden="true"></span>
   <div class="bar" data-testid="timeline" role="slider" tabindex="0" aria-label="Recordings timeline" aria-valuenow={Math.round(at / 1000)}
     onpointerdown={down} onpointermove={move} onpointerup={up} onpointercancel={cancel} onlostpointercapture={cancel} onpointerleave={leave} onwheel={wheel} onkeydown={keydown}>
     {#each spans as s, i (i)}
@@ -191,6 +194,7 @@
       {#each ticks as t (t.left)}<span data-testid="strip-tick" style={`left:${t.left}%`}>{t.label}</span>{/each}
     </div>
   </div>
+  </div>
   <div class="edge">
     <button data-testid="strip-forward" title={`Forward ${$zoom} h`} aria-label={`Forward ${$zoom} hours`} disabled={at >= hi} onclick={() => seekTo(at + span)}>›</button>
     <button data-testid="strip-now" title="Now" aria-label="Go to now" disabled={at >= now - 5000} onclick={() => onseek(Math.max(lo, now - 2000))}>⇥</button>
@@ -201,7 +205,8 @@
 <style>
   .wrap { display: flex; flex-direction: column; gap: 6px; position: relative; }
   .row { display: flex; align-items: stretch; gap: 6px; }
-  .row .bar { flex: 1; min-width: 0; }
+  .barwrap { position: relative; flex: 1; min-width: 0; }
+  .mark { position: absolute; left: 50%; top: -8px; transform: translateX(-50%); width: 0; height: 0; border-left: 6px solid transparent; border-right: 6px solid transparent; border-top: 7px solid var(--accent); z-index: 2; pointer-events: none; }
   .edge { display: flex; gap: 4px; }
   .edge button { width: 30px; border-radius: 8px; border: 1px solid var(--border); background: var(--surface-2); color: var(--text); cursor: pointer; font-size: 15px; line-height: 1; padding: 0; }
   .edge button:disabled { opacity: 0.35; cursor: default; }
@@ -215,8 +220,7 @@
   .zoom button[aria-pressed='true'] { background: var(--surface-2); color: var(--text); border-color: var(--accent); }
   .bar { position: relative; height: 46px; border-radius: 10px; background: var(--strip-empty); border: 1px solid var(--border); cursor: grab; overflow: hidden; touch-action: pan-y; user-select: none; }
   .span { position: absolute; top: 0; bottom: 0; pointer-events: none; }
-  .span.stills { background: var(--strip-stills); }
-  .span.preview { background: var(--strip-preview); }
+  .span.pictures { background: var(--strip-stills); }
   .span.none { background: var(--strip-empty); }
   .span.future { background: var(--strip-future); }
   .seg { position: absolute; top: 8px; height: 18px; border-radius: 4px; background: color-mix(in srgb, var(--accent-2) 60%, transparent); pointer-events: none; }
@@ -225,7 +229,7 @@
   .seg.dim { opacity: 0.3; }
   .seg.failed { background: var(--no-thumb-bg); }
   .now { position: absolute; top: 0; bottom: 0; width: 2px; background: var(--text); opacity: 0.5; pointer-events: none; }
-  .playhead { position: absolute; top: -2px; bottom: -2px; width: 2px; margin-left: -1px; background: var(--accent); pointer-events: none; }
+  .playhead { position: absolute; top: -2px; bottom: -2px; width: 3px; margin-left: -1.5px; background: var(--accent); box-shadow: 0 0 0 1px color-mix(in srgb, var(--bg) 60%, transparent); pointer-events: none; }
   .ticks { position: absolute; left: 0; right: 0; bottom: 2px; height: 12px; pointer-events: none; }
   .ticks span { position: absolute; transform: translateX(-50%); font-size: 10px; color: var(--muted); font-family: var(--mono); white-space: nowrap; }
 </style>

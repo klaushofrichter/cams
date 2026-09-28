@@ -18,7 +18,8 @@ export type Source =
   | { kind: 'preview'; ts: number }
   | { kind: 'none' }
   | { kind: 'future' };
-export type SpanKind = 'stills' | 'preview' | 'none' | 'future';
+// 'pictures': a still or a preview tile exists (one colour: both are pictures).
+export type SpanKind = 'pictures' | 'none' | 'future';
 
 export const EMPTY_COVERAGE: Coverage = { clips: [], stills: [], previews: [] };
 
@@ -109,7 +110,7 @@ export function stripSpans(cov: Coverage, win: Run, now: number): { kind: SpanKi
     const a = pts[i];
     const b = pts[i + 1];
     const mid = (a + b) / 2;
-    const kind: SpanKind = mid >= now ? 'future' : inRuns(cov.stills, mid) ? 'stills' : inRuns(cov.previews, mid) ? 'preview' : 'none';
+    const kind: SpanKind = mid >= now ? 'future' : inRuns(cov.stills, mid) || inRuns(cov.previews, mid) ? 'pictures' : 'none';
     const last = out[out.length - 1];
     const left = ((a - win.start) / len) * 100;
     const width = ((b - a) / len) * 100;

@@ -8,10 +8,9 @@ published as [GitHub releases](https://github.com/klaushofrichter/cams/releases)
 
 ## [Unreleased]
 
-- History strip: ⇤ ‹ › ⇥ buttons go to the oldest recording, one window back
-  or forward, and now; the playhead never moves past now or before the oldest
-  content (the camera's SD card or its cam-proxy, `GET /api/cameras/:id/extent`).
-- The line under the video names the time, the source and why a clip was
-  recorded (`08:33:10 PM · SD 10 FPS · Person`); the corner badge is gone.
-- Dark theme: stretches with stills are clearly lighter on the strip.
+- History: the line under the video shows the date and roughly how long ago
+  (`Mon Sep 28, 09:19:53 AM · 3 hours ago · SD 10 FPS · Motion`).
+- History strip: stills and preview tiles share one colour (a third colour
+  used to grow around the playhead after a reload); the playhead is thicker,
+  with a triangle above the bar.
 

@@ -4,6 +4,7 @@
   import Icon from './Icon.svelte';
   import { nextChange, sourceAt, type Coverage, type Source } from '../lib/strip';
   import { downloadUrl, TRIGGER_LABELS, videoUrl } from '../lib/recordings';
+  import { timeAgo } from '../lib/clock';
   import { previewAt, tileStyle, type PreviewMinute } from '../lib/timeline';
 
   // History's player (spec 2026-09-27): one clock, `at`. A clip's <video>
@@ -216,6 +217,12 @@
     }
   }
   const triggers = $derived(source.kind === 'clip' ? source.clip.triggers.map((t) => TRIGGER_LABELS[t]).join(', ') : '');
+  // The date too: the strip crosses days (Klaus, 2026-09-28).
+  const day = $derived.by(() => {
+    const d = new Date(at);
+    return `${d.toLocaleDateString(undefined, { weekday: 'short' })} ${d.toLocaleDateString(undefined, { month: 'short' })} ${d.getDate()}`;
+  });
+  const ago = $derived(timeAgo(at, now));
   const clock = $derived(new Date(at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }));
 </script>
 
@@ -261,7 +268,8 @@
     <button data-testid="next-clip" title="Next event" onclick={() => onstep(1)}><Icon name="next" size={16} /></button>
     <!-- Time, source and why the clip was recorded, in one line (Klaus, 2026-09-28). -->
     <span class="info" data-testid="strip-info">
-      <span class="time" data-testid="clip-time">{clock}</span>
+      <span class="time" data-testid="clip-time">{day}, {clock}</span>
+      · <span data-testid="clip-ago">{ago}</span>
       · <span class="src" class:clip={source.kind === 'clip'} data-testid="source-badge">{BADGE[source.kind]}</span>
       {#if triggers}· <span data-testid="clip-triggers">{triggers}</span>{/if}
     </span>

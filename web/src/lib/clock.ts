@@ -6,6 +6,17 @@ export function formatNow(d: Date, locale?: string): string {
   return `${time} ${timeZoneLabel(d, locale)}`;
 }
 
+// Roughly how long ago `t` was (Klaus, 2026-09-28): "just now" under a
+// minute, then whole minutes, hours or days, rounded down.
+export function timeAgo(t: number, now: number): string {
+  const s = Math.floor((now - t) / 1000);
+  if (s < 60) return 'just now';
+  const n = (v: number, unit: string) => `${v} ${unit}${v === 1 ? '' : 's'} ago`;
+  if (s < 3600) return n(Math.floor(s / 60), 'minute');
+  if (s < 86_400) return n(Math.floor(s / 3600), 'hour');
+  return n(Math.floor(s / 86_400), 'day');
+}
+
 export function timeZoneLabel(d: Date, locale?: string): string {
   return new Intl.DateTimeFormat(locale, { timeZoneName: 'short' }).formatToParts(d).find((p) => p.type === 'timeZoneName')?.value ?? '';
 }

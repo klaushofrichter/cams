@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { get } from 'svelte/store';
-import { formatNow, now, timeZoneLabel } from './clock';
+import { formatNow, now, timeAgo, timeZoneLabel } from './clock';
 
 describe('clock', () => {
   it('shows 24-hour time with seconds and the time zone', () => {
@@ -22,3 +22,18 @@ describe('clock', () => {
     expect(get(now)).toBeInstanceOf(Date);
   });
 });
+
+describe('timeAgo (Klaus, 2026-09-28: roughly how long ago)', () => {
+  const NOW = Date.parse('2026-09-28T12:00:00Z');
+  it('says just now under a minute, then minutes, hours and days, rounded down', () => {
+    expect(timeAgo(NOW - 30_000, NOW)).toBe('just now');
+    expect(timeAgo(NOW + 5_000, NOW)).toBe('just now'); // a camera clock a little ahead
+    expect(timeAgo(NOW - 60_000, NOW)).toBe('1 minute ago');
+    expect(timeAgo(NOW - 45 * 60_000, NOW)).toBe('45 minutes ago');
+    expect(timeAgo(NOW - 60 * 60_000, NOW)).toBe('1 hour ago');
+    expect(timeAgo(NOW - 14.7 * 3_600_000, NOW)).toBe('14 hours ago');
+    expect(timeAgo(NOW - 24 * 3_600_000, NOW)).toBe('1 day ago');
+    expect(timeAgo(NOW - 2.9 * 86_400_000, NOW)).toBe('2 days ago');
+  });
+});
+
