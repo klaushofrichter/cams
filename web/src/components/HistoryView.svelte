@@ -13,7 +13,7 @@
   // History's strip and player (spec 2026-09-27). Owns the position `at`;
   // the page only hears about it (onposition) and can jump it (jump()).
   let {
-    cam, proxy, date, initialAt, filter, unavailable, onposition,
+    cam, proxy, date, initialAt, filter, unavailable, onposition, pending = [],
   }: {
     cam: string;
     proxy: boolean;
@@ -22,6 +22,7 @@
     filter: Filter; // the page's event filter: dims the strip, and ←/→ and previous/next skip hidden events
     unavailable: boolean;
     onposition: (at: number, clipId: string | null) => void;
+    pending?: { kind: string; ts: number }[]; // live events not listed yet: marked on the strip
   } = $props();
 
   let now = $state(Date.now());
@@ -193,7 +194,7 @@
       failed = new Set(failed).add(id);
     }}
     onstep={step} />
-  <Strip {oldest} {coverage} events={allEvents} {visibleIds} failedIds={failed} {at} {now} currentId={current} {previews}
+  <Strip {oldest} {pending} {coverage} events={allEvents} {visibleIds} failedIds={failed} {at} {now} currentId={current} {previews}
     thumbFor={unavailable ? undefined : (id) => thumbUrl(cam, id)}
     onseek={(t) => seek(t)}
     ondrag={(active) => {

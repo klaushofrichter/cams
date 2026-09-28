@@ -13,14 +13,13 @@
     addDays, cursorSearch, daysUrl, filterEvents, loadCursor, localDate,
     parseCursor, saveCursor, type Cursor, type EventClip, type Filter,
   } from '../lib/recordings';
-  import { preferences } from '../lib/preferences';
+  import { liveEventsOn, preferences } from '../lib/preferences';
   import { createTodayRefresher, todayDate } from '../lib/refresh';
-  import { eventStream } from '../lib/eventStream';
+  import { eventStream, prunePending, type Pending } from '../lib/eventStream';
   import { formatNow } from '../lib/clock';
 
   const TABS: { id: Panel; label: string }[] = [
     { id: 'history', label: 'History' },
-    { id: 'events', label: 'Events' },
     { id: 'downloads', label: 'Downloads' },
   ];
 
@@ -53,6 +52,36 @@
   let refreshTick = $state(0);
   let updatedAt: Date | null = $state(null);
   let lastKey = '';
+  // Live events of this camera that started and aren't listed yet (Klaus,
+  // 2026-09-28): at the top of the list and on the strip right away.
+  let pending: Pending[] = $state([]);
+  let pendingFor: string | null = null;
+  $effect(() => {
+    void $cameras; // the stream opens once the camera list is in
+    const on = $liveEventsOn;
+    const c = cam;
+    // Cleared only for another camera or with live events off (not when the
+    // camera list or other preferences reload).
+    untrack(() => {
+      if (c !== pendingFor || !on) pending = [];
+    });
+    pendingFor = c;
+    const stream = on ? eventStream() : undefined;
+    if (!c || !stream) return;
+    return stream.onCameraEvent((e) => {
+      if (e.cam === c) pending = [...pending.filter((p) => p.ts !== e.ts || p.kind !== e.kind), { kind: e.kind, ts: e.ts }];
+    });
+  });
+  $effect(() => {
+    const evs = events;
+    untrack(() => (pending = prunePending(pending, evs, Date.now())));
+  });
+  $effect(() => {
+    const id = setInterval(() => (pending = prunePending(pending, events, Date.now())), 30_000);
+    return () => clearInterval(id);
+  });
+  const pendingToday = $derived(cursor.date === $todayDate ? [...pending].sort((a, b) => b.ts - a.ts) : []);
+
   let historyView: { jump: (at: number, play?: boolean) => void } | undefined = $state();
   let playheadClip: string | null = $state(null);
 
@@ -227,6 +256,7 @@
     // While the camera's cam-proxy streams its events, reloads come from
     // those; the minute poll covers a camera without one, or while it's down.
     void $cameras; // re-run once the camera list (and whether any has a proxy) is known
+    void $liveEventsOn; // and when live events are turned on or off
     const stream = eventStream();
     const r = createTodayRefresher({ isToday: () => date === $todayDate, refresh: () => { if (!loading && !stream?.streaming(cam)) refreshTick++; } });
     const stopWatch = stream?.watch(() => cam, () => { if (!loading && date === $todayDate) refreshTick++; });
@@ -255,7 +285,7 @@
         {#key cam}
           <HistoryView bind:this={historyView} {cam} proxy={!!$cameras.find((x) => x.id === cam)?.proxy}
             date={cursor.date} {initialAt} {filter}
-            unavailable={downloads === 'unavailable'} onposition={onPosition} />
+            unavailable={downloads === 'unavailable'} onposition={onPosition} {pending} />
         {/key}
         {#if downloads === 'proxy'}
           <p class="note" data-testid="recordings-from-proxy" role="status">Recordings and thumbnails come from the camera gateway (cam-proxy) where it has them.</p>
@@ -284,7 +314,7 @@
         {#if panel === 'downloads'}
           <DownloadList cameraId={cam} {events} date={cursor.date} selectedId={playheadClip} />
         {:else}
-          <EventList cameraId={cam} events={visible} {filter} date={cursor.date} selectedId={playheadClip}
+          <EventList cameraId={cam} events={visible} {filter} date={cursor.date} selectedId={playheadClip} pending={pendingToday}
             onfilter={(f) => go({}, { filter: f })}
             onselect={(e) => historyView?.jump(Date.parse(e.start), true)} onthumberror={recheckDownloads} downloadsOk={downloads !== 'unavailable'} />
         {/if}

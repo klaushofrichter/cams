@@ -47,6 +47,9 @@ export function diffPatch<T extends object>(original: T, edited: T): Partial<T> 
     if (isObj(v) && isObj(was)) {
       const inner = diffPatch(was, v);
       if (Object.keys(inner).length) out[k] = inner;
+    } else if (Array.isArray(v) && Array.isArray(was)) {
+      // A list is one value: sent whole when it differs (by content, not identity).
+      if (JSON.stringify(v) !== JSON.stringify(was)) out[k] = v;
     } else if (v !== was) {
       if (v === 'custom' && SCHEDULE_KEYS.has(k)) continue;
       out[k] = v;

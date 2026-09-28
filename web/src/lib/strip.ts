@@ -19,7 +19,8 @@ export type Source =
   | { kind: 'none' }
   | { kind: 'future' };
 // 'pictures': a still or a preview tile exists (one colour: both are pictures).
-export type SpanKind = 'pictures' | 'none' | 'future';
+// 'outside': after now, or before the oldest content (striped, Klaus 2026-09-28).
+export type SpanKind = 'pictures' | 'none' | 'outside';
 
 export const EMPTY_COVERAGE: Coverage = { clips: [], stills: [], previews: [] };
 
@@ -94,9 +95,10 @@ export function windowAround(t: number, zoom: StripZoom): Run {
   return { start: t - half, end: t + half };
 }
 
-export function stripSpans(cov: Coverage, win: Run, now: number): { kind: SpanKind; left: number; width: number }[] {
+export function stripSpans(cov: Coverage, win: Run, now: number, oldest: number | null = null): { kind: SpanKind; left: number; width: number }[] {
   const cuts = new Set<number>([win.start, win.end]);
   if (now > win.start && now < win.end) cuts.add(now);
+  if (oldest !== null && oldest > win.start && oldest < win.end) cuts.add(oldest);
   for (const list of [cov.stills, cov.previews]) {
     for (const r of list) {
       if (r.start > win.start && r.start < win.end) cuts.add(r.start);
@@ -110,7 +112,8 @@ export function stripSpans(cov: Coverage, win: Run, now: number): { kind: SpanKi
     const a = pts[i];
     const b = pts[i + 1];
     const mid = (a + b) / 2;
-    const kind: SpanKind = mid >= now ? 'future' : inRuns(cov.stills, mid) || inRuns(cov.previews, mid) ? 'pictures' : 'none';
+    const outside = mid >= now || (oldest !== null && mid < oldest);
+    const kind: SpanKind = outside ? 'outside' : inRuns(cov.stills, mid) || inRuns(cov.previews, mid) ? 'pictures' : 'none';
     const last = out[out.length - 1];
     const left = ((a - win.start) / len) * 100;
     const width = ((b - a) / len) * 100;

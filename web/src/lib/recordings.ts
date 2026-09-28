@@ -226,9 +226,14 @@ export function groupByHour(events: EventClip[], date: string): HourGroup[] {
     if (!groups.has(hour)) groups.set(hour, []);
     groups.get(hour)!.push(e);
   }
+  // Newest first, hours and events alike (Klaus, 2026-09-28).
   return [...groups.entries()]
-    .sort(([a], [b]) => a - b)
-    .map(([hour, list]) => ({ hour, label: `${hourLabel(date, hour)}–${hourLabel(date, hour + 1)}`, events: list }));
+    .sort(([a], [b]) => b - a)
+    .map(([hour, list]) => ({
+      hour,
+      label: `${hourLabel(date, hour)}–${hourLabel(date, hour + 1)}`,
+      events: [...list].sort((x, y) => Date.parse(y.start) - Date.parse(x.start)),
+    }));
 }
 
 export function loadCursor(): { cam: string; cursor: Cursor } | null {

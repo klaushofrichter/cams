@@ -1,4 +1,4 @@
-import { rmSync } from 'fs';
+import { rmSync, writeFileSync } from 'fs';
 import { E2E_ENV } from './env';
 
 // Runs once before any project/worker starts, regardless of how many
@@ -9,4 +9,7 @@ import { E2E_ENV } from './env';
 export default function globalSetup(): void {
   rmSync(E2E_ENV.PREFS_FILE, { force: true });
   rmSync(E2E_ENV.PROXY_STATE_FILE, { force: true });
+  // The main test user opens on Den whatever camera a test switched to last
+  // (the default is otherwise "last camera used", which would leak between tests).
+  writeFileSync(E2E_ENV.PREFS_FILE, JSON.stringify({ 'klaus@klaushofrichter.net': { defaultCamera: 'cam1' } }));
 }

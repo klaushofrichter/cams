@@ -216,13 +216,21 @@ describe('groupByHour', () => {
     expect(g.map((x) => [x.hour, x.label, x.events.length])).toEqual([[1, '01:00–02:00', 2]]);
   });
 
-  it('groups by local hour, in order, skipping empty hours', () => {
+  it('groups by local hour, newest first, skipping empty hours (Klaus, 2026-09-28)', () => {
     const g = groupByHour(events, DAY); // the three fixtures at 08:15, 12:05, 17:45
     expect(g.map((x) => [x.hour, x.label, x.events.length])).toEqual([
-      [8, '08:00–09:00', 1],
-      [12, '12:00–13:00', 1],
       [17, '17:00–18:00', 1],
+      [12, '12:00–13:00', 1],
+      [8, '08:00–09:00', 1],
     ]);
+  });
+
+  it('lists an hour’s events newest first', () => {
+    const two = [
+      E('20260925-140010-140020', `${DAY}T14:00:10-05:00`, `${DAY}T14:00:20-05:00`, ['motion']),
+      E('20260925-145000-145010', `${DAY}T14:50:00-05:00`, `${DAY}T14:50:10-05:00`, ['person']),
+    ];
+    expect(groupByHour(two, DAY)[0].events.map((e) => e.id)).toEqual(['20260925-145000-145010', '20260925-140010-140020']);
   });
 
   it('keeps a busy hour together', () => {

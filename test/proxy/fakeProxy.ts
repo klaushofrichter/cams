@@ -23,6 +23,8 @@ export interface FakeProxy {
   oldestId: number; // resuming from an id before this answers `reset`
   offline: boolean; // every request is answered by closing the connection
   requests: { path: string; auth: string | undefined }[];
+  publicUrl: string | null; // what /api/cameras reports as the proxy's web address
+  camerasBody?: unknown; // tests: answer /api/cameras with this instead
   streamConnections(): number;
   push(m: Omit<FakeMessage, 'id' | 'ts'> & { ts?: number }): FakeMessage;
   dropStreams(): void; // ends every open stream (a proxy restart)
@@ -50,6 +52,7 @@ export async function startFakeProxy(opts: { port?: number; token?: string } = {
     oldestId: 1,
     offline: false,
     requests: [],
+    publicUrl: null,
     streamConnections: () => streams.size,
     push(m) {
       const msg: FakeMessage = { id: nextId++, ts: m.ts ?? Date.now(), cam: m.cam, type: m.type, data: m.data };
@@ -98,6 +101,10 @@ export async function startFakeProxy(opts: { port?: number; token?: string } = {
     const from = Number(q.from), to = Number(q.to);
     return /^\d+$/.test(String(q.from)) && /^\d+$/.test(String(q.to)) && to >= from ? [from, to] : undefined;
   };
+  // The camera list, as the real one reports it (only what cams reads).
+  app.get('/api/cameras', (_req, res) => {
+    res.json(fake.camerasBody !== undefined ? fake.camerasBody : [{ id: 'cam1', name: 'Den', online: true, lastEventTs: null, stream: null, publicUrl: fake.publicUrl }]);
+  });
   // Like the real one: the oldest clip, still and preview it holds.
   app.get('/api/cameras/:cam/extent', (req, res) => {
     const cam = req.params.cam;
@@ -167,6 +174,17 @@ if (require.main === module) {
     const { FAKE_PROXY_PORT, FAKE_PROXY_TOKEN, seed } = await import('../../e2e/fakeProxyData');
     const fake = await startFakeProxy({ port: FAKE_PROXY_PORT, token: FAKE_PROXY_TOKEN });
     seed(fake);
-    process.stdout.write(`fake cam-proxy on ${fake.url}\n`);
+    // e2e only: POST /push {cam, type, data} makes the fake send a stream
+    // message (live events, Klaus 2026-09-28). A separate local port, so the
+    // fake's own API keeps its token check.
+    const hooks = express();
+    hooks.use(express.json());
+    hooks.post('/push', (req, res) => {
+      const b = req.body as { cam?: unknown; type?: unknown; data?: unknown };
+      if (typeof b.cam !== 'string' || typeof b.type !== 'string' || typeof b.data !== 'object' || !b.data) return void res.status(400).json({ error: 'cam, type and data' });
+      res.json(fake.push({ cam: b.cam, type: b.type, data: b.data as Record<string, unknown> }));
+    });
+    hooks.listen(FAKE_PROXY_PORT - 2, '127.0.0.1');
+    process.stdout.write(`fake cam-proxy on ${fake.url} (test hooks on ${FAKE_PROXY_PORT - 2})\n`);
   })();
 }

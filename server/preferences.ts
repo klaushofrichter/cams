@@ -6,15 +6,18 @@ import { getCamera } from './cameraRegistry';
 import { logger } from './logger';
 
 export interface Preferences {
-  defaultCamera: string | null;
+  defaultCamera: string | null; // null: the last camera used (Klaus, 2026-09-28)
+  lastCamera: string | null; // remembered on every camera switch
   liveQuality: 'sub' | 'main';
   eventFilter: 'all' | 'person' | 'vehicle' | 'pet' | 'motion';
   timelineZoom: 24 | 12 | 6 | 3 | 1;
   liveKeepAlive: 0 | 30 | 60 | 120 | 300 | 900; // seconds; 0 = off
+  liveEvents: boolean; // new events at once, with a notification (Klaus, 2026-09-28)
+  liveEventTypes: ('person' | 'vehicle' | 'pet' | 'motion')[]; // which ones notify
 }
 
 export const KEEP_ALIVE_CHOICES = [0, 30, 60, 120, 300, 900] as const;
-export const DEFAULT_PREFERENCES: Preferences = { defaultCamera: null, liveQuality: 'sub', eventFilter: 'all', timelineZoom: 24, liveKeepAlive: 60 };
+export const DEFAULT_PREFERENCES: Preferences = { defaultCamera: null, lastCamera: null, liveQuality: 'sub', eventFilter: 'all', timelineZoom: 24, liveKeepAlive: 60, liveEvents: true, liveEventTypes: ['person', 'vehicle', 'pet', 'motion'] };
 
 const file = () => process.env.PREFS_FILE || join(tmpdir(), 'cams-preferences.json');
 let writing: Promise<unknown> = Promise.resolve();
@@ -120,9 +123,14 @@ export function validatePreferencesPatch(body: unknown): { ok: true; patch: Part
   // Own keys only: `in` would accept inherited names such as 'toString'.
   for (const k of Object.keys(b)) if (!Object.prototype.hasOwnProperty.call(DEFAULT_PREFERENCES, k)) details.push(`${k}: unknown field`);
   if ('defaultCamera' in b && b.defaultCamera !== null && !(typeof b.defaultCamera === 'string' && getCamera(b.defaultCamera))) details.push('defaultCamera: a configured camera id or null');
+  if ('lastCamera' in b && b.lastCamera !== null && !(typeof b.lastCamera === 'string' && getCamera(b.lastCamera))) details.push('lastCamera: a configured camera id or null');
   if ('liveQuality' in b && b.liveQuality !== 'sub' && b.liveQuality !== 'main') details.push('liveQuality: sub or main');
   if ('eventFilter' in b && !['all', 'person', 'vehicle', 'pet', 'motion'].includes(b.eventFilter as string)) details.push('eventFilter: all, person, vehicle, pet or motion');
   if ('timelineZoom' in b && ![24, 12, 6, 3, 1].includes(b.timelineZoom as number)) details.push('timelineZoom: 24, 12, 6, 3 or 1');
   if ('liveKeepAlive' in b && !(KEEP_ALIVE_CHOICES as readonly number[]).includes(b.liveKeepAlive as number)) details.push('liveKeepAlive: 0, 30, 60, 120, 300 or 900');
+  if ('liveEvents' in b && typeof b.liveEvents !== 'boolean') details.push('liveEvents: true or false');
+  if ('liveEventTypes' in b && !(Array.isArray(b.liveEventTypes) && b.liveEventTypes.every((t) => ['person', 'vehicle', 'pet', 'motion'].includes(t as string)) && new Set(b.liveEventTypes).size === b.liveEventTypes.length)) {
+    details.push('liveEventTypes: a list of person, vehicle, pet and motion');
+  }
   return details.length ? { ok: false, details } : { ok: true, patch: b as Partial<Preferences> };
 }
