@@ -416,3 +416,22 @@ test('Downloads stays on Downloads when ⇥ is pressed while playing', async ({ 
   await page.waitForTimeout(500);
   await expect(page).toHaveURL(/panel=downloads/);
 });
+
+// Wide windows (Klaus, 2026-09-28): the whole app, top bar included, is
+// centred with equal margins; no gap between the sidebar and the video.
+test('a wide window centres the whole app, top bar included', async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== 'desktop', 'desktop only');
+  await page.setViewportSize({ width: 2400, height: 1000 });
+  await page.goto('/app/recordings?panel=history&cam=cam1');
+  await expect(page.getByTestId('event-card').first()).toBeVisible();
+  const top = (await page.locator('.topbar').boundingBox())!;
+  const side = (await page.getByTestId('sidebar').boundingBox())!;
+  const box = (await page.locator('.player .box').boundingBox())!;
+  expect(top.x).toBeGreaterThan(100); // margins, not full width
+  expect(Math.abs(top.x - (2400 - (top.x + top.width)))).toBeLessThan(2); // equal either side
+  expect(Math.abs(side.x - top.x)).toBeLessThan(2); // the sidebar starts where the top bar does
+  expect(box.x - (side.x + side.width)).toBeLessThan(40); // just the page padding before the video
+  // A window no wider than the app fills it, as before.
+  await page.setViewportSize({ width: 1400, height: 1000 });
+  expect((await page.locator('.topbar').boundingBox())!.x).toBe(0);
+});

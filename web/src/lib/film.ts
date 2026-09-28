@@ -2,12 +2,12 @@ import type { Run } from './strip';
 import type { PreviewMinute } from './timeline';
 
 // The band of small frames under the strip (Klaus, 2026-09-28): half the
-// event list's 96×54 thumbnails, a small gap between them, as many as the
+// event list's 96×54 thumbnails, a visible gap and a frame around each, as many as the
 // width holds. The frames sit on a fixed grid in time, so they slide with
 // the strip instead of changing picture every second.
 export const FILM_W = 48;
 export const FILM_H = 27;
-export const FILM_GAP = 3;
+export const FILM_GAP = 8; // a visible gap (Klaus, 2026-09-28)
 
 export interface FilmFrame {
   t: number;

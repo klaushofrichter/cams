@@ -206,7 +206,7 @@ describe('Strip', () => {
     const onseek = vi.fn();
     render({ onseek, filmWidth: 600 });
     const frames = [...target!.querySelectorAll('[data-testid="strip-film-frame"]')] as HTMLElement[];
-    expect(frames.length).toBe(11); // 600 px / (48 + 3)
+    expect(frames.length).toBe(10); // 600 px / (48 + 8)
     frames[0].click();
     expect(onseek).toHaveBeenCalledTimes(1);
     expect(Number(frames[0].dataset.t)).toBe(onseek.mock.calls[0][0]);

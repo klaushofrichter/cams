@@ -12,16 +12,17 @@ const minute = (m: number, present = (i: number) => true): PreviewMinute => ({
 describe('filmFrames', () => {
   it('is half the event-list thumbnail, with a small gap', () => {
     expect(FILM_W).toBe(48);
-    expect(FILM_GAP).toBe(3);
+    expect(FILM_GAP).toBe(8); // a visible gap (Klaus, 2026-09-28)
   });
 
   it('fits as many frames as the width holds, evenly spaced on a grid that moves with time', () => {
     const win = { start: T0 - 1_800_000, end: T0 + 1_800_000 }; // 1 h
     const f = filmFrames(win, 765, []);
-    expect(f.length).toBe(15); // 765 px / (48 + 3)
-    const step = f[1].t - f[0].t;
-    expect(step).toBe(240_000); // 1 h / 15
-    expect(f.every((x) => x.t % step === step / 2)).toBe(true); // a fixed grid: frames slide, not jump
+    expect(f.length).toBe(13); // 765 px / (48 + 8)
+    const step = 3_600_000 / 13;
+    expect(f[1].t - f[0].t).toBeCloseTo(step);
+    const k = (x: { t: number }) => (x.t - step / 2) / step;
+    expect(f.every((x) => Math.abs(k(x) - Math.round(k(x))) < 1e-6)).toBe(true); // a fixed grid: frames slide, not jump
     expect(f.every((x) => x.t >= win.start && x.t < win.end)).toBe(true);
     expect(f[0].left).toBeCloseTo(((f[0].t - win.start) / 3_600_000) * 100);
   });
@@ -30,10 +31,10 @@ describe('filmFrames', () => {
     const win = { start: T0, end: T0 + 600_000 };
     const m = Math.floor(T0 / 60_000) * 60_000;
     const previews = [minute(m, (i) => i % 7 !== 3), minute(m + 60_000, () => false)];
-    const f = filmFrames(win, 102, previews); // 2 frames: 2.5 and 7.5 min in
+    const f = filmFrames(win, 112, previews); // 2 frames: 2.5 and 7.5 min in
     expect(f.length).toBe(2);
     expect(f[0].tile).toBeNull(); // minute 2 has no previews loaded
-    const g = filmFrames({ start: m, end: m + 60_000 }, 51 * 20, previews); // 20 frames in the first minute, 3 s apart
+    const g = filmFrames({ start: m, end: m + 60_000 }, 56 * 20, previews); // 20 frames in the first minute, 3 s apart
     expect(g.filter((x) => x.tile).length).toBe(20); // missing tiles fall back to a neighbour
   });
 
