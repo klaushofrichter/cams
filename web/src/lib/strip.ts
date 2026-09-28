@@ -40,6 +40,24 @@ export function inRuns<T extends Run>(runs: T[], t: number): T | null {
   return null;
 }
 
+// The first of sorted, non-overlapping runs (mergeRuns' output) that ends
+// after t: a binary search, since a camera dropping frames has thousands of
+// runs and the strip asks for every boundary each second.
+function firstEndingAfter(runs: Run[], t: number): number {
+  let lo = 0;
+  let hi = runs.length;
+  while (lo < hi) {
+    const mid = (lo + hi) >> 1;
+    if (runs[mid].end <= t) lo = mid + 1;
+    else hi = mid;
+  }
+  return lo;
+}
+export function inMerged(runs: Run[], t: number): Run | null {
+  const r = runs[firstEndingAfter(runs, t)];
+  return r && t >= r.start ? r : null;
+}
+
 export function clipRuns(events: EventClip[], failed: ReadonlySet<string> = new Set()): ClipRun[] {
   return events
     .filter((e) => !failed.has(e.id))
@@ -62,7 +80,9 @@ export function previewRuns(minutes: PreviewMinute[]): Run[] {
       if (on) runs.push({ start: m.minute + i * step, end: m.minute + (i + 1) * step });
     });
   }
-  return mergeRuns(runs);
+  // As with stills, a missing tile or two reads as one run (cam-sim drops
+  // many: thousands of runs froze the page, 2026-09-28).
+  return mergeRuns(runs, 2000);
 }
 
 // A recorded clip wins even after `now`: the camera's clock can run ahead of
@@ -72,19 +92,22 @@ export function sourceAt(cov: Coverage, t: number, now: number): Source {
   if (c) return { kind: 'clip', clip: c.clip, offsetMs: t - c.start };
   if (t >= now) return { kind: 'future' };
   const second = Math.floor(t / 1000) * 1000;
-  if (inRuns(cov.stills, t)) return { kind: 'still', ts: second };
-  if (inRuns(cov.previews, t)) return { kind: 'preview', ts: second };
+  if (inMerged(cov.stills, t)) return { kind: 'still', ts: second };
+  if (inMerged(cov.previews, t)) return { kind: 'preview', ts: second };
   return { kind: 'none' };
 }
 
 // The next boundary after t where sourceAt may give something else.
 export function nextChange(cov: Coverage, t: number, now: number): number | null {
   let best = t < now ? now : Infinity;
-  const lists = (t < now ? [cov.clips, cov.stills, cov.previews] : [cov.clips]) as Run[][];
-  for (const list of lists) {
-    for (const r of list) {
-      if (r.start > t && r.start < best) best = r.start;
-      if (r.end > t && r.end < best) best = r.end;
+  for (const r of cov.clips) {
+    if (r.start > t && r.start < best) best = r.start;
+    if (r.end > t && r.end < best) best = r.end;
+  }
+  if (t < now) {
+    for (const list of [cov.stills, cov.previews]) {
+      const r = list[firstEndingAfter(list, t)];
+      if (r) best = Math.min(best, r.start > t ? r.start : r.end);
     }
   }
   return best === Infinity ? null : best;
@@ -113,7 +136,7 @@ export function stripSpans(cov: Coverage, win: Run, now: number, oldest: number 
     const b = pts[i + 1];
     const mid = (a + b) / 2;
     const outside = mid >= now || (oldest !== null && mid < oldest);
-    const kind: SpanKind = outside ? 'outside' : inRuns(cov.stills, mid) || inRuns(cov.previews, mid) ? 'pictures' : 'none';
+    const kind: SpanKind = outside ? 'outside' : inMerged(cov.stills, mid) || inMerged(cov.previews, mid) ? 'pictures' : 'none';
     const last = out[out.length - 1];
     const left = ((a - win.start) / len) * 100;
     const width = ((b - a) / len) * 100;
