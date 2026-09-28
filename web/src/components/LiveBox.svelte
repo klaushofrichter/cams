@@ -18,6 +18,10 @@
 
   let box: HTMLDivElement | undefined = $state();
   const camera = $derived($cameras.find((c) => c.id === cameraId) ?? null);
+  // Narrowed: LivePlayer restarts its stream when these change, and reading
+  // the whole store in its props would restart it on every state report.
+  const quality = $derived($liveUi.quality);
+  const muted = $derived($liveUi.muted || !audible);
 
   function setState(s: PlayerState) {
     liveUi.update((u) => ({ ...u, playerState: s, badge: badgeOf(s, u.stillsShowing) }));
@@ -140,7 +144,7 @@
   {#if $liveUi.status?.online}
     <!-- Muted here, not by changing `muted`, so the user's choice comes back
          once it is on screen again. -->
-    <LivePlayer {cameraId} quality={$liveUi.quality} muted={$liveUi.muted || !audible} onstate={(s) => setState(s)} />
+    <LivePlayer {cameraId} {quality} {muted} onstate={(s) => setState(s)} />
     {#if proxy && stuck}<LiveStill {cameraId} active={visible} overlay onactive={(on) => setStills(on)} />{/if}
   {:else if $liveUi.status && !$liveUi.status.online && proxy}
     <LiveStill {cameraId} active={visible} onactive={(on) => setStills(on)} />

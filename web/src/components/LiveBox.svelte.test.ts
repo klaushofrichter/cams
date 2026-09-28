@@ -6,6 +6,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import LiveBox from './LiveBox.svelte';
 import { liveUi } from '../lib/liveUi';
 
+// jsdom has no MediaSource: a player that never plays.
+vi.mock('../lib/mpegtsPlayer', () => ({
+  mpegtsPlayer: () => ({ attach() {}, load() {}, play() {}, destroy() {}, onFailure() {} }),
+}));
+
 let component: Record<string, unknown> | undefined;
 let target: HTMLDivElement | undefined;
 beforeEach(() => {
