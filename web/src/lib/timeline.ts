@@ -105,7 +105,19 @@ export function thumbCoverage(
   win: { start: number; end: number },
 ): { left: number; width: number }[] {
   const spans = [
-    ...previews.map((p) => ({ start: (p.minute - dayStartMs) / 1000, end: (p.minute - dayStartMs) / 1000 + 60 })),
+    // each run of present tiles in a minute (a tile covers intervalS seconds)
+    ...previews.flatMap((p) => {
+      const base = (p.minute - dayStartMs) / 1000;
+      const out: { start: number; end: number }[] = [];
+      p.present.forEach((on, i) => {
+        if (!on) return;
+        const s0 = base + i * p.intervalS;
+        const last = out.at(-1);
+        if (last && last.end === s0) last.end = s0 + p.intervalS;
+        else out.push({ start: s0, end: s0 + p.intervalS });
+      });
+      return out;
+    }),
     ...events,
   ]
     .map((s) => ({ start: Math.max(s.start, win.start), end: Math.min(s.end, win.end) }))

@@ -31,7 +31,7 @@
   --no-thumb-bg: repeating-linear-gradient(135deg, var(--no-thumb) 0 6px, var(--no-thumb-line) 6px 8px);
   /* Live and History players: the same size, and never taller than the
      window leaves room for (controls, timeline). */
-  --player-max-w: min(1280px, max(360px, calc((100dvh - 330px) * 16 / 9)));
+  --player-max-w: min(1280px, max(360px, calc((100vh - 370px) * 16 / 9)));
   --font: Inter, ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
   --mono: ui-monospace, SFMono-Regular, Menlo, monospace;
 }
@@ -118,5 +118,19 @@ button { font: inherit; color: inherit; }
   *, *::before, *::after {
     transition-duration: 0s !important;
     animation-duration: 0s !important;
+  }
+}
+
+/* The players' width (--player-max-w): the dynamic viewport height where the
+   browser has it; and with the side panel beside History's player (1200 px and
+   wider), no wider than History leaves room for (sidebar 220, page padding 56,
+   panel 340 + gap 18), so Live and History match at every width. */
+@supports (height: 100dvh) {
+  :root { --player-max-w: min(1280px, max(360px, calc((100dvh - 370px) * 16 / 9))); }
+}
+@media (min-width: 1200px) {
+  :root { --player-max-w: min(1280px, max(360px, calc((100vh - 370px) * 16 / 9)), calc(100vw - 634px)); }
+  @supports (height: 100dvh) {
+    :root { --player-max-w: min(1280px, max(360px, calc((100dvh - 370px) * 16 / 9)), calc(100vw - 634px)); }
   }
 }

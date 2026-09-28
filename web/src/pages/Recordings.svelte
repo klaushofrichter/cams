@@ -273,11 +273,13 @@
     jumpToEdge(dir === 1 ? 'start' : 'end');
   }
 
-  // ‹ › on a zoomed timeline past the day's edge: the neighbouring day.
-  function stepDay(dir: -1 | 1) {
-    const d = addDays(cursor.date, dir);
-    if (d > $todayDate) return;
+  // ‹ › on a zoomed timeline past the day's edge: the neighbouring day with
+  // recordings, as the day picker's arrows (none: stay, and say so by null).
+  function stepDay(dir: -1 | 1): string | null {
+    const d = dir < 0 ? [...days].filter((x) => x < cursor.date).sort().at(-1) : days.filter((x) => x > cursor.date && x <= $todayDate).sort()[0];
+    if (!d) return null;
     go({ date: d, clipId: null, offsetSec: 0 });
+    return d;
   }
 
   function jumpToEdge(edge: 'start' | 'end') {
@@ -362,6 +364,10 @@
   @media (max-width: 640px) {
     .head { grid-template-columns: 1fr auto; }
     .updated { grid-column: 1 / -1; justify-self: start; }
+  }
+  @media (max-width: 380px) {
+    .head { grid-template-columns: 1fr; }
+    .head .center { justify-self: start; }
   }
   /* The player column is as wide as Live's player (--player-max-w), so the
      video keeps its size between pages and the page itself doesn't scroll. */

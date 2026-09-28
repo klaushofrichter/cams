@@ -229,6 +229,19 @@ test('zoom is kept when an event card is clicked, and across pages', async ({ pa
   await expect(page.getByTestId('timeline-range')).not.toHaveText(before!);
 });
 
+test('‹ from the first hour opens the previous day with recordings on its last hour', async ({ page }) => {
+  await keepZoomLocal(page);
+  await openEvents(page);
+  const today = await page.evaluate(() => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; });
+  await page.getByTestId('zoom-1').click();
+  const shown = () => new URL(page.url()).searchParams.get('date') ?? today;
+  for (let i = 0; i < 30 && shown() === today; i++) {
+    await page.getByTestId('timeline-prev').click();
+  }
+  expect(shown()).not.toBe(today);
+  await expect(page.getByTestId('timeline-range')).toHaveText('23:00–24:00');
+});
+
 test('clip clicks do not re-fetch the day\'s events', async ({ page }) => {
   await openEvents(page);
   let eventsRequests = 0;

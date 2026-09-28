@@ -98,3 +98,14 @@ describe('thumbCoverage (where the timeline has a thumbnail)', () => {
   });
 });
 
+describe('thumbCoverage with partly filled preview minutes (review M7)', () => {
+  it('covers only the seconds that have a tile', () => {
+    const day = Date.UTC(2026, 8, 27, 5);
+    const present = Array(60).fill(false).map((_, i) => i < 10 || i >= 50);
+    expect(thumbCoverage([m(day, present)], [], day, { start: 0, end: 60 })).toEqual([
+      { left: 0, width: (10 / 60) * 100 },
+      { left: (50 / 60) * 100, width: (10 / 60) * 100 },
+    ]);
+  });
+});
+
