@@ -92,7 +92,6 @@
   // The strip's first position: the URL's `at`, else an old link's clip and
   // offset, else (null) the day's first event.
   const initialAt = $derived(cursor.at ?? (cursor.clipId ? (clipStartFromId(cursor.clipId) ?? 0) + cursor.offsetSec * 1000 || null : null));
-  const visibleIds = $derived(new Set(visible.map((e) => e.id)));
   // The strip reports where the playhead is: the URL (date, at, the clip
   // under it) follows, as a replace so the history isn't flooded.
   function onPosition(at: number, clipId: string | null) {
@@ -255,7 +254,7 @@
       <div class="main">
         {#key cam}
           <HistoryView bind:this={historyView} {cam} proxy={!!$cameras.find((x) => x.id === cam)?.proxy}
-            date={cursor.date} {initialAt} {visibleIds}
+            date={cursor.date} {initialAt} {filter}
             unavailable={downloads === 'unavailable'} onposition={onPosition} />
         {/key}
         {#if downloads === 'proxy'}

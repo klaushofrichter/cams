@@ -106,6 +106,7 @@ describe('StripPlayer', () => {
   it('does not count time while paused, and a blocked play() leaves it paused', async () => {
     Object.defineProperty(HTMLMediaElement.prototype, 'play', { configurable: true, value: vi.fn(() => Promise.reject(new DOMException('blocked', 'NotAllowedError'))) });
     const p = render({ at: T + 10_000 });
+    (q('clip-video') as HTMLVideoElement).dispatchEvent(new Event('loadedmetadata')); // as the browser does
     await tick(5000);
     expect(p.at).toBe(T + 10_000);
     q('play-toggle')!.click();
@@ -133,11 +134,52 @@ describe('StripPlayer', () => {
     let calls = 0;
     Object.defineProperty(HTMLMediaElement.prototype, 'play', { configurable: true, value: vi.fn(() => (++calls === 1 ? Promise.reject(new DOMException('no source', 'NotSupportedError')) : Promise.resolve())) });
     const p = render({ at: T + 10_000, playing: true });
+    (q('clip-video') as HTMLVideoElement).dispatchEvent(new Event('loadedmetadata')); // play() #1 fails: not loaded
     await tick(0);
     expect(p.playing).toBe(true);
     (q('clip-video') as HTMLVideoElement).dispatchEvent(new Event('canplay'));
     await tick(0);
     expect(calls).toBeGreaterThanOrEqual(2);
+  });
+
+  it('fails a clip whose preload failed, instead of stalling on it (review #1)', async () => {
+    const onclipfail = vi.fn();
+    render({ playing: true, at: T + 5000, onclipfail });
+    await tick(2500); // within 3 s: the idle slot preloads the clip
+    const idle = q('clip-video-idle') as HTMLVideoElement;
+    expect(idle.getAttribute('src')).toBe(`/api/cameras/den/clips/${clip.id}/video`);
+    idle.dispatchEvent(new Event('error'));
+    flushSync();
+    expect(onclipfail).toHaveBeenCalledWith(clip.id);
+  });
+
+  it('a jump into the middle of another clip does not snap to its start (review #2)', async () => {
+    const b: EventClip = { ...clip, id: '20260927-120040-120100', start: new Date(T + 40_000).toISOString(), end: new Date(T + 60_000).toISOString(), durationSec: 20 };
+    const p = render({ at: T + 12_000, coverage: { clips: clipRuns([clip, b]), stills: [], previews: [] } });
+    await tick(0);
+    p.at = T + 50_000; // mid b
+    flushSync();
+    const v = q('clip-video') as HTMLVideoElement;
+    Object.defineProperty(v, 'currentTime', { configurable: true, writable: true, value: 0 });
+    v.dispatchEvent(new Event('timeupdate')); // the new src resets the position to 0
+    flushSync();
+    expect(p.at).toBe(T + 50_000);
+    v.dispatchEvent(new Event('loadedmetadata'));
+    flushSync();
+    expect(v.currentTime).toBe(10);
+  });
+
+  it('plays clips muted, as before (review #3)', () => {
+    render({ at: T + 12_000 });
+    for (const v of target!.querySelectorAll('video')) expect((v as HTMLVideoElement).muted).toBe(true);
+  });
+
+  it('asks for each still once, and not again soon after it failed (review #4)', async () => {
+    let made = 0;
+    vi.stubGlobal('Image', class { onload: (() => void) | null = null; onerror: (() => void) | null = null; set src(_v: string) { made++; queueMicrotask(() => this.onerror?.()); } });
+    render({ playing: true, coverage: { clips: [], stills: [{ start: T, end: T + 30_000 }], previews: [] } });
+    await tick(3000);
+    expect(made).toBeLessThanOrEqual(8); // 4 at the start, then about one new second each second
   });
 
   it('steps 10 s and to the previous or next event', async () => {

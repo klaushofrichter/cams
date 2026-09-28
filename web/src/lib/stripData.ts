@@ -12,6 +12,7 @@ import { clipRuns, EMPTY_COVERAGE, localDaysBetween, mergeRuns, previewRuns, sti
 // previews request counts as empty and is tried again after a minute.
 export interface StripData {
   coverage: Readable<Coverage>;
+  events: Readable<EventClip[]>;                        // every loaded event, failed ones included
   previews: Readable<PreviewMinute[]>;
   ensure(from: number, to: number): void;
   ensureStills(t: number): void;
@@ -22,6 +23,7 @@ export interface StripData {
 
 const HOUR = 3_600_000;
 const RETRY_MS = 60_000;
+const FRESH_MS = 30_000; // today's previews and the current hour's stills are asked for again after this
 
 export function createStripData(cam: string, proxy: boolean, fetch: Fetch = getJson): StripData {
   const days = new Set<string>();                       // days asked for
@@ -38,33 +40,43 @@ export function createStripData(cam: string, proxy: boolean, fetch: Fetch = getJ
     const t = failedAt.get(key);
     return t === undefined || Date.now() - t > RETRY_MS;
   };
+  const fetchedAt = new Map<string, number>(); // `p|day` / `s|hour` → last successful load
+  const inflight = new Set<string>();
+  // Loaded, and (for data that still grows: today, the current hour) recently enough.
+  const current = (key: string, growing: boolean) => {
+    const t = fetchedAt.get(key);
+    return t !== undefined && (!growing || Date.now() - t < FRESH_MS);
+  };
 
   function loadPreviews(day: string) {
     const key = `p|${day}`;
-    if (!proxy || previewDays.has(day) || !retryable(key)) return;
-    previewDays.set(day, []);
     const [from, to] = dayRange(day);
+    if (!proxy || inflight.has(key) || current(key, to >= Date.now()) || !retryable(key)) return;
+    inflight.add(key);
     Promise.all(splitRange(from, to).map(([a, z]) => fetch<PreviewMinute[]>(`/api/cameras/${enc}/previews?from=${a}&to=${z}`)))
       .then((parts) => {
         if (!alive) return;
         previewDays.set(day, parts.flat());
+        fetchedAt.set(key, Date.now());
         failedAt.delete(key);
         bump.update((n) => n + 1);
       })
-      .catch(() => {
-        previewDays.delete(day);
-        failedAt.set(key, Date.now());
-      });
+      .catch(() => failedAt.set(key, Date.now()))
+      .finally(() => inflight.delete(key));
   }
 
   function ensure(from: number, to: number) {
     const list = localDaysBetween(from, to);
     const all = [addDays(list[0], -1), ...list, addDays(list[list.length - 1], 1)];
     for (const day of all) {
-      if (!days.has(day)) {
+      const key = `e|${day}`;
+      if (!days.has(day) && retryable(key)) {
         days.add(day);
         daysAsked.update((n) => n + 1);
-        loadDay(cam, day, { fetch }).catch(() => days.delete(day));
+        loadDay(cam, day, { fetch }).catch(() => {
+          days.delete(day);
+          failedAt.set(key, Date.now());
+        });
       }
       loadPreviews(day);
     }
@@ -75,19 +87,18 @@ export function createStripData(cam: string, proxy: boolean, fetch: Fetch = getJ
     const h0 = Math.floor(t / HOUR) * HOUR;
     for (const h of [h0, h0 + HOUR]) {
       const key = `s|${h}`;
-      if (stillHours.has(h) || !retryable(key)) continue;
-      stillHours.set(h, []);
+      if (inflight.has(key) || current(key, h + HOUR > Date.now()) || !retryable(key)) continue;
+      inflight.add(key);
       fetch<number[]>(`/api/cameras/${enc}/stills?from=${h}&to=${h + HOUR - 1}`)
         .then((ts) => {
           if (!alive) return;
           stillHours.set(h, stillRuns(ts));
+          fetchedAt.set(key, Date.now());
           failedAt.delete(key);
           bump.update((n) => n + 1);
         })
-        .catch(() => {
-          stillHours.delete(h);
-          failedAt.set(key, Date.now());
-        });
+        .catch(() => failedAt.set(key, Date.now()))
+        .finally(() => inflight.delete(key));
     }
   }
 
@@ -105,6 +116,7 @@ export function createStripData(cam: string, proxy: boolean, fetch: Fetch = getJ
 
   return {
     coverage: { subscribe: (fn) => (alive ? coverage.subscribe(fn) : (fn(EMPTY_COVERAGE), () => undefined)) },
+    events,
     previews,
     ensure,
     ensureStills,

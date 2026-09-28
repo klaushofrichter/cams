@@ -1,5 +1,6 @@
 <!-- web/src/components/StripPlayer.svelte -->
 <script lang="ts">
+  import { untrack } from 'svelte';
   import Icon from './Icon.svelte';
   import { nextChange, sourceAt, type Coverage, type Source } from '../lib/strip';
   import { downloadUrl, videoUrl } from '../lib/recordings';
@@ -38,13 +39,23 @@
   let active = $state(0);
   const failedOnce = new Set<string>();
   let followVideo = false; // true while the active video drives `at`
+  const idOf = new Map<string, string>(); // video url → clip id (for errors on either slot)
+  const awaitingMeta = [false, false]; // a slot's new src: its position isn't the clip's yet
 
   function urlOf(id: string) {
-    return videoUrl(cam, id);
+    const url = videoUrl(cam, id);
+    idOf.set(url, id);
+    return url;
+  }
+  function failClip(id: string) {
+    if (failedOnce.has(id)) return;
+    failedOnce.add(id);
+    onclipfail(id);
   }
   // Put the clip in the active slot (swapping when the other slot preloaded it).
   $effect(() => {
     const s = source;
+    const wantPlay = playing; // read first: every early return below still re-runs on play/pause
     if (s.kind !== 'clip') {
       followVideo = false;
       vids[active]?.pause();
@@ -52,11 +63,24 @@
     }
     const url = urlOf(s.clip.id);
     if (srcs[active] !== url) {
-      if (srcs[1 - active] === url) active = 1 - active;
-      else srcs[active] = url;
+      if (srcs[1 - active] === url) {
+        active = 1 - active; // preloaded (its metadata may still be on the way)
+        if (vids[active]?.error) return failClip(s.clip.id);
+        if (awaitingMeta[active]) {
+          followVideo = false;
+          return;
+        }
+      } else {
+        // A new source resets the element's position to 0: don't follow it
+        // until loadedmetadata has put it at the wanted offset.
+        srcs[active] = url;
+        awaitingMeta[active] = true;
+        followVideo = false;
+        return;
+      }
     }
     const v = vids[active];
-    if (!v) return;
+    if (!v || awaitingMeta[active]) return;
     const want = s.offsetMs / 1000;
     if (!followVideo || Math.abs((v.currentTime || 0) - want) > 1.5) {
       try {
@@ -66,7 +90,7 @@
       }
     }
     followVideo = true;
-    if (playing) tryPlay(v);
+    if (wantPlay) tryPlay(v);
     else v.pause();
   });
   // Preload the next clip into the idle slot 3 s ahead.
@@ -75,7 +99,10 @@
     const next = nextChange(coverage, at, now);
     if (next === null || next - at > PRELOAD_MS) return;
     const s = sourceAt(coverage, next, now);
-    if (s.kind === 'clip' && srcs[active] !== urlOf(s.clip.id)) srcs[1 - active] = urlOf(s.clip.id);
+    if (s.kind === 'clip' && srcs[active] !== urlOf(s.clip.id) && srcs[1 - active] !== urlOf(s.clip.id)) {
+      srcs[1 - active] = urlOf(s.clip.id);
+      awaitingMeta[1 - active] = true;
+    }
   });
   // Only the browser's autoplay block stops playback; a play() that fails
   // because the new clip isn't loaded yet is retried on canplay.
@@ -99,15 +126,18 @@
     if (i !== active || s.kind !== 'clip') return;
     at = Date.parse(s.clip.end);
   }
+  // Either slot: a preloaded clip that fails is failed before its turn.
   function onVideoError(i: number) {
-    const s = source;
-    if (i !== active || s.kind !== 'clip' || failedOnce.has(s.clip.id)) return;
-    failedOnce.add(s.clip.id);
-    onclipfail(s.clip.id);
+    const id = srcs[i] ? idOf.get(srcs[i]!) : undefined;
+    if (id) failClip(id);
   }
   function onMeta(i: number) {
     const s = source;
-    if (i === active && s.kind === 'clip') vids[i]!.currentTime = s.offsetMs / 1000;
+    awaitingMeta[i] = false;
+    if (i !== active || s.kind !== 'clip' || srcs[i] !== urlOf(s.clip.id)) return;
+    vids[i]!.currentTime = s.offsetMs / 1000;
+    followVideo = true;
+    if (playing) tryPlay(vids[i]!);
   }
 
   // --- the real-time ticker (not for clips) ---
@@ -126,27 +156,39 @@
     return () => clearInterval(id);
   });
 
-  // --- stills: shown once loaded; a failed one keeps the last good frame ---
+  // --- stills: shown once loaded; a failed one keeps the last good frame.
+  // Each still is asked for once; a failed one not again for 10 s (a proxy
+  // that went away must not turn playback into a request storm).
+  const STILL_RETRY_MS = 10_000;
   let stillShown = $state<string | null>(null);
-  const loaded = new Set<string>();
+  const stillState = new Map<string, number>(); // url → 0 loading, 1 loaded, else the time it failed
   function loadStill(ts: number, show: boolean) {
     const url = stillUrl(ts);
-    if (loaded.has(url)) {
+    const st = stillState.get(url);
+    if (st === 1) {
       if (show) stillShown = url;
       return;
     }
+    if (st === 0 || (st !== undefined && Date.now() - st < STILL_RETRY_MS)) return;
+    stillState.set(url, 0);
     const img = new Image();
     img.onload = () => {
-      loaded.add(url);
-      if (show && source.kind === 'still' && stillUrl(source.ts) === url) stillShown = url;
+      stillState.set(url, 1);
+      if (source.kind === 'still' && stillUrl(source.ts) === url) stillShown = url;
     };
+    img.onerror = () => stillState.set(url, Date.now());
     img.src = url;
+    // Keep the map to the last ten minutes or so of seconds.
+    if (stillState.size > 700) for (const k of [...stillState.keys()].slice(0, 100)) stillState.delete(k);
   }
+  const stillTs = $derived(source.kind === 'still' ? source.ts : null);
   $effect(() => {
-    const s = source;
-    if (s.kind !== 'still') return;
-    loadStill(s.ts, true);
-    for (let k = 1; k <= 3; k++) loadStill(s.ts + k * 1000, false);
+    const ts = stillTs;
+    if (ts === null) return;
+    untrack(() => {
+      loadStill(ts, true);
+      for (let k = 1; k <= 3; k++) loadStill(ts + k * 1000, false);
+    });
   });
 
   // --- preview tile, scaled up to the box ---
@@ -186,6 +228,7 @@
         data-testid={i === active ? 'clip-video' : 'clip-video-idle'}
         src={srcs[i] ?? undefined}
         preload="auto"
+        muted
         playsinline
         ontimeupdate={() => onVideoTime(i)}
         onended={() => onVideoEnded(i)}

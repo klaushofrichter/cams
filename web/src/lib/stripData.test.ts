@@ -92,6 +92,50 @@ describe('createStripData', () => {
     }
   });
 
+  it('does not ask again for a failed day on every move, only after a minute (review #5)', async () => {
+    vi.useFakeTimers();
+    try {
+      const { fn, urls } = fakeFetch(/\/events\?date=2026-09-27/);
+      const d = createStripData('den', false, fn);
+      d.ensure(NOON, NOON);
+      await vi.advanceTimersByTimeAsync(0);
+      d.ensure(NOON + 1000, NOON + 1000);
+      d.ensure(NOON + 2000, NOON + 2000);
+      await vi.advanceTimersByTimeAsync(0);
+      const asked = () => urls.filter((u) => u.includes('date=2026-09-27')).length;
+      expect(asked()).toBe(1);
+      vi.advanceTimersByTime(61_000);
+      d.ensure(NOON, NOON);
+      await vi.advanceTimersByTimeAsync(0);
+      expect(asked()).toBe(2);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('asks again for the current hour’s stills and today’s previews after a short while (review #6)', async () => {
+    vi.useFakeTimers({ now: NOON + 20 * 60_000 });
+    try {
+      const { fn, urls } = fakeFetch();
+      const d = createStripData('den', true, fn);
+      d.ensure(NOON, NOON);
+      d.ensureStills(NOON);
+      await vi.advanceTimersByTimeAsync(0);
+      const stills = () => urls.filter((u) => u.includes(`/stills?from=${NOON}`)).length;
+      const previews = () => urls.filter((u) => u.includes('/previews?')).length;
+      const p0 = previews();
+      expect(stills()).toBe(1);
+      vi.advanceTimersByTime(31_000);
+      d.ensureStills(NOON);
+      d.ensure(NOON, NOON);
+      await vi.advanceTimersByTimeAsync(0);
+      expect(stills()).toBe(2);
+      expect(previews()).toBeGreaterThan(p0); // today's previews again
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('drops a failed clip from the coverage', async () => {
     const { fn } = fakeFetch();
     const d = createStripData('den', true, fn);

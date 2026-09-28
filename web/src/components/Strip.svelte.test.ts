@@ -108,4 +108,34 @@ describe('Strip', () => {
     expect(labels.filter((l) => l === '01:00')).toHaveLength(2);
     expect(labels).toContain('Sun 1');
   });
+
+  it('puts ticks on local hours, with the date at midnight, at 24 h (review #10)', () => {
+    preferences.set({ ...PREFS, timelineZoom: 24 });
+    render({ coverage: { clips: [], stills: [], previews: [] } });
+    preferences.set({ ...PREFS, timelineZoom: 24 });
+    flushSync();
+    const labels = [...target!.querySelectorAll('[data-testid="strip-tick"]')].map((e) => e.textContent);
+    expect(labels).toContain('03:00');
+    expect(labels).toContain('Mon 28');
+    expect(labels).not.toContain('01:00');
+  });
+
+  it('ends a drag when the browser cancels the pointer (review #11)', () => {
+    const ondrag = vi.fn();
+    const bar = render({ ondrag });
+    bar.dispatchEvent(new PointerEvent('pointerdown', { clientX: 300, bubbles: true }));
+    bar.dispatchEvent(new PointerEvent('pointermove', { clientX: 320, bubbles: true }));
+    bar.dispatchEvent(new PointerEvent('pointercancel', { clientX: 320, bubbles: true }));
+    expect(ondrag).toHaveBeenLastCalledWith(false);
+  });
+
+  it('a click inside a long event keeps the time under the pointer (review #13)', () => {
+    const onseek = vi.fn();
+    const long = ev('20260927-115000-121000', T - 10 * 60_000, 20 * 60); // 11:50–12:10
+    const bar = render({ onseek, events: [long] });
+    bar.dispatchEvent(new PointerEvent('pointerdown', { clientX: 350, bubbles: true }));
+    bar.dispatchEvent(new PointerEvent('pointerup', { clientX: 350, bubbles: true }));
+    expect(onseek).toHaveBeenCalledWith(T + 5 * 60_000);
+  });
 });
+

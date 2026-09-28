@@ -3,7 +3,7 @@
   import { stripSpans, windowAround, STRIP_ZOOMS, type Coverage } from '../lib/strip';
   import { zoom, pickZoom } from '../lib/zoomPref';
   import { previewAt, tileStyle, type PreviewMinute } from '../lib/timeline';
-  import type { EventClip } from '../lib/recordings';
+  import { addDays, localDate, type EventClip } from '../lib/recordings';
 
   // History's strip (spec 2026-09-27): the playhead stays in the centre and
   // time moves under it. Drag, sideways wheel, click and ←/→ move it.
@@ -32,17 +32,26 @@
     events
       .map((e) => ({ e, s: Date.parse(e.start), t: Date.parse(e.end) }))
       .filter(({ s, t }) => t > win.start && s < win.end)
-      .map(({ e, s, t }) => ({ id: e.id, start: s, left: pct(Math.max(s, win.start)), width: Math.max(0.3, pct(Math.min(t, win.end)) - pct(Math.max(s, win.start))), ai: e.triggers.some((x) => x !== 'motion') })),
+      .map(({ e, s, t }) => ({ id: e.id, start: s, end: t, left: pct(Math.max(s, win.start)), width: Math.max(0.3, pct(Math.min(t, win.end)) - pct(Math.max(s, win.start))), ai: e.triggers.some((x) => x !== 'motion') })),
   );
   const nowLeft = $derived(now > win.start && now < win.end ? pct(now) : null);
 
-  // Hour ticks from the clock (labels say what the wall clock says, so the
-  // repeated hour on the 25-hour day shows twice); a date at midnight.
+  // Ticks counted from each local midnight (so they sit on local hours in any
+  // time zone), labelled with the wall clock (the repeated hour on the 25-hour
+  // day shows twice); a date at midnight.
   const ticks = $derived.by(() => {
     const h = $zoom >= 12 ? 3 : $zoom === 6 ? 1 : $zoom === 3 ? 0.5 : 0.25;
     const step = h * 3_600_000;
     const out: { left: number; label: string }[] = [];
-    for (let t = Math.ceil(win.start / step) * step; t <= win.end; t += step) {
+    const times: number[] = [];
+    for (let day = localDate(new Date(win.start)); ; day = addDays(day, 1)) {
+      const [y, m, dd] = day.split('-').map(Number);
+      const midnight = new Date(y, m - 1, dd).getTime();
+      if (midnight > win.end) break;
+      const next = new Date(y, m - 1, dd + 1).getTime();
+      for (let t = midnight; t < next; t += step) if (t >= win.start && t <= win.end) times.push(t);
+    }
+    for (const t of times) {
       const d = new Date(t);
       const midnight = d.getHours() === 0 && d.getMinutes() === 0;
       const label = midnight
@@ -78,6 +87,10 @@
     }
     hoverAt(timeAtX(e, el), e, el);
   }
+  function cancel() {
+    if (press?.moved) ondrag?.(false);
+    press = null;
+  }
   function up(e: PointerEvent) {
     if (!press) return;
     const moved = press.moved;
@@ -89,7 +102,9 @@
     const r = el.getBoundingClientRect();
     const p = ((e.clientX - r.left) / r.width) * 100;
     const hit = segs.find((s) => p >= s.left && p <= s.left + s.width);
-    onseek(hit ? hit.start : timeAtX(e, el));
+    const t = timeAtX(e, el);
+    // Inside the clip's real span: that moment; on its drawn edge: its start.
+    onseek(hit && (t < hit.start || t >= hit.end) ? hit.start : t);
   }
   function wheel(e: WheelEvent) {
     const dx = e.deltaX || (e.shiftKey ? e.deltaY : 0);
@@ -148,7 +163,7 @@
     </div>
   </div>
   <div class="bar" data-testid="timeline" role="slider" tabindex="0" aria-label="Recordings timeline" aria-valuenow={Math.round(at / 1000)}
-    onpointerdown={down} onpointermove={move} onpointerup={up} onpointerleave={leave} onwheel={wheel} onkeydown={keydown}>
+    onpointerdown={down} onpointermove={move} onpointerup={up} onpointercancel={cancel} onlostpointercapture={cancel} onpointerleave={leave} onwheel={wheel} onkeydown={keydown}>
     {#each spans as s, i (i)}
       <span class={`span ${s.kind}`} data-testid="strip-span" data-kind={s.kind} style={`left:${s.left}%;width:${s.width}%`}></span>
     {/each}
