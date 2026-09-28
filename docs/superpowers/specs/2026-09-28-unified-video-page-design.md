@@ -1,6 +1,6 @@
 # One video page: Live, History and Downloads (design)
 
-Status: draft for review (Klaus, 2026-09-28).
+Status: draft for review (Klaus, 2026-09-28); updated with Klaus's answers the same day.
 Builds on the History strip (spec 2026-09-27). It replaces the separate Live
 page layout and joins it with the Recordings workspace. The Timeline page
 stays as it is.
@@ -32,6 +32,9 @@ to live.
 | Live panel | Camera info (name, real or simulated, online or uptime, streams and quality), the latest event with its thumbnail and "12 minutes ago" (click: plays it), the live controls (sound, SD/HD, snapshot, fullscreen) |
 | Strip on Live | The same strip as History, playhead glued to now while live |
 | Timeline page | Unchanged |
+| Zoom | A 30-minute zoom joins 24/12/6/3/1 h (strip, Settings, server validation) |
+| Simulated camera | Detected via the API: cam-sim adds `simulator` to its device info (no config or Secret change) |
+| Keep-alive | Leaving the live stream (to playback or another page) keeps it open in the background for the setting (0–15 min), so coming back within that time starts it at once |
 
 ## Page and URLs
 
@@ -45,11 +48,11 @@ to live.
   About). Each entry opens its panel.
 - Moving from live to playback on the Live panel keeps the Live panel, and the
   URL gains `at`. Moving back to live (⇥, or reaching now) drops `at`.
-- **Keep-alive:** today App keeps the Live page mounted after you leave it,
-  for the chosen time. With one page, the page stays mounted across its three
-  panels, and only the live *stream* follows the keep-alive rule:
-  - it stays connected while the playhead is at now or was there recently;
-  - it closes after the keep-alive time spent in playback or on another page.
+- **Keep-alive (same idea as today):** when the user leaves the live stream,
+  by moving into playback or going to another page, the stream stays open in
+  the background for the keep-alive setting (0–15 minutes). Coming back to
+  live within that time shows the picture at once. After it, the stream
+  closes and a return reconnects.
 
 ## Player column
 
@@ -80,9 +83,8 @@ to live.
 
 - **Live panel:**
   - **Camera:**
-    - the name, and "Simulated camera" when the camera's config says so
-      (`"simulated": true` in cameras.json; cam-sim copies the real camera's
-      device info, so cams can't tell);
+    - the name, and "Simulated camera (cam-sim <version>)" when the camera's
+      device info carries cam-sim's `simulator` field (see cam-sim below);
     - the model and firmware (existing status);
     - online, or since when offline;
     - the streams: main H.265 4512×2512 @20, sub H.264 896×512 @10 (from
@@ -100,11 +102,26 @@ to live.
 
 ## Server
 
-- `GET /api/cameras/:id/info` → `{ simulated, streams: { main, sub } }`
-  (`GetEnc`, cached for 10 minutes), or folded into the existing `status`.
-- A camera's config gains the optional `simulated: true` (`cameraRegistry`
-  validation; README). Setting it for cam2 is a one-line edit of the
-  `cams-cameras` Secret: Klaus makes it, or asks for it explicitly.
+- `GET /api/cameras/:id/info` → `{ simulator: string | null, streams: { main, sub } }`
+  (`GetDevInfo` and `GetEnc`, cached for 10 minutes), or folded into the
+  existing `status`.
+- `timelineZoom` accepts `0.5` (30 minutes).
+
+## cam-sim
+
+- `GetDevInfo` gains `simulator: "cam-sim <version>"`. It is one extra field
+  that a real camera never sends; everything else stays identical, so
+  clients that don't know the field see the real camera's answer. cams
+  reads it to label the camera.
+- A cam-sim release (it redeploys cam2), then cams and cam-proxy bump their
+  cam-sim test dependency.
+
+## Zoom: 30 minutes
+
+- `STRIP_ZOOMS` becomes `[24, 12, 6, 3, 1, 0.5]`.
+- The tick step at 30 min is 5 minutes, labelled `HH:MM`.
+- Settings "Timeline zoom" gains "30 minutes". The server accepts `0.5`.
+- The proxy needs nothing: stills and previews are already one per second.
 
 ## What goes away
 
