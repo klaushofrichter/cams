@@ -205,3 +205,31 @@ describe('the live end (glue, spec 2026-09-28)', () => {
   });
 });
 
+describe('History ⇥ and playback to Live (Klaus, 2026-09-28)', () => {
+  it('⇥ while playing goes to Live', async () => {
+    const onlive = vi.fn();
+    await render({ live: false, initialAt: NOW - 3_600_000, onlive });
+    (target!.querySelector('[data-testid="play-toggle"]') as HTMLElement).click();
+    flushSync();
+    (target!.querySelector('[data-testid="strip-now"]') as HTMLElement).click();
+    expect(onlive).toHaveBeenCalledTimes(1);
+  });
+
+  it('⇥ while paused stays on History, at now', async () => {
+    const onlive = vi.fn();
+    const { onposition } = await render({ live: false, initialAt: NOW - 3_600_000, onlive });
+    (target!.querySelector('[data-testid="strip-now"]') as HTMLElement).click();
+    await vi.advanceTimersByTimeAsync(2500); // a seek's report is throttled (2 s)
+    expect(onlive).not.toHaveBeenCalled();
+    expect(onposition.mock.calls.at(-1)![0]).toBeGreaterThanOrEqual(NOW - 3000);
+  });
+
+  it('playback catching up with now goes to Live', async () => {
+    const onlive = vi.fn();
+    await render({ live: false, initialAt: NOW - 20_000, onlive });
+    (target!.querySelector('[data-testid="play-toggle"]') as HTMLElement).click();
+    await vi.advanceTimersByTimeAsync(1000);
+    flushSync();
+    expect(onlive).toHaveBeenCalledTimes(1);
+  });
+});

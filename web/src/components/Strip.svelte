@@ -178,11 +178,6 @@
 </script>
 
 <div class="wrap">
-  {#if cursor && !hover}
-    <div class="scrub" style={`left: clamp(40px, ${cursor.left}%, calc(100% - 40px))`} aria-hidden="true">
-      <span class="when" data-testid="strip-cursor-time">{cursor.label}</span>
-    </div>
-  {/if}
   {#if hover}
     <div class="scrub" style={`left: clamp(84px, ${hover.left}%, calc(100% - 84px))`} data-testid="scrub-preview" aria-hidden="true">
       {#if hover.img}<img class="frame" src={hover.img} alt="" width="160" height="90" onerror={() => hover && (hover = { ...hover, img: undefined })} />
@@ -221,24 +216,28 @@
     <span class="playhead" data-testid="strip-playhead" style="left:50%"></span>
     {#if cursor}
       <span class="cursor" data-testid="strip-cursor" style={`left:${cursor.left}%`}></span>
+      {#if !hover}<span class="cursor-time" class:flip={cursor.left > 80} data-testid="strip-cursor-time" style={`left:${cursor.left}%`}>{cursor.label}</span>{/if}
     {/if}
     <div class="ticks">
       {#each ticks as t (t.left)}<span data-testid="strip-tick" style={`left:${t.left}%`}>{t.label}</span>{/each}
     </div>
-  </div>
-  <div class="film" data-testid="strip-film" bind:clientWidth={measured} style={`height:${FILM_H}px`}>
-    {#each film as f (f.t)}
-      <button class="frame-btn" data-testid="strip-film-frame" data-t={f.t} tabindex="-1" aria-label={new Date(f.t).toLocaleTimeString()}
-        style={`left:calc(${f.left}% - ${FILM_W / 2}px);width:${FILM_W}px;height:${FILM_H}px`} onclick={() => seekTo(f.t)}>
-        {#if f.tile}<span class="tile" style={tileStyle(f.tile.minute, f.tile.index, FILM_W / f.tile.minute.tileW)}></span>{/if}
-      </button>
-    {/each}
   </div>
   </div>
   <div class="edge">
     <button data-testid="strip-forward" title={`Forward ${$zoom} h`} aria-label={`Forward ${$zoom} hours`} disabled={at >= hi} onclick={() => seekTo(at + span)}>›</button>
     <button data-testid="strip-now" title="Now" aria-label="Go to now" disabled={!onglue && at >= now - 5000} onclick={() => (onglue ? onglue() : onseek(Math.max(lo, now - 2000)))}>⇥</button>
   </div>
+  </div>
+  <!-- Aligned with the bar: the edge buttons' width either side. -->
+  <div class="film-row">
+    <div class="film" data-testid="strip-film" bind:clientWidth={measured} style={`height:${FILM_H}px`}>
+      {#each film as f (f.t)}
+        <button class="frame-btn" data-testid="strip-film-frame" data-t={f.t} tabindex="-1" aria-label={new Date(f.t).toLocaleTimeString()}
+          style={`left:calc(${f.left}% - ${FILM_W / 2}px);width:${FILM_W}px;height:${FILM_H}px`} onclick={() => seekTo(f.t)}>
+          {#if f.tile}<span class="tile" style={tileStyle(f.tile.minute, f.tile.index, FILM_W / f.tile.minute.tileW)}></span>{/if}
+        </button>
+      {/each}
+    </div>
   </div>
 </div>
 
@@ -261,7 +260,10 @@
   .bar { position: relative; height: 46px; border-radius: 10px; background: var(--strip-empty); border: 1px solid var(--border); cursor: crosshair; overflow: hidden; touch-action: pan-y; user-select: none; }
   .bar.dragging { cursor: grabbing; }
   .cursor { position: absolute; top: 0; bottom: 0; width: 1px; background: var(--text); opacity: 0.7; pointer-events: none; }
-  .film { position: relative; margin-top: 4px; overflow: hidden; }
+  .cursor-time { position: absolute; top: 2px; margin-left: 4px; font-size: 10px; font-family: var(--mono); color: var(--text); background: color-mix(in srgb, var(--surface) 80%, transparent); padding: 0 3px; border-radius: 3px; pointer-events: none; white-space: nowrap; }
+  .cursor-time.flip { transform: translateX(calc(-100% - 8px)); }
+  .film-row { padding: 0 70px; } /* two 30 px edge buttons, their 4 px gap and the row's 6 px gap, each side */
+  .film { position: relative; overflow: hidden; }
   .frame-btn { position: absolute; top: 0; padding: 0; border: 0; border-radius: 3px; overflow: hidden; background: var(--no-thumb-bg); cursor: pointer; }
   .frame-btn .tile { display: block; }
   .span { position: absolute; top: 0; bottom: 0; pointer-events: none; }

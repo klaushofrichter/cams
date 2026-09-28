@@ -138,7 +138,7 @@ test('the Live panel’s latest event plays it', async ({ page }) => {
   await page.getByTestId('live-latest').click();
   await expect(page.getByTestId('live-badge')).toHaveCount(0);
   await expect(page.getByTestId('source-badge')).toContainText(/SD 10 FPS|Stills|No recording/);
-  await expect(page).toHaveURL(/\/app\/live\?.*at=\d+/);
+  await expect(page).toHaveURL(/\/app\/recordings\?.*at=\d+.*panel=history/); // History (Klaus, 2026-09-28)
 });
 
 test('the video stays in place between Live, History and Downloads', async ({ page }) => {
