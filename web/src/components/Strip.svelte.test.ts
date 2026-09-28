@@ -7,7 +7,7 @@ import { preferences, type Preferences } from '../lib/preferences';
 import type { Coverage } from '../lib/strip';
 import type { EventClip } from '../lib/recordings';
 
-const PREFS: Preferences = { defaultCamera: null, liveQuality: 'sub', eventFilter: 'all', timelineZoom: 1, liveKeepAlive: 60 };
+const PREFS: Preferences = { defaultCamera: null, liveQuality: 'sub', eventFilter: ['person', 'vehicle', 'pet', 'motion'], timelineZoom: 1, liveKeepAlive: 60 };
 const T = Date.parse('2026-09-27T12:00:00-05:00');
 const ev = (id: string, s: number, sec = 60): EventClip => ({ id, start: new Date(s).toISOString(), end: new Date(s + sec * 1000).toISOString(), durationSec: sec, triggers: ['motion'], sizeSub: 1, sizeMain: 1 });
 const cov: Coverage = { clips: [], stills: [{ start: T - 600_000, end: T }], previews: [] };

@@ -11,6 +11,7 @@ import { flushSync, mount, unmount, tick as svelteTick } from 'svelte';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import EventList from './EventList.svelte';
 import { makeEvents } from './testing/eventFixtures';
+import { ALL_KINDS } from '../lib/recordings';
 
 const DATE = '2026-09-26';
 
@@ -36,7 +37,7 @@ describe('EventList scrolls to a selection set before its events arrive', () => 
     const props = $state({
       cameraId: 'cam1',
       events: [] as typeof events,
-      filter: 'all' as const,
+      filter: ALL_KINDS,
       date: DATE,
       selectedId: wanted as string | null,
       onfilter: () => {},

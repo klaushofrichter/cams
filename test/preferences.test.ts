@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import request from 'supertest';
-import { readFileSync, rmSync } from 'fs';
+import { readFileSync, writeFileSync, rmSync } from 'fs';
 import { createApp } from '../server/app';
 import { setCameras } from '../server/cameraRegistry';
 import { DEFAULT_PREFERENCES } from '../server/preferences';
@@ -35,6 +35,9 @@ describe('preferences', () => {
     [{ liveQuality: 'ultra' }],
     [{ timelineZoom: 5 }],
     [{ eventFilter: 'cat' }],
+    [{ eventFilter: ['person', 'cat'] }],
+    [{ eventFilter: [] }],
+    [{ eventFilter: ['pet', 'pet'] }],
     [{ defaultCamera: 'nope' }],
     [{ theme: 'dark' }],
     [{ liveKeepAlive: 45 }],
@@ -45,6 +48,21 @@ describe('preferences', () => {
   ])('rejects %j', async (body) => {
     const res = await request(createApp()).put('/api/preferences').set('Cookie', klaus).send(body);
     expect(res.status).toBe(400);
+  });
+
+  it('keeps several event kinds, and reads an old single value as a list (Klaus, 2026-09-28)', async () => {
+    const res = await request(createApp()).put('/api/preferences').set('Cookie', klaus).send({ eventFilter: ['vehicle', 'person'] });
+    expect(res.status).toBe(200);
+    expect(res.body.eventFilter).toEqual(['person', 'vehicle']);
+    for (const [old, want] of [['all', ['person', 'vehicle', 'pet', 'motion']], ['pet', ['pet']]] as const) {
+      const r = await request(createApp()).put('/api/preferences').set('Cookie', klaus).send({ eventFilter: old });
+      expect(r.status).toBe(200);
+      expect(r.body.eventFilter).toEqual(want);
+    }
+    const file = JSON.parse(readFileSync(process.env.PREFS_FILE!, 'utf8'));
+    file['klaus@klaushofrichter.net'].eventFilter = 'vehicle'; // stored by an older version
+    writeFileSync(process.env.PREFS_FILE!, JSON.stringify(file));
+    expect((await request(createApp()).get('/api/preferences').set('Cookie', klaus)).body.eventFilter).toEqual(['vehicle']);
   });
 
   it('accepts the strip zooms 24, 12, 6, 3, 1 and 0.5', async () => {

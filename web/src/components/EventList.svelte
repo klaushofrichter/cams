@@ -1,6 +1,6 @@
 <script lang="ts">
   import { tick, untrack } from 'svelte';
-  import { FILTERS, TRIGGER_LABELS, defaultGroupOpen, formatClock, groupByHour, thumbUrl, type EventClip, type Filter } from '../lib/recordings';
+  import { ALL_KINDS, TRIGGER_LABELS, isAllKinds, toggleFilter, defaultGroupOpen, formatClock, groupByHour, thumbUrl, type EventClip, type Filter } from '../lib/recordings';
 
   let {
     cameraId,
@@ -141,8 +141,10 @@
 </script>
 
 <div class="filters" role="group" aria-label="Filter events">
-  {#each FILTERS as f (f)}
-    <button data-testid={`filter-${f}`} aria-pressed={filter === f} onclick={() => onfilter(f)}>{f === 'all' ? 'All' : TRIGGER_LABELS[f]}</button>
+  <!-- Several kinds at once; All is every kind (Klaus, 2026-09-28). -->
+  <button data-testid="filter-all" aria-pressed={isAllKinds(filter)} onclick={() => onfilter(toggleFilter(filter, 'all'))}>All</button>
+  {#each ALL_KINDS as f (f)}
+    <button data-testid={`filter-${f}`} aria-pressed={!isAllKinds(filter) && filter.includes(f)} onclick={() => onfilter(toggleFilter(filter, f))}>{TRIGGER_LABELS[f]}</button>
   {/each}
 </div>
 
@@ -157,7 +159,7 @@
   </div>
 {/each}
 {#if events.length === 0 && pending.length === 0}
-  <p class="none" data-testid="no-events">No {filter === 'all' ? '' : TRIGGER_LABELS[filter].toLowerCase() + ' '}events on this day.</p>
+  <p class="none" data-testid="no-events">No {isAllKinds(filter) ? '' : filter.map((f) => TRIGGER_LABELS[f].toLowerCase()).join(' or ') + ' '}events on this day.</p>
 {:else}
   <div class="groups" bind:this={listEl}>
     {#each groups as g (g.hour)}

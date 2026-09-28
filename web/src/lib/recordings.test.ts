@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
-  addDays, clipAtSecond, cursorSearch, dayLength, dayStartMs, downloadUrl, filterEvents, formatBytes, groupByHour, layoutSegments, legendTicks,
+  ALL_KINDS, addDays, clipAtSecond, cursorSearch, isAllKinds, parseFilter, toggleFilter, dayLength, dayStartMs, downloadUrl, filterEvents, formatBytes, groupByHour, layoutSegments, legendTicks,
   loadCursor, neighbour, panWindow, parseCursor, saveCursor, secondsIntoDay, thumbUrl, tickLabel, timelineWindow, videoUrl,
   type EventClip,
 } from './recordings';
@@ -93,8 +93,30 @@ describe('DST and fall-back days', () => {
 
 describe('filters and formatting', () => {
   it('filters by trigger', () => {
-    expect(filterEvents(events, 'person').map((e) => e.id)).toEqual([events[0].id]);
-    expect(filterEvents(events, 'all')).toHaveLength(3);
+    expect(filterEvents(events, ['person']).map((e) => e.id)).toEqual([events[0].id]);
+    expect(filterEvents(events, ALL_KINDS)).toHaveLength(3);
+  });
+  it('filters by several triggers (multi-select, Klaus 2026-09-28)', () => {
+    const kinds = events.map((e) => e.triggers);
+    const want = events.filter((_, i) => kinds[i].some((k) => k === 'person' || k === 'motion')).map((e) => e.id);
+    expect(filterEvents(events, ['person', 'motion']).map((e) => e.id)).toEqual(want);
+  });
+  it('reads a filter: all, one kind, several, old values, junk', () => {
+    expect(parseFilter('all')).toEqual(ALL_KINDS);
+    expect(parseFilter('person')).toEqual(['person']);
+    expect(parseFilter('vehicle,person')).toEqual(['person', 'vehicle']); // canonical order
+    expect(parseFilter(['pet', 'motion'])).toEqual(['pet', 'motion']);
+    expect(parseFilter('zzz')).toEqual(ALL_KINDS);
+    expect(parseFilter(null)).toEqual(ALL_KINDS);
+    expect(isAllKinds(ALL_KINDS)).toBe(true);
+    expect(isAllKinds(['person'])).toBe(false);
+  });
+  it('toggles chips: from All a kind picks only it; the last one off is All again', () => {
+    expect(toggleFilter(ALL_KINDS, 'person')).toEqual(['person']);
+    expect(toggleFilter(['person'], 'vehicle')).toEqual(['person', 'vehicle']);
+    expect(toggleFilter(['person', 'vehicle'], 'person')).toEqual(['vehicle']);
+    expect(toggleFilter(['vehicle'], 'vehicle')).toEqual(ALL_KINDS);
+    expect(toggleFilter(['vehicle'], 'all')).toEqual(ALL_KINDS);
   });
   it('formats sizes', () => {
     expect(formatBytes(600_009)).toBe('586 KB');
@@ -113,16 +135,16 @@ describe('URL builders', () => {
 
 describe('cursor', () => {
   it('parses and serialises the URL cursor', () => {
-    const q = cursorSearch('cam1', { date: DAY, clipId: events[0].id, offsetSec: 12.4, at: null }, 'events', 'person');
-    expect(q).toBe(`?cam=cam1&date=${DAY}&clip=${events[0].id}&t=12&panel=events&filter=person`);
+    const q = cursorSearch('cam1', { date: DAY, clipId: events[0].id, offsetSec: 12.4, at: null }, 'events', ['person', 'pet']);
+    expect(q).toBe(`?cam=cam1&date=${DAY}&clip=${events[0].id}&t=12&panel=events&filter=person%2Cpet`);
     expect(parseCursor(new URLSearchParams(q), '2026-09-26')).toEqual({
-      cam: 'cam1', cursor: { date: DAY, clipId: events[0].id, offsetSec: 12, at: null }, filter: 'person',
+      cam: 'cam1', cursor: { date: DAY, clipId: events[0].id, offsetSec: 12, at: null }, filter: ['person', 'pet'],
     });
   });
 
   it('defaults to today and ignores malformed values', () => {
     expect(parseCursor(new URLSearchParams('?date=bad&clip=../x&t=-4&filter=zzz'), '2026-09-26')).toEqual({
-      cam: null, cursor: { date: '2026-09-26', clipId: null, offsetSec: 0, at: null }, filter: 'all',
+      cam: null, cursor: { date: '2026-09-26', clipId: null, offsetSec: 0, at: null }, filter: ALL_KINDS,
     });
   });
 
@@ -268,7 +290,7 @@ describe('the strip position in the URL', () => {
   });
 
   it('writes at and the clip under the playhead, no t', () => {
-    const s = cursorSearch('den', { date: '2026-09-27', clipId: '20260927-120505-120530', offsetSec: 0, at: 1790552160000 }, 'history', 'all');
+    const s = cursorSearch('den', { date: '2026-09-27', clipId: '20260927-120505-120530', offsetSec: 0, at: 1790552160000 }, 'history', ALL_KINDS);
     expect(s).toBe('?cam=den&date=2026-09-27&at=1790552160000&clip=20260927-120505-120530&panel=history&filter=all');
   });
 });

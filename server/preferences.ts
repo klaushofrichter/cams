@@ -9,15 +9,26 @@ export interface Preferences {
   defaultCamera: string | null; // null: the last camera used (Klaus, 2026-09-28)
   lastCamera: string | null; // remembered on every camera switch
   liveQuality: 'sub' | 'main';
-  eventFilter: 'all' | 'person' | 'vehicle' | 'pet' | 'motion';
+  eventFilter: EventKind[]; // shown kinds, several at once; all four is "All" (Klaus, 2026-09-28)
   timelineZoom: 24 | 12 | 6 | 3 | 1 | 0.5;
   liveKeepAlive: 0 | 30 | 60 | 120 | 300 | 900; // seconds; 0 = off
   liveEvents: boolean; // new events at once, with a notification (Klaus, 2026-09-28)
   liveEventTypes: ('person' | 'vehicle' | 'pet' | 'motion')[]; // which ones notify
 }
 
+type EventKind = 'person' | 'vehicle' | 'pet' | 'motion';
+const KINDS: EventKind[] = ['person', 'vehicle', 'pet', 'motion'];
+// A list of kinds (any order, no repeats), or an older version's single
+// value ('all' or one kind): always stored as a list in KINDS order.
+function eventFilterOf(v: unknown): EventKind[] | null {
+  if (v === 'all') return [...KINDS];
+  if (typeof v === 'string') return (KINDS as string[]).includes(v) ? [v as EventKind] : null;
+  if (!Array.isArray(v) || v.length === 0 || new Set(v).size !== v.length || !v.every((k) => (KINDS as unknown[]).includes(k))) return null;
+  return KINDS.filter((k) => v.includes(k));
+}
+
 export const KEEP_ALIVE_CHOICES = [0, 30, 60, 120, 300, 900] as const;
-export const DEFAULT_PREFERENCES: Preferences = { defaultCamera: null, lastCamera: null, liveQuality: 'sub', eventFilter: 'all', timelineZoom: 24, liveKeepAlive: 60, liveEvents: true, liveEventTypes: ['person', 'vehicle', 'pet', 'motion'] };
+export const DEFAULT_PREFERENCES: Preferences = { defaultCamera: null, lastCamera: null, liveQuality: 'sub', eventFilter: ['person', 'vehicle', 'pet', 'motion'], timelineZoom: 24, liveKeepAlive: 60, liveEvents: true, liveEventTypes: ['person', 'vehicle', 'pet', 'motion'] };
 
 const file = () => process.env.PREFS_FILE || join(tmpdir(), 'cams-preferences.json');
 let writing: Promise<unknown> = Promise.resolve();
@@ -73,7 +84,8 @@ function sanitize(stored: unknown): Partial<Preferences> {
   for (const k of Object.keys(DEFAULT_PREFERENCES)) {
     if (!Object.prototype.hasOwnProperty.call(stored, k)) continue;
     const v = (stored as Record<string, unknown>)[k];
-    if (validatePreferencesPatch({ [k]: v }).ok) out[k] = v;
+    const r = validatePreferencesPatch({ [k]: v });
+    if (r.ok) out[k] = (r.patch as Record<string, unknown>)[k];
   }
   return out as Partial<Preferences>;
 }
@@ -125,12 +137,14 @@ export function validatePreferencesPatch(body: unknown): { ok: true; patch: Part
   if ('defaultCamera' in b && b.defaultCamera !== null && !(typeof b.defaultCamera === 'string' && getCamera(b.defaultCamera))) details.push('defaultCamera: a configured camera id or null');
   if ('lastCamera' in b && b.lastCamera !== null && !(typeof b.lastCamera === 'string' && getCamera(b.lastCamera))) details.push('lastCamera: a configured camera id or null');
   if ('liveQuality' in b && b.liveQuality !== 'sub' && b.liveQuality !== 'main') details.push('liveQuality: sub or main');
-  if ('eventFilter' in b && !['all', 'person', 'vehicle', 'pet', 'motion'].includes(b.eventFilter as string)) details.push('eventFilter: all, person, vehicle, pet or motion');
+  let eventFilter: EventKind[] | null = null;
+  if ('eventFilter' in b && !(eventFilter = eventFilterOf(b.eventFilter))) details.push('eventFilter: a list of person, vehicle, pet and motion');
   if ('timelineZoom' in b && ![24, 12, 6, 3, 1, 0.5].includes(b.timelineZoom as number)) details.push('timelineZoom: 24, 12, 6, 3, 1 or 0.5');
   if ('liveKeepAlive' in b && !(KEEP_ALIVE_CHOICES as readonly number[]).includes(b.liveKeepAlive as number)) details.push('liveKeepAlive: 0, 30, 60, 120, 300 or 900');
   if ('liveEvents' in b && typeof b.liveEvents !== 'boolean') details.push('liveEvents: true or false');
   if ('liveEventTypes' in b && !(Array.isArray(b.liveEventTypes) && b.liveEventTypes.every((t) => ['person', 'vehicle', 'pet', 'motion'].includes(t as string)) && new Set(b.liveEventTypes).size === b.liveEventTypes.length)) {
     details.push('liveEventTypes: a list of person, vehicle, pet and motion');
   }
-  return details.length ? { ok: false, details } : { ok: true, patch: b as Partial<Preferences> };
+  if (details.length) return { ok: false, details };
+  return { ok: true, patch: (eventFilter ? { ...b, eventFilter } : b) as Partial<Preferences> };
 }

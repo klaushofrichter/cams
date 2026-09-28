@@ -13,7 +13,7 @@
   import { clipStartFromId } from '../lib/strip';
   import {
     addDays, cursorSearch, daysUrl, filterEvents, loadCursor, localDate,
-    parseCursor, saveCursor, type Cursor, type EventClip, type Filter,
+    parseCursor, parseFilter, saveCursor, type Cursor, type EventClip, type Filter,
   } from '../lib/recordings';
   import { liveEventsOn, preferences } from '../lib/preferences';
   import { createTodayRefresher, todayDate } from '../lib/refresh';
@@ -205,7 +205,7 @@
   // Reads the preferences store reactively (not the pref() snapshot helper,
   // which uses get() and would not update this derived value if the
   // preference arrived or changed after the page mounted).
-  const filter: Filter = $derived(vroute.params.has('filter') ? parsed.filter : ($preferences?.eventFilter ?? 'all'));
+  const filter: Filter = $derived(vroute.params.has('filter') ? parsed.filter : parseFilter($preferences?.eventFilter));
   const panel: Panel = $derived(vroute.panel);
   const visible = $derived(filterEvents(events, filter));
   // The strip's first position: the URL's `at`, else an old link's clip and

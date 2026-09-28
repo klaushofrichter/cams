@@ -5,7 +5,7 @@ import { get } from 'svelte/store';
 import { pickZoom, zoom } from './zoomPref';
 import { preferences, type Preferences } from './preferences';
 
-const PREFS: Preferences = { defaultCamera: null, liveQuality: 'sub', eventFilter: 'all', timelineZoom: 24, liveKeepAlive: 60 };
+const PREFS: Preferences = { defaultCamera: null, liveQuality: 'sub', eventFilter: ['person', 'vehicle', 'pet', 'motion'], timelineZoom: 24, liveKeepAlive: 60 };
 afterEach(() => {
   vi.unstubAllGlobals();
   preferences.set(null);
