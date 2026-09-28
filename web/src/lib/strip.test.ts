@@ -110,3 +110,34 @@ describe('ids and days', () => {
     expect(localDaysBetween(fallStart, fallStart + 24.5 * 3_600_000)).toEqual(['2026-11-01']);
   });
 });
+
+// cam2 (cam-sim) drops preview tiles all the time: ~10 800 separate runs over
+// three days froze the page (stripSpans is recomputed every second while live).
+describe('previews with many missing tiles (production freeze, 2026-09-28)', () => {
+  const T0 = Date.parse('2026-09-28T00:00:00-05:00');
+  // 72 h of minutes, every 7th tile missing.
+  const gappy: PreviewMinute[] = Array.from({ length: 72 * 60 }, (_, k) => ({
+    minute: T0 - 48 * 3_600_000 + k * 60_000, url: '', cols: 10, rows: 6, tileW: 160, tileH: 90, intervalS: 1,
+    present: Array.from({ length: 60 }, (_, i) => (k * 60 + i) % 7 !== 3),
+  }));
+
+  it('reads a single missing tile as part of the run, as with stills', () => {
+    expect(previewRuns(gappy).length).toBe(1);
+  });
+
+  it('keeps a real hole (over 2 s) in the previews', () => {
+    const m: PreviewMinute = { ...gappy[0], present: Array.from({ length: 60 }, (_, i) => i < 10 || i >= 20) };
+    expect(previewRuns([m])).toEqual([{ start: m.minute, end: m.minute + 10_000 }, { start: m.minute + 20_000, end: m.minute + 60_000 }]);
+  });
+
+  it('draws a day of 20 000 separate runs quickly', () => {
+    const runs = Array.from({ length: 20_000 }, (_, i) => ({ start: T0 + i * 4000, end: T0 + i * 4000 + 1000 }));
+    const cov = { clips: [], stills: [], previews: runs };
+    const t = performance.now();
+    const spans = stripSpans(cov, { start: T0, end: T0 + 86_400_000 }, T0 + 86_400_000, null);
+    expect(performance.now() - t).toBeLessThan(200);
+    expect(spans.length).toBeGreaterThan(30_000);
+    expect(sourceAt(cov, T0 + 4000 * 500 + 500, T0 + 86_400_000)).toMatchObject({ kind: 'preview' });
+    expect(sourceAt(cov, T0 + 4000 * 500 + 2500, T0 + 86_400_000)).toMatchObject({ kind: 'none' });
+  });
+});
