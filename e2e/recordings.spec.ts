@@ -376,3 +376,9 @@ test('an old Events link opens History; the menu has no Events entry', async ({ 
   await expect(page.getByTestId('panel-tab-events')).toHaveCount(0);
   await expect(page.getByTestId('nav-events')).toHaveCount(0);
 });
+
+test('the Downloads list shows each recording’s thumbnail', async ({ page }) => {
+  await page.goto('/app/recordings?panel=downloads');
+  const thumb = page.locator('[data-testid="download-row"][data-clip-id*="-174540-"] [data-testid="download-thumb"]');
+  await expect.poll(() => thumb.evaluate((img: HTMLImageElement) => img.complete && img.naturalWidth > 0), { timeout: 15_000 }).toBe(true);
+});
