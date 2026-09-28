@@ -39,6 +39,21 @@ function stream(fake: FakeProxy, token = FAKE_TOKEN) {
 }
 
 describe('ProxyStream (upstream)', () => {
+  it('passes on only its own camera’s messages when a proxy serves several (review #5)', async () => {
+    const fake = await fakeProxy();
+    const s = new ProxyStream('den', new ProxyClient({ url: fake.url, token: FAKE_TOKEN }), { backoffMinMs: 50, backoffMaxMs: 400, healthyMs: 200, remoteCam: 'cam1' });
+    const got: { data: Record<string, unknown> }[] = [];
+    s.on('message', (m) => got.push(m));
+    s.start();
+    cleanup.push(() => s.stop());
+    await until(() => s.up());
+    fake.push({ cam: 'barn', type: 'camera-event', data: { eventId: 1, kind: 'person', phase: 'start', ts: 1000 } });
+    fake.push({ cam: 'cam1', type: 'camera-event', data: { eventId: 2, kind: 'motion', phase: 'start', ts: 2000 } });
+    await until(() => got.length >= 1);
+    await new Promise((r) => setTimeout(r, 100));
+    expect(got.map((m) => m.data.eventId)).toEqual([2]);
+  });
+
   it('relays the proxy’s messages and reports up', async () => {
     const fake = await fakeProxy();
     const { s, got, states } = stream(fake);

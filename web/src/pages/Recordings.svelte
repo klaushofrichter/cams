@@ -13,7 +13,7 @@
     addDays, cursorSearch, daysUrl, filterEvents, loadCursor, localDate,
     parseCursor, saveCursor, type Cursor, type EventClip, type Filter,
   } from '../lib/recordings';
-  import { preferences } from '../lib/preferences';
+  import { liveEventsOn, preferences } from '../lib/preferences';
   import { createTodayRefresher, todayDate } from '../lib/refresh';
   import { eventStream, prunePending, type Pending } from '../lib/eventStream';
   import { formatNow } from '../lib/clock';
@@ -55,15 +55,21 @@
   // Live events of this camera that started and aren't listed yet (Klaus,
   // 2026-09-28): at the top of the list and on the strip right away.
   let pending: Pending[] = $state([]);
+  let pendingFor: string | null = null;
   $effect(() => {
-    void $cameras;
-    void $preferences?.liveEvents;
+    void $cameras; // the stream opens once the camera list is in
+    const on = $liveEventsOn;
     const c = cam;
-    pending = [];
-    const stream = eventStream();
+    // Cleared only for another camera or with live events off (not when the
+    // camera list or other preferences reload).
+    untrack(() => {
+      if (c !== pendingFor || !on) pending = [];
+    });
+    pendingFor = c;
+    const stream = on ? eventStream() : undefined;
     if (!c || !stream) return;
     return stream.onCameraEvent((e) => {
-      if (e.cam === c) pending = [...pending.filter((p) => p.ts !== e.ts), { kind: e.kind, ts: e.ts }];
+      if (e.cam === c) pending = [...pending.filter((p) => p.ts !== e.ts || p.kind !== e.kind), { kind: e.kind, ts: e.ts }];
     });
   });
   $effect(() => {
@@ -250,6 +256,7 @@
     // While the camera's cam-proxy streams its events, reloads come from
     // those; the minute poll covers a camera without one, or while it's down.
     void $cameras; // re-run once the camera list (and whether any has a proxy) is known
+    void $liveEventsOn; // and when live events are turned on or off
     const stream = eventStream();
     const r = createTodayRefresher({ isToday: () => date === $todayDate, refresh: () => { if (!loading && !stream?.streaming(cam)) refreshTick++; } });
     const stopWatch = stream?.watch(() => cam, () => { if (!loading && date === $todayDate) refreshTick++; });

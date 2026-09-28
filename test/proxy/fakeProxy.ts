@@ -24,6 +24,7 @@ export interface FakeProxy {
   offline: boolean; // every request is answered by closing the connection
   requests: { path: string; auth: string | undefined }[];
   publicUrl: string | null; // what /api/cameras reports as the proxy's web address
+  camerasBody?: unknown; // tests: answer /api/cameras with this instead
   streamConnections(): number;
   push(m: Omit<FakeMessage, 'id' | 'ts'> & { ts?: number }): FakeMessage;
   dropStreams(): void; // ends every open stream (a proxy restart)
@@ -102,7 +103,7 @@ export async function startFakeProxy(opts: { port?: number; token?: string } = {
   };
   // The camera list, as the real one reports it (only what cams reads).
   app.get('/api/cameras', (_req, res) => {
-    res.json([{ id: 'cam1', name: 'Den', online: true, lastEventTs: null, stream: null, publicUrl: fake.publicUrl }]);
+    res.json(fake.camerasBody !== undefined ? fake.camerasBody : [{ id: 'cam1', name: 'Den', online: true, lastEventTs: null, stream: null, publicUrl: fake.publicUrl }]);
   });
   // Like the real one: the oldest clip, still and preview it holds.
   app.get('/api/cameras/:cam/extent', (req, res) => {

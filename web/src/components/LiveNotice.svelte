@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onDestroy } from 'svelte';
   import { cameras } from '../lib/stores';
-  import { preferences } from '../lib/preferences';
+  import { liveEventsOn, preferences } from '../lib/preferences';
   import { eventStream, type CameraEvent } from '../lib/eventStream';
   import { TRIGGER_LABELS, type Trigger } from '../lib/recordings';
 
@@ -36,7 +36,7 @@
   // The app's stream (or the test's); again when cameras or the setting change.
   $effect(() => {
     void $cameras;
-    const on = $preferences?.liveEvents !== false;
+    const on = $liveEventsOn;
     const s = source ?? (on ? eventStream() : undefined);
     return s?.onCameraEvent(show);
   });
@@ -54,8 +54,13 @@
   .notice {
     position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); z-index: 3;
     padding: 5px 14px; border-radius: 999px; font-size: 13px; font-weight: 600; white-space: nowrap;
+    max-width: 46vw; overflow: hidden; text-overflow: ellipsis;
     background: var(--accent); color: var(--accent-ink); box-shadow: var(--shadow);
     opacity: 1; transition: opacity 0.4s ease; pointer-events: none;
   }
   .notice.fading { opacity: 0; }
+  /* On a phone the top bar is full: show it just below instead of over the picker. */
+  @media (max-width: 640px) {
+    .notice { top: calc(100% + 8px); transform: translateX(-50%); max-width: 80vw; }
+  }
 </style>

@@ -182,6 +182,11 @@ test('the app opens on the last camera used (Klaus, 2026-09-28)', async ({ page,
   await expect.poll(async () => (await (await page.request.get('/api/preferences')).json()).lastCamera).toBe('porch');
   await page.goto('/app/live'); // a fresh load
   await expect(page.getByTestId('camera-picker')).toHaveValue('porch');
+  // A camera switch on Settings is not an edit there (review #3).
+  await page.goto('/app/settings');
+  await page.getByTestId('camera-picker').selectOption('shed');
+  await expect.poll(async () => (await (await page.request.get('/api/preferences')).json()).lastCamera).toBe('shed');
+  await expect(page.getByTestId('save-prefs')).toBeDisabled();
   // restore
   await page.getByTestId('camera-picker').selectOption('cam1');
   await expect.poll(async () => (await (await page.request.get('/api/preferences')).json()).lastCamera).toBe('cam1');

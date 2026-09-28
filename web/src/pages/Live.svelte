@@ -11,7 +11,7 @@
   import { enterFullscreen } from '../lib/fullscreen';
   import { clipAtSecond, cursorSearch, eventsUrl, saveCursor, secondsIntoDay, type EventClip } from '../lib/recordings';
   import { navigate } from '../lib/router';
-  import { pref } from '../lib/preferences';
+  import { pref, liveEventsOn } from '../lib/preferences';
   import { now } from '../lib/clock';
   import { createTodayRefresher, todayDate } from '../lib/refresh';
   import { eventStream } from '../lib/eventStream';
@@ -140,6 +140,7 @@
   // no point spending a Search call on the camera for it.
   $effect(() => {
     void $cameras; // re-run once the camera list (and whether any has a proxy) is known
+    void $liveEventsOn; // and when live events are turned on or off (a kept-alive Live polls again)
     const stream = eventStream();
     const id = () => camera?.id ?? '';
     // As on Recordings: the proxy's events when it streams, else the poll.

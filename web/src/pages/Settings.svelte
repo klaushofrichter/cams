@@ -37,7 +37,11 @@
   $effect(() => {
     if ($preferences && !prefs) prefs = structuredClone($preferences);
   });
-  const prefsDirty = $derived(!!prefs && !!$preferences && Object.keys(diffPatch($preferences, prefs)).length > 0);
+  // lastCamera isn't edited here (it follows the header picker): leave it out
+  // of the draft's comparison and of Save, or a camera switch on this page
+  // would look like an edit and Save would put the old camera back.
+  const editable = (p: Preferences): Preferences => ({ ...p, lastCamera: undefined });
+  const prefsDirty = $derived(!!prefs && !!$preferences && Object.keys(diffPatch(editable($preferences), editable(prefs))).length > 0);
   // Once a save has landed ('saved'/'partial'/'error'), editing again should
   // clear that stale text rather than leaving it next to unsent changes.
   $effect(() => {
@@ -47,7 +51,7 @@
     if (!prefs || !$preferences) return;
     prefsState = 'saving';
     try {
-      prefsState = (await savePreferences(diffPatch($preferences, prefs))) ? 'saved' : 'error';
+      prefsState = (await savePreferences(diffPatch(editable($preferences), editable(prefs)))) ? 'saved' : 'error';
       if (prefsState === 'saved' && $preferences) prefs = structuredClone($preferences);
     } catch {
       prefsState = 'error';

@@ -52,14 +52,16 @@ proxyRouter.get('/api/cameras/:id/proxy/info', async (req: Request, res: Respons
   const camera = getCamera(id);
   if (!camera) return void res.status(404).json({ error: 'unknown_camera' });
   if (!camera.proxy) return void res.status(404).json({ error: 'no_proxy' });
+  let list: unknown;
   try {
-    const list = await new ProxyClient(camera.proxy, { timeoutMs: 3000 }).json<{ id?: unknown; publicUrl?: unknown }[]>('/api/cameras');
-    const mine = list.find((c) => c.id === proxyCameraId(id)) ?? list[0];
-    const url = mine?.publicUrl;
-    res.json({ reachable: true, webUrl: typeof url === 'string' && /^https?:\/\/[^\s]+$/.test(url) ? url : null });
+    list = await new ProxyClient(camera.proxy, { timeoutMs: 3000 }).json<unknown>('/api/cameras');
   } catch {
-    res.json({ reachable: false, webUrl: null });
+    return void res.json({ reachable: false, webUrl: null });
   }
+  // It answered: reachable. A link only for this camera's own entry.
+  const mine = Array.isArray(list) ? (list as { id?: unknown; publicUrl?: unknown }[]).find((c) => c?.id === proxyCameraId(id)) : undefined;
+  const url = mine?.publicUrl;
+  res.json({ reachable: true, webUrl: typeof url === 'string' && /^https?:\/\/[^\s]+$/.test(url) ? url : null });
 });
 
 function range(req: Request, res: Response): [number, number] | undefined {

@@ -1,4 +1,4 @@
-import { get, writable } from 'svelte/store';
+import { derived, get, writable } from 'svelte/store';
 import { getJson } from './api';
 import { putJson } from './settings';
 
@@ -52,5 +52,9 @@ export function rememberCamera(id: string): void {
   preferences.update((x) => (x ? { ...x, lastCamera: id } : x));
   void savePreferences({ lastCamera: id }).catch(() => undefined);
 }
+
+// Whether live events are on: changes only when the setting does (not on
+// every preferences write, such as the zoom or the last camera).
+export const liveEventsOn = derived(preferences, (p) => p?.liveEvents !== false);
 
 export const pref = <K extends keyof Preferences>(k: K): Preferences[K] | undefined => get(preferences)?.[k];

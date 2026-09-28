@@ -148,6 +148,7 @@ export function createEventStream(opts: { url?: string; factory?: (url: string) 
     close() {
       closed = true;
       clearTimeout(reopenTimer);
+      state.set({ connected: false, up: {} }); // a closed stream streams nothing: pages poll
       source.close();
       watchers.clear();
       eventListeners.clear();
@@ -175,13 +176,15 @@ export function eventStream(): EventStream | undefined {
 }
 
 // Live events wait for their recording (Klaus, 2026-09-28): one is dropped
-// once a listed recording starts within 90 s of it (the camera records a few
-// seconds before the event), or after 15 minutes.
+// once a listed recording covers it (or starts within 90 s after it), or after
+// 15 minutes.
 export interface Pending {
   kind: string;
   ts: number;
 }
-export function prunePending(pending: Pending[], events: { start: string }[], now: number): Pending[] {
-  const starts = events.map((e) => Date.parse(e.start));
-  return pending.filter((p) => now - p.ts < 15 * 60_000 && !starts.some((s) => Math.abs(s - p.ts) < 90_000));
+export function prunePending(pending: Pending[], events: { start: string; end: string }[], now: number): Pending[] {
+  const spans = events.map((e) => [Date.parse(e.start), Date.parse(e.end)] as const);
+  // Covered: the recording starts up to 90 s after the event, or the event
+  // falls inside it (a recording the camera extended).
+  return pending.filter((p) => now - p.ts < 15 * 60_000 && !spans.some(([s, e]) => p.ts >= s - 90_000 && p.ts <= e + 5_000));
 }

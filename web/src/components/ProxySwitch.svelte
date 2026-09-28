@@ -13,10 +13,11 @@
   let saving = $state(false);
   // The proxy's own web page, while it answers (Klaus, 2026-09-28).
   let info = $state<{ reachable: boolean; webUrl: string | null } | null>(null);
+  const configured = $derived(!!camera?.proxyConfigured); // a plain value: camera-list reloads don't refetch
   $effect(() => {
     const id = cameraId;
     info = null;
-    if (!camera?.proxyConfigured) return;
+    if (!configured) return;
     let stale = false;
     getJson<{ reachable: boolean; webUrl: string | null }>(`/api/cameras/${encodeURIComponent(id)}/proxy/info`)
       .then((r) => { if (!stale) info = r; })

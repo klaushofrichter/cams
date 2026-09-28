@@ -155,6 +155,12 @@ describe('createEventStream', () => {
 
 
 describe('prunePending (live events waiting for their recording)', () => {
+  it('drops an event that happened inside a listed recording, not only near its start (review #4)', () => {
+    const now = 10_000_000;
+    const long = { id: 'y', start: new Date(now - 400_000).toISOString(), end: new Date(now - 100_000).toISOString(), durationSec: 300, triggers: ['motion' as const], sizeSub: 1, sizeMain: 1 };
+    expect(prunePending([{ kind: 'person', ts: now - 250_000 }], [long], now)).toEqual([]);
+  });
+
   const ev = (startMs: number) => ({ id: 'x', start: new Date(startMs).toISOString(), end: new Date(startMs + 20_000).toISOString(), durationSec: 20, triggers: ['motion' as const], sizeSub: 1, sizeMain: 1 });
   it('drops an event once its recording is listed (the camera starts a few seconds early), or after 15 minutes', () => {
     const now = 10_000_000;
@@ -163,3 +169,15 @@ describe('prunePending (live events waiting for their recording)', () => {
     expect(prunePending(pending, [ev(now - 204_000)], now)).toEqual([{ kind: 'pet', ts: now - 30_000 }]);
   });
 });
+
+describe('a closed stream (review #2)', () => {
+  it('no longer claims to stream, so pages go back to polling', () => {
+    const s = createEventStream({ url: '/x', factory: (u) => new FakeSource(u) });
+    FakeSource.last.open();
+    FakeSource.last.emit('proxy', { cam: 'den', up: true });
+    expect(s.streaming('den')).toBe(true);
+    s.close();
+    expect(s.streaming('den')).toBe(false);
+  });
+});
+

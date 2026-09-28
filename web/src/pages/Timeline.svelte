@@ -4,6 +4,7 @@
   import { getJson } from '../lib/api';
   import { cameras, selectedCameraId } from '../lib/stores';
   import { eventStream } from '../lib/eventStream';
+  import { liveEventsOn } from '../lib/preferences';
   import { localDate } from '../lib/recordings';
   import { todayDate } from '../lib/refresh';
   import { cursorSearch, dayRange, hourGroups, minuteOf, splitRange, stillIndex, tileStyle, timelineCursor, type PreviewMinute } from '../lib/timeline';
@@ -101,6 +102,7 @@
 
   $effect(() => {
     void $cameras;
+    void $liveEventsOn; // follow the setting (off: no live refresh)
     const stop = eventStream()?.watch(() => camera?.id ?? '', () => { if (date === $todayDate) refreshTick++; }, 5000);
     return () => stop?.();
   });

@@ -195,6 +195,13 @@ describe('GET /api/cameras/:id/proxy/info (the Settings link, Klaus 2026-09-28)'
     fake = await startFakeProxy(); // afterEach stops it again
   });
 
+  it('answers reachable without a link when the proxy says something odd, or lists only other cameras (review)', async () => {
+    fake.camerasBody = { not: 'a list' };
+    expect((await info('den')).body).toEqual({ reachable: true, webUrl: null });
+    fake.camerasBody = [{ id: 'other', publicUrl: 'https://other.example' }];
+    expect((await info('den')).body).toEqual({ reachable: true, webUrl: null });
+  });
+
   it('refuses a camera without a proxy', async () => {
     expect((await info('shed')).body).toEqual({ error: 'no_proxy' });
   });

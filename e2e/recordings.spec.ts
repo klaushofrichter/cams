@@ -1,5 +1,6 @@
 import { expect, test, type Page } from '@playwright/test';
 import { signIn } from './session';
+import { FAKE_PROXY_PORT } from './fakeProxyData';
 
 // The simulated cameras' demo clips (cam-sim DEMO_CLIPS, CAMSIM_SEED_CLIPS=demo):
 // today 08:15:10 person, 09:30:00 vehicle, 12:05:05 motion, 17:45:40 pet;
@@ -383,17 +384,22 @@ test('the Downloads list shows each recording’s thumbnail', async ({ page }) =
   await expect.poll(() => thumb.evaluate((img: HTMLImageElement) => img.complete && img.naturalWidth > 0), { timeout: 15_000 }).toBe(true);
 });
 
-// Live events (Klaus, 2026-09-28): the fake proxy sends a person event for Den.
+// Live events (Klaus, 2026-09-28): the fake proxy sends a person event for
+// Barn (no other test counts Barn's requests, so the reloads it causes are harmless).
 test('a new event shows at once: a top-bar notification and a "recording…" entry', async ({ page }) => {
-  const connected = page.waitForResponse((r) => r.url().includes('/api/events/stream'));
-  await page.goto('/app/recordings?cam=cam1&panel=history');
-  await connected;
+  await keepZoomLocal(page); // the zoom change below must not reach the shared user
+  await page.goto('/app/recordings?cam=barn&panel=history');
   await expect(page.getByTestId('timeline')).toBeVisible();
-  await page.waitForTimeout(1500); // the page subscribes once the camera list is in
-  const push = () => page.request.post('http://127.0.0.1:8093/push', { data: { cam: 'cam1', type: 'camera-event', data: { eventId: 99, kind: 'person', phase: 'start', ts: Date.now(), source: 'onvif' } } });
-  expect((await push()).ok()).toBe(true);
-  // Den and Barn share one fake proxy in e2e, so both announce it; the newer replaces the older.
-  await expect(page.getByTestId('live-notice')).toHaveText(/^Person on (Den|Barn)$/);
-  await expect(page.getByTestId('live-notice')).toHaveCount(0, { timeout: 3000 }); // gone after 1.4 s
+  const push = () => page.request.post(`http://127.0.0.1:${FAKE_PROXY_PORT - 2}/push`, { data: { cam: 'barn', type: 'camera-event', data: { eventId: 99, kind: 'person', phase: 'start', ts: Date.now(), source: 'onvif' } } });
+  // Until the page is subscribed, an event can go by unseen: send until one shows.
+  await expect.poll(async () => {
+    await push();
+    await page.waitForTimeout(250);
+    return (await page.getByTestId('live-notice').allTextContents()).join('').trim(); // no waiting
+  }, { timeout: 15_000 }).toBe('Person on Barn');
+  await expect(page.getByTestId('event-pending').first()).toContainText('Person');
+  // Another preference change (the zoom) keeps it (review #1).
+  await page.getByTestId('zoom-3').click();
   await expect(page.getByTestId('event-pending').first()).toContainText('Person');
 });
+

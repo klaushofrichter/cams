@@ -11,9 +11,9 @@ export interface Preferences {
   liveQuality: 'sub' | 'main';
   eventFilter: 'all' | 'person' | 'vehicle' | 'pet' | 'motion';
   timelineZoom: 24 | 12 | 6 | 3 | 1;
-  liveKeepAlive: 0 | 30 | 60 | 120 | 300 | 900;
+  liveKeepAlive: 0 | 30 | 60 | 120 | 300 | 900; // seconds; 0 = off
   liveEvents: boolean; // new events at once, with a notification (Klaus, 2026-09-28)
-  liveEventTypes: ('person' | 'vehicle' | 'pet' | 'motion')[]; // which ones notify // seconds; 0 = off
+  liveEventTypes: ('person' | 'vehicle' | 'pet' | 'motion')[]; // which ones notify
 }
 
 export const KEEP_ALIVE_CHOICES = [0, 30, 60, 120, 300, 900] as const;
