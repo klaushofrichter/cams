@@ -48,7 +48,7 @@ jobs:
         env:
           CI: 'true'
       # Traces, screenshots and error context of failed tests.
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: failure()
         with:
           name: e2e-test-results
