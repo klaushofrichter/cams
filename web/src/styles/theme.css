@@ -12,7 +12,6 @@
   --strip-stills: #2B3D63;
   --strip-empty: #111827;
   --strip-future: #05080F;
-  --strip-preview: #1F2C49;
   --border: #1C2940;
   --text: #E6EDF7;
   --muted: #9FB0CC;
@@ -51,7 +50,6 @@
   --strip-stills: #EEF3FA;
   --strip-empty: #C9D2DF;
   --strip-future: #9AA6B8;
-  --strip-preview: #E4EBF5;
   --border: #D8E1EE;
   --text: #0F1B2D;
   --muted: #55657F;
@@ -82,7 +80,6 @@
     --strip-stills: #EEF3FA;
     --strip-empty: #C9D2DF;
     --strip-future: #9AA6B8;
-    --strip-preview: #E4EBF5;
     --border: #D8E1EE;
     --text: #0F1B2D;
     --muted: #55657F;

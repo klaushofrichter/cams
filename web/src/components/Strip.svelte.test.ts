@@ -37,7 +37,7 @@ describe('Strip', () => {
     render({ now: T + 15 * 60_000 });
     expect(q('strip-playhead')!.style.left).toBe('50%');
     const kinds = [...target!.querySelectorAll('[data-testid="strip-span"]')].map((e) => (e as HTMLElement).dataset.kind);
-    expect(kinds).toEqual(['none', 'stills', 'none', 'future']);
+    expect(kinds).toEqual(['none', 'pictures', 'none', 'future']);
   });
 
   it('offers five zooms', () => {
@@ -167,6 +167,17 @@ describe('Strip', () => {
     bar.dispatchEvent(new PointerEvent('pointermove', { clientX: 0, bubbles: true })); // 30 min later: past now
     bar.dispatchEvent(new PointerEvent('pointerup', { clientX: 0, bubbles: true }));
     expect(onseek).toHaveBeenLastCalledWith(T + 60_000 - 2000);
+  });
+
+  it('draws stills and preview tiles in one colour: both are pictures (Klaus, 2026-09-28)', () => {
+    render({ coverage: { clips: [], stills: [{ start: T - 60_000, end: T }], previews: [{ start: T - 20 * 60_000, end: T }] }, now: T + 1_800_000 });
+    const kinds = [...target!.querySelectorAll('[data-testid="strip-span"]')].map((e) => (e as HTMLElement).dataset.kind);
+    expect(kinds).toEqual(['none', 'pictures', 'none']);
+  });
+
+  it('marks the playhead with a triangle above the bar', () => {
+    render({});
+    expect(q('strip-playhead-mark')).not.toBeNull();
   });
 });
 

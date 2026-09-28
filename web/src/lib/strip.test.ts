@@ -72,11 +72,10 @@ describe('window and spans', () => {
     expect(windowAround(10 * 3_600_000, 1)).toEqual({ start: 9.5 * 3_600_000, end: 10.5 * 3_600_000 });
     expect(windowAround(10 * 3_600_000, 24)).toEqual({ start: -2 * 3_600_000, end: 22 * 3_600_000 });
   });
-  it('colours the window: stills, preview, nothing, future', () => {
+  it('colours the window: pictures (stills or previews), nothing, future', () => {
     const cov: Coverage = { clips: [], stills: [{ start: 0, end: 25 }], previews: [{ start: 0, end: 50 }] };
     expect(stripSpans(cov, { start: 0, end: 100 }, 75)).toEqual([
-      { kind: 'stills', left: 0, width: 25 },
-      { kind: 'preview', left: 25, width: 25 },
+      { kind: 'pictures', left: 0, width: 50 },
       { kind: 'none', left: 50, width: 25 },
       { kind: 'future', left: 75, width: 25 },
     ]);
