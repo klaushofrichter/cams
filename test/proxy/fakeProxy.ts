@@ -25,6 +25,7 @@ export interface FakeProxy {
   requests: { path: string; auth: string | undefined }[];
   publicUrl: string | null; // what /api/cameras reports as the proxy's web address
   camerasBody?: unknown; // tests: answer /api/cameras with this instead
+  loginLinks: number; // one-time admin UI links minted (POST /control/login-links)
   streamConnections(): number;
   push(m: Omit<FakeMessage, 'id' | 'ts'> & { ts?: number }): FakeMessage;
   dropStreams(): void; // ends every open stream (a proxy restart)
@@ -32,6 +33,7 @@ export interface FakeProxy {
 }
 
 export const FAKE_TOKEN = 'fake-proxy-client-token-'.padEnd(48, 'z');
+export const FAKE_ADMIN_TOKEN = 'fake-proxy-admin-token-'.padEnd(48, 'a');
 export const JPEG = Buffer.from([0xff, 0xd8, 0xff, 0xe0, 0, 0x10, 0x4a, 0x46, 0x49, 0x46, 0, 1, 0xff, 0xd9]);
 
 export async function startFakeProxy(opts: { port?: number; token?: string } = {}): Promise<FakeProxy> {
@@ -53,6 +55,7 @@ export async function startFakeProxy(opts: { port?: number; token?: string } = {
     offline: false,
     requests: [],
     publicUrl: null,
+    loginLinks: 0,
     streamConnections: () => streams.size,
     push(m) {
       const msg: FakeMessage = { id: nextId++, ts: m.ts ?? Date.now(), cam: m.cam, type: m.type, data: m.data };
@@ -79,10 +82,16 @@ export async function startFakeProxy(opts: { port?: number; token?: string } = {
     if (fake.offline) return void req.socket.destroy();
     fake.requests.push({ path: req.path, auth: req.get('authorization') });
     if (req.path === '/health') return next();
+    // The control API takes the admin token only, like the real one.
+    if (req.path.startsWith('/control/')) {
+      if (req.get('authorization') !== `Bearer ${FAKE_ADMIN_TOKEN}`) return void res.status(req.get('authorization') ? 403 : 401).json({ error: 'unauthorized' });
+      return next();
+    }
     if (req.get('authorization') !== `Bearer ${fake.token}`) return void res.status(401).json({ error: 'unauthorized' });
     next();
   });
   app.get('/health', (_req, res) => void res.json({ ok: true, version: 'fake' }));
+  app.post('/control/login-links', (_req, res) => void res.status(201).json({ code: `fake-code-${++fake.loginLinks}`, expiresInS: 60 }));
 
   app.get('/api/stream', (req, res) => {
     const types = typeof req.query.types === 'string' ? req.query.types.split(',') : undefined;
