@@ -8,7 +8,7 @@
   // History's strip (spec 2026-09-27): the playhead stays in the centre and
   // time moves under it. Drag, sideways wheel, click and ←/→ move it.
   let {
-    coverage, events, visibleIds, failedIds, at, now, currentId, previews, thumbFor, onseek, ondrag, onstep, oldest = null, pending = [],
+    coverage, events, visibleIds, failedIds, at, now, currentId, previews, thumbFor, onseek, ondrag, onstep, oldest = null, pending = [], onglue,
   }: {
     coverage: Coverage;
     events: EventClip[];
@@ -20,6 +20,7 @@
     previews: PreviewMinute[];
     thumbFor?: (clipId: string) => string;
     onseek: (at: number) => void;
+    onglue?: () => void; // the Live panel: ⇥ goes back to live
     ondrag?: (active: boolean) => void;
     onstep?: (dir: -1 | 1) => void;
     oldest?: number | null; // the oldest content (the left edge); null: not known
@@ -201,7 +202,7 @@
   </div>
   <div class="edge">
     <button data-testid="strip-forward" title={`Forward ${$zoom} h`} aria-label={`Forward ${$zoom} hours`} disabled={at >= hi} onclick={() => seekTo(at + span)}>›</button>
-    <button data-testid="strip-now" title="Now" aria-label="Go to now" disabled={at >= now - 5000} onclick={() => onseek(Math.max(lo, now - 2000))}>⇥</button>
+    <button data-testid="strip-now" title="Now" aria-label="Go to now" disabled={!onglue && at >= now - 5000} onclick={() => (onglue ? onglue() : onseek(Math.max(lo, now - 2000)))}>⇥</button>
   </div>
   </div>
 </div>

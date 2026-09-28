@@ -1,6 +1,6 @@
 <!-- web/src/components/StripPlayer.svelte -->
 <script lang="ts">
-  import { untrack } from 'svelte';
+  import { untrack, type Snippet } from 'svelte';
   import Icon from './Icon.svelte';
   import { nextChange, sourceAt, type Coverage, type Source } from '../lib/strip';
   import { downloadUrl, TRIGGER_LABELS, videoUrl } from '../lib/recordings';
@@ -13,6 +13,7 @@
   // so the next clip is loaded 3 s before it starts.
   let {
     cam, coverage, previews, now, at = $bindable(), playing = $bindable(), unavailable = false, onclipfail, onstep,
+    glued = false, live: liveSnippet,
   }: {
     cam: string;
     coverage: Coverage;
@@ -23,6 +24,8 @@
     unavailable?: boolean;
     onclipfail: (clipId: string) => void;
     onstep: (dir: -1 | 1) => void;
+    glued?: boolean; // the Live panel's playhead is at now: show the live stream
+    live?: Snippet; // the live stream; kept mounted while unglued so it resumes at once
   } = $props();
 
   const TICK_MS = 250;
@@ -232,7 +235,7 @@
     {#each [0, 1] as i (i)}
       <video
         bind:this={vids[i]}
-        class:hidden={source.kind !== 'clip' || i !== active}
+        class:hidden={glued || source.kind !== 'clip' || i !== active}
         data-testid={i === active ? 'clip-video' : 'clip-video-idle'}
         src={srcs[i] ?? undefined}
         preload="auto"
@@ -245,7 +248,12 @@
         oncanplay={() => onCanPlay(i)}
       ></video>
     {/each}
-    {#if source.kind === 'still' && stillShown}
+    {#if liveSnippet}
+      <div class="layer" class:off={!glued} data-testid="strip-live">{@render liveSnippet()}</div>
+    {/if}
+    {#if glued}
+      <!-- live: the layer above -->
+    {:else if source.kind === 'still' && stillShown}
       <img class="layer" data-testid="strip-still" src={stillShown} alt="" />
     {:else if source.kind === 'preview' && tile}
       <div class="layer tile-wrap" data-testid="strip-preview">
@@ -261,19 +269,24 @@
   <div class="controls">
     <button data-testid="prev-clip" title="Previous event" onclick={() => onstep(-1)}><Icon name="prev" size={16} /></button>
     <button data-testid="back-10" title="Back 10 seconds" onclick={() => skip(-10_000)}><Icon name="back10" size={16} /><span>10</span></button>
-    <button data-testid="play-toggle" class="primary" aria-pressed={playing} title={playing ? 'Pause' : 'Play'} disabled={source.kind === 'future'} onclick={toggle}>
+    <button data-testid="play-toggle" class="primary" aria-pressed={playing} title={playing ? 'Pause' : 'Play'} disabled={glued || source.kind === 'future'} onclick={toggle}>
       <Icon name={playing ? 'pause' : 'play'} size={16} />
     </button>
     <button data-testid="fwd-10" title="Forward 10 seconds" onclick={() => skip(10_000)}><span>10</span><Icon name="fwd10" size={16} /></button>
     <button data-testid="next-clip" title="Next event" onclick={() => onstep(1)}><Icon name="next" size={16} /></button>
     <!-- Time, source and why the clip was recorded, in one line (Klaus, 2026-09-28). -->
     <span class="info" data-testid="strip-info">
-      <span class="time" data-testid="clip-time">{day}, {clock}</span>
-      · <span data-testid="clip-ago">{ago}</span>
-      · <span class="src" class:clip={source.kind === 'clip'} data-testid="source-badge">{BADGE[source.kind]}</span>
-      {#if triggers}· <span data-testid="clip-triggers">{triggers}</span>{/if}
+      {#if glued}
+        <span class="live" data-testid="live-badge">● LIVE</span>
+        · <span class="src" data-testid="source-badge">SD 10 FPS</span>
+      {:else}
+        <span class="time" data-testid="clip-time">{day}, {clock}</span>
+        · <span data-testid="clip-ago">{ago}</span>
+        · <span class="src" class:clip={source.kind === 'clip'} data-testid="source-badge">{BADGE[source.kind]}</span>
+        {#if triggers}· <span data-testid="clip-triggers">{triggers}</span>{/if}
+      {/if}
     </span>
-    {#if source.kind === 'clip' && !unavailable}
+    {#if !glued && source.kind === 'clip' && !unavailable}
       <a class="dl" data-testid="clip-download" href={downloadUrl(cam, source.clip.id, 'main')} title="Download (full quality)"><Icon name="downloads" size={16} /></a>
     {/if}
   </div>
@@ -284,6 +297,8 @@
   .box { position: relative; width: 100%; aspect-ratio: 16 / 9; background: #000; border-radius: 12px; overflow: hidden; }
   video, .layer { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; }
   video.hidden { visibility: hidden; }
+  .layer.off { visibility: hidden; }
+  .live { color: var(--danger, #e5484d); font-weight: 600; }
   .tile-wrap { overflow: hidden; }
   .tile { position: absolute; left: 0; top: 0; transform-origin: 0 0; }
   .empty { display: grid; place-content: center; gap: 4px; text-align: center; color: var(--muted); background: var(--strip-empty); }

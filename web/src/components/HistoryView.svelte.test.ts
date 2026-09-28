@@ -36,7 +36,7 @@ afterEach(() => {
 });
 async function render(extra: Record<string, unknown> = {}) {
   const onposition = vi.fn();
-  const props = $state({ cam: 'den', proxy: false, date: '2026-09-27', initialAt: null as number | null, filter: 'all' as 'all' | 'person', unavailable: false, onposition, ...extra });
+  const props = $state({ cam: 'den', proxy: false, date: '2026-09-27', initialAt: null as number | null, filter: 'all' as 'all' | 'person', live: false, unavailable: false, onposition, ...extra });
   target = document.createElement('div');
   document.body.appendChild(target);
   component = mount(HistoryView, { target, props });
@@ -132,6 +132,55 @@ describe('HistoryView', () => {
     (target!.querySelector('[data-testid="back-10"]') as HTMLElement).click();
     await vi.advanceTimersByTimeAsync(2100);
     expect(onposition).toHaveBeenLastCalledWith(oldest, null);
+  });
+});
+
+describe('the live end (glue, spec 2026-09-28)', () => {
+  const badge = () => target!.querySelector('[data-testid="live-badge"]');
+  it('opens glued on the live panel, following now', async () => {
+    const { onposition } = await render({ live: true });
+    expect(badge()).not.toBeNull();
+    await vi.advanceTimersByTimeAsync(3000);
+    expect(onposition.mock.calls.at(-1)![0]).toBeGreaterThanOrEqual(NOW + 3000 - 2000 - 1000);
+  });
+
+  it('unglues on a move back, and ⇥ glues again', async () => {
+    await render({ live: true });
+    (target!.querySelector('[data-testid="back-10"]') as HTMLElement).click();
+    flushSync();
+    expect(badge()).toBeNull();
+    (target!.querySelector('[data-testid="strip-now"]') as HTMLElement).click();
+    flushSync();
+    expect(badge()).not.toBeNull();
+  });
+
+  it('a click on the strip at now glues again on the live panel', async () => {
+    await render({ live: true });
+    (target!.querySelector('[data-testid="back-10"]') as HTMLElement).click();
+    flushSync();
+    const bar = target!.querySelector('[data-testid="timeline"]') as HTMLElement;
+    bar.getBoundingClientRect = () => ({ left: 0, top: 0, width: 600, height: 46, right: 600, bottom: 46, x: 0, y: 0, toJSON: () => ({}) });
+    bar.dispatchEvent(new PointerEvent('pointerdown', { clientX: 599, bubbles: true }));
+    bar.dispatchEvent(new PointerEvent('pointerup', { clientX: 599, bubbles: true }));
+    flushSync();
+    expect(badge()).not.toBeNull();
+  });
+
+  it('never glues on History', async () => {
+    await render({ live: false, initialAt: NOW - 60_000 });
+    (target!.querySelector('[data-testid="strip-now"]') as HTMLElement).click();
+    flushSync();
+    expect(badge()).toBeNull();
+  });
+
+  it('playback reaching now on the live panel glues again', async () => {
+    await render({ live: true });
+    (target!.querySelector('[data-testid="back-10"]') as HTMLElement).click();
+    flushSync();
+    (target!.querySelector('[data-testid="play-toggle"]') as HTMLElement).click();
+    await vi.advanceTimersByTimeAsync(15_000);
+    flushSync();
+    expect(badge()).not.toBeNull();
   });
 });
 

@@ -1,6 +1,6 @@
 <!-- web/src/components/HistoryView.svelte -->
 <script lang="ts">
-  import { onDestroy, untrack } from 'svelte';
+  import { onDestroy, untrack, type Snippet } from 'svelte';
   import Strip from './Strip.svelte';
   import { getJson } from '../lib/api';
   import StripPlayer from './StripPlayer.svelte';
@@ -14,6 +14,7 @@
   // the page only hears about it (onposition) and can jump it (jump()).
   let {
     cam, proxy, date, initialAt, filter, unavailable, onposition, pending = [],
+    live = false, glued = $bindable(untrack(() => live)), liveBox,
   }: {
     cam: string;
     proxy: boolean;
@@ -23,6 +24,9 @@
     unavailable: boolean;
     onposition: (at: number, clipId: string | null) => void;
     pending?: { kind: string; ts: number }[]; // live events not listed yet: marked on the strip
+    live?: boolean; // the Live panel: the strip's right end is the live stream (spec 2026-09-28)
+    glued?: boolean; // the playhead is glued to now and the player shows live
+    liveBox?: Snippet; // the live stream, shown while glued
   } = $props();
 
   let now = $state(Date.now());
@@ -84,9 +88,11 @@
   const shown = $derived(filterEvents(allEvents, filter));
   const visibleIds = $derived(new Set(shown.map((e) => e.id)));
 
-  let at = $state(untrack(() => initialAt) ?? new Date(untrack(() => date).replace(/-/g, '/')).getTime());
+  // The Live panel without an `at` opens glued, at now.
+  const openLive = untrack(() => glued && initialAt === null);
+  let at = $state(untrack(() => initialAt) ?? (openLive ? Date.now() - 2000 : new Date(untrack(() => date).replace(/-/g, '/')).getTime()));
   let playing = $state(false);
-  let placed = untrack(() => initialAt) !== null; // false: move to the day's first event once it loads
+  let placed = openLive || untrack(() => initialAt) !== null; // false: move to the day's first event once it loads
   let dragResume = false;
   $effect(() => {
     if (playing) placed = true; // the user took over: a late load must not move the playhead
@@ -168,7 +174,39 @@
     untrack(() => report(true));
   });
 
+  // Glue (spec 2026-09-28): on the Live panel the playhead follows now and
+  // the player shows the live stream. Any move back unglues; ⇥, a click at
+  // now, or playback reaching now glues again. History never glues.
+  const LIVE_LAG = 2000;
+  $effect(() => {
+    if (!live) glued = false;
+  });
+  $effect(() => {
+    if (glued) at = now - LIVE_LAG;
+  });
+  // A move made inside the player (±10 s, keys) changes `at` directly.
+  $effect(() => {
+    if (glued && at < now - 5000) glued = false;
+  });
+  // Playback runs at real time, so it never closes the gap to now by itself:
+  // past the last clip and within 30 s of now counts as having reached it.
+  const CATCH_UP = 30_000;
+  $effect(() => {
+    if (live && !glued && playing && current === null && at >= now - CATCH_UP) {
+      playing = false;
+      glued = true;
+    }
+  });
+  function glue() {
+    if (!live) return;
+    playing = false;
+    glued = true;
+    at = now - LIVE_LAG;
+    report(true);
+  }
+
   export function jump(t: number, play = false) {
+    glued = false;
     at = t;
     placed = true;
     if (play) playing = true;
@@ -176,6 +214,8 @@
   }
   // Drag and wheel: many small moves; reported at most every 2 s.
   function seek(t: number) {
+    if (live && t >= now - LIVE_LAG) return glue();
+    glued = false;
     at = t;
     placed = true;
     report(false);
@@ -188,7 +228,7 @@
 </script>
 
 <div class="history">
-  <StripPlayer {cam} {coverage} {previews} {now} bind:at bind:playing {unavailable}
+  <StripPlayer {cam} {coverage} {previews} {now} bind:at bind:playing {unavailable} {glued} live={liveBox}
     onclipfail={(id) => {
       data.markFailed(id);
       failed = new Set(failed).add(id);
@@ -197,6 +237,7 @@
   <Strip {oldest} {pending} {coverage} events={allEvents} {visibleIds} failedIds={failed} {at} {now} currentId={current} {previews}
     thumbFor={unavailable ? undefined : (id) => thumbUrl(cam, id)}
     onseek={(t) => seek(t)}
+    onglue={live ? glue : undefined}
     ondrag={(active) => {
       if (active) {
         dragResume = playing;
