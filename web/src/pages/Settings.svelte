@@ -236,7 +236,7 @@
       {#if prefs}
         <label>Default camera
           <select data-testid="pref-camera" bind:value={prefs.defaultCamera}>
-            <option value={null}>First camera</option>
+            <option value={null}>Last camera used</option>
             {#each $cameras as c (c.id)}<option value={c.id}>{c.name}</option>{/each}
           </select>
         </label>

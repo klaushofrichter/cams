@@ -154,6 +154,21 @@ test('preferences save and apply', async ({ page, context, baseURL }, testInfo) 
   await expect(page.getByTestId('settings-card-prefs').getByTestId('save-state')).toHaveAttribute('data-state', 'saved');
 });
 
+test('the app opens on the last camera used (Klaus, 2026-09-28)', async ({ page, context, baseURL }, testInfo) => {
+  test.skip(testInfo.project.name !== 'desktop', "PREFS_EMAIL's preferences are shared by the projects; only run this in one to avoid a race");
+  await signIn(context, baseURL!, PREFS_EMAIL);
+  await page.goto('/app/settings');
+  await expect(page.getByTestId('pref-camera').locator('option').first()).toHaveText('Last camera used');
+  await page.goto('/app/live');
+  await page.getByTestId('camera-picker').selectOption('porch');
+  await expect.poll(async () => (await (await page.request.get('/api/preferences')).json()).lastCamera).toBe('porch');
+  await page.goto('/app/live'); // a fresh load
+  await expect(page.getByTestId('camera-picker')).toHaveValue('porch');
+  // restore
+  await page.getByTestId('camera-picker').selectOption('cam1');
+  await expect.poll(async () => (await (await page.request.get('/api/preferences')).json()).lastCamera).toBe('cam1');
+});
+
 test('the camera web UI link points at the LAN address and says it is home-network only', async ({ page }) => {
   await page.goto('/app/live');
   const link = page.getByTestId('camera-webui-link');

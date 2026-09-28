@@ -3,7 +3,8 @@ import { getJson } from './api';
 import { putJson } from './settings';
 
 export interface Preferences {
-  defaultCamera: string | null;
+  defaultCamera: string | null; // null: the last camera used
+  lastCamera?: string | null;
   liveQuality: 'sub' | 'main';
   eventFilter: 'all' | 'person' | 'vehicle' | 'pet' | 'motion';
   timelineZoom: 24 | 12 | 6 | 3 | 1;
@@ -33,6 +34,21 @@ export async function savePreferences(patch: Partial<Preferences>): Promise<bool
   if (res.status !== 200) return false;
   preferences.set(res.body);
   return true;
+}
+
+// The camera the app opens on: the chosen default, else the last camera
+// used, else the first (Klaus, 2026-09-28).
+export function startCamera(list: { id: string }[], p: Pick<Preferences, 'defaultCamera' | 'lastCamera'> | null): string | null {
+  const known = (id: string | null | undefined) => (id && list.some((c) => c.id === id) ? id : null);
+  return known(p?.defaultCamera) ?? known(p?.lastCamera) ?? list[0]?.id ?? null;
+}
+
+// Remembered on every switch, so the next visit (any device) opens on it.
+export function rememberCamera(id: string): void {
+  const p = get(preferences);
+  if (!p || p.lastCamera === id) return;
+  preferences.update((x) => (x ? { ...x, lastCamera: id } : x));
+  void savePreferences({ lastCamera: id }).catch(() => undefined);
 }
 
 export const pref = <K extends keyof Preferences>(k: K): Preferences[K] | undefined => get(preferences)?.[k];
