@@ -72,12 +72,23 @@ describe('window and spans', () => {
     expect(windowAround(10 * 3_600_000, 1)).toEqual({ start: 9.5 * 3_600_000, end: 10.5 * 3_600_000 });
     expect(windowAround(10 * 3_600_000, 24)).toEqual({ start: -2 * 3_600_000, end: 22 * 3_600_000 });
   });
-  it('colours the window: pictures (stills or previews), nothing, future', () => {
+  it('colours the window: pictures (stills or previews), nothing, and outside (future)', () => {
     const cov: Coverage = { clips: [], stills: [{ start: 0, end: 25 }], previews: [{ start: 0, end: 50 }] };
     expect(stripSpans(cov, { start: 0, end: 100 }, 75)).toEqual([
       { kind: 'pictures', left: 0, width: 50 },
       { kind: 'none', left: 50, width: 25 },
-      { kind: 'future', left: 75, width: 25 },
+      { kind: 'outside', left: 75, width: 25 },
+    ]);
+  });
+
+  it('marks before the oldest content as outside too (Klaus, 2026-09-28)', () => {
+    const cov: Coverage = { clips: [], stills: [], previews: [{ start: 30, end: 50 }] };
+    expect(stripSpans(cov, { start: 0, end: 100 }, 80, 20)).toEqual([
+      { kind: 'outside', left: 0, width: 20 },
+      { kind: 'none', left: 20, width: 10 },
+      { kind: 'pictures', left: 30, width: 20 },
+      { kind: 'none', left: 50, width: 30 },
+      { kind: 'outside', left: 80, width: 20 },
     ]);
   });
 });

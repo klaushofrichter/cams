@@ -35,7 +35,7 @@
   const seekTo = (t: number) => onseek(clampT(t));
   const span = $derived(win.end - win.start);
   const pct = (t: number) => ((t - win.start) / span) * 100;
-  const spans = $derived(stripSpans(coverage, win, now));
+  const spans = $derived(stripSpans(coverage, win, now, oldest));
   const segs = $derived(
     events
       .map((e) => ({ e, s: Date.parse(e.start), t: Date.parse(e.end) }))
@@ -222,7 +222,7 @@
   .span { position: absolute; top: 0; bottom: 0; pointer-events: none; }
   .span.pictures { background: var(--strip-stills); }
   .span.none { background: var(--strip-empty); }
-  .span.future { background: var(--strip-future); }
+  .span.outside { background: var(--strip-outside-bg); }
   .seg { position: absolute; top: 8px; height: 18px; border-radius: 4px; background: color-mix(in srgb, var(--accent-2) 60%, transparent); pointer-events: none; }
   .seg.ai { background: var(--accent); }
   .seg.on { outline: 2px solid var(--text); outline-offset: 1px; }

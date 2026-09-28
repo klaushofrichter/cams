@@ -37,7 +37,7 @@ describe('Strip', () => {
     render({ now: T + 15 * 60_000 });
     expect(q('strip-playhead')!.style.left).toBe('50%');
     const kinds = [...target!.querySelectorAll('[data-testid="strip-span"]')].map((e) => (e as HTMLElement).dataset.kind);
-    expect(kinds).toEqual(['none', 'pictures', 'none', 'future']);
+    expect(kinds).toEqual(['none', 'pictures', 'none', 'outside']);
   });
 
   it('offers five zooms', () => {
