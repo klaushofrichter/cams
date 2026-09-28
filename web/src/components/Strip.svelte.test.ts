@@ -189,5 +189,26 @@ describe('Strip', () => {
     expect(labels).toContain('12:05');
     expect(labels).toContain('11:50');
   });
-});
 
+  it('follows the pointer with a line and the time under it, even without a picture (Klaus, 2026-09-28)', () => {
+    const bar = render({});
+    bar.dispatchEvent(new PointerEvent('pointermove', { clientX: 150, bubbles: true }));
+    flushSync();
+    expect(q('strip-cursor')!.style.left).toBe('25%');
+    const label = new Date(T - 15 * 60_000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+    expect(q('strip-cursor-time')!.textContent).toBe(label);
+    bar.dispatchEvent(new PointerEvent('pointerleave', { bubbles: true }));
+    flushSync();
+    expect(q('strip-cursor')).toBeNull();
+  });
+
+  it('has a band of small frames under the bar; a frame click seeks to its time', () => {
+    const onseek = vi.fn();
+    render({ onseek, filmWidth: 600 });
+    const frames = [...target!.querySelectorAll('[data-testid="strip-film-frame"]')] as HTMLElement[];
+    expect(frames.length).toBe(11); // 600 px / (48 + 3)
+    frames[0].click();
+    expect(onseek).toHaveBeenCalledTimes(1);
+    expect(Number(frames[0].dataset.t)).toBe(onseek.mock.calls[0][0]);
+  });
+});
