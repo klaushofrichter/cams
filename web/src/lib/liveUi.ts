@@ -96,3 +96,7 @@ export function registerLiveActions(a: Partial<Actions>): () => void {
     if (handlers === mine) handlers = none;
   };
 }
+
+// True while the video page holds the live stream open (on screen, or kept
+// alive after leaving it): App keeps the page mounted meanwhile.
+export const liveStreamHeld = writable(false);

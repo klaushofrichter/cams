@@ -239,3 +239,22 @@ test('changing the camera while Live is kept alive ends the stream at once', asy
   await expect.poll(() => video.evaluate((v: HTMLVideoElement) => v.readyState >= 2), { timeout: 15_000 }).toBe(true);
   expect(streams.open()).toBe(1);
 });
+
+// Live is the strip's right end (spec 2026-09-28): playback on the Live panel
+// keeps the stream for the keep-alive, and ⇥ shows it again at once.
+test('moving into playback keeps the live stream for the keep-alive; ⇥ shows it again at once', async ({ page }) => {
+  await setKeepAlive(page, 60);
+  const streams = watchStreams(page);
+  await page.goto('/app/live');
+  const video = page.getByTestId('live-video');
+  await expect.poll(() => video.evaluate((v: HTMLVideoElement) => v.readyState >= 2), { timeout: 15_000 }).toBe(true);
+  const opened = streams.opened.length;
+  await page.getByTestId('back-10').click(); // playback
+  await expect(page.getByTestId('live-badge')).toHaveCount(0);
+  await expect(page).toHaveURL(/\/app\/live\?.*at=\d+/);
+  expect(streams.open()).toBe(1); // kept
+  await page.getByTestId('strip-now').click(); // live again
+  await expect(page.getByTestId('live-badge')).toHaveText('● LIVE');
+  await expect(page).toHaveURL(/\/app\/live$/);
+  expect(streams.opened.length).toBe(opened);
+});

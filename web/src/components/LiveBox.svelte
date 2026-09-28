@@ -33,10 +33,11 @@
   // Live video not playing for 5 s (connecting or reconnecting): a camera
   // with a cam-proxy shows its stills meanwhile.
   let stuck = $state(false);
+  const playerState = $derived($liveUi.playerState); // not every liveUi change: that would restart the 5 s
   $effect(() => {
     void cameraId; // a camera switch starts over
     stuck = false;
-    if ($liveUi.playerState === 'playing') return;
+    if (playerState === 'playing') return;
     const t = setTimeout(() => (stuck = true), 5000);
     return () => clearTimeout(t);
   });

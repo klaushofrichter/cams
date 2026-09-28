@@ -32,7 +32,7 @@
 </script>
 
 <div class="panel" data-testid="live-panel">
-  <section class="card">
+  <section class="tile">
     <h2 data-testid="live-camera-name">{camera.name}</h2>
     <span class="kind" data-testid="live-camera-kind">{status?.simulator ? 'Simulated camera' : 'Camera'}</span>
     {#if status?.model}<span class="meta" data-testid="live-camera-model">{status.model} · firmware {status.firmware}</span>{/if}
@@ -58,12 +58,12 @@
   </section>
 
   {#if newestPending}
-    <section class="card latest pending" data-testid="live-latest-pending">
+    <section class="tile latest pending" data-testid="live-latest-pending">
       <span class="dot"></span>
       <span>{label(newestPending.kind)} · recording…</span>
     </section>
   {:else if latest}
-    <button class="card latest" data-testid="live-latest" title="Play this event" onclick={() => onplay(latest)}>
+    <button class="tile latest" data-testid="live-latest" title="Play this event" onclick={() => onplay(latest)}>
       <img src={thumbUrl(camera.id, latest.id)} alt="" loading="lazy" />
       <span class="what">
         <strong>{latest.triggers.map((t) => TRIGGER_LABELS[t]).join(', ') || 'Recording'}</strong>
@@ -74,7 +74,7 @@
   {/if}
 
   {#if status?.online}
-    <section class="card controls">
+    <section class="tile controls">
       <button data-testid="mute-toggle" aria-pressed={!$liveUi.muted} onclick={() => liveActions.toggleMute()} title={$liveUi.muted ? 'Unmute' : 'Mute'}>
         <Icon name={$liveUi.muted ? 'volumeOff' : 'volumeOn'} size={18} /><span>{$liveUi.muted ? 'Muted' : 'Sound'}</span>
       </button>
@@ -94,7 +94,7 @@
 
 <style>
   .panel { display: flex; flex-direction: column; gap: 12px; }
-  .card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 14px; display: flex; flex-direction: column; gap: 6px; }
+  .tile { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 14px; display: flex; flex-direction: column; gap: 6px; }
   h2 { margin: 0; font-size: 17px; }
   .kind { font-size: 13px; }
   .meta, .state { font-size: 12px; color: var(--muted); }

@@ -6,6 +6,7 @@
   import { downloadUrl, TRIGGER_LABELS, videoUrl } from '../lib/recordings';
   import { timeAgo } from '../lib/clock';
   import { previewAt, tileStyle, type PreviewMinute } from '../lib/timeline';
+  import { liveUi } from '../lib/liveUi';
 
   // History's player (spec 2026-09-27): one clock, `at`. A clip's <video>
   // drives it while a clip plays; otherwise a real-time ticker does, showing
@@ -33,6 +34,13 @@
   const BADGE: Record<Source['kind'], string> = {
     clip: 'SD 10 FPS', still: 'Stills 1 FPS', preview: 'Preview 1 FPS', none: 'No recording', future: 'Live is on the Live page',
   };
+  // Glued: what the live stream is, from the camera's streams (spec 2026-09-28).
+  const liveSource = $derived.by(() => {
+    const u = $liveUi;
+    if (u.playerState !== 'playing' && u.stillsShowing) return 'STILLS';
+    const s = u.quality === 'main' ? u.status?.streams?.main : u.status?.streams?.sub;
+    return `${u.quality === 'main' ? 'HD' : 'SD'} ${s?.fps ?? (u.quality === 'main' ? 20 : 10)} FPS`;
+  });
   const stillUrl = (ts: number) => `/api/cameras/${encodeURIComponent(cam)}/stills/${ts}.jpg`;
 
   const source = $derived(sourceAt(coverage, at, now));
@@ -277,8 +285,8 @@
     <!-- Time, source and why the clip was recorded, in one line (Klaus, 2026-09-28). -->
     <span class="info" data-testid="strip-info">
       {#if glued}
-        <span class="live" data-testid="live-badge">● LIVE</span>
-        · <span class="src" data-testid="source-badge">SD 10 FPS</span>
+        <span class="live" class:stills={$liveUi.stillsShowing && $liveUi.playerState !== 'playing'} data-testid="live-badge">{$liveUi.badge}</span>
+        · <span class="src" data-testid="source-badge">{liveSource}</span>
       {:else}
         <span class="time" data-testid="clip-time">{day}, {clock}</span>
         · <span data-testid="clip-ago">{ago}</span>
@@ -298,7 +306,8 @@
   video, .layer { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; }
   video.hidden { visibility: hidden; }
   .layer.off { visibility: hidden; }
-  .live { color: var(--danger, #e5484d); font-weight: 600; }
+  .live { color: var(--danger); font-weight: 600; }
+  .live.stills { color: var(--warning-ink); }
   .tile-wrap { overflow: hidden; }
   .tile { position: absolute; left: 0; top: 0; transform-origin: 0 0; }
   .empty { display: grid; place-content: center; gap: 4px; text-align: center; color: var(--muted); background: var(--strip-empty); }
