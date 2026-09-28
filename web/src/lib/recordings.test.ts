@@ -113,24 +113,24 @@ describe('URL builders', () => {
 
 describe('cursor', () => {
   it('parses and serialises the URL cursor', () => {
-    const q = cursorSearch('cam1', { date: DAY, clipId: events[0].id, offsetSec: 12.4 }, 'events', 'person');
+    const q = cursorSearch('cam1', { date: DAY, clipId: events[0].id, offsetSec: 12.4, at: null }, 'events', 'person');
     expect(q).toBe(`?cam=cam1&date=${DAY}&clip=${events[0].id}&t=12&panel=events&filter=person`);
     expect(parseCursor(new URLSearchParams(q), '2026-09-26')).toEqual({
-      cam: 'cam1', cursor: { date: DAY, clipId: events[0].id, offsetSec: 12 }, filter: 'person',
+      cam: 'cam1', cursor: { date: DAY, clipId: events[0].id, offsetSec: 12, at: null }, filter: 'person',
     });
   });
 
   it('defaults to today and ignores malformed values', () => {
     expect(parseCursor(new URLSearchParams('?date=bad&clip=../x&t=-4&filter=zzz'), '2026-09-26')).toEqual({
-      cam: null, cursor: { date: '2026-09-26', clipId: null, offsetSec: 0 }, filter: 'all',
+      cam: null, cursor: { date: '2026-09-26', clipId: null, offsetSec: 0, at: null }, filter: 'all',
     });
   });
 
   it('remembers the last cursor in sessionStorage and survives storage errors', () => {
-    saveCursor('cam1', { date: DAY, clipId: events[0].id, offsetSec: 3 });
-    expect(loadCursor()).toEqual({ cam: 'cam1', cursor: { date: DAY, clipId: events[0].id, offsetSec: 3 } });
+    saveCursor('cam1', { date: DAY, clipId: events[0].id, offsetSec: 3, at: 1790552160000 });
+    expect(loadCursor()).toEqual({ cam: 'cam1', cursor: { date: DAY, clipId: events[0].id, offsetSec: 3, at: 1790552160000 } });
     vi.stubGlobal('sessionStorage', { getItem: () => { throw new Error('x'); }, setItem: () => { throw new Error('x'); } });
-    expect(() => saveCursor('cam1', { date: DAY, clipId: null, offsetSec: 0 })).not.toThrow();
+    expect(() => saveCursor('cam1', { date: DAY, clipId: null, offsetSec: 0, at: null })).not.toThrow();
     expect(loadCursor()).toBeNull();
   });
 
@@ -250,3 +250,17 @@ describe('panWindow (moving a zoomed timeline)', () => {
   });
 });
 
+
+describe('the strip position in the URL', () => {
+  it('reads at, and old links without it', () => {
+    const p = parseCursor(new URLSearchParams('cam=den&date=2026-09-27&at=1790552160000&clip=20260927-120505-120530'), '2026-09-27');
+    expect(p.cursor.at).toBe(1790552160000);
+    const old = parseCursor(new URLSearchParams('cam=den&date=2026-09-27&clip=20260927-120505-120530&t=7'), '2026-09-27');
+    expect(old.cursor).toEqual({ date: '2026-09-27', clipId: '20260927-120505-120530', offsetSec: 7, at: null });
+  });
+
+  it('writes at and the clip under the playhead, no t', () => {
+    const s = cursorSearch('den', { date: '2026-09-27', clipId: '20260927-120505-120530', offsetSec: 0, at: 1790552160000 }, 'history', 'all');
+    expect(s).toBe('?cam=den&date=2026-09-27&at=1790552160000&clip=20260927-120505-120530&panel=history&filter=all');
+  });
+});

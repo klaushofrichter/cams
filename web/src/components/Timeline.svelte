@@ -1,17 +1,9 @@
-<script module lang="ts">
-  // ‹ › past the day's edge: the day moved to opens on the window next to the
-  // one just left (the last hour of the previous day, or the first). Set only
-  // when the page really moved; dropped as soon as another day is shown.
-  let carry: { to: string; dir: -1 | 1 } | null = null;
-</script>
-
 <script lang="ts">
-  import { dayLength, dayStartMs as dayStart, formatClock, layoutSegments, legendTicks, localDate, panWindow, secondsIntoDay, tickLabel, timelineWindow, type EventClip, type Zoom } from '../lib/recordings';
-  import { untrack } from 'svelte';
-  import { preferences, savePreferences } from '../lib/preferences';
+  import { dayLength, formatClock, layoutSegments, legendTicks, localDate, secondsIntoDay, tickLabel, type EventClip } from '../lib/recordings';
   import { timeZoneLabel } from '../lib/clock';
-  import { previewAt, thumbCoverage, tileStyle, type PreviewMinute } from '../lib/timeline';
 
+  // A whole day's recordings as one bar (Live's mini timeline). History uses
+  // the continuous strip (Strip.svelte) instead.
   let {
     events,
     date,
@@ -24,10 +16,6 @@
     legend = false,
     now = null,
     updatedAt = null,
-    previews = [],
-    dayStartMs = null,
-    onday,
-    thumbFor,
   }: {
     events: EventClip[];
     date: string;
@@ -40,161 +28,32 @@
     legend?: boolean;
     now?: number | null;
     updatedAt?: Date | null;
-    // Plan 7: the day's preview sprites from the camera's cam-proxy; moving
-    // over the bar shows the frame of that moment.
-    previews?: PreviewMinute[];
-    dayStartMs?: number | null;
-    // Moving a zoomed window past the day's first or last hour.
-    onday?: (dir: -1 | 1) => string | null; // the day moved to, or null
-    // An event's thumbnail, shown on hover where there is no preview sprite.
-    thumbFor?: (clipId: string) => string;
   } = $props();
 
-  // The box and time follow the pointer at once; the frame (a sprite
-  // download per minute) only once the pointer rests in a minute for 150 ms,
-  // so a sweep across the day doesn't fetch every sprite on the way.
-  const REST_MS = 150;
-  let hover = $state<{ left: number; label: string; minute: number; style: string | null; img?: string } | null>(null);
-  let restTimer: ReturnType<typeof setTimeout> | undefined;
-  let pendingStyle = '';
-  let pendingImg: string | null = null;
-  const brokenImgs = new Set<string>();
-  function imgFailed() {
-    if (!hover?.img) return;
-    brokenImgs.add(hover.img);
-    hover = { ...hover, img: undefined };
-  }
-  function move(e: PointerEvent) {
-    if (compact || (!previews.length && !thumbFor)) return;
-    const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
-    const frac = Math.min(1, Math.max(0, (e.clientX - rect.left) / rect.width));
-    const sec = win.start + frac * (win.end - win.start);
-    const ts = (dayStartMs ?? dayStart(date)) + sec * 1000;
-    const label = new Date(ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
-    const p = previews.length ? previewAt(previews, ts) : null;
-    if (!p) {
-      // No sprite here: the event's own thumbnail, if the pointer is on one.
-      const at = thumbFor && events.find((x) => { const s = secondsIntoDay(x.start, date); return sec >= s && sec <= s + x.durationSec; });
-      if (!at) return leave();
-      const url = thumbFor!(at.id);
-      if (hover && hover.minute === -1 && (hover.img === url || pendingImg === url)) {
-        hover = { ...hover, left: frac * 100, label }; // same event: loaded, or waiting for the rest
-        return;
-      }
-      // Fetched only once the pointer rests (an uncached thumbnail costs the
-      // server a clip transfer), and never again after it failed.
-      hover = { left: frac * 100, label, minute: -1, style: null };
-      pendingImg = url;
-      clearTimeout(restTimer);
-      restTimer = setTimeout(() => {
-        if (hover && hover.minute === -1 && pendingImg === url && !brokenImgs.has(url)) hover = { ...hover, img: url };
-      }, REST_MS);
-      return;
-    }
-    pendingImg = null;
-    const style = tileStyle(p.minute, p.index, 1);
-    if (hover && hover.minute === p.minute.minute && hover.style !== null) {
-      hover = { left: frac * 100, label, minute: p.minute.minute, style }; // same sprite: already loaded
-      return;
-    }
-    const sameWait = hover !== null && hover.minute === p.minute.minute; // already waiting for this sprite
-    hover = { left: frac * 100, label, minute: p.minute.minute, style: null };
-    pendingStyle = style;
-    if (sameWait) return;
-    clearTimeout(restTimer);
-    restTimer = setTimeout(() => {
-      if (hover && hover.minute === p.minute.minute) hover = { ...hover, style: pendingStyle };
-    }, REST_MS);
-  }
-  function leave() {
-    clearTimeout(restTimer);
-    pendingImg = null;
-    hover = null;
-  }
-
-  // The zoom is the saved preference (it may load after this timeline), and
-  // picking one saves it, so it stays when switching pages (Klaus, 2026-09-27).
-  let chosen = $state<Zoom | null>(null);
-  const zoom: Zoom = $derived(chosen ?? $preferences?.timelineZoom ?? 24);
-  // Saves go one after another, so the last pick is the one the server keeps
-  // and the one the store ends with.
-  let saving: Promise<unknown> = Promise.resolve();
-  function pickZoom(z: Zoom) {
-    chosen = z;
-    carry = null;
-    preferences.update((p) => (p ? { ...p, timelineZoom: z } : p));
-    saving = saving.then(() => savePreferences({ timelineZoom: z })).catch(() => undefined);
-  }
   const daySec = $derived(dayLength(date));
+  const win = $derived({ start: 0, end: daySec });
   const selected = $derived(events.find((e) => e.id === selectedId) ?? null);
   const center = $derived(selected ? secondsIntoDay(selected.start, date) : daySec / 2);
-  // A zoomed window follows the selected clip until moved with ‹ ›. A new
-  // zoom or day centres it again (or opens the edge window after ‹ › moved
-  // the day); a new clip moves it only when the clip is outside the window.
-  let panStart = $state<number | null>(null);
-  $effect(() => {
-    void zoom;
-    void date;
-    untrack(() => {
-      panStart = null;
-      if (carry && carry.to === date) {
-        const span = base.end - base.start;
-        panStart = carry.dir < 0 ? daySec - span : 0;
-      } else carry = null;
-    });
-  });
-  let lastSelected = selectedId;
-  let lastDate = date;
-  $effect(() => {
-    const id = selectedId;
-    const d = date;
-    untrack(() => {
-      if (id === lastSelected && d === lastDate) return;
-      const sameDay = d === lastDate;
-      lastSelected = id;
-      lastDate = d;
-      // A new day is handled above; within a day, follow a clip out of view.
-      if (sameDay && panStart !== null && (center < win.start || center >= win.end)) panStart = null;
-    });
-  });
-  const base = $derived(timelineWindow(compact ? 24 : zoom, center, daySec));
-  const win = $derived(panStart === null ? base : { start: panStart, end: panStart + (base.end - base.start) });
-  function pan(dir: -1 | 1) {
-    const next = panWindow(win, dir, daySec);
-    if (typeof next === 'string') {
-      const to = onday?.(dir) ?? null;
-      if (to) carry = { to, dir };
-    }
-    else panStart = next.start;
-  }
-  const rangeLabel = $derived(`${tickLabel(date, win.start)}–${win.end >= daySec ? '24:00' : tickLabel(date, win.end)}`);
-  const cover = $derived(
-    compact
-      ? []
-      : thumbCoverage(previews, thumbFor ? events.map((x) => { const s = secondsIntoDay(x.start, date); return { start: s, end: s + x.durationSec }; }) : [], dayStartMs ?? dayStart(date), win),
-  );
   const segs = $derived(layoutSegments(events, date, win));
   const ticks = $derived.by(() => {
-    const step = win.end - win.start > 6 * 3600 ? 3 * 3600 : win.end - win.start > 3600 ? 3600 : 600;
+    const step = 3 * 3600;
     const out: { left: number; label: string }[] = [];
-    for (let s = Math.ceil(win.start / step) * step; s <= win.end; s += step) {
-      out.push({ left: ((s - win.start) / (win.end - win.start)) * 100, label: tickLabel(date, s) });
-    }
+    for (let s = 0; s <= daySec; s += step) out.push({ left: (s / daySec) * 100, label: tickLabel(date, s) });
     return out;
   });
 
-  // Legend mode (the Live mini timeline): fixed ticks every 6 hours plus the
-  // day's end ("24:00"), labelled so they follow the clock across DST.
+  // Legend mode: fixed ticks every 6 hours plus the day's end ("24:00"),
+  // labelled so they follow the clock across DST.
   const legendTickMarks = $derived(legendTicks(date, daySec).map((t) => ({ left: (t.sec / daySec) * 100, label: t.label })));
 
   const isToday = $derived(date === localDate(new Date()));
   const captionText = $derived(`${isToday ? 'Today' : date}, 00:00–24:00, times in ${timeZoneLabel(new Date())}`);
-  const nowLeft = $derived(now !== null && now >= win.start && now <= win.end ? ((now - win.start) / (win.end - win.start)) * 100 : null);
+  const nowLeft = $derived(now !== null && now >= 0 && now <= daySec ? (now / daySec) * 100 : null);
 
   function click(e: MouseEvent) {
     const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
     const frac = Math.min(1, Math.max(0, (e.clientX - rect.left) / rect.width));
-    onpick(win.start + frac * (win.end - win.start));
+    onpick(frac * daySec);
   }
 
   function keydown(e: KeyboardEvent) {
@@ -215,36 +74,7 @@
 </script>
 
 <div class="wrap" class:compact class:legend>
-  {#if hover}
-    <div class="scrub" style={`left: clamp(84px, ${hover.left}%, calc(100% - 84px))`} data-testid="scrub-preview" aria-hidden="true">
-      {#if hover.img}
-        <img class="frame" src={hover.img} alt="" width="160" height="90" onerror={imgFailed} />
-      {:else}
-        <span class="frame" style={hover.style ?? 'width: 160px; height: 90px'}></span>
-      {/if}
-      <span class="when">{hover.label}</span>
-    </div>
-  {/if}
-  {#if !compact}
-    <div class="tools">
-      {#if zoom !== 24}
-        <div class="pan" role="group" aria-label="Move the timeline">
-          <button data-testid="timeline-prev" aria-label="Earlier" onclick={() => pan(-1)}>‹</button>
-          <span class="range" data-testid="timeline-range">{rangeLabel}</span>
-          <button data-testid="timeline-next" aria-label="Later" onclick={() => pan(1)}>›</button>
-        </div>
-      {/if}
-      <div class="zoom" role="group" aria-label="Timeline zoom">
-        {#each [24, 6, 1] as z (z)}
-          <button data-testid={`zoom-${z}`} aria-pressed={zoom === z} onclick={() => pickZoom(z as Zoom)}>{z} h</button>
-        {/each}
-      </div>
-    </div>
-  {/if}
-  <div class="bar" data-testid={testid} role="slider" tabindex="0" aria-label="Recordings timeline" aria-valuemin={0} aria-valuemax={daySec} aria-valuenow={Math.round(center)} onclick={click} onkeydown={keydown} onpointermove={move} onpointerleave={leave}>
-    {#each cover as c (c.left)}
-      <span class="thumb-span" data-testid="timeline-thumb-span" style={`left:${c.left}%;width:${c.width}%`}></span>
-    {/each}
+  <div class="bar" data-testid={testid} role="slider" tabindex="0" aria-label="Recordings timeline" aria-valuemin={0} aria-valuemax={daySec} aria-valuenow={Math.round(center)} onclick={click} onkeydown={keydown}>
     {#each segs as s (s.id)}
       <span class="seg" class:ai={s.ai} class:on={s.id === selectedId} data-testid="timeline-seg" data-clip-id={s.id} style={`left:${s.left}%;width:${s.width}%`}></span>
     {/each}
@@ -269,19 +99,7 @@
 
 <style>
   .wrap { display: flex; flex-direction: column; gap: 6px; position: relative; }
-  .scrub { position: absolute; bottom: calc(100% + 6px); transform: translateX(-50%); z-index: 5; pointer-events: none; display: grid; gap: 2px; padding: 4px; border-radius: 8px; background: var(--surface); border: 1px solid var(--border); box-shadow: var(--shadow); }
-  .frame { display: block; border-radius: 4px; background-color: var(--surface-2); }
-  .when { font-size: 11px; color: var(--muted); text-align: center; font-family: var(--mono); }
-  .tools { display: flex; gap: 8px 12px; justify-content: flex-end; align-items: center; flex-wrap: wrap; }
-  .zoom, .pan { display: flex; gap: 4px; align-items: center; }
-  .pan button { font-size: 14px; line-height: 1; padding: 3px 9px; border-radius: 8px; border: 1px solid var(--border); background: transparent; color: var(--text); cursor: pointer; }
-  .range { font-size: 12px; color: var(--muted); font-family: var(--mono); min-width: 92px; text-align: center; }
-  img.frame { width: 160px; height: 90px; object-fit: cover; }
-  .zoom button { font-size: 12px; padding: 3px 9px; border-radius: 8px; border: 1px solid var(--border); background: transparent; color: var(--muted); cursor: pointer; }
-  .zoom button[aria-pressed='true'] { background: var(--surface-2); color: var(--text); border-color: var(--accent); }
-  .bar { position: relative; height: 46px; border-radius: 10px; background: var(--no-thumb-bg); border: 1px solid var(--border); cursor: pointer; overflow: hidden; }
-  .compact .bar { background: var(--surface-2); }
-  .thumb-span { position: absolute; top: 0; bottom: 0; background: var(--surface-2); pointer-events: none; }
+  .bar { position: relative; height: 46px; border-radius: 10px; background: var(--surface-2); border: 1px solid var(--border); cursor: pointer; overflow: hidden; }
   .compact .bar { height: 30px; }
   .seg { position: absolute; top: 8px; height: 18px; border-radius: 4px; background: color-mix(in srgb, var(--accent-2) 60%, transparent); transition: transform 0.15s ease; }
   .compact .seg { top: 6px; height: 12px; }
