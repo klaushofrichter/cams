@@ -30,6 +30,7 @@ export function createStripData(cam: string, proxy: boolean, fetch: Fetch = getJ
   const failedAt = new Map<string, number>();           // `p|day` / `s|hour` → when it failed
   const failed = writable(new Set<string>());
   const bump = writable(0);                             // previews / stills changed
+  const daysAsked = writable(0);                        // `days` grew (its data may already be cached)
   const enc = encodeURIComponent(cam);
   let alive = true;
 
@@ -62,6 +63,7 @@ export function createStripData(cam: string, proxy: boolean, fetch: Fetch = getJ
     for (const day of all) {
       if (!days.has(day)) {
         days.add(day);
+        daysAsked.update((n) => n + 1);
         loadDay(cam, day, { fetch }).catch(() => days.delete(day));
       }
       loadPreviews(day);
@@ -89,7 +91,7 @@ export function createStripData(cam: string, proxy: boolean, fetch: Fetch = getJ
     }
   }
 
-  const events = derived(dayStore, (m) => {
+  const events = derived([dayStore, daysAsked], ([m]) => {
     const out: EventClip[] = [];
     for (const day of days) out.push(...(m.get(`${cam}|${day}`)?.events ?? []));
     return out;

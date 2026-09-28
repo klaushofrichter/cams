@@ -111,7 +111,7 @@
   });
 
   export function jump(t: number, play = false) {
-    at = Math.min(t, now);
+    at = t;
     placed = true;
     if (play) playing = true;
     report(true);

@@ -104,10 +104,10 @@ test('a deep link restores the selection after reload', async ({ page }) => {
 
 test('clicking the timeline selects the recording under the click', async ({ page }) => {
   await page.goto('/app/recordings?panel=history');
-  const seg = page.getByTestId('timeline-seg').nth(2);
+  const seg = page.locator('[data-testid="timeline-seg"][data-clip-id$="-120505-120530"]');
   await expect(seg).toBeVisible();
   const box = (await seg.boundingBox())!;
-  await page.getByTestId('timeline').click({ position: { x: box.x - (await page.getByTestId('timeline').boundingBox())!.x + box.width / 2, y: 20 } });
+  await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
   await expect(page).toHaveURL(/clip=\d{8}-120505-120530/);
 });
 
@@ -171,7 +171,8 @@ test('the header picker on Recordings switches the page and does not flip back',
   await expect(page).toHaveURL(/clip=/);
   await page.getByTestId('camera-picker').selectOption('porch');
   await expect(page).toHaveURL(/[?&]cam=porch(&|$)/);
-  await expect(page).not.toHaveURL(/clip=/);
+  // The strip opens the new camera on its own first recording, not Den's clip.
+  await expect(page).toHaveURL(/cam=porch.*clip=\d{8}-081510-081535/);
   // wait for the switched camera's own events to load (settles the effects
   // that sync the picker and the URL) and confirm the picker held.
   await expect(page.getByTestId('event-card')).toHaveCount(4);
@@ -212,41 +213,28 @@ async function keepZoomLocal(page: import('@playwright/test').Page) {
 test('zoom is kept when an event card is clicked, and across pages', async ({ page }) => {
   await keepZoomLocal(page);
   await openEvents(page);
-  await page.getByTestId('zoom-1').click();
-  await expect(page.getByTestId('zoom-1')).toHaveAttribute('aria-pressed', 'true');
+  await page.getByTestId('zoom-3').click();
+  await expect(page.getByTestId('zoom-3')).toHaveAttribute('aria-pressed', 'true');
   await page.getByTestId('event-card').nth(1).click();
-  await expect(page.getByTestId('zoom-1')).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.getByTestId('zoom-3')).toHaveAttribute('aria-pressed', 'true');
   await expect(page.locator('.bar-skeleton')).toHaveCount(0);
   await expect(page.getByTestId('timeline')).toBeVisible();
   // Another page and back, without a reload.
   await page.evaluate(() => { history.pushState({}, '', '/app/live'); dispatchEvent(new PopStateEvent('popstate')); });
   await expect(page.getByTestId('page-title')).toHaveText('Live');
   await page.evaluate(() => history.back());
-  await expect(page.getByTestId('zoom-1')).toHaveAttribute('aria-pressed', 'true');
-  // ‹ moves the one-hour window an hour earlier.
-  const before = await page.getByTestId('timeline-range').textContent();
-  await page.getByTestId('timeline-prev').click();
-  await expect(page.getByTestId('timeline-range')).not.toHaveText(before!);
-});
-
-test('‹ from the first hour opens the previous day with recordings on its last hour', async ({ page }) => {
-  await keepZoomLocal(page);
-  await openEvents(page);
-  const today = await page.evaluate(() => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; });
-  await page.getByTestId('zoom-1').click();
-  const shown = () => new URL(page.url()).searchParams.get('date') ?? today;
-  for (let i = 0; i < 30 && shown() === today; i++) {
-    await page.getByTestId('timeline-prev').click();
-  }
-  expect(shown()).not.toBe(today);
-  await expect(page.getByTestId('timeline-range')).toHaveText('23:00–24:00');
+  await expect(page.getByTestId('zoom-3')).toHaveAttribute('aria-pressed', 'true');
 });
 
 test('clip clicks do not re-fetch the day\'s events', async ({ page }) => {
   await openEvents(page);
+  await page.waitForLoadState('networkidle'); // the strip's own day loads (one day either side) land first
+  // The day's own list: the strip may load a neighbouring day when the
+  // window moves, which is new data, not a re-fetch.
+  const day = new URL(page.url()).searchParams.get('date');
   let eventsRequests = 0;
   page.on('request', (req) => {
-    if (/\/api\/cameras\/[^/]+\/events\?/.test(req.url())) eventsRequests++;
+    if (/\/api\/cameras\/[^/]+\/events\?/.test(req.url()) && req.url().includes(`date=${day}`)) eventsRequests++;
   });
   await page.getByTestId('event-card').nth(0).click();
   await page.getByTestId('event-card').nth(1).click();
@@ -259,11 +247,8 @@ test('clip clicks do not re-fetch the day\'s events', async ({ page }) => {
   expect(eventsRequests).toBe(0);
 });
 
-test('ArrowRight with no clip selected selects the first clip', async ({ page }) => {
+test('History opens on the day\'s first recording', async ({ page }) => {
   await page.goto('/app/recordings?panel=history');
-  await expect(page.getByTestId('timeline-seg').first()).toBeVisible();
-  await page.getByTestId('timeline').focus();
-  await page.keyboard.press('ArrowRight');
   await expect(page).toHaveURL(/clip=\d{8}-081510-081535/);
 });
 

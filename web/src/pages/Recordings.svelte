@@ -1,17 +1,17 @@
 <script lang="ts">
   import { untrack } from 'svelte';
   import DayPicker from '../components/DayPicker.svelte';
-  import Timeline from '../components/Timeline.svelte';
-  import ClipPlayer from '../components/ClipPlayer.svelte';
+  import HistoryView from '../components/HistoryView.svelte';
   import EventList from '../components/EventList.svelte';
   import DownloadList from '../components/DownloadList.svelte';
   import { cameras, selectedCameraId } from '../lib/stores';
   import { navigate, replaceRoute, route, type Panel } from '../lib/router';
   import { getJson } from '../lib/api';
-  import { dayRange, splitRange, type PreviewMinute } from '../lib/timeline';
+  import { loadDay } from '../lib/dayCache';
+  import { clipStartFromId } from '../lib/strip';
   import {
-    addDays, clipAtSecond, cursorSearch, daysUrl, downloadUrl, eventsUrl, filterEvents, loadCursor, localDate,
-    neighbour, parseCursor, saveCursor, secondsIntoDay, thumbUrl, videoUrl, type Cursor, type EventClip, type Filter,
+    addDays, cursorSearch, daysUrl, filterEvents, loadCursor, localDate,
+    parseCursor, saveCursor, type Cursor, type EventClip, type Filter,
   } from '../lib/recordings';
   import { preferences } from '../lib/preferences';
   import { createTodayRefresher, todayDate } from '../lib/refresh';
@@ -39,9 +39,9 @@
       recheckTimer = null;
       const c = cam;
       if (!c) return;
-      getJson<{ downloads?: 'ok' | 'proxy' | 'unavailable' }>(eventsUrl(c, cursor.date))
+      loadDay(c, cursor.date, { force: true })
         .then((r) => {
-          if (c === cam) downloads = r.downloads ?? 'ok';
+          if (c === cam) downloads = r.downloads;
         })
         .catch(() => {});
     }, 2000);
@@ -53,7 +53,8 @@
   let refreshTick = $state(0);
   let updatedAt: Date | null = $state(null);
   let lastKey = '';
-  let clipPlayer: { seek: (sec: number) => void } | undefined = $state();
+  let historyView: { jump: (at: number, play?: boolean) => void } | undefined = $state();
+  let playheadClip: string | null = $state(null);
 
   // The URL is the source of truth; with none (e.g. a sidebar link), the
   // last cursor of this session is restored -- but only when it agrees with
@@ -63,7 +64,7 @@
   // camera just picked on another page.
   const parsed = $derived.by(() => {
     const p = parseCursor($route.params, $todayDate);
-    if (!$route.params.has('date') && !$route.params.has('clip')) {
+    if (!$route.params.has('date') && !$route.params.has('clip') && !$route.params.has('at')) {
       const saved = loadCursor();
       const agrees = p.cam ? saved?.cam === p.cam : $selectedCameraId === null || saved?.cam === $selectedCameraId;
       if (saved && agrees) return { ...p, cam: saved.cam, cursor: saved.cursor };
@@ -80,22 +81,6 @@
   // Likewise, a primitive projection of cursor.date for the events effect.
   const date = $derived(cursor.date);
 
-  // Plan 7: the day's preview sprites for the timeline's scrub preview, when
-  // the camera has a cam-proxy (in parts on the 25-hour day).
-  let previews = $state<PreviewMinute[]>([]);
-  const dayStartMs = $derived(dayRange(date)[0]);
-  $effect(() => {
-    const c = cam;
-    const d = date;
-    previews = [];
-    if (!c || !$cameras.find((x) => x.id === c)?.proxy) return;
-    let stale = false;
-    const [from, to] = dayRange(d);
-    Promise.all(splitRange(from, to).map(([a, z]) => getJson<PreviewMinute[]>(`/api/cameras/${encodeURIComponent(c)}/previews?from=${a}&to=${z}`)))
-      .then((parts) => { if (!stale) previews = parts.flat(); })
-      .catch(() => undefined);
-    return () => (stale = true);
-  });
   // parseCursor already falls back to 'all' when the URL has no filter, so
   // the stored preference is only applied by overriding that case here.
   // Reads the preferences store reactively (not the pref() snapshot helper,
@@ -104,7 +89,19 @@
   const filter: Filter = $derived($route.params.has('filter') ? parsed.filter : ($preferences?.eventFilter ?? 'all'));
   const panel: Panel = $derived($route.panel);
   const visible = $derived(filterEvents(events, filter));
-  const selected = $derived(events.find((e) => e.id === cursor.clipId) ?? null);
+  // The strip's first position: the URL's `at`, else an old link's clip and
+  // offset, else (null) the day's first event.
+  const initialAt = $derived(cursor.at ?? (cursor.clipId ? (clipStartFromId(cursor.clipId) ?? 0) + cursor.offsetSec * 1000 || null : null));
+  const visibleIds = $derived(new Set(visible.map((e) => e.id)));
+  // The strip reports where the playhead is: the URL (date, at, the clip
+  // under it) follows, as a replace so the history isn't flooded.
+  function onPosition(at: number, clipId: string | null) {
+    playheadClip = clipId;
+    if (!cam) return;
+    const c: Cursor = { date: localDate(new Date(at)), clipId, offsetSec: 0, at };
+    saveCursor(cam, c);
+    replaceRoute(`/app/recordings${cursorSearch(cam, c, panel, filter)}`);
+  }
 
   function go(next: Partial<Cursor>, opts: { panel?: Panel; filter?: Filter } = {}, mode: 'push' | 'replace' = 'push') {
     if (!cam) return;
@@ -118,7 +115,7 @@
   // Picking a camera in the header should follow this page to it, keeping
   // the date but starting a fresh clip.
   function switchCamera(newCam: string) {
-    const c: Cursor = { ...cursor, clipId: null, offsetSec: 0 };
+    const c: Cursor = { ...cursor, clipId: null, offsetSec: 0, at: null };
     saveCursor(newCam, c);
     navigate(`/app/recordings${cursorSearch(newCam, c, panel, filter)}`);
   }
@@ -160,7 +157,7 @@
   $effect(() => {
     const c = cam;
     if (restoredOnce || !c) return;
-    if (!$route.params.has('date') && !$route.params.has('clip')) go({}, {}, 'replace');
+    if (!$route.params.has('date') && !$route.params.has('clip') && !$route.params.has('at')) go({}, {}, 'replace');
     restoredOnce = true;
   });
 
@@ -197,11 +194,11 @@
       const nextMonth = addDays(`${month}-01`, 32).slice(0, 7);
       dayFetches.push(getJson<{ days: string[] }>(daysUrl(c, nextMonth)).catch(() => ({ days: [] })));
     }
-    Promise.all([getJson<{ events: EventClip[]; downloads?: 'ok' | 'proxy' | 'unavailable' }>(eventsUrl(c, d)), getJson<{ days: string[] }>(daysUrl(c, month)), ...dayFetches])
+    Promise.all([loadDay(c, d, { force: isRefresh }), getJson<{ days: string[] }>(daysUrl(c, month)), ...dayFetches])
       .then(([e, d0, ...rest]) => {
         if (seq !== eventsRequest) return;
         events = e.events;
-        downloads = e.downloads ?? 'ok';
+        downloads = e.downloads;
         days = [...new Set([...d0.days, ...rest.flatMap((r) => r.days)])].sort();
         updatedAt = new Date();
         // Always clear the skeleton and any earlier failure on success, even
@@ -240,59 +237,12 @@
     };
   });
 
-  let lastT = 0;
-  function onTime(sec: number) {
-    if (!cam || Math.abs(sec - lastT) < 2) return;
-    lastT = sec;
-    saveCursor(cam, { ...cursor, offsetSec: sec });
-  }
-
-  function pickSecond(sec: number) {
-    const e = clipAtSecond(events, cursor.date, sec);
-    if (!e) return;
-    const offsetSec = Math.max(0, Math.floor(sec - secondsIntoDay(e.start, cursor.date)));
-    // Captured before go(): go() updates the route store, and cursor is
-    // derived from it, so reading cursor.clipId after go() would already
-    // see the new clip and never detect the "same clip" case below.
-    const wasLoaded = e.id === cursor.clipId;
-    go({ clipId: e.id, offsetSec });
-    // The clicked second may round to the clip already playing, in which
-    // case the URL (and so the startAt prop) doesn't change and the player
-    // wouldn't otherwise re-seek; seek it directly in that case.
-    if (wasLoaded) clipPlayer?.seek(offsetSec);
-  }
-
-  function step(dir: -1 | 1) {
-    const n = selected && neighbour(visible, selected.id, dir);
-    if (n) {
-      go({ clipId: n.id, offsetSec: 0 });
-      return;
-    }
-    // Nothing to step from (no clip selected, or the selection is filtered
-    // out of the visible list): land on an edge instead of doing nothing.
-    jumpToEdge(dir === 1 ? 'start' : 'end');
-  }
-
-  // ‹ › on a zoomed timeline past the day's edge: the neighbouring day with
-  // recordings, as the day picker's arrows (none: stay, and say so by null).
-  function stepDay(dir: -1 | 1): string | null {
-    const d = dir < 0 ? [...days].filter((x) => x < cursor.date).sort().at(-1) : days.filter((x) => x > cursor.date && x <= $todayDate).sort()[0];
-    if (!d) return null;
-    go({ date: d, clipId: null, offsetSec: 0 });
-    return d;
-  }
-
-  function jumpToEdge(edge: 'start' | 'end') {
-    if (visible.length === 0) return;
-    const target = edge === 'start' ? visible[0] : visible[visible.length - 1];
-    go({ clipId: target.id, offsetSec: 0 });
-  }
 </script>
 
 <section class="page">
   <header class="head">
     <h1 data-testid="page-title">Recordings</h1>
-    <span class="center">{#if cam}<DayPicker date={cursor.date} {days} today={$todayDate} onchange={(d) => go({ date: d, clipId: null, offsetSec: 0 })} />{/if}</span>
+    <span class="center">{#if cam}<DayPicker date={cursor.date} {days} today={$todayDate} onchange={(d) => go({ date: d, clipId: null, offsetSec: 0, at: null })} />{/if}</span>
     <!-- Three fixed columns, so the day picker stays centred whether or not
          "Updated" is shown (Klaus, 2026-09-27). -->
     <span class="updated">{#if cam && date === $todayDate && updatedAt}<span data-testid="events-updated">Updated {formatNow(updatedAt)}</span>{/if}</span>
@@ -303,20 +253,11 @@
   {:else}
     <div class="workspace" data-panel={panel}>
       <div class="main">
-        <ClipPlayer
-          bind:this={clipPlayer}
-          src={selected ? videoUrl(cam, selected.id) : null}
-          startAt={cursor.offsetSec}
-          hasPrev={!!(selected && neighbour(visible, selected.id, -1))}
-          hasNext={!!(selected && neighbour(visible, selected.id, 1))}
-          onprev={() => step(-1)}
-          onnext={() => step(1)}
-          onauto={() => { const n = selected && neighbour(visible, selected.id, 1); if (n) go({ clipId: n.id, offsetSec: 0 }, {}, 'replace'); }}
-          ontime={onTime}
-          downloadHref={selected ? downloadUrl(cam, selected.id, 'main') : null}
-          unavailable={downloads === 'unavailable'}
-          onvideoerror={recheckDownloads}
-        />
+        {#key cam}
+          <HistoryView bind:this={historyView} {cam} proxy={!!$cameras.find((x) => x.id === cam)?.proxy}
+            date={cursor.date} {initialAt} {visibleIds}
+            unavailable={downloads === 'unavailable'} onposition={onPosition} />
+        {/key}
         {#if downloads === 'proxy'}
           <p class="note" data-testid="recordings-from-proxy" role="status">Recordings and thumbnails come from the camera gateway (cam-proxy) where it has them.</p>
         {/if}
@@ -332,9 +273,6 @@
           <p class="note" role="alert">The recordings could not be loaded. The camera may be offline.</p>
         {:else if events.length === 0}
           <p class="note" data-testid="no-recordings">No recordings on {cursor.date}.</p>
-        {:else}
-          <Timeline {events} date={cursor.date} selectedId={cursor.clipId} onpick={pickSecond} onstep={step} onedge={jumpToEdge} onday={stepDay}
-            thumbFor={downloads === 'unavailable' ? undefined : (id) => thumbUrl(cam!, id)} {previews} {dayStartMs} />
         {/if}
       </div>
 
@@ -345,11 +283,11 @@
           {/each}
         </div>
         {#if panel === 'downloads'}
-          <DownloadList cameraId={cam} {events} date={cursor.date} selectedId={cursor.clipId} />
+          <DownloadList cameraId={cam} {events} date={cursor.date} selectedId={playheadClip} />
         {:else}
-          <EventList cameraId={cam} events={visible} {filter} date={cursor.date} selectedId={cursor.clipId}
+          <EventList cameraId={cam} events={visible} {filter} date={cursor.date} selectedId={playheadClip}
             onfilter={(f) => go({}, { filter: f })}
-            onselect={(e) => go({ clipId: e.id, offsetSec: 0 })} onthumberror={recheckDownloads} downloadsOk={downloads !== 'unavailable'} />
+            onselect={(e) => historyView?.jump(Date.parse(e.start), true)} onthumberror={recheckDownloads} downloadsOk={downloads !== 'unavailable'} />
         {/if}
       </aside>
     </div>

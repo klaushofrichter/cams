@@ -66,7 +66,7 @@
       }
     }
     followVideo = true;
-    if (playing) void v.play().catch(() => (playing = false));
+    if (playing) tryPlay(v);
     else v.pause();
   });
   // Preload the next clip into the idle slot 3 s ahead.
@@ -77,6 +77,17 @@
     const s = sourceAt(coverage, next, now);
     if (s.kind === 'clip' && srcs[active] !== urlOf(s.clip.id)) srcs[1 - active] = urlOf(s.clip.id);
   });
+  // Only the browser's autoplay block stops playback; a play() that fails
+  // because the new clip isn't loaded yet is retried on canplay.
+  function tryPlay(v: HTMLVideoElement) {
+    void v.play().catch((e: unknown) => {
+      if (e instanceof DOMException && e.name === 'NotAllowedError') playing = false;
+    });
+  }
+  function onCanPlay(i: number) {
+    const v = vids[i];
+    if (v && i === active && playing && source.kind === 'clip' && v.paused) tryPlay(v);
+  }
   function onVideoTime(i: number) {
     const s = source;
     if (i !== active || s.kind !== 'clip' || !followVideo) return;
@@ -146,8 +157,10 @@
     if (source.kind === 'future') return;
     playing = !playing;
   }
+  // Not clamped to now: a clip may lie after it (a camera clock ahead), and
+  // past now the panel says so and the ticker doesn't run.
   function skip(ms: number) {
-    at = Math.min(now, Math.max(0, at + ms));
+    at = Math.max(0, at + ms);
   }
   // Space plays or pauses; ←/→ step 10 s (spec: Player / Controls).
   function keydown(e: KeyboardEvent) {
@@ -178,6 +191,7 @@
         onended={() => onVideoEnded(i)}
         onerror={() => onVideoError(i)}
         onloadedmetadata={() => onMeta(i)}
+        oncanplay={() => onCanPlay(i)}
       ></video>
     {/each}
     {#if source.kind === 'still' && stillShown}

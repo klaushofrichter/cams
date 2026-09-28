@@ -38,6 +38,21 @@ describe('createStripData', () => {
     expect(d.eventsOn('2026-09-20')).toBeNull();
   });
 
+  it('a second instance for the same camera sees days already cached', async () => {
+    const { fn } = fakeFetch();
+    const first = createStripData('den', false, fn);
+    first.ensure(NOON, NOON);
+    await flush();
+    first.destroy();
+    const again = createStripData('den', false, fn);
+    let latest: string[] = [];
+    const stop = again.coverage.subscribe((c) => (latest = c.clips.map((x) => x.clip.id))); // subscribed first, as HistoryView does
+    again.ensure(NOON, NOON);
+    await flush();
+    expect(latest).toEqual([ev.id]);
+    stop();
+  });
+
   it('loads stills by the hour and turns them into runs', async () => {
     const { fn, urls } = fakeFetch();
     const d = createStripData('den', true, fn);

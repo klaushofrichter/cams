@@ -54,6 +54,22 @@ describe('Strip', () => {
     expect(onseek).toHaveBeenCalledWith(T + 10 * 60_000);
   });
 
+  it('a click on a drawn event goes to its start, even where the drawing is wider than the clip', () => {
+    const onseek = vi.fn();
+    const short = ev('20260927-121000-121005', T + 10 * 60_000, 5); // 5 s: drawn at the 0.3 % minimum width
+    preferences.set({ ...PREFS, timelineZoom: 24 });
+    const bar = render({ onseek, events: [short] });
+    preferences.set({ ...PREFS, timelineZoom: 24 });
+    flushSync();
+    const seg = target!.querySelector('[data-testid="timeline-seg"]') as HTMLElement;
+    const left = parseFloat(seg.style.left);
+    const width = parseFloat(seg.style.width);
+    const x = ((left + width * 0.9) / 100) * 600; // near the drawn end, past the clip's real end
+    bar.dispatchEvent(new PointerEvent('pointerdown', { clientX: x, bubbles: true }));
+    bar.dispatchEvent(new PointerEvent('pointerup', { clientX: x, bubbles: true }));
+    expect(onseek).toHaveBeenCalledWith(Date.parse(short.start));
+  });
+
   it('drags time under the playhead: right moves back in time', () => {
     const onseek = vi.fn();
     const ondrag = vi.fn();

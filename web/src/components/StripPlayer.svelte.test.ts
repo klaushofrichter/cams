@@ -104,7 +104,7 @@ describe('StripPlayer', () => {
   });
 
   it('does not count time while paused, and a blocked play() leaves it paused', async () => {
-    Object.defineProperty(HTMLMediaElement.prototype, 'play', { configurable: true, value: vi.fn(() => Promise.reject(new Error('NotAllowedError'))) });
+    Object.defineProperty(HTMLMediaElement.prototype, 'play', { configurable: true, value: vi.fn(() => Promise.reject(new DOMException('blocked', 'NotAllowedError'))) });
     const p = render({ at: T + 10_000 });
     await tick(5000);
     expect(p.at).toBe(T + 10_000);
@@ -121,6 +121,23 @@ describe('StripPlayer', () => {
     box.dispatchEvent(new KeyboardEvent('keydown', { key: ' ', bubbles: true }));
     flushSync();
     expect(p.playing).toBe(true);
+  });
+
+  it('steps 10 s into a clip even when the clip is after now (camera clock ahead)', async () => {
+    const p = render({ now: T + 5000 });
+    q('fwd-10')!.click();
+    expect(p.at).toBe(T + 10_000);
+  });
+
+  it('keeps playing when play() fails only because the clip was still loading, and starts it once it can', async () => {
+    let calls = 0;
+    Object.defineProperty(HTMLMediaElement.prototype, 'play', { configurable: true, value: vi.fn(() => (++calls === 1 ? Promise.reject(new DOMException('no source', 'NotSupportedError')) : Promise.resolve())) });
+    const p = render({ at: T + 10_000, playing: true });
+    await tick(0);
+    expect(p.playing).toBe(true);
+    (q('clip-video') as HTMLVideoElement).dispatchEvent(new Event('canplay'));
+    await tick(0);
+    expect(calls).toBeGreaterThanOrEqual(2);
   });
 
   it('steps 10 s and to the previous or next event', async () => {

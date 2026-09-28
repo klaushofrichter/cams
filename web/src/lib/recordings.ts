@@ -16,6 +16,7 @@ export interface Cursor {
   date: string;
   clipId: string | null;
   offsetSec: number;
+  at: number | null; // the strip position (UTC ms); null: from clipId/offsetSec, or the day's first event
 }
 
 export const TRIGGER_LABELS: Record<Trigger, string> = {
@@ -144,12 +145,14 @@ export function parseCursor(params: URLSearchParams, today: string): { cam: stri
   const clip = params.get('clip') ?? '';
   const t = Number(params.get('t'));
   const f = params.get('filter') as Filter;
+  const atRaw = params.get('at') ?? '';
   return {
     cam: params.get('cam'),
     cursor: {
       date: DATE.test(date) ? date : today,
       clipId: CLIP.test(clip) ? clip : null,
       offsetSec: Number.isFinite(t) && t > 0 ? Math.floor(t) : 0,
+      at: /^\d{12,14}$/.test(atRaw) ? Number(atRaw) : null,
     },
     filter: FILTERS.includes(f) ? f : 'all',
   };
@@ -157,8 +160,9 @@ export function parseCursor(params: URLSearchParams, today: string): { cam: stri
 
 export function cursorSearch(c: string, cursor: Cursor, panel: string, filter: Filter): string {
   const p = new URLSearchParams({ cam: c, date: cursor.date });
+  if (cursor.at !== null) p.set('at', String(Math.floor(cursor.at)));
   if (cursor.clipId) p.set('clip', cursor.clipId);
-  p.set('t', String(Math.floor(cursor.offsetSec)));
+  if (cursor.at === null) p.set('t', String(Math.floor(cursor.offsetSec)));
   p.set('panel', panel);
   p.set('filter', filter);
   return `?${p.toString()}`;
@@ -231,7 +235,7 @@ export function loadCursor(): { cam: string; cursor: Cursor } | null {
   try {
     const raw = sessionStorage.getItem(CURSOR_KEY);
     if (!raw) return null;
-    const parsed = JSON.parse(raw) as { cam?: unknown; cursor?: { date?: unknown; clipId?: unknown; offsetSec?: unknown } };
+    const parsed = JSON.parse(raw) as { cam?: unknown; cursor?: { date?: unknown; clipId?: unknown; offsetSec?: unknown; at?: unknown } };
     const cam = parsed.cam;
     const c = parsed.cursor;
     if (typeof cam !== 'string' || cam.length === 0 || !c) return null;
@@ -239,7 +243,8 @@ export function loadCursor(): { cam: string; cursor: Cursor } | null {
     if (typeof date !== 'string' || !DATE.test(date)) return null;
     if (clipId !== null && (typeof clipId !== 'string' || !CLIP.test(clipId))) return null;
     if (typeof offsetSec !== 'number' || !Number.isFinite(offsetSec) || offsetSec < 0) return null;
-    return { cam, cursor: { date, clipId, offsetSec: Math.floor(offsetSec) } };
+    const at = typeof c.at === 'number' && Number.isFinite(c.at) && c.at > 0 ? c.at : null;
+    return { cam, cursor: { date, clipId, offsetSec: Math.floor(offsetSec), at } };
   } catch {
     return null;
   }

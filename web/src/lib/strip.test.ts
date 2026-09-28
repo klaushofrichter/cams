@@ -53,6 +53,12 @@ describe('sourceAt / nextChange', () => {
     expect(sourceAt(cov, at('13:00:00'), NOW)).toEqual({ kind: 'none' });
     expect(sourceAt(cov, NOW, NOW)).toEqual({ kind: 'future' });
   });
+  it('plays a recorded clip even after now (a camera clock ahead of the browser)', () => {
+    expect(sourceAt(cov, at('12:00:10'), at('12:00:05'))).toEqual({ kind: 'clip', clip: c, offsetMs: 10_000 });
+    expect(nextChange(cov, at('11:59:30'), at('11:59:00'))).toBe(at('12:00:00'));
+    expect(nextChange(cov, at('12:30:00'), at('12:00:05'))).toBeNull();
+  });
+
   it('names the next moment the source may change', () => {
     expect(nextChange(cov, at('11:59:30'), NOW)).toBe(at('12:00:00'));
     expect(nextChange(cov, at('12:00:10'), NOW)).toBe(at('12:00:30'));

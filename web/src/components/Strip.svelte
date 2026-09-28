@@ -32,7 +32,7 @@
     events
       .map((e) => ({ e, s: Date.parse(e.start), t: Date.parse(e.end) }))
       .filter(({ s, t }) => t > win.start && s < win.end)
-      .map(({ e, s, t }) => ({ id: e.id, left: pct(Math.max(s, win.start)), width: Math.max(0.3, pct(Math.min(t, win.end)) - pct(Math.max(s, win.start))), ai: e.triggers.some((x) => x !== 'motion') })),
+      .map(({ e, s, t }) => ({ id: e.id, start: s, left: pct(Math.max(s, win.start)), width: Math.max(0.3, pct(Math.min(t, win.end)) - pct(Math.max(s, win.start))), ai: e.triggers.some((x) => x !== 'motion') })),
   );
   const nowLeft = $derived(now > win.start && now < win.end ? pct(now) : null);
 
@@ -82,8 +82,14 @@
     if (!press) return;
     const moved = press.moved;
     press = null;
-    if (moved) ondrag?.(false);
-    else onseek(timeAtX(e, e.currentTarget as HTMLElement));
+    if (moved) return ondrag?.(false);
+    // A click on a drawn event goes to its start: short clips are drawn wider
+    // than they are (a minimum width), so the pixel may be past the clip.
+    const el = e.currentTarget as HTMLElement;
+    const r = el.getBoundingClientRect();
+    const p = ((e.clientX - r.left) / r.width) * 100;
+    const hit = segs.find((s) => p >= s.left && p <= s.left + s.width);
+    onseek(hit ? hit.start : timeAtX(e, el));
   }
   function wheel(e: WheelEvent) {
     const dx = e.deltaX || (e.shiftKey ? e.deltaY : 0);

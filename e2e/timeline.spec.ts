@@ -37,20 +37,15 @@ test('the Timeline explains a camera without a gateway', async ({ page }) => {
 // Plan 7: moving over the Recordings timeline shows that moment's frame from
 // the proxy's preview sprites (Den's fake proxy has the last ten minutes).
 test('the Recordings timeline previews the frame under the pointer', async ({ page }) => {
-  await page.goto('/app/recordings?cam=cam1&panel=history');
+  const at = Date.now() - 120_000;
+  await page.goto(`/app/recordings?cam=cam1&panel=history&at=${at}`);
   const bar = page.getByTestId('timeline');
   await expect(bar).toBeVisible();
   const box = (await bar.boundingBox())!;
-  // Two minutes ago in the browser's time zone (America/Chicago), not the
-  // test runner's (UTC on CI).
-  const frac = await page.evaluate(() => {
-    const now = new Date();
-    return (now.getHours() * 3600 + now.getMinutes() * 60 + now.getSeconds() - 120) / 86400;
-  });
   await expect.poll(async () => {
-    await page.mouse.move(box.x + box.width * frac, box.y + box.height / 2);
+    await page.mouse.move(box.x + box.width / 2 - box.width / 1440, box.y + box.height / 2); // one minute before the playhead (24 h bar)
     return page.getByTestId('scrub-preview').isVisible();
   }, { timeout: 10_000 }).toBe(true);
-  await page.mouse.move(box.x + box.width * frac, box.y - 40);
+  await page.mouse.move(box.x + box.width / 2, box.y - 40);
   await expect(page.getByTestId('scrub-preview')).toHaveCount(0);
 });

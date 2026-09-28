@@ -63,10 +63,12 @@ export function previewRuns(minutes: PreviewMinute[]): Run[] {
   return mergeRuns(runs);
 }
 
+// A recorded clip wins even after `now`: the camera's clock can run ahead of
+// the browser's, and a clip that exists has been recorded.
 export function sourceAt(cov: Coverage, t: number, now: number): Source {
-  if (t >= now) return { kind: 'future' };
   const c = inRuns(cov.clips, t);
   if (c) return { kind: 'clip', clip: c.clip, offsetMs: t - c.start };
+  if (t >= now) return { kind: 'future' };
   const second = Math.floor(t / 1000) * 1000;
   if (inRuns(cov.stills, t)) return { kind: 'still', ts: second };
   if (inRuns(cov.previews, t)) return { kind: 'preview', ts: second };
@@ -75,15 +77,15 @@ export function sourceAt(cov: Coverage, t: number, now: number): Source {
 
 // The next boundary after t where sourceAt may give something else.
 export function nextChange(cov: Coverage, t: number, now: number): number | null {
-  if (t >= now) return null;
-  let best = now;
-  for (const list of [cov.clips, cov.stills, cov.previews] as Run[][]) {
+  let best = t < now ? now : Infinity;
+  const lists = (t < now ? [cov.clips, cov.stills, cov.previews] : [cov.clips]) as Run[][];
+  for (const list of lists) {
     for (const r of list) {
       if (r.start > t && r.start < best) best = r.start;
       if (r.end > t && r.end < best) best = r.end;
     }
   }
-  return best;
+  return best === Infinity ? null : best;
 }
 
 export function windowAround(t: number, zoom: StripZoom): Run {
