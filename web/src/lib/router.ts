@@ -2,7 +2,7 @@ import { writable, type Readable } from 'svelte/store';
 import type { IconName } from './icons';
 
 export type Page = 'live' | 'recordings' | 'timeline' | 'settings' | 'about';
-export type Panel = 'history' | 'events' | 'downloads';
+export type Panel = 'history' | 'downloads';
 
 export interface Route {
   page: Page;
@@ -21,23 +21,23 @@ export interface NavItem {
 }
 
 const PAGES: Page[] = ['live', 'recordings', 'timeline', 'settings', 'about'];
-const PANELS: Panel[] = ['history', 'events', 'downloads'];
+const PANELS: Panel[] = ['history', 'downloads'];
 
 export function parseRoute(pathname: string, search: string): Route {
   const params = new URLSearchParams(search);
   const segment = pathname.replace(/^\/app\/?/, '').split('/')[0];
   const page = (PAGES as string[]).includes(segment) ? (segment as Page) : 'live';
   const rawPanel = params.get('panel') ?? '';
+  // 'events' was a second door to the same list; it is History now (Klaus, 2026-09-28).
   const panel = (PANELS as string[]).includes(rawPanel) ? (rawPanel as Panel) : 'history';
   return { page, panel, params };
 }
 
-// History, Events and Downloads are three doors into one Recordings
-// workspace; the panel decides which side panel is open.
+// History and Downloads are two doors into one Recordings workspace; the
+// panel decides which side panel is open.
 export const NAV_ITEMS: NavItem[] = [
   { id: 'live', label: 'Live', icon: 'live', href: '/app/live', page: 'live' },
   { id: 'history', label: 'History', icon: 'history', href: '/app/recordings?panel=history', page: 'recordings', panel: 'history' },
-  { id: 'events', label: 'Events', icon: 'events', href: '/app/recordings?panel=events', page: 'recordings', panel: 'events' },
   { id: 'downloads', label: 'Downloads', icon: 'downloads', href: '/app/recordings?panel=downloads', page: 'recordings', panel: 'downloads' },
   { id: 'timeline', label: 'Timeline', icon: 'timeline', href: '/app/timeline', page: 'timeline', needsProxy: true },
   { id: 'settings', label: 'Settings', icon: 'settings', href: '/app/settings', page: 'settings' },

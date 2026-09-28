@@ -89,10 +89,10 @@ test('the cursor carries across panels and back from another page', async ({ pag
     await page.getByTestId('hamburger').click();
     await page.getByTestId('drawer').getByTestId('nav-live').click();
     await page.getByTestId('hamburger').click();
-    await page.getByTestId('drawer').getByTestId('nav-events').click();
+    await page.getByTestId('drawer').getByTestId('nav-history').click();
   } else {
     await page.getByTestId('sidebar').getByTestId('nav-live').click();
-    await page.getByTestId('sidebar').getByTestId('nav-events').click();
+    await page.getByTestId('sidebar').getByTestId('nav-history').click();
   }
   await expect(page.locator('[data-testid="event-card"][aria-current="true"]')).toHaveAttribute('data-clip-id', /-093000-093020$/);
 });
@@ -196,9 +196,9 @@ test('a picker choice made on Live survives navigating through the sidebar', asy
 
   if (testInfo.project.name === 'phone') {
     await page.getByTestId('hamburger').click();
-    await page.getByTestId('drawer').getByTestId('nav-events').click();
+    await page.getByTestId('drawer').getByTestId('nav-history').click();
   } else {
-    await page.getByTestId('sidebar').getByTestId('nav-events').click();
+    await page.getByTestId('sidebar').getByTestId('nav-history').click();
   }
   await expect(page.getByTestId('camera-picker')).toHaveValue('porch');
   await expect(page).toHaveURL(/[?&]cam=porch(&|$)/);
@@ -368,4 +368,11 @@ test('⇥ goes to now and stops there; the line under the video names time, sour
   await openEvents(page);
   await card(page, '081510').click(); // 08:15:10, person
   await expect(page.getByTestId('strip-info')).toContainText(/SD 10 FPS · Person/);
+});
+
+test('an old Events link opens History; the menu has no Events entry', async ({ page }) => {
+  await page.goto('/app/recordings?panel=events');
+  await expect(page.getByTestId('panel-tab-history')).toHaveAttribute('aria-selected', 'true');
+  await expect(page.getByTestId('panel-tab-events')).toHaveCount(0);
+  await expect(page.getByTestId('nav-events')).toHaveCount(0);
 });

@@ -20,7 +20,6 @@
 
   const TABS: { id: Panel; label: string }[] = [
     { id: 'history', label: 'History' },
-    { id: 'events', label: 'Events' },
     { id: 'downloads', label: 'Downloads' },
   ];
 
