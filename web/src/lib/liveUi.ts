@@ -1,5 +1,7 @@
 import { writable } from 'svelte/store';
-import { QUALITY_KEY, supportsHevc, type Quality } from './live';
+import { get } from 'svelte/store';
+import { getJson } from './api';
+import { QUALITY_KEY, snapshotUrl, supportsHevc, type Quality } from './live';
 import type { PlayerState } from './liveSession';
 import { pref } from './preferences';
 
@@ -75,25 +77,78 @@ export function offlineReason(code: string | undefined): string {
   return 'The camera answered with an error (for example a certificate problem). Check the server logs.';
 }
 
-type Actions = { toggleMute(): void; toggleQuality(): void; snapshot(): void; fullscreen(): void; retry(): void };
-const noop = () => {};
-const none: Actions = { toggleMute: noop, toggleQuality: noop, snapshot: noop, fullscreen: noop, retry: noop };
-let handlers: Actions = none;
+// The Live panel's own actions: they need the camera, not the stream, so
+// they work while the stream is closed (playback on Live, after the
+// keep-alive; final review 2026-09-28).
 
-// The Live panel's buttons; LiveBox registers what they do.
-export const liveActions: Actions = {
-  toggleMute: () => handlers.toggleMute(),
-  toggleQuality: () => handlers.toggleQuality(),
-  snapshot: () => handlers.snapshot(),
-  fullscreen: () => handlers.fullscreen(),
-  retry: () => handlers.retry(),
-};
+// A request-sequence guard: a late /status answer for a camera switched
+// away from must not overwrite the newer camera's status.
+let statusRequest = 0;
+export async function checkLiveStatus(id: string): Promise<void> {
+  const seq = ++statusRequest;
+  // Another camera: its status is unknown until the answer comes.
+  liveUi.update((u) => ({ ...u, checking: true, ...(u.status?.id === id ? {} : { status: null, snapshotError: '' }) }));
+  try {
+    const result = await getJson<CameraStatus>(`/api/cameras/${encodeURIComponent(id)}/status`);
+    if (seq === statusRequest) liveUi.update((u) => ({ ...u, status: result }));
+  } catch {
+    // The status request itself failed (network or cams down): that says
+    // nothing about the camera, so it gets its own wording.
+    if (seq === statusRequest) liveUi.update((u) => ({ ...u, status: { id, online: false, error: 'unreachable' } }));
+  } finally {
+    if (seq === statusRequest) liveUi.update((u) => ({ ...u, checking: false }));
+  }
+}
 
-export function registerLiveActions(a: Partial<Actions>): () => void {
-  const mine: Actions = { ...none, ...a };
-  handlers = mine;
+export function toggleMute(): void {
+  liveUi.update((u) => ({ ...u, muted: !u.muted }));
+}
+
+export function toggleQuality(): void {
+  liveUi.update((u) => {
+    const quality = u.quality === 'sub' ? 'main' : 'sub';
+    try {
+      localStorage.setItem(QUALITY_KEY, quality);
+    } catch {
+      // not persisted
+    }
+    return { ...u, quality };
+  });
+}
+
+const stamp = () => new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-');
+// Fetch first, then save: a plain download link would silently save an
+// error page (or nothing) when the camera can't take a snapshot.
+export async function saveSnapshot(id: string): Promise<void> {
+  if (get(liveUi).snapshotBusy) return;
+  liveUi.update((u) => ({ ...u, snapshotBusy: true, snapshotError: '' }));
+  try {
+    const res = await fetch(snapshotUrl(id), { credentials: 'same-origin' });
+    if (!res.ok || !(res.headers.get('content-type') ?? '').startsWith('image/')) throw new Error(String(res.status));
+    const url = URL.createObjectURL(await res.blob());
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${id}-${stamp()}.jpg`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 10_000);
+  } catch {
+    liveUi.update((u) => ({ ...u, snapshotError: "The snapshot couldn't be taken. The camera may be busy or offline." }));
+  } finally {
+    liveUi.update((u) => ({ ...u, snapshotBusy: false }));
+  }
+}
+
+// Fullscreen needs the live box: LiveBox registers it while it's mounted.
+let fullscreenHandler: () => void = () => {};
+export function liveFullscreen(): void {
+  fullscreenHandler();
+}
+export function registerLiveFullscreen(fn: () => void): () => void {
+  fullscreenHandler = fn;
   return () => {
-    if (handlers === mine) handlers = none;
+    if (fullscreenHandler === fn) fullscreenHandler = () => {};
   };
 }
 

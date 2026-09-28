@@ -1,6 +1,6 @@
 <script lang="ts">
   import Icon from './Icon.svelte';
-  import { liveActions, liveUi, offlineReason, type StreamInfo } from '../lib/liveUi';
+  import { checkLiveStatus, liveFullscreen, liveUi, offlineReason, saveSnapshot, toggleMute, toggleQuality, type StreamInfo } from '../lib/liveUi';
   import { formatClock, thumbUrl, TRIGGER_LABELS, type EventClip } from '../lib/recordings';
   import { timeAgo } from '../lib/clock';
   import type { CameraSummary } from '../lib/stores';
@@ -40,7 +40,7 @@
       <div class="offline" data-testid="offline-banner" role="alert">
         <strong>{camera.name} is offline.</strong>
         <span data-testid="offline-reason">{offlineReason(status.error)}</span>
-        <button data-testid="retry" disabled={$liveUi.checking} onclick={() => liveActions.retry()}>
+        <button data-testid="retry" disabled={$liveUi.checking} onclick={() => checkLiveStatus(camera.id)}>
           <Icon name="refresh" size={16} /> {$liveUi.checking ? 'Checking…' : 'Retry'}
         </button>
       </div>
@@ -75,18 +75,18 @@
 
   {#if status?.online}
     <section class="tile controls">
-      <button data-testid="mute-toggle" aria-pressed={!$liveUi.muted} onclick={() => liveActions.toggleMute()} title={$liveUi.muted ? 'Unmute' : 'Mute'}>
+      <button data-testid="mute-toggle" aria-pressed={!$liveUi.muted} onclick={() => toggleMute()} title={$liveUi.muted ? 'Unmute' : 'Mute'}>
         <Icon name={$liveUi.muted ? 'volumeOff' : 'volumeOn'} size={18} /><span>{$liveUi.muted ? 'Muted' : 'Sound'}</span>
       </button>
       {#if $liveUi.hevc}
-        <button data-testid="quality-toggle" aria-pressed={$liveUi.quality === 'main'} onclick={() => liveActions.toggleQuality()} title="Switch stream quality">
+        <button data-testid="quality-toggle" aria-pressed={$liveUi.quality === 'main'} onclick={() => toggleQuality()} title="Switch stream quality">
           {$liveUi.quality === 'main' ? 'HD' : 'SD'}
         </button>
       {/if}
-      <button data-testid="snapshot" onclick={() => liveActions.snapshot()} disabled={$liveUi.snapshotBusy} title="Save a snapshot">
+      <button data-testid="snapshot" onclick={() => saveSnapshot(camera.id)} disabled={$liveUi.snapshotBusy} title="Save a snapshot">
         <Icon name="camera" size={18} /><span>{$liveUi.snapshotBusy ? 'Saving…' : 'Snapshot'}</span>
       </button>
-      <button data-testid="fullscreen" onclick={() => liveActions.fullscreen()} title="Fullscreen"><Icon name="expand" size={18} /></button>
+      <button data-testid="fullscreen" onclick={() => liveFullscreen()} title="Fullscreen"><Icon name="expand" size={18} /></button>
       {#if $liveUi.snapshotError}<p class="snapshot-error" data-testid="snapshot-error" role="alert">{$liveUi.snapshotError}</p>{/if}
     </section>
   {/if}

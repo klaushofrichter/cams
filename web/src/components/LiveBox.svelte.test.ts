@@ -24,12 +24,15 @@ afterEach(() => {
 });
 
 describe('LiveBox', () => {
-  it('checks the camera and shares its status', async () => {
+  it('leaves no stale player state behind when the stream closes (final review)', async () => {
     target = document.createElement('div');
     document.body.appendChild(target);
+    liveUi.update((u) => ({ ...u, status: { id: 'cam1', online: true } }));
     component = mount(LiveBox, { target, props: { cameraId: 'cam1', visible: true, audible: true, proxy: false } });
-    await new Promise((r) => setTimeout(r, 0));
     flushSync();
-    expect(get(liveUi).status).toMatchObject({ online: true, simulator: 'cam-sim' });
+    liveUi.update((u) => ({ ...u, playerState: 'playing', badge: '● LIVE' }));
+    unmount(component);
+    component = undefined;
+    expect(get(liveUi)).toMatchObject({ playerState: 'connecting', badge: '● …', stillsShowing: false });
   });
 });

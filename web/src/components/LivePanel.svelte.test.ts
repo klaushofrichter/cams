@@ -47,4 +47,40 @@ describe('LivePanel', () => {
     expect(q('retry')).not.toBeNull();
     expect(get(liveUi).status?.online).toBe(false);
   });
+
+  // Final review: the panel works without the live stream (LiveBox not mounted).
+  it('Retry checks the camera again without the live stream', async () => {
+    const urls: string[] = [];
+    vi.stubGlobal('fetch', async (url: string) => {
+      urls.push(url);
+      return new Response(JSON.stringify({ id: 'cam2', online: true, model: 'RLC-1224A', firmware: 'v3', simulator: null, streams: { main: null, sub: null } }), { status: 200 });
+    });
+    liveUi.update((u) => ({ ...u, status: { id: 'cam2', online: false, error: 'camera_offline' }, checking: false }));
+    render();
+    q('retry')!.click();
+    await vi.waitFor(() => expect(get(liveUi).status?.online).toBe(true));
+    expect(urls).toContain('/api/cameras/cam2/status');
+    vi.unstubAllGlobals();
+  });
+
+  it('Snapshot fetches the camera’s snapshot without the live stream', async () => {
+    const urls: string[] = [];
+    vi.stubGlobal('fetch', async (url: string) => {
+      urls.push(url);
+      return new Response('x', { status: 500 });
+    });
+    liveUi.update((u) => ({ ...u, status: { id: 'cam2', online: true }, snapshotError: '' }));
+    render();
+    q('snapshot')!.click();
+    await vi.waitFor(() => expect(get(liveUi).snapshotError).not.toBe(''));
+    expect(urls.some((u) => u.includes('/cam2/snapshot'))).toBe(true);
+    vi.unstubAllGlobals();
+  });
+
+  it('mute toggles without the live stream', () => {
+    liveUi.update((u) => ({ ...u, status: { id: 'cam2', online: true }, muted: true }));
+    render();
+    q('mute-toggle')!.click();
+    expect(get(liveUi).muted).toBe(false);
+  });
 });

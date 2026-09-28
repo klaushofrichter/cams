@@ -20,7 +20,7 @@
   import { eventStream, prunePending, type Pending } from '../lib/eventStream';
   import { formatNow } from '../lib/clock';
   import { createKeepAlive } from '../lib/keepAlive';
-  import { liveStreamHeld } from '../lib/liveUi';
+  import { checkLiveStatus, liveStreamHeld } from '../lib/liveUi';
 
   // One page for Live, History and Downloads (spec 2026-09-28): the player
   // column never changes, the panel on the right does. On Live the strip's
@@ -93,13 +93,25 @@
   });
   const pendingToday = $derived(cursor.date === $todayDate ? [...pending].sort((a, b) => b.ts - a.ts) : []);
 
+  // The route this page reads: frozen while it is kept alive behind another
+  // page, so that page's URL (a Timeline day, its camera) never moves it.
+  let vroute = $state(untrack(() => $route));
+  $effect(() => {
+    const r = $route;
+    if (r.page === 'video') vroute = r;
+  });
+
   let historyView: { jump: (at: number, play?: boolean) => void } | undefined = $state();
   // Glued: the Live panel's playhead is at now and the player shows live.
   let glued = $state(untrack(() => $route.panel === 'live' && !$route.params.has('at')));
-  // Opening the Live panel (menu, tab, /app/live) goes to live.
-  const liveEntry = $derived($route.panel === 'live' && !$route.params.has('at'));
+  // Each navigation to the Live panel without a position (menu, tab,
+  // /app/live) goes to live: an event per route, not a flag that can stay
+  // set (final review).
   $effect(() => {
-    if (liveEntry) glued = true;
+    const r = vroute;
+    untrack(() => {
+      if (r.panel === 'live' && !r.params.has('at')) glued = true;
+    });
   });
 
   // Leaving the live stream (into playback, another panel or page, or a
@@ -107,7 +119,7 @@
   // shows the picture at once (Klaus, 2026-09-28).
   let liveWanted = $state(false);
   const liveKeep = createKeepAlive(() => (liveWanted = false));
-  const onLive = $derived(glued && $route.panel === 'live' && pageVisible && tabVisible);
+  const onLive = $derived(glued && vroute.panel === 'live' && pageVisible && tabVisible);
   let leftWith: number | null = null;
   $effect(() => {
     const seconds = $preferences?.liveKeepAlive ?? 60;
@@ -140,6 +152,12 @@
     });
     liveCamera = id;
   });
+  // The Live panel's camera status: checked on opening it and on another
+  // camera, whether or not the stream is open.
+  const liveShown = $derived(panel === 'live' && pageVisible);
+  $effect(() => {
+    if (cam && liveShown) untrack(() => void checkLiveStatus(cam));
+  });
   const camProxy = $derived(!!$cameras.find((x) => x.id === cam)?.proxy);
   const camera = $derived($cameras.find((x) => x.id === cam) ?? null);
   // The Live panel's latest event: the newest of today's.
@@ -164,8 +182,8 @@
   // session remembered from a previous camera would silently override a
   // camera just picked on another page.
   const parsed = $derived.by(() => {
-    const p = parseCursor($route.params, $todayDate);
-    if ($route.panel !== 'live' && !$route.params.has('date') && !$route.params.has('clip') && !$route.params.has('at')) {
+    const p = parseCursor(vroute.params, $todayDate);
+    if (vroute.panel !== 'live' && !vroute.params.has('date') && !vroute.params.has('clip') && !vroute.params.has('at')) {
       const saved = loadCursor();
       const agrees = p.cam ? saved?.cam === p.cam : $selectedCameraId === null || saved?.cam === $selectedCameraId;
       if (saved && agrees) return { ...p, cam: saved.cam, cursor: saved.cursor };
@@ -187,8 +205,8 @@
   // Reads the preferences store reactively (not the pref() snapshot helper,
   // which uses get() and would not update this derived value if the
   // preference arrived or changed after the page mounted).
-  const filter: Filter = $derived($route.params.has('filter') ? parsed.filter : ($preferences?.eventFilter ?? 'all'));
-  const panel: Panel = $derived($route.panel);
+  const filter: Filter = $derived(vroute.params.has('filter') ? parsed.filter : ($preferences?.eventFilter ?? 'all'));
+  const panel: Panel = $derived(vroute.panel);
   const visible = $derived(filterEvents(events, filter));
   // The strip's first position: the URL's `at`, else an old link's clip and
   // offset, else (null) the day's first event.
@@ -215,7 +233,7 @@
     if (!cam) return;
     const p = opts.panel ?? panel;
     // Opening the Live panel goes to live, at now.
-    const c: Cursor = p === 'live' && p !== panel ? { ...cursor, ...next, clipId: null, offsetSec: 0, at: null } : { ...cursor, ...next };
+    const c: Cursor = p === 'live' && opts.panel === 'live' ? { ...cursor, ...next, clipId: null, offsetSec: 0, at: null } : { ...cursor, ...next };
     if (p !== 'live') saveCursor(cam, c);
     const href = hrefFor(cam, c, p, opts.filter ?? filter);
     if (mode === 'replace') replaceRoute(href);
@@ -257,7 +275,8 @@
     const prev = prevSel;
     prevSel = sel;
     untrack(() => {
-      if (prev !== null && sel && sel !== prev && sel !== cam && $cameras.some((c) => c.id === sel)) switchCamera(sel);
+      // Not while kept alive behind another page: that page owns the URL.
+      if (pageVisible && prev !== null && sel && sel !== prev && sel !== cam && $cameras.some((c) => c.id === sel)) switchCamera(sel);
     });
   });
 
@@ -267,7 +286,7 @@
   $effect(() => {
     const c = cam;
     if (!c || !pageVisible) return;
-    if (panel !== 'live' && !$route.params.has('date') && !$route.params.has('clip') && !$route.params.has('at')) untrack(() => go({}, {}, 'replace'));
+    if (panel !== 'live' && !vroute.params.has('date') && !vroute.params.has('clip') && !vroute.params.has('at')) untrack(() => go({}, {}, 'replace'));
   });
   // A position from outside (a link, back/forward, a restored cursor) moves
   // the playhead; the page's own reports come back here and are ignored.

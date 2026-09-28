@@ -3,14 +3,14 @@
   import LivePlayer from './LivePlayer.svelte';
   import LiveStill from './LiveStill.svelte';
   import { cameras } from '../lib/stores';
-  import { getJson } from '../lib/api';
-  import { QUALITY_KEY, snapshotUrl } from '../lib/live';
   import type { PlayerState } from '../lib/liveSession';
   import { enterFullscreen } from '../lib/fullscreen';
   import { deriveStatus, liveStatus } from '../lib/liveStatus';
-  import { badgeOf, liveUi, offlineReason, registerLiveActions, type CameraStatus } from '../lib/liveUi';
+  import { badgeOf, liveUi, offlineReason, registerLiveFullscreen } from '../lib/liveUi';
 
-  // The live stream inside the player box (spec 2026-09-28). The video page
+  // The live stream inside the player box (spec 2026-09-28). The camera's
+  // status comes from the page (checkLiveStatus), so the Live panel works
+  // without the stream. The video page
   // keeps it mounted while the stream is kept alive, hidden when unglued or
   // on another page; `visible` says whether it is on screen, `audible`
   // whether anybody can hear it (another page or a hidden tab: no).
@@ -42,41 +42,6 @@
     return () => clearTimeout(t);
   });
 
-  // A request-sequence guard: a late /status answer for a camera switched
-  // away from must not overwrite the newer camera's status.
-  let statusRequest = 0;
-  async function checkStatus(id: string) {
-    const seq = ++statusRequest;
-    liveUi.update((u) => ({ ...u, checking: true }));
-    try {
-      const result = await getJson<CameraStatus>(`/api/cameras/${encodeURIComponent(id)}/status`);
-      if (seq === statusRequest) liveUi.update((u) => ({ ...u, status: result }));
-    } catch {
-      // The status request itself failed (network or cams down): that says
-      // nothing about the camera, so it gets its own wording.
-      if (seq === statusRequest) liveUi.update((u) => ({ ...u, status: { id, online: false, error: 'unreachable' } }));
-    } finally {
-      if (seq === statusRequest) liveUi.update((u) => ({ ...u, checking: false }));
-    }
-  }
-  $effect(() => {
-    const id = cameraId;
-    // snapshotError belongs to the previous camera
-    liveUi.update((u) => ({ ...u, status: null, snapshotError: '', playerState: 'connecting', stillsShowing: false, badge: badgeOf('connecting', false) }));
-    void checkStatus(id);
-  });
-
-  function toggleQuality() {
-    liveUi.update((u) => {
-      const quality = u.quality === 'sub' ? 'main' : 'sub';
-      try {
-        localStorage.setItem(QUALITY_KEY, quality);
-      } catch {
-        // not persisted
-      }
-      return { ...u, quality };
-    });
-  }
   function fullscreen() {
     const video = box?.querySelector<HTMLVideoElement>('[data-testid="live-video"]') ?? null;
     void enterFullscreen(box, video);
@@ -89,39 +54,9 @@
     }
   });
 
-  const stamp = () => new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-');
-  // Fetch first, then save: a plain download link would silently save an
-  // error page (or nothing) when the camera can't take a snapshot.
-  async function saveSnapshot() {
-    const id = cameraId;
-    liveUi.update((u) => ({ ...u, snapshotBusy: true, snapshotError: '' }));
-    try {
-      const res = await fetch(snapshotUrl(id), { credentials: 'same-origin' });
-      if (!res.ok || !(res.headers.get('content-type') ?? '').startsWith('image/')) throw new Error(String(res.status));
-      const url = URL.createObjectURL(await res.blob());
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `${id}-${stamp()}.jpg`;
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-      setTimeout(() => URL.revokeObjectURL(url), 10_000);
-    } catch {
-      liveUi.update((u) => ({ ...u, snapshotError: "The snapshot couldn't be taken. The camera may be busy or offline." }));
-    } finally {
-      liveUi.update((u) => ({ ...u, snapshotBusy: false }));
-    }
-  }
-
-  onMount(() =>
-    registerLiveActions({
-      toggleMute: () => liveUi.update((u) => ({ ...u, muted: !u.muted })),
-      toggleQuality,
-      snapshot: () => void saveSnapshot(),
-      fullscreen,
-      retry: () => void checkStatus(cameraId),
-    }),
-  );
+  onMount(() => registerLiveFullscreen(fullscreen));
+  // Closing the stream leaves no player state behind for the Live panel.
+  onDestroy(() => liveUi.update((u) => ({ ...u, playerState: 'connecting', stillsShowing: false, badge: badgeOf('connecting', false) })));
 
   // The camera's live status (favicon frame, tab title, logo tooltip). The
   // box stays mounted while the stream is kept alive, so the indicator stays

@@ -166,6 +166,26 @@ describe('the live end (glue, spec 2026-09-28)', () => {
     expect(badge()).not.toBeNull();
   });
 
+  it('a late first load does not pull a glued Live panel out of live (final review)', async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((r) => (release = r));
+    const base = globalThis.fetch;
+    vi.stubGlobal('fetch', async (url: string) => {
+      if (url.includes('/events?')) await gate;
+      return base(url);
+    });
+    const { props } = await render({ live: false });
+    props.live = true;
+    flushSync();
+    (target!.querySelector('[data-testid="strip-now"]') as HTMLElement).click();
+    flushSync();
+    expect(badge()).not.toBeNull();
+    release();
+    await vi.advanceTimersByTimeAsync(50);
+    flushSync();
+    expect(badge()).not.toBeNull();
+  });
+
   it('never glues on History', async () => {
     await render({ live: false, initialAt: NOW - 60_000 });
     (target!.querySelector('[data-testid="strip-now"]') as HTMLElement).click();

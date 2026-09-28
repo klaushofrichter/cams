@@ -117,7 +117,7 @@
   // First position without one in the URL: the day's first event, else 00:00.
   $effect(() => {
     void coverage;
-    if (placed) return;
+    if (placed || glued) return; // live has its position: now
     const list = data.eventsOn(date);
     if (list === null) return;
     placed = true;
@@ -200,6 +200,7 @@
   function glue() {
     if (!live) return;
     playing = false;
+    placed = true;
     glued = true;
     at = now - LIVE_LAG;
     report(true);
