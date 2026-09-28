@@ -17,7 +17,7 @@ let target: HTMLDivElement | undefined;
 beforeEach(() => {
   calls.length = 0;
   vi.stubGlobal('fetch', async (url: string, init: RequestInit) => {
-    calls.push({ url, init });
+    if (init?.method === 'PUT') calls.push({ url, init }); // the switch's requests (not the info lookup)
     return new Response(JSON.stringify(answer.body), { status: answer.status, headers: { 'Content-Type': 'application/json' } });
   });
   cameras.set([
@@ -87,6 +87,7 @@ describe('ProxySwitch', () => {
     ]);
     let release!: () => void;
     vi.stubGlobal('fetch', (url: string, init: RequestInit) => {
+      if (init?.method !== 'PUT') return Promise.resolve(new Response(JSON.stringify({ reachable: false, webUrl: null }), { status: 200 }));
       calls.push({ url, init });
       return new Promise<Response>((r) => (release = () => r(new Response(JSON.stringify({ enabled: false }), { status: 200 }))));
     });
@@ -103,4 +104,23 @@ describe('ProxySwitch', () => {
     expect(get(cameras).find((c) => c.id === 'den')?.proxy).toBe(false);
     expect(get(cameras).find((c) => c.id === 'barn')?.proxy).toBe(true);
   });
+
+  it('links to the camera’s cam-proxy while it answers', async () => {
+    vi.stubGlobal('fetch', async (url: string) =>
+      new Response(JSON.stringify(url.endsWith('/proxy/info') ? { reachable: true, webUrl: 'https://proxy.example' } : {}), { status: 200 }));
+    render('den');
+    await settle();
+    const a = target!.querySelector('[data-testid="proxy-web-link"]') as HTMLAnchorElement;
+    expect(a.getAttribute('href')).toBe('https://proxy.example');
+    expect(a.getAttribute('target')).toBe('_blank');
+  });
+
+  it('shows no link when the proxy is unreachable', async () => {
+    vi.stubGlobal('fetch', async () => new Response(JSON.stringify({ reachable: false, webUrl: null }), { status: 200 }));
+    render('den');
+    await settle();
+    expect(target!.querySelector('[data-testid="proxy-web-link"]')).toBeNull();
+    expect(target!.querySelector('[data-testid="proxy-unreachable"]')).not.toBeNull();
+  });
 });
+

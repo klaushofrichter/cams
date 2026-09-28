@@ -181,3 +181,22 @@ describe('switch edge cases (review)', () => {
     expect(proxyStates()).toEqual([]);
   });
 });
+
+describe('GET /api/cameras/:id/proxy/info (the Settings link, Klaus 2026-09-28)', () => {
+  const info = (id: string) => request(createApp()).get(`/api/cameras/${id}/proxy/info`).set('Cookie', auth);
+  it('names the proxy’s web address while it answers', async () => {
+    fake.publicUrl = 'https://proxy.example';
+    expect((await info('den')).body).toEqual({ reachable: true, webUrl: 'https://proxy.example' });
+  });
+
+  it('says unreachable, with no link, when the proxy does not answer', async () => {
+    await fake.stop();
+    expect((await info('den')).body).toEqual({ reachable: false, webUrl: null });
+    fake = await startFakeProxy(); // afterEach stops it again
+  });
+
+  it('refuses a camera without a proxy', async () => {
+    expect((await info('shed')).body).toEqual({ error: 'no_proxy' });
+  });
+});
+

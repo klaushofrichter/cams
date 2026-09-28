@@ -23,6 +23,7 @@ export interface FakeProxy {
   oldestId: number; // resuming from an id before this answers `reset`
   offline: boolean; // every request is answered by closing the connection
   requests: { path: string; auth: string | undefined }[];
+  publicUrl: string | null; // what /api/cameras reports as the proxy's web address
   streamConnections(): number;
   push(m: Omit<FakeMessage, 'id' | 'ts'> & { ts?: number }): FakeMessage;
   dropStreams(): void; // ends every open stream (a proxy restart)
@@ -50,6 +51,7 @@ export async function startFakeProxy(opts: { port?: number; token?: string } = {
     oldestId: 1,
     offline: false,
     requests: [],
+    publicUrl: null,
     streamConnections: () => streams.size,
     push(m) {
       const msg: FakeMessage = { id: nextId++, ts: m.ts ?? Date.now(), cam: m.cam, type: m.type, data: m.data };
@@ -98,6 +100,10 @@ export async function startFakeProxy(opts: { port?: number; token?: string } = {
     const from = Number(q.from), to = Number(q.to);
     return /^\d+$/.test(String(q.from)) && /^\d+$/.test(String(q.to)) && to >= from ? [from, to] : undefined;
   };
+  // The camera list, as the real one reports it (only what cams reads).
+  app.get('/api/cameras', (_req, res) => {
+    res.json([{ id: 'cam1', name: 'Den', online: true, lastEventTs: null, stream: null, publicUrl: fake.publicUrl }]);
+  });
   // Like the real one: the oldest clip, still and preview it holds.
   app.get('/api/cameras/:cam/extent', (req, res) => {
     const cam = req.params.cam;

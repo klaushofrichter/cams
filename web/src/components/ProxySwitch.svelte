@@ -1,6 +1,8 @@
 <script lang="ts">
   import { cameras } from '../lib/stores';
   import { putJson } from '../lib/settings';
+  import { getJson } from '../lib/api';
+  import Icon from './Icon.svelte';
 
   // The "use cam-proxy" switch for one camera, for all users (Klaus,
   // 2026-09-27). Nothing is shown for a camera without a cam-proxy. The
@@ -9,6 +11,18 @@
 
   const camera = $derived($cameras.find((c) => c.id === cameraId));
   let saving = $state(false);
+  // The proxy's own web page, while it answers (Klaus, 2026-09-28).
+  let info = $state<{ reachable: boolean; webUrl: string | null } | null>(null);
+  $effect(() => {
+    const id = cameraId;
+    info = null;
+    if (!camera?.proxyConfigured) return;
+    let stale = false;
+    getJson<{ reachable: boolean; webUrl: string | null }>(`/api/cameras/${encodeURIComponent(id)}/proxy/info`)
+      .then((r) => { if (!stale) info = r; })
+      .catch(() => { if (!stale) info = { reachable: false, webUrl: null }; });
+    return () => (stale = true);
+  });
   let error = $state('');
 
   // Another camera picked on Settings: its own state, no leftover error.
@@ -50,6 +64,13 @@
     {/if}
     Applies to everyone.
   </p>
+  {#if info?.webUrl}
+    <p class="link">
+      <a data-testid="proxy-web-link" href={info.webUrl} target="_blank" rel="noopener noreferrer">Open this camera's cam-proxy <Icon name="external" size={14} /></a>
+    </p>
+  {:else if info && !info.reachable}
+    <p class="muted" data-testid="proxy-unreachable">The cam-proxy isn't answering right now.</p>
+  {/if}
   {#if error}<p class="err" role="alert" data-testid="proxy-error">{error}</p>{/if}
 {/if}
 
@@ -57,4 +78,6 @@
   .row { display: flex; align-items: center; gap: 8px; }
   .muted { margin: 0; color: var(--muted); font-size: 13px; }
   .err { margin: 0; color: var(--danger); font-size: 13px; }
+  .link { margin: 0; font-size: 13px; }
+  .link a { display: inline-flex; align-items: center; gap: 4px; }
 </style>
