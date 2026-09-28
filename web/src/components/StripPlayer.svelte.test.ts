@@ -192,4 +192,13 @@ describe('StripPlayer', () => {
     q('next-clip')!.click();
     expect(onstep).toHaveBeenCalledWith(1);
   });
+
+  it('names time, source and the clip’s triggers in one line under the video (Klaus, 2026-09-28)', () => {
+    const personClip: EventClip = { ...clip, triggers: ['person', 'motion'] };
+    render({ at: T + 12_000, coverage: { clips: clipRuns([personClip]), stills: [], previews: [] } });
+    const line = q('strip-info')!.textContent!.replace(/\s+/g, ' ').trim();
+    expect(line).toMatch(/^\d{2}:\d{2}:\d{2}( [AP]M)? · SD 10 FPS · Person, Motion$/);
+    expect(target!.querySelector('.box [data-testid="source-badge"]')).toBeNull(); // no overlay on the video
+  });
 });
+

@@ -5,6 +5,7 @@ import { CameraError } from '../reolink/client';
 import { logger } from '../logger';
 import { CLIP_ID, isRealDate, isRealMonth } from '../recordings/clipNames';
 import { getRecordings, RecordingError } from '../recordings/service';
+import { extent } from '../recordings/extent';
 
 export const recordingsRouter = Router();
 
@@ -53,6 +54,17 @@ recordingsRouter.get('/api/cameras/:id/days', async (req, res, next) => {
   }
   try {
     res.json({ days: await getRecordings().days(id, month) });
+  } catch (err) {
+    fail(err, id, res, next);
+  }
+});
+
+// How far back the camera's content goes (the History strip's left edge).
+recordingsRouter.get('/api/cameras/:id/extent', async (req, res, next) => {
+  const id = camera(req, res);
+  if (!id) return;
+  try {
+    res.json(await extent(id));
   } catch (err) {
     fail(err, id, res, next);
   }

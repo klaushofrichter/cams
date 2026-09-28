@@ -21,6 +21,7 @@ beforeEach(() => {
   requested.length = 0;
   vi.stubGlobal('fetch', async (url: string) => {
     requested.push(url);
+    if (url.includes('/extent')) return new Response(JSON.stringify({ oldest: Date.parse(E1.start) - 3 * 86_400_000 }), { status: 200 });
     const body = url.includes('/events?date=2026-09-27') ? { events: [E1, E2, E3], downloads: 'ok' } : url.includes('/events?') ? { events: [], downloads: 'ok' } : [];
     return new Response(JSON.stringify(body), { status: 200 });
   });
@@ -120,6 +121,17 @@ describe('HistoryView', () => {
     const before = n();
     await vi.advanceTimersByTimeAsync(31_000);
     expect(n()).toBeGreaterThan(before);
+  });
+
+  it('knows the oldest content: ⇤ goes there, and ±10 s never passes it (Klaus, 2026-09-28)', async () => {
+    const oldest = Date.parse(E1.start) - 3 * 86_400_000;
+    const { onposition } = await render({ initialAt: Date.parse(E1.start) });
+    (target!.querySelector('[data-testid="strip-oldest"]') as HTMLElement).click();
+    await vi.advanceTimersByTimeAsync(2100);
+    expect(onposition).toHaveBeenLastCalledWith(oldest, null);
+    (target!.querySelector('[data-testid="back-10"]') as HTMLElement).click();
+    await vi.advanceTimersByTimeAsync(2100);
+    expect(onposition).toHaveBeenLastCalledWith(oldest, null);
   });
 });
 
