@@ -12,6 +12,9 @@ test.beforeEach(async ({ context, baseURL }) => {
   await signIn(context, baseURL!);
 });
 
+// A card by its clip's start time (the list is newest first).
+const card = (page: Page, hhmmss: string) => page.locator(`[data-testid="event-card"][data-clip-id*="-${hhmmss}-"]`);
+
 async function openEvents(page: Page) {
   await page.goto('/app/recordings?panel=events');
   await expect(page.getByTestId('event-card')).toHaveCount(4);
@@ -33,24 +36,24 @@ function chicagoToday(): string {
 
 test('events list shows today\'s recordings with triggers and thumbnails', async ({ page }) => {
   await openEvents(page);
-  await expect(page.getByTestId('event-card').first()).toContainText('08:15:10');
-  await expect(page.getByTestId('event-card').first()).toContainText('Person');
+  await expect(page.getByTestId('event-card').first()).toContainText('17:45:40'); // newest first
+  await expect(card(page, '081510')).toContainText('Person');
   const thumb = page.getByTestId('event-thumb').first();
   await expect.poll(() => thumb.evaluate((img: HTMLImageElement) => img.complete && img.naturalWidth > 0)).toBe(true);
 });
 
 test('selecting an event plays it and puts it in the URL', async ({ page }) => {
   await openEvents(page);
-  await page.getByTestId('event-card').nth(2).click();
+  await card(page, '120505').click();
   await expect(page).toHaveURL(/clip=\d{8}-120505-120530/);
   const video = page.getByTestId('clip-video');
   await expect.poll(() => video.evaluate((v: HTMLVideoElement) => v.readyState >= 2 && v.currentTime > 0.5), { timeout: 15_000 }).toBe(true);
-  await expect(page.getByTestId('event-card').nth(2)).toHaveAttribute('aria-current', 'true');
+  await expect(card(page, '120505')).toHaveAttribute('aria-current', 'true');
 });
 
 test('skip, pause and next/previous recording work', async ({ page }) => {
   await openEvents(page);
-  await page.getByTestId('event-card').first().click();
+  await card(page, '081510').click();
   const video = page.getByTestId('clip-video');
   await expect.poll(() => video.evaluate((v: HTMLVideoElement) => v.currentTime > 0.3), { timeout: 15_000 }).toBe(true);
   await page.getByTestId('play-toggle').click();
@@ -77,7 +80,7 @@ test('filters narrow the list and an empty filter says so', async ({ page }) => 
 
 test('the cursor carries across panels and back from another page', async ({ page }, testInfo) => {
   await openEvents(page);
-  await page.getByTestId('event-card').nth(1).click();
+  await card(page, '093000').click();
   await page.getByTestId('panel-tab-downloads').click();
   await expect(page.locator('[data-testid="download-row"][aria-current="true"]')).toHaveCount(1);
   await expect(page.locator('[data-testid="download-row"][aria-current="true"]')).toHaveAttribute('data-clip-id', /-093000-093020$/);
@@ -96,7 +99,7 @@ test('the cursor carries across panels and back from another page', async ({ pag
 
 test('a deep link restores the selection after reload', async ({ page }) => {
   await openEvents(page);
-  await page.getByTestId('event-card').nth(3).click();
+  await card(page, '174540').click();
   const url = page.url();
   await page.goto(url);
   await expect(page.locator('[data-testid="event-card"][aria-current="true"]')).toHaveAttribute('data-clip-id', /-174540-174605$/);
@@ -126,7 +129,7 @@ test('downloads return MP4 attachments with readable names', async ({ page }) =>
   const res = await page.request.get(href!);
   expect(res.status()).toBe(200);
   expect(res.headers()['content-type']).toBe('video/mp4');
-  expect(res.headers()['content-disposition']).toMatch(/^attachment; filename="cam1-\d{4}-\d{2}-\d{2}_08-15-10-main\.mp4"$/);
+  expect(res.headers()['content-disposition']).toMatch(/^attachment; filename="cam1-\d{4}-\d{2}-\d{2}_17-45-40-main\.mp4"$/); // the newest is first
 });
 
 test('the Live page mini timeline opens a recording', async ({ page }) => {
@@ -168,7 +171,7 @@ test('a cold-load deep link to a second camera stays on it', async ({ page }) =>
 
 test('the header picker on Recordings switches the page and does not flip back', async ({ page }) => {
   await openEvents(page);
-  await page.getByTestId('event-card').first().click();
+  await card(page, '081510').click();
   await expect(page).toHaveURL(/clip=/);
   await page.getByTestId('camera-picker').selectOption('porch');
   await expect(page).toHaveURL(/[?&]cam=porch(&|$)/);
@@ -184,7 +187,7 @@ test('a picker choice made on Live survives navigating through the sidebar', asy
   // First create a saved cursor for cam1 by visiting recordings and
   // selecting a clip on cam1.
   await openEvents(page);
-  await page.getByTestId('event-card').first().click();
+  await card(page, '081510').click();
   await expect(page).toHaveURL(/[?&]cam=cam1(&|$)/);
 
   await page.goto('/app/live');
@@ -216,7 +219,7 @@ test('zoom is kept when an event card is clicked, and across pages', async ({ pa
   await openEvents(page);
   await page.getByTestId('zoom-3').click();
   await expect(page.getByTestId('zoom-3')).toHaveAttribute('aria-pressed', 'true');
-  await page.getByTestId('event-card').nth(1).click();
+  await card(page, '093000').click();
   await expect(page.getByTestId('zoom-3')).toHaveAttribute('aria-pressed', 'true');
   await expect(page.locator('.bar-skeleton')).toHaveCount(0);
   await expect(page.getByTestId('timeline')).toBeVisible();
@@ -237,10 +240,10 @@ test('clip clicks do not re-fetch the day\'s events', async ({ page }) => {
   page.on('request', (req) => {
     if (/\/api\/cameras\/[^/]+\/events\?/.test(req.url()) && req.url().includes(`date=${day}`)) eventsRequests++;
   });
-  await page.getByTestId('event-card').nth(0).click();
-  await page.getByTestId('event-card').nth(1).click();
-  await page.getByTestId('event-card').nth(2).click();
-  await expect(page.getByTestId('event-card').nth(2)).toHaveAttribute('aria-current', 'true');
+  await card(page, '081510').click();
+  await card(page, '093000').click();
+  await card(page, '120505').click();
+  await expect(card(page, '120505')).toHaveAttribute('aria-current', 'true');
   // Lets any in-flight request actually land before counting: without this,
   // a slow or still-pending events fetch could resolve after the assertion
   // below and be missed entirely rather than caught as a failure.
@@ -268,7 +271,7 @@ test.describe('today auto-refresh', () => {
     await page.clock.install();
     await page.goto('/app/recordings?cam=porch&panel=events');
     await expect(page.getByTestId('event-card')).toHaveCount(4);
-    await page.getByTestId('event-card').nth(1).click();
+    await card(page, '093000').click();
     const first = await page.getByTestId('events-updated').textContent();
     const requests: string[] = [];
     page.on('request', (r) => r.url().includes('/events?') && requests.push(r.url()));
@@ -284,7 +287,7 @@ test.describe('today auto-refresh', () => {
 // opens, and Recordings says so instead of showing silent black boxes.
 test('a camera that refuses downloads gets a clear banner', async ({ page }) => {
   await page.goto('/app/recordings?cam=shed&panel=events');
-  await expect(page.getByTestId('event-card').first()).toBeVisible();
+  await expect(card(page, '081510')).toBeVisible();
   // Lazy thumbnails load once visible; their 503s trigger a re-check.
   await expect(page.getByTestId('recordings-unavailable')).toBeVisible({ timeout: 30_000 });
   await expect(page.getByTestId('recordings-unavailable')).toContainText('camera-side problem');
@@ -295,7 +298,7 @@ test('a camera that refuses downloads gets a clear banner', async ({ page }) => 
 // (the fake in test/proxy/fakeProxy.ts, one clip covering today) plays.
 test('a camera with a cam-proxy plays its recordings from the proxy', async ({ page }) => {
   await page.goto('/app/recordings?cam=barn&panel=events');
-  await page.getByTestId('event-card').first().click();
+  await card(page, '081510').click();
   const video = page.locator('video').first();
   await expect.poll(() => video.evaluate((v: HTMLVideoElement) => v.readyState), { timeout: 20_000 }).toBeGreaterThanOrEqual(1);
   await expect(page.getByTestId('recordings-unavailable')).toHaveCount(0);
@@ -339,7 +342,7 @@ test('dragging the strip to yesterday changes the date and the list', async ({ p
 
 test('an old link with clip and t opens at that moment', async ({ page }) => {
   await openEvents(page);
-  const id = await page.getByTestId('event-card').nth(2).getAttribute('data-clip-id');
+  const id = await card(page, '120505').getAttribute('data-clip-id');
   const date = new URL(page.url()).searchParams.get('date');
   await page.goto(`/app/recordings?date=${date}&clip=${id}&t=3&panel=history`);
   await expect(page.locator('[data-testid="event-card"][aria-current="true"]')).toHaveAttribute('data-clip-id', id!);
@@ -363,6 +366,6 @@ test('⇥ goes to now and stops there; the line under the video names time, sour
   // the source there may be stills or nothing).
   await expect.poll(async () => Date.now() - Number(new URL(page.url()).searchParams.get('at'))).toBeLessThan(15_000);
   await openEvents(page);
-  await page.getByTestId('event-card').first().click(); // 08:15:10, person
+  await card(page, '081510').click(); // 08:15:10, person
   await expect(page.getByTestId('strip-info')).toContainText(/SD 10 FPS · Person/);
 });
