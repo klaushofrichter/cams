@@ -280,4 +280,24 @@ describe('ComposeDialog', () => {
       vi.useRealTimers();
     }
   });
+
+  // Review: after Generate again, the new result must be kept alive too.
+  it('keeps a regenerated result alive as well', async () => {
+    vi.useFakeTimers();
+    try {
+      const calls = server({ poll: async () => new Response(JSON.stringify(job('c', 'done', 1)), { status: 200 }) });
+      render();
+      set('compose-post', '10');
+      q('compose-generate')!.click();
+      await vi.advanceTimersByTimeAsync(1000);
+      q('compose-generate')!.click(); // Generate again
+      await vi.advanceTimersByTimeAsync(1000);
+      const polls = () => calls.filter((c) => c.method === 'GET' && !c.url.includes('/available')).length;
+      const before = polls();
+      await vi.advanceTimersByTimeAsync(60_000);
+      expect(polls()).toBeGreaterThan(before);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });

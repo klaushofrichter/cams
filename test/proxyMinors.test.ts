@@ -1,6 +1,7 @@
 // Issue #38: deferred minors from the cam-proxy integration reviews.
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import express from 'express';
+import { inspect } from 'util';
 import type { AddressInfo } from 'net';
 import type { Server } from 'http';
 import request from 'supertest';
@@ -64,7 +65,8 @@ describe('cam-proxy minors (#38)', () => {
 
   it('never writes the proxy token into a log line', async () => {
     const lines: string[] = [];
-    for (const level of ['info', 'warn', 'error', 'debug'] as const) vi.spyOn(logger, level).mockImplementation(((...a: unknown[]) => void lines.push(JSON.stringify(a))) as never);
+    // inspect, not JSON.stringify: pino-http logs req/res, which are circular.
+    for (const level of ['info', 'warn', 'error', 'debug'] as const) vi.spyOn(logger, level).mockImplementation(((...a: unknown[]) => void lines.push(inspect(a, { depth: 6 }))) as never);
     const p = await standIn((_req, res) => void res.status(500).json({ error: 'boom' }));
     useProxy(p.url);
     await request(createApp()).get('/api/cameras/den/stills?from=0&to=1000').set('Cookie', auth);

@@ -69,6 +69,7 @@
     gen++;
     clearInterval(timer);
     clearInterval(keep);
+    keep = undefined;
     starting = false;
     if (job) cancelJob(camera, job.id);
     job = null;
@@ -111,6 +112,7 @@
     if (!v) {
       clearInterval(timer);
       clearInterval(keep);
+      keep = undefined;
       error = fromBackground ? 'The composition stopped while the page was in the background; generate it again.' : 'The composition was lost; try again.';
       job = null;
       return;
