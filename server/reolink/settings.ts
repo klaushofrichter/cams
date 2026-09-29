@@ -28,7 +28,7 @@ export interface ImageSettings {
   dayNight: 'auto' | 'color' | 'blackwhite';
   irLights: 'auto' | 'off';
   spotlight: { mode: SpotlightMode; brightness: number };
-  osd: { showName: boolean; name: string; namePosition: OsdPosition; showTime: boolean; timePosition: OsdPosition };
+  osd: { showName: boolean; name: string; namePosition: OsdPosition; showTime: boolean; timePosition: OsdPosition; watermark: boolean };
 }
 
 type Toggle = 'on' | 'off';
@@ -116,6 +116,7 @@ export function imageFrom(raw: { isp: unknown; ir: unknown; wl: unknown; osd: un
       namePosition: pos(ch.pos),
       showTime: num(time.enable) === 1,
       timePosition: pos(time.pos),
+      watermark: num(osd.watermark) === 1, // the Reolink logo on the video
     },
   };
 }
@@ -187,8 +188,8 @@ export function validateImagePatch(body: unknown): { ok: true; patch: ImagePatch
     if (!isObj(b.osd)) details.push('osd: must be an object');
     else {
       const o = b.osd as Obj;
-      onlyKeys(o, ['showName', 'name', 'namePosition', 'showTime', 'timePosition'], 'osd.', details);
-      for (const k of ['showName', 'showTime']) if (k in o && typeof o[k] !== 'boolean') details.push(`osd.${k}: must be true or false`);
+      onlyKeys(o, ['showName', 'name', 'namePosition', 'showTime', 'timePosition', 'watermark'], 'osd.', details);
+      for (const k of ['showName', 'showTime', 'watermark']) if (k in o && typeof o[k] !== 'boolean') details.push(`osd.${k}: must be true or false`);
       if ('name' in o && !validOsdName(o.name)) details.push('osd.name: up to 31 bytes (UTF-8), not blank, no control or invisible characters');
       for (const k of ['namePosition', 'timePosition']) {
         if (k in o && !(OSD_POSITIONS as readonly string[]).includes(o[k] as string)) details.push(`osd.${k}: one of ${OSD_POSITIONS.join(', ')}`);
@@ -287,6 +288,7 @@ export function imageCommands(p: ImagePatch, raw: RawImage): SettingsCommand[] {
       if (d.namePosition !== undefined) ch.pos = d.namePosition;
       if (d.showTime !== undefined) time.enable = d.showTime ? 1 : 0;
       if (d.timePosition !== undefined) time.pos = d.timePosition;
+      if (d.watermark !== undefined) o.watermark = d.watermark ? 1 : 0;
     });
   }
   return w.list();

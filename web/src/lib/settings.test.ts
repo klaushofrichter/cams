@@ -35,7 +35,7 @@ describe('diffPatch', () => {
       dayNight: 'auto' as const,
       irLights: 'auto' as const,
       spotlight: { mode: 'off' as const, brightness: 50 },
-      osd: { showName: true, name: 'Front Door', namePosition: 'Upper Left', showTime: true, timePosition: 'Lower Right' },
+      osd: { showName: true, name: 'Front Door', namePosition: 'Upper Left', showTime: true, timePosition: 'Lower Right', watermark: true },
     };
     const edited = structuredClone(image);
     edited.osd.name = 'custom';

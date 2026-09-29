@@ -18,7 +18,7 @@ const REAL = {
   isp: { Isp: { channel: 0, dayNight: 'Auto', antiFlicker: '60HZ' } },
   ir: { IrLights: { state: 'Auto' } },
   wl: { WhiteLed: { channel: 0, mode: 1, bright: 100, state: 0 } },
-  osd: { Osd: { channel: 0, osdChannel: { enable: 1, name: 'Den', pos: 'Lower Right' }, osdTime: { enable: 1, pos: 'Top Center' } } },
+  osd: { Osd: { channel: 0, osdChannel: { enable: 1, name: 'Den', pos: 'Lower Right' }, osdTime: { enable: 1, pos: 'Top Center' }, watermark: 1 } },
 };
 
 describe('reading settings', () => {
@@ -37,7 +37,7 @@ describe('reading settings', () => {
       dayNight: 'auto',
       irLights: 'auto',
       spotlight: { mode: 'auto', brightness: 100 },
-      osd: { showName: true, name: 'Den', namePosition: 'Lower Right', showTime: true, timePosition: 'Top Center' },
+      osd: { showName: true, name: 'Den', namePosition: 'Lower Right', showTime: true, timePosition: 'Top Center', watermark: true },
     });
   });
 
@@ -157,6 +157,17 @@ describe('building commands', () => {
     detectionCommands({ recording: false, motionSensitivity: 20, ai: { pet: { sensitivity: 1, record: 'off' } } }, FULL);
     imageCommands({ dayNight: 'color', irLights: 'off', spotlight: { mode: 'off' }, osd: { showTime: false } }, FULL);
     expect(JSON.stringify(FULL)).toBe(before);
+  });
+
+  // The Reolink logo on the video: Osd.watermark, written with the whole object.
+  it('reads, validates and writes the watermark', () => {
+    expect(imageFrom({ ...REAL, osd: { Osd: { ...REAL.osd.Osd, watermark: 0 } } }).osd.watermark).toBe(false);
+    expect(validateImagePatch({ osd: { watermark: false } }).ok).toBe(true);
+    expect(validateImagePatch({ osd: { watermark: 0 } }).ok).toBe(false);
+    expect(imageCommands({ osd: { watermark: false } }, FULL)).toEqual([
+      { fields: ['osd'], cmd: 'SetOsd', param: { Osd: { ...FULL.osd.Osd, watermark: 0 } } },
+    ]);
+    expect(patchApplied('osd', { osd: { watermark: true } }, imageFrom(REAL))).toBe(true);
   });
 
   it('sends nothing for an empty spotlight or OSD patch', () => {

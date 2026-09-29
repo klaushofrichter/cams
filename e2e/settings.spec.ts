@@ -63,6 +63,26 @@ test('saving a camera setting shows the success state and persists', async ({ pa
   await expect(page.getByTestId('settings-card-image').getByTestId('save-state')).toHaveAttribute('data-state', 'saved');
 });
 
+// Klaus, 2026-09-29: the Reolink logo (Osd.watermark) is a setting, and it stays
+// off after a reload because it is stored on the camera.
+test('the watermark can be switched off and stays off', async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== 'desktop', 'mutates Porch, which is shared simulated-camera state; avoid racing with other projects');
+  await page.goto('/app/settings');
+  await page.getByTestId('camera-picker').selectOption({ label: 'Porch' });
+  const mark = page.getByTestId('osd-watermark-toggle');
+  await expect(mark).toBeChecked(); // cam-sim's factory setting
+  await mark.uncheck();
+  await page.getByTestId('save-image').click();
+  await expect(page.getByTestId('settings-card-image').getByTestId('save-state')).toHaveAttribute('data-state', 'saved');
+  await page.reload();
+  await page.getByTestId('camera-picker').selectOption({ label: 'Porch' });
+  await expect(page.getByTestId('osd-watermark-toggle')).not.toBeChecked();
+  // restore
+  await page.getByTestId('osd-watermark-toggle').check();
+  await page.getByTestId('save-image').click();
+  await expect(page.getByTestId('settings-card-image').getByTestId('save-state')).toHaveAttribute('data-state', 'saved');
+});
+
 test('a rejected field shows the error next to it while the others save', async ({ page }, testInfo) => {
   test.skip(testInfo.project.name !== 'desktop', 'mutates Porch, which is shared simulated-camera state; avoid racing with other projects');
   await page.goto('/app/settings');

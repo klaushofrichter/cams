@@ -13,7 +13,7 @@ export interface ImageSettings {
   dayNight: 'auto' | 'color' | 'blackwhite';
   irLights: 'auto' | 'off';
   spotlight: { mode: 'off' | 'auto' | 'night' | 'schedule'; brightness: number };
-  osd: { showName: boolean; name: string; namePosition: string; showTime: boolean; timePosition: string };
+  osd: { showName: boolean; name: string; namePosition: string; showTime: boolean; timePosition: string; watermark: boolean };
 }
 export interface DeviceInfo {
   model: string;
