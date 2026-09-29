@@ -13,6 +13,7 @@ export interface ImageSettings {
   dayNight: 'auto' | 'color' | 'blackwhite';
   irLights: 'auto' | 'off';
   spotlight: { mode: 'off' | 'auto' | 'night' | 'schedule'; brightness: number };
+  flip: { vertical: boolean; mirror: boolean }; // Isp.rotation / Isp.mirroring
   osd: { showName: boolean; name: string; namePosition: string; showTime: boolean; timePosition: string; watermark: boolean };
 }
 export interface DeviceInfo {
@@ -95,6 +96,7 @@ export const FIELD_LABELS: Record<string, string> = {
   dayNight: 'Day/night',
   irLights: 'Infrared lights',
   spotlight: 'Spotlight',
+  flip: 'Picture orientation',
   osd: 'On-screen text',
 };
 
