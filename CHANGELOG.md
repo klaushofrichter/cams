@@ -8,5 +8,3 @@ published as [GitHub releases](https://github.com/klaushofrichter/cams/releases)
 
 ## [Unreleased]
 
-- Settings → Image: "Picture orientation", with Flip upside down (`Isp.rotation`) and Mirror left–right (`Isp.mirroring`). Both together rotate the picture 180° for a camera mounted upside down; the camera's person, vehicle and pet detection needs it the right way up.
-
