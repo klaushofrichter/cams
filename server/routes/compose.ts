@@ -38,12 +38,12 @@ const jobOk = (req: Request, res: Response) => (JOB.test(String(req.params.job))
 composeRouter.post('/api/cameras/:id/compositions', async (req, res) => {
   const t = target(req, res);
   if (!t) return;
-  const b = (req.body ?? {}) as { eventId?: unknown; preS?: unknown; postS?: unknown; size?: unknown; badge?: unknown };
+  const b = (req.body ?? {}) as { eventId?: unknown; preS?: unknown; postS?: unknown; size?: unknown; badge?: unknown; timeZone?: unknown };
   if (typeof b.eventId !== 'string' || !EVENT.test(b.eventId)) return void res.status(400).json({ error: 'invalid', detail: 'eventId is required' });
   try {
     const clip = await getRecordings().proxyClipOf(t.id, b.eventId);
     if (!clip) return void res.status(404).json({ error: 'no_clip' });
-    const up = await t.client.open(t.base, undefined, { method: 'POST', body: JSON.stringify({ clipId: clip.id, preS: b.preS, postS: b.postS, size: b.size, badge: b.badge }) });
+    const up = await t.client.open(t.base, undefined, { method: 'POST', body: JSON.stringify({ clipId: clip.id, preS: b.preS, postS: b.postS, size: b.size, badge: b.badge, ...(typeof b.timeZone === 'string' ? { timeZone: b.timeZone } : {}) }) });
     await relay(res, up);
   } catch (err) {
     failed(err, res);

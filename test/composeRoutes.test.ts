@@ -37,6 +37,8 @@ describe('compositions pass-through', () => {
     expect(r.status).toBe(201);
     expect(r.body.id).toMatch(/^[A-Za-z0-9_-]{22}$/);
     expect(fake.composeRequests.at(-1)).toEqual({ clipId: 7, preS: 5, postS: 10, size: 'sd', badge: true });
+    await post('den', { eventId: EVENT, preS: 0, postS: 5, size: 'sd', badge: false, timeZone: 'America/Chicago' });
+    expect(fake.composeRequests.at(-1)).toMatchObject({ timeZone: 'America/Chicago' }); // the cards' clock (final review I5)
     expect(fake.requests.at(-1)?.auth).toBe(`Bearer ${FAKE_TOKEN}`);
   });
 
