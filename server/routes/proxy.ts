@@ -113,6 +113,8 @@ function range(req: Request, res: Response): [number, number] | undefined {
 
 function proxyFailed(err: unknown, id: string, res: Response): void {
   if (!(err instanceof ProxyError)) throw err;
+  // The proxy keeps no stills (stills.enabled false): say so, not "not reachable" (issue #38).
+  if (err.status === 404 && !res.headersSent) return void res.status(404).json({ error: 'stills_disabled' });
   logger.warn({ cameraId: id, code: err.code, message: err.message }, 'proxy_request_failed');
   if (!res.headersSent) res.status(502).json({ error: 'proxy_unavailable' });
   else res.destroy();
@@ -123,8 +125,10 @@ proxyRouter.get('/api/cameras/:id/previews', async (req: Request, res: Response)
   const r = p && range(req, res);
   if (!p || !r) return;
   try {
-    const list = await p.client.json<{ minute: number; url: string }[]>(`/api/cameras/${p.cam}/previews`, { from: r[0], to: r[1] });
-    res.json(list.map((m) => ({ ...m, url: `${p.base}/previews/${m.minute}.jpg` })));
+    const list = await p.client.json<{ minute: unknown; url: string }[]>(`/api/cameras/${p.cam}/previews`, { from: r[0], to: r[1] });
+    // Only whole minutes: the value goes into URLs and CSS (issue #38).
+    const ok = (Array.isArray(list) ? list : []).filter((m): m is { minute: number; url: string } => Number.isSafeInteger(m?.minute) && (m.minute as number) % 60_000 === 0);
+    res.json(ok.map((m) => ({ ...m, url: `${p.base}/previews/${m.minute}.jpg` })));
   } catch (err) {
     proxyFailed(err, String(req.params.id), res);
   }

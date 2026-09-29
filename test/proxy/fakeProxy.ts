@@ -30,6 +30,9 @@ export interface FakeProxy {
   compositions: Map<string, { state: 'queued' | 'running' | 'done'; progress: number; durationS: number }>;
   composeRequests: unknown[];
   composeDelayMs: number; // a composition goes running → done over this long
+  stillDelayMs: number; // tests: each still image answers this late
+  maxStillsInFlight: number; // the most still images served at once
+  streamStatus: number | null; // tests: /api/stream answers this error status
   streamConnections(): number;
   push(m: Omit<FakeMessage, 'id' | 'ts'> & { ts?: number }): FakeMessage;
   dropStreams(): void; // ends every open stream (a proxy restart)
@@ -45,6 +48,7 @@ export async function startFakeProxy(opts: { port?: number; token?: string } = {
   const dir = mkdtempSync(join(tmpdir(), 'cams-fakeproxy-'));
   const app = express();
   const streams = new Set<Response>();
+  const streamTypes = new Map<Response, string[] | undefined>(); // like the real one: live pushes honour ?types
   const sockets = new Set<import('net').Socket>();
   let nextId = 1;
 
@@ -63,11 +67,17 @@ export async function startFakeProxy(opts: { port?: number; token?: string } = {
     compositions: new Map(),
     composeRequests: [],
     composeDelayMs: 300,
+    stillDelayMs: 0,
+    maxStillsInFlight: 0,
+    streamStatus: null,
     streamConnections: () => streams.size,
     push(m) {
       const msg: FakeMessage = { id: nextId++, ts: m.ts ?? Date.now(), cam: m.cam, type: m.type, data: m.data };
       fake.messages.push(msg);
-      for (const res of streams) write(res, msg);
+      for (const res of streams) {
+        const types = streamTypes.get(res);
+        if (!types || types.includes(msg.type)) write(res, msg);
+      }
       return msg;
     },
     dropStreams() {
@@ -101,6 +111,7 @@ export async function startFakeProxy(opts: { port?: number; token?: string } = {
   app.post('/control/login-links', (_req, res) => void res.status(201).json({ code: `fake-code-${++fake.loginLinks}`, expiresInS: 60 }));
 
   app.get('/api/stream', (req, res) => {
+    if (fake.streamStatus) return void res.status(fake.streamStatus).json({ error: 'upstream' });
     const types = typeof req.query.types === 'string' ? req.query.types.split(',') : undefined;
     const since = req.query.since !== undefined ? Number(req.query.since) : req.get('last-event-id') ? Number(req.get('last-event-id')) : undefined;
     res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-store' });
@@ -110,7 +121,11 @@ export async function startFakeProxy(opts: { port?: number; token?: string } = {
       else for (const m of fake.messages) if (m.id > since && (!types || types.includes(m.type))) write(res, m);
     }
     streams.add(res);
-    req.on('close', () => streams.delete(res));
+    streamTypes.set(res, types);
+    req.on('close', () => {
+      streams.delete(res);
+      streamTypes.delete(res);
+    });
   });
 
   const range = (q: Record<string, unknown>): [number, number] | undefined => {
@@ -134,6 +149,7 @@ export async function startFakeProxy(opts: { port?: number; token?: string } = {
   app.get('/api/cameras/:cam/clips', (req, res) => {
     const r = range(req.query);
     if (!r) return void res.status(400).json({ error: 'invalid' });
+    if (r[1] - r[0] > 31 * 86_400_000) return void res.status(400).json({ error: 'invalid', detail: 'at most 31 days' });
     const base = `/api/cameras/${req.params.cam}/clips`;
     res.json(
       fake.clips
@@ -186,6 +202,7 @@ export async function startFakeProxy(opts: { port?: number; token?: string } = {
     if (!fake.compositions.delete(req.params.id)) return void res.status(404).json({ error: 'not_found' });
     res.status(204).end();
   });
+  let inFlight = 0;
   const images = (kind: 'stills' | 'previews') => {
     app.get(`/api/cameras/:cam/${kind}`, (req, res) => {
       const r = range(req.query);
@@ -201,7 +218,13 @@ export async function startFakeProxy(opts: { port?: number; token?: string } = {
       const jpeg = fake[kind].get(req.params.cam)?.get(Number(m[1]));
       if (!jpeg) return void res.status(404).json({ error: 'not_found' });
       res.type('image/jpeg').setHeader('Cache-Control', 'private, max-age=604800, immutable');
-      res.send(jpeg);
+      if (kind !== 'stills' || !fake.stillDelayMs) return void res.send(jpeg);
+      inFlight++;
+      fake.maxStillsInFlight = Math.max(fake.maxStillsInFlight, inFlight);
+      setTimeout(() => {
+        inFlight--;
+        res.send(jpeg);
+      }, fake.stillDelayMs);
     });
   };
   images('stills');

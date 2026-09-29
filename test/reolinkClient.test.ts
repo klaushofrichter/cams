@@ -416,4 +416,18 @@ describe('classifyNetworkError', () => {
     expect((await client.status()).streams.main).toMatchObject({ codec: 'h265' });
     clock.mockRestore();
   });
+
+  // Issue #38: a burst of proxy messages asked GetTime once each until the
+  // first answer was cached.
+  it('shares one GetTime between concurrent callers', async () => {
+    const client = new ReolinkClient(cam);
+    const calls: string[] = [];
+    const real = (client as unknown as { command: (c: string, p?: unknown) => Promise<unknown> }).command.bind(client);
+    (client as unknown as { command: (c: string, p?: unknown) => Promise<unknown> }).command = async (c: string, p?: unknown) => {
+      calls.push(c);
+      return real(c, p);
+    };
+    await Promise.all(Array.from({ length: 5 }, () => client.timeInfo()));
+    expect(calls.filter((c) => c === 'GetTime')).toHaveLength(1);
+  });
 });

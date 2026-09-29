@@ -410,11 +410,19 @@ export class ReolinkClient {
     );
   }
 
+  // Concurrent callers share one GetTime (issue #38: a burst of proxy
+  // messages asked once each until the first answer was cached).
+  private timePending?: Promise<TimeInfo>;
   async timeInfo(): Promise<TimeInfo> {
     if (this.time && this.now() - this.time.at < 3600_000) return this.time.value;
-    const value = timeInfoFromGetTime(await this.command<unknown>('GetTime'));
-    this.time = { value, at: this.now() };
-    return value;
+    this.timePending ??= this.command<unknown>('GetTime')
+      .then((raw) => {
+        const value = timeInfoFromGetTime(raw);
+        this.time = { value, at: this.now() };
+        return value;
+      })
+      .finally(() => (this.timePending = undefined));
+    return this.timePending;
   }
 
   private static dayRange(date: string) {

@@ -5,7 +5,7 @@
   import { cameras, selectedCameraId } from '../lib/stores';
   import { eventStream } from '../lib/eventStream';
   import { liveEventsOn } from '../lib/preferences';
-  import { localDate } from '../lib/recordings';
+  import { addDays, localDate } from '../lib/recordings';
   import { todayDate } from '../lib/refresh';
   import { cursorSearch, dayRange, hourGroups, minuteOf, splitRange, stillIndex, tileStyle, timelineCursor, type PreviewMinute } from '../lib/timeline';
 
@@ -42,9 +42,11 @@
     const [from, to] = dayRange(d);
     const [parts, ev] = await Promise.all([
       Promise.all(splitRange(from, to).map(([a, z]) => getJson<PreviewMinute[]>(`${b}/previews?from=${a}&to=${z}`))),
-      getJson<{ events: Ev[] }>(`${b}/events?date=${d}`).catch(() => ({ events: [] as Ev[] })),
+      // The camera's day and its neighbours: with the browser in another
+      // zone, the tiles' day spans two camera days (issue #38).
+      Promise.all([addDays(d, -1), d, addDays(d, 1)].map((x) => getJson<{ events: Ev[] }>(`${b}/events?date=${x}`).catch(() => ({ events: [] as Ev[] })))),
     ]);
-    return { m: parts.flat(), ev: ev.events };
+    return { m: parts.flat(), ev: ev.flatMap((x) => x.events) };
   }
 
   // A camera or day change: clear, then load.
@@ -70,8 +72,10 @@
         const target = t === null ? undefined : m.find((x) => x.minute === minuteOf(t));
         if (target && t !== null) void show(target, t, 1);
       },
-      () => {
-        if (!stale) message = 'The camera gateway is not reachable right now.';
+      (err: Error) => {
+        if (stale) return;
+        // The proxy answers 404 stills_disabled when it keeps no stills (issue #38).
+        message = /HTTP 404/.test(err.message) ? "This camera's cam-proxy keeps no stills." : 'The camera gateway is not reachable right now.';
       },
     );
     return () => (stale = true);

@@ -137,4 +137,37 @@ describe('recordings from cam-proxy clips', () => {
     expect(r.headers['content-disposition']).toMatch(/-proxy\.mp4"$/);
     expect(Buffer.compare(r.body, CLIP)).toBe(0);
   });
+
+  // Issue #38 items.
+  it('asks the proxy once when it has no clip and the camera refuses', async () => {
+    const app = createApp();
+    const [a] = (await events(app)).events;
+    const before = fake.requests.filter((r) => r.path.endsWith('/clips')).length;
+    expect((await request(app).get(`/api/cameras/cam1/clips/${a.id}/video`).set('Cookie', auth)).status).toBe(503);
+    expect(fake.requests.filter((r) => r.path.endsWith('/clips')).length - before).toBe(1);
+  });
+
+  it('asks the proxy for at most three thumbnails at once', async () => {
+    const app = createApp();
+    const evs = (await events(app)).events;
+    const stills = new Map<number, Buffer>();
+    for (const e of evs) stills.set(Date.parse(e.start) + 3000, JPEG);
+    fake.stills.set('cam1', stills);
+    fake.stillDelayMs = 50;
+    await Promise.all(evs.map((e) => request(app).get(`/api/cameras/cam1/clips/${e.id}/thumb.jpg`).set('Cookie', auth)));
+    expect(evs.length).toBeGreaterThan(3);
+    expect(fake.maxStillsInFlight).toBeGreaterThan(0);
+    expect(fake.maxStillsInFlight).toBeLessThanOrEqual(3);
+  });
+
+  it('answers a thumbnail quickly and cleanly while the proxy is down and the camera refuses', async () => {
+    const app = createApp();
+    const [a] = (await events(app)).events;
+    fake.offline = true;
+    const t0 = Date.now();
+    const r = await request(app).get(`/api/cameras/cam1/clips/${a.id}/thumb.jpg`).set('Cookie', auth);
+    expect(r.status).toBe(503);
+    expect(r.headers['content-type']).toMatch(/json/);
+    expect(Date.now() - t0).toBeLessThan(10_000);
+  });
 });
