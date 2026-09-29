@@ -215,4 +215,23 @@ describe('StripPlayer', () => {
     expect(document.querySelector('[data-testid="compose-dialog"]')).not.toBeNull();
     expect(document.querySelector('[data-testid="compose-thumb"]')!.getAttribute('src')).toContain(clip.id);
   });
+
+  // 2026-09-29: dragging across four hours asked for 2,542 stills in a minute,
+  // which spent cams' media budget and emptied the Timeline. While the
+  // position moves by hand, no still per second: only where it settles.
+  it('asks for stills only where a drag settles, not for every second it passes', async () => {
+    const urls: string[] = [];
+    vi.stubGlobal('Image', class { onload: (() => void) | null = null; onerror: (() => void) | null = null; set src(v: string) { urls.push(v); queueMicrotask(() => this.onload?.()); } });
+    const H4 = 4 * 3_600_000;
+    const p = render({ now: T + H4 + 60_000, coverage: { clips: [], stills: [{ start: T, end: T + H4 }], previews: [] } });
+    const before = urls.length;
+    for (let i = 1; i <= 500; i++) {
+      p.at = T + Math.round((i * (H4 - 1000)) / 500); // the last second inside the stills
+      flushSync();
+      await tick(2); // a quick drag: 500 positions in about a second
+    }
+    expect(urls.length - before).toBeLessThanOrEqual(8);
+    await tick(300); // settled
+    expect(q('strip-still')!.getAttribute('src')).toBe(`/api/cameras/den/stills/${T + H4 - 1000}.jpg`);
+  });
 });
