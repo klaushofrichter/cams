@@ -47,7 +47,7 @@ export class ProxyClient {
   async open(
     path: string,
     query?: Query,
-    init: { headers?: Record<string, string>; signal?: AbortSignal; timeoutMs?: number | null; idleMs?: number } = {},
+    init: { method?: 'GET' | 'POST' | 'DELETE'; body?: string; headers?: Record<string, string>; signal?: AbortSignal; timeoutMs?: number | null; idleMs?: number } = {},
   ): Promise<Response> {
     const ctl = new AbortController();
     const onAbort = () => ctl.abort(init.signal?.reason);
@@ -56,7 +56,13 @@ export class ProxyClient {
     const headerTimer = ms === undefined ? undefined : setTimeout(() => ctl.abort(new Error('timeout')), ms);
     let res: Response;
     try {
-      res = await fetch(this.urlOf(path, query), { headers: { ...init.headers, Authorization: `Bearer ${this.p.token}` }, signal: ctl.signal, redirect: 'error' });
+      res = await fetch(this.urlOf(path, query), {
+        method: init.method ?? 'GET',
+        body: init.body,
+        headers: { ...init.headers, ...(init.body !== undefined ? { 'Content-Type': 'application/json' } : {}), Authorization: `Bearer ${this.p.token}` },
+        signal: ctl.signal,
+        redirect: 'error',
+      });
     } catch (err) {
       init.signal?.removeEventListener('abort', onAbort);
       if (init.signal?.aborted) throw err;
