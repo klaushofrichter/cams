@@ -247,4 +247,11 @@ describe('POST /api/cameras/:id/proxy/login-link', () => {
     withAdmin();
     expect(JSON.stringify(listCameras())).not.toContain(FAKE_ADMIN_TOKEN);
   });
+
+  // Issue #69: a public address with a path or a query.
+  it('builds the link under a public address with a path, without its query', async () => {
+    withAdmin();
+    fake.publicUrl = 'https://proxy.example/base/?x=1#y';
+    expect((await link('den')).body).toEqual({ url: 'https://proxy.example/base/control/login-link?code=fake-code-1' });
+  });
 });

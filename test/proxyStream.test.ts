@@ -101,6 +101,19 @@ describe('ProxyStream (upstream)', () => {
     expect(states).toEqual([true, false, true]);
   });
 
+  // Issue #38: an upstream error status (a crashing proxy) is down too, and retried.
+  it('treats a 5xx from the stream as down, and comes back', async () => {
+    const fake = await fakeProxy();
+    const { s, states } = stream(fake);
+    await until(() => s.up());
+    fake.streamStatus = 500;
+    fake.dropStreams();
+    await until(() => !s.up());
+    fake.streamStatus = null;
+    await until(() => s.up(), 3000);
+    expect(states).toEqual([true, false, true]);
+  });
+
   // Final review I3: an upstream that goes quiet without closing (a vanished
   // pod, a lost network) counts as down after idleMs (cam-proxy pings every
   // 15 s), and is reconnected.

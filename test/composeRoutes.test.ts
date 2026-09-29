@@ -103,4 +103,21 @@ describe('compositions pass-through', () => {
     const { body } = await post('den', { eventId: EVENT, preS: 0, postS: 5, size: 'sd', badge: false });
     expect((await request(createApp()).get(`/api/cameras/barn/compositions/${body.id}`).set('Cookie', auth)).status).toBe(404);
   });
+
+  // Issue #72 items.
+  it('passes byte ranges through for the preview (iOS Safari)', async () => {
+    fake.composeDelayMs = 0;
+    const { body } = await post('den', { eventId: EVENT, preS: 0, postS: 5, size: 'sd', badge: false });
+    await new Promise((res) => setTimeout(res, 20));
+    const r = await request(createApp()).get(`/api/cameras/den/compositions/${body.id}/video?inline=1`).set('Cookie', auth).set('Range', 'bytes=0-3');
+    expect(r.status).toBe(206);
+    expect(r.headers['content-range']).toMatch(/^bytes 0-3\/\d+$/);
+    expect(r.headers['accept-ranges']).toBe('bytes');
+  });
+
+  it('says whether the proxy has a copy of the event, before anything is composed', async () => {
+    expect((await request(createApp()).get(`/api/cameras/den/compositions/available?eventId=${EVENT}`).set('Cookie', auth)).body).toEqual({ available: true });
+    expect((await request(createApp()).get('/api/cameras/den/compositions/available?eventId=20260928-090000-090010').set('Cookie', auth)).body).toEqual({ available: false });
+    expect((await request(createApp()).get(`/api/cameras/shed/compositions/available?eventId=${EVENT}`).set('Cookie', auth)).body).toEqual({ available: false });
+  });
 });

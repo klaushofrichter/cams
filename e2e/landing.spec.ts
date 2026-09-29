@@ -54,7 +54,7 @@ test.describe('auth boundaries', () => {
     await page.goto('/app/live');
     if (testInfo.project.name === 'phone') {
       await page.getByTestId('hamburger').click();
-      await page.getByTestId('drawer').getByTestId('logout').click();
+      await page.getByTestId('drawer').getByTestId('drawer-logout').click();
     } else {
       await page.getByTestId('logout').click();
     }

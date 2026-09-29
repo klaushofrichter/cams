@@ -74,6 +74,21 @@ composeRouter.post('/api/cameras/:id/compositions', async (req, res) => {
   }
 });
 
+// Whether the proxy has a copy of the event at all (issue #72): the dialog
+// offers pre-/post-roll only then. A camera without a proxy: false.
+composeRouter.get('/api/cameras/:id/compositions/available', async (req, res) => {
+  const id = String(req.params.id);
+  if (!getCamera(id)) return void res.status(404).json({ error: 'unknown_camera' });
+  const eventId = typeof req.query.eventId === 'string' ? req.query.eventId : '';
+  if (!EVENT.test(eventId)) return void res.status(400).json({ error: 'invalid', detail: 'eventId is required' });
+  if (!getProxyClient(id)) return void res.json({ available: false });
+  try {
+    res.json({ available: !!(await getRecordings().proxyClipOf(id, eventId)) });
+  } catch {
+    res.json({ available: false });
+  }
+});
+
 composeRouter.get('/api/cameras/:id/compositions/:job', async (req, res) => {
   if (!jobOk(req, res)) return;
   const t = target(req, res);
@@ -94,16 +109,21 @@ composeRouter.get('/api/cameras/:id/compositions/:job/video', async (req, res) =
   const job = known(t.id, req, res);
   if (!job) return;
   try {
-    const up = await t.client.open(`${t.base}/${job}.mp4`, undefined, { idleMs: 30_000 });
+    // Byte ranges pass through: iOS Safari plays a <video> only with them (issue #72).
+    const range = req.get('range');
+    const up = await t.client.open(`${t.base}/${job}.mp4`, undefined, { idleMs: 30_000, headers: range && /^bytes=\d*-\d*$/.test(range) ? { Range: range } : {} });
     if (!up.ok || !up.body) return void (await relay(res, up));
     const name = typeof req.query.name === 'string' && NAME.test(req.query.name) ? req.query.name : 'composed.mp4';
-    res.status(200).set({
+    res.status(up.status === 206 ? 206 : 200).set({
       'Content-Type': 'video/mp4',
+      'Accept-Ranges': 'bytes',
       'Cache-Control': 'no-store',
       'Content-Disposition': req.query.inline === '1' ? 'inline' : `attachment; filename="${name}"`,
     });
     const len = up.headers.get('content-length');
     if (len && /^\d+$/.test(len)) res.setHeader('Content-Length', len);
+    const cr = up.headers.get('content-range');
+    if (cr && /^bytes \d+-\d+\/\d+$/.test(cr)) res.setHeader('Content-Range', cr);
     await pipeline(Readable.fromWeb(up.body as import('stream/web').ReadableStream), res);
   } catch (err) {
     failed(err, res);

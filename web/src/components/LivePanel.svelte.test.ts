@@ -93,4 +93,26 @@ describe('LivePanel', () => {
     expect(recent.textContent).toContain('Most recent event');
     expect(recent.contains(q('live-latest'))).toBe(true);
   });
+
+  // Issue #69 items.
+  it('names the simulator with its version, and says since when a camera is offline', () => {
+    liveUi.update((u) => ({ ...u, status: { id: 'cam2', online: false, error: 'camera_offline', simulator: 'cam-sim 2026.09.29.1', offlineSince: Date.now() - 12 * 60_000 } }));
+    render();
+    expect(q('live-camera-kind')!.textContent).toBe('Simulated camera');
+    expect(q('live-camera-simulator')!.textContent).toBe('cam-sim 2026.09.29.1');
+    expect(q('live-offline-since')!.textContent).toContain('12 minutes ago');
+  });
+
+  it('shows the cam-proxy state even without a web link', () => {
+    liveUi.update((u) => ({ ...u, status: { id: 'cam2', online: true } }));
+    render({ proxyInfo: { reachable: false, webUrl: null } });
+    expect(q('live-proxy-state')!.textContent).toBe('cam-proxy: not reachable');
+    expect(q('live-proxy-link')).toBeNull();
+  });
+
+  it('says the stream is paused while the tab is hidden', () => {
+    liveUi.update((u) => ({ ...u, status: { id: 'cam2', online: true }, playerState: 'connecting' }));
+    render({ paused: true });
+    expect(q('live-state')!.textContent!.trim()).toBe('Paused while the tab is hidden');
+  });
 });

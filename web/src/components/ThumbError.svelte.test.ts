@@ -24,7 +24,7 @@ describe('EventList thumbnail errors', () => {
     target = document.createElement('div');
     document.body.appendChild(target);
     const events = makeEvents(DATE, 9, 3);
-    const props = $state({ cameraId: 'cam1', events, filter: 'all' as const, date: DATE, selectedId: null as string | null, onfilter: () => {}, onselect: () => {} });
+    const props = $state({ cameraId: 'cam1', events, filter: ['person', 'vehicle', 'pet', 'motion'] as ('person' | 'vehicle' | 'pet' | 'motion')[], date: DATE, selectedId: null as string | null, onfilter: () => {}, onselect: () => {} });
     component = mount(EventList, { target, props }) as unknown as Record<string, unknown>;
     flushSync();
     const imgs = target.querySelectorAll('img[data-testid="event-thumb"]');

@@ -1,7 +1,7 @@
 <script lang="ts">
-  import { onDestroy } from 'svelte';
+  import { onDestroy, onMount, tick } from 'svelte';
   import { downloadUrl, formatClock, thumbUrl, TRIGGER_LABELS, type EventClip } from '../lib/recordings';
-  import { cancelJob, composedName, formatLength, pollJob, resultLength, SIZE_LABELS, startJob, videoUrl, type ComposeSize, type JobView } from '../lib/compose';
+  import { cancelJob, composedName, formatLength, isAvailable, pollJob, resultLength, SIZE_LABELS, startJob, videoUrl, type ComposeSize, type JobView } from '../lib/compose';
 
   // The SD download with pre-/post-roll (cam-proxy spec 2026-09-28).
   let { camera, clip, onclose }: { camera: string; clip: EventClip; onclose: () => void } = $props();
@@ -13,12 +13,41 @@
   let job = $state<JobView | null>(null);
   let error = $state('');
   let timer: ReturnType<typeof setInterval> | undefined;
+  let keep: ReturnType<typeof setInterval> | undefined; // keeps a finished result alive
 
   const length = $derived(resultLength(clip.durationSec, Number(preS), Number(postS)));
   const plain = $derived(Number(preS) === 0 && Number(postS) === 0 && size === 'sd');
   const ready = $derived(job?.state === 'done');
   const busy = $derived(job?.state === 'queued' || job?.state === 'running');
-  const name = $derived(composedName(camera, clip.start, size));
+  const name = $derived(composedName(camera, clip.id, size));
+
+  // Whether the proxy has a copy of this clip at all (issue #72): without
+  // one, only the plain save is offered.
+  let available = $state(true);
+  let dialogEl: HTMLElement | undefined = $state();
+  // Focus: into the dialog on open, kept inside by Tab, back to where it was
+  // on close (issue #72).
+  const opener = typeof document !== 'undefined' ? (document.activeElement as HTMLElement | null) : null;
+  const focusables = () => [...(dialogEl?.querySelectorAll<HTMLElement>('button, input, select, a[href]') ?? [])].filter((e) => !e.hasAttribute('disabled'));
+  onMount(() => {
+    void tick().then(() => focusables()[0]?.focus());
+    void isAvailable(camera, clip.id).then((a) => (available = a));
+    const onVisible = () => {
+      if (document.visibilityState === 'visible' && job) void poll(gen, job.id, true);
+    };
+    document.addEventListener('visibilitychange', onVisible);
+    return () => document.removeEventListener('visibilitychange', onVisible);
+  });
+  onDestroy(() => opener?.focus?.());
+  function trap(e: KeyboardEvent) {
+    if (e.key !== 'Tab') return;
+    const f = focusables();
+    if (!f.length) return;
+    const i = f.indexOf(document.activeElement as HTMLElement);
+    const next = e.shiftKey ? (i <= 0 ? f.length - 1 : i - 1) : i === f.length - 1 ? 0 : i + 1;
+    e.preventDefault();
+    f[next].focus();
+  }
 
   // Any change after a result (or while one is starting) makes it stale.
   let lastKey = '';
@@ -39,6 +68,8 @@
   function stop() {
     gen++;
     clearInterval(timer);
+    clearInterval(keep);
+    keep = undefined;
     starting = false;
     if (job) cancelJob(camera, job.id);
     job = null;
@@ -65,7 +96,7 @@
     failures = 0;
     timer = setInterval(() => void poll(mine, started.id), 1000);
   }
-  async function poll(mine: number, id: string) {
+  async function poll(mine: number, id: string, fromBackground = false) {
     let v: JobView | null;
     try {
       v = await pollJob(camera, id);
@@ -80,12 +111,16 @@
     failures = 0;
     if (!v) {
       clearInterval(timer);
-      error = 'The composition was lost; try again.';
+      clearInterval(keep);
+      keep = undefined;
+      error = fromBackground ? 'The composition stopped while the page was in the background; generate it again.' : 'The composition was lost; try again.';
       job = null;
       return;
     }
     job = v;
     if (v.state === 'done' || v.state === 'failed') clearInterval(timer);
+    // A result being looked at stays on the proxy: ask about it once a minute.
+    if (v.state === 'done' && !keep) keep = setInterval(() => void poll(mine, id), 60_000);
     if (v.state === 'failed') error = 'The clip could not be composed.';
   }
   function close() {
@@ -97,7 +132,7 @@
 
 <svelte:window onkeydown={(e) => e.key === 'Escape' && close()} onbeforeunload={() => stop()} />
 <div class="backdrop" role="presentation" onclick={close}></div>
-<div class="dialog" role="dialog" aria-modal="true" aria-label="Save SD clip" data-testid="compose-dialog">
+<div class="dialog" role="dialog" aria-modal="true" aria-label="Save SD clip" data-testid="compose-dialog" tabindex="-1" bind:this={dialogEl} onkeydown={trap}>
   <header>
     <h2>Save SD clip</h2>
     <button class="x" data-testid="compose-close" aria-label="Close" onclick={close}>✕</button>
@@ -106,6 +141,9 @@
     <img data-testid="compose-thumb" src={thumbUrl(camera, clip.id)} alt="" />
     <span>{formatClock(clip.start)} · {clip.durationSec} s · {clip.triggers.map((t) => TRIGGER_LABELS[t]).join(', ')}</span>
   </div>
+  {#if !available}
+    <p class="muted" data-testid="compose-unavailable">The cam-proxy has no copy of this clip, so it can only be saved as it is.</p>
+  {:else}
   <div class="fields">
     <label>Pre-roll (s) <input type="number" data-testid="compose-pre" min="-600" max="60" step="1" bind:value={preS} /></label>
     <label>Post-roll (s) <input type="number" data-testid="compose-post" min="-600" max="60" step="1" bind:value={postS} /></label>
@@ -116,14 +154,15 @@
     </label>
     <label class="row"><input type="checkbox" data-testid="compose-badge" bind:checked={badge} /> Mark still sections</label>
   </div>
+  {/if}
   {#if length.ok}
-    <p class="muted" data-testid="compose-length">Result: {formatLength(length.seconds)}</p>
+    <p class="muted" data-testid="compose-length" role="status">Result: {formatLength(length.seconds)}</p>
   {:else}
-    <p class="err" data-testid="compose-error" role="alert">{length.error}</p>
+    <p class="err" data-testid="compose-error" role="status">{length.error}</p>
   {/if}
   {#if busy}
     {#if job?.state === 'queued'}<p class="muted" data-testid="compose-queued">Queued…</p>{/if}
-    <progress data-testid="compose-progress" max="1" value={job?.progress ?? 0}></progress>
+    <progress data-testid="compose-progress" aria-label="Composing" max="1" value={job?.progress ?? 0}></progress>
   {/if}
   {#if ready && job}
     <!-- svelte-ignore a11y_media_has_caption -->

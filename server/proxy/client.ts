@@ -33,8 +33,10 @@ export class ProxyClient {
     return this.base.host;
   }
 
+  // Under the proxy URL's own path, if it has one (issue #38: a leading
+  // slash in `path` would otherwise drop it).
   private urlOf(path: string, query?: Query): URL {
-    const u = new URL(path, this.base);
+    const u = new URL(`${this.base.pathname.replace(/\/+$/, '')}${path}`, this.base);
     for (const [k, v] of Object.entries(query ?? {})) if (v !== undefined) u.searchParams.set(k, String(v));
     return u;
   }
