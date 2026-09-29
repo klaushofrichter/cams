@@ -29,7 +29,7 @@ clip playback and downloads, and camera settings, behind Google sign-in.
 
 ## Pages and API
 
-- **Pages** (`/app/…`): one video page with two panels beside the same player and strip: Live (`/app/live`, the strip's live end) and History (`/app/recordings?panel=history&cam&date&at`; old `panel=events`, `panel=downloads` and `clip&t` links open History); Timeline (cameras with a cam-proxy; `?cam&date&t`); Settings (the camera's settings, the cam-proxy switch, reboot); About (version, build date, cameras).
+- **Pages** (`/app/…`): one video page with two panels beside the same player and strip: Live (`/app/live`, the strip's live end) and History (`/app/recordings?panel=history&cam&date&at`; old `panel=events`, `panel=downloads` and `clip&t` links open History); Timeline (cameras with a cam-proxy; `?cam&date&t`; a tile opens History at that minute, and from the menu it opens at History's position, or the newest minute after Live); Settings (the camera's settings, the cam-proxy switch, reboot); About (version, build date, cameras).
 - **API** (all need the sign-in cookie and answer JSON 401 otherwise; changes need the same origin; `Cache-Control: no-store`):
   - `GET /api/me`, `GET /api/cameras`, `GET/PUT /api/preferences`, `GET /api/cameras/:id/extent` (`{oldest}`: the oldest content on the SD card or at the cam-proxy), `GET /api/cameras/:id/status` (online, model, firmware, `simulator` when it is cam-sim, and the main/sub `streams`, cached 10 min);
   - per camera `/api/cameras/:id/…`: `status`, `snapshot.jpg`, `live` (at most 4 per camera), `days`, `events`, `settings` (`PUT settings/:section`), `device`, `POST reboot`;

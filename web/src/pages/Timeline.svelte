@@ -1,13 +1,14 @@
 <script lang="ts">
   import { navigate } from '../lib/router';
   import { onMount } from 'svelte';
+  import { get } from 'svelte/store';
   import { getJson } from '../lib/api';
   import { cameras, selectedCameraId } from '../lib/stores';
   import { eventStream } from '../lib/eventStream';
   import { liveEventsOn } from '../lib/preferences';
-  import { addDays, localDate } from '../lib/recordings';
+  import { addDays, localDate, saveCursor } from '../lib/recordings';
   import { todayDate } from '../lib/refresh';
-  import { cursorSearch, dayRange, hourGroups, minuteOf, splitRange, stillIndex, tileStyle, timelineCursor, type PreviewMinute } from '../lib/timeline';
+  import { cursorSearch, dayRange, hourGroups, loadViewPoint, nearestMinute, saveViewPoint, splitRange, stillIndex, tileStyle, timelineCursor, type PreviewMinute } from '../lib/timeline';
 
   // A day of the camera's cam-proxy stills (Plan 6): one tile per minute from
   // the preview sprites, event minutes marked, a click shows the still. The
@@ -15,8 +16,14 @@
   interface Ev { start: string; end: string; triggers: string[] }
 
   const initial = timelineCursor(new URLSearchParams(location.search), localDate(new Date()));
-  let date = $state(initial.date);
-  let wantT: number | null = initial.t; // a still to open once its day is loaded
+  // Opened without a position of its own (the menu): the view point shared
+  // with History and Live (Klaus, 2026-09-29): History's time, or now.
+  const shared = initial.t === null && !new URLSearchParams(location.search).has('date')
+    ? loadViewPoint(initial.cam ?? get(selectedCameraId) ?? '')
+    : undefined;
+  const sharedAt = shared ? (shared.at ?? Date.now()) : null;
+  let date = $state(sharedAt !== null ? localDate(new Date(sharedAt)) : initial.date);
+  let wantT: number | null = sharedAt ?? initial.t; // a still to open once its day is loaded
   let minutes = $state<PreviewMinute[]>([]);
   let events = $state<Ev[]>([]);
   let message = $state('');
@@ -69,7 +76,8 @@
         message = m.length ? '' : 'No stills for this day.';
         const t = wantT;
         wantT = null;
-        const target = t === null ? undefined : m.find((x) => x.minute === minuteOf(t));
+        // The minute holding the time, else the nearest one (for now: the newest).
+        const target = t === null ? null : nearestMinute(m, t);
         if (target && t !== null) void show(target, t, 1);
       },
       (err: Error) => {
@@ -110,6 +118,25 @@
     const stop = eventStream()?.watch(() => camera?.id ?? '', () => { if (date === $todayDate) refreshTick++; }, 5000);
     return () => stop?.();
   });
+
+  // The open still is the shared cursor: History and the Timeline continue
+  // from it (Klaus, 2026-09-29).
+  $effect(() => {
+    const cam = camera?.id;
+    const ts = open ? open.stills[open.i] : null;
+    if (!cam || ts === null) return;
+    saveViewPoint(cam, ts);
+    saveCursor(cam, { date: localDate(new Date(ts)), clipId: null, offsetSec: 0, at: ts });
+  });
+
+  // A tile goes to History at its minute (Klaus, 2026-09-29).
+  function toHistory(m: PreviewMinute) {
+    if (!camera) return;
+    const ts = m.minute + firstTile(m) * m.intervalS * 1000;
+    saveViewPoint(camera.id, ts);
+    saveCursor(camera.id, { date: localDate(new Date(ts)), clipId: null, offsetSec: 0, at: ts });
+    navigate(`/app/recordings?cam=${encodeURIComponent(camera.id)}&panel=history&at=${ts}`);
+  }
 
   // The URL follows the view.
   $effect(() => {
@@ -229,7 +256,7 @@
             {@const ev = eventIn(m)}
             <button class="tile" class:event={!!ev} class:active={open?.minute.minute === m.minute} title={clock(m.minute) + (ev ? ` · ${ev.triggers.join(', ')}` : '')}
               aria-label={`${clock(m.minute)}${ev ? `, event: ${ev.triggers.join(', ')}` : ''}`}
-              onclick={() => void show(m)} data-testid="timeline-minute">
+              onclick={() => toHistory(m)} data-testid="timeline-minute">
               <span class="img" use:lazyStyle={{ style: tileStyle(m, firstTile(m), 0.5), url: m.url }}></span>
             </button>
           {/each}

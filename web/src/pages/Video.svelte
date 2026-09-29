@@ -3,6 +3,7 @@
   import DayPicker from '../components/DayPicker.svelte';
   import HistoryView from '../components/HistoryView.svelte';
   import EventList from '../components/EventList.svelte';
+  import { saveViewPoint } from '../lib/timeline';
   import LiveBox from '../components/LiveBox.svelte';
   import LivePanel from '../components/LivePanel.svelte';
   import { cameras, selectedCameraId } from '../lib/stores';
@@ -254,6 +255,9 @@
     if (panel === 'live' && !glued) return;
     // Kept alive behind another page: the URL is that page's.
     if (!cam || !pageVisible) return;
+    // The view point the Timeline opens at (Klaus, 2026-09-29): this time,
+    // or "now" while Live is showing.
+    saveViewPoint(cam, panel === 'live' && glued ? null : at);
     const c: Cursor = { date: localDate(new Date(at)), clipId, offsetSec: 0, at };
     // Live at now keeps the plain /app/live; playback on the Live panel adds `at`.
     if (panel !== 'live') saveCursor(cam, c);
