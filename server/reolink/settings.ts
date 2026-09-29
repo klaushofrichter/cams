@@ -28,6 +28,9 @@ export interface ImageSettings {
   dayNight: 'auto' | 'color' | 'blackwhite';
   irLights: 'auto' | 'off';
   spotlight: { mode: SpotlightMode; brightness: number };
+  // Isp.rotation turns the picture upside down, Isp.mirroring mirrors it left-right;
+  // both = rotated 180°, for a camera mounted upside down (measured 2026-09-29).
+  flip: { vertical: boolean; mirror: boolean };
   osd: { showName: boolean; name: string; namePosition: OsdPosition; showTime: boolean; timePosition: OsdPosition; watermark: boolean };
 }
 
@@ -42,6 +45,7 @@ export interface ImagePatch {
   dayNight?: ImageSettings['dayNight'];
   irLights?: ImageSettings['irLights'];
   spotlight?: Partial<ImageSettings['spotlight']>;
+  flip?: Partial<ImageSettings['flip']>;
   osd?: Partial<ImageSettings['osd']>;
 }
 
@@ -110,6 +114,7 @@ export function imageFrom(raw: { isp: unknown; ir: unknown; wl: unknown; osd: un
     dayNight: reverse(DAYNIGHT, isp.dayNight, 'auto'),
     irLights: reverse(IR, obj(obj(raw.ir).IrLights).state, 'auto'),
     spotlight: { mode: SPOTLIGHT_MODES[num(wl.mode)] ?? 'off', brightness: num(wl.bright) },
+    flip: { vertical: num(isp.rotation) === 1, mirror: num(isp.mirroring) === 1 },
     osd: {
       showName: num(ch.enable) === 1,
       name: typeof ch.name === 'string' ? ch.name : '',
@@ -171,7 +176,7 @@ export function validateImagePatch(body: unknown): { ok: true; patch: ImagePatch
   if (!isObj(body)) return { ok: false, details: ['body must be an object'] };
   const b = body as Obj;
   const details: string[] = [];
-  onlyKeys(b, ['dayNight', 'irLights', 'spotlight', 'osd'], '', details);
+  onlyKeys(b, ['dayNight', 'irLights', 'spotlight', 'flip', 'osd'], '', details);
   // Own keys only: `in` would accept inherited names such as 'toString'.
   if ('dayNight' in b && !Object.keys(DAYNIGHT).includes(b.dayNight as string)) details.push('dayNight: auto, color or blackwhite');
   if ('irLights' in b && !Object.keys(IR).includes(b.irLights as string)) details.push('irLights: auto or off');
@@ -182,6 +187,14 @@ export function validateImagePatch(body: unknown): { ok: true; patch: ImagePatch
       onlyKeys(s, ['mode', 'brightness'], 'spotlight.', details);
       if ('mode' in s && !SPOTLIGHT_MODES.includes(s.mode as SpotlightMode)) details.push('spotlight.mode: off, auto, night or schedule');
       if ('brightness' in s && !isInt(s.brightness, 0, 100)) details.push('spotlight.brightness: integer 0–100');
+    }
+  }
+  if ('flip' in b) {
+    if (!isObj(b.flip)) details.push('flip: must be an object');
+    else {
+      const f = b.flip as Obj;
+      onlyKeys(f, ['vertical', 'mirror'], 'flip.', details);
+      for (const k of ['vertical', 'mirror']) if (k in f && typeof f[k] !== 'boolean') details.push(`flip.${k}: must be true or false`);
     }
   }
   if ('osd' in b) {
@@ -266,6 +279,13 @@ export function imageCommands(p: ImagePatch, raw: RawImage): SettingsCommand[] {
   if (p.dayNight) {
     const v = DAYNIGHT[p.dayNight];
     w.edit('isp', 'SetIsp', 'Isp', () => ({ channel: 0, ...obj(obj(raw.isp).Isp) }), 'dayNight', (o) => (o.dayNight = v));
+  }
+  if (p.flip && Object.keys(p.flip).length) {
+    const f = p.flip;
+    w.edit('isp', 'SetIsp', 'Isp', () => ({ channel: 0, ...obj(obj(raw.isp).Isp) }), 'flip', (o) => {
+      if (f.vertical !== undefined) o.rotation = f.vertical ? 1 : 0;
+      if (f.mirror !== undefined) o.mirroring = f.mirror ? 1 : 0;
+    });
   }
   if (p.irLights) {
     const v = IR[p.irLights];

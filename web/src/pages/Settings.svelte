@@ -388,6 +388,13 @@
         </label>
         {#if imageErrors.spotlight}<span class="err" data-testid="field-error-spotlight">{imageErrors.spotlight}</span>{/if}
         <fieldset>
+          <legend>Picture orientation</legend>
+          <label class="row"><input type="checkbox" data-testid="flip-vertical" bind:checked={imageEdit.flip.vertical} /> Flip upside down</label>
+          <label class="row"><input type="checkbox" data-testid="flip-mirror" bind:checked={imageEdit.flip.mirror} /> Mirror left–right</label>
+          <small class="muted">Both together rotate the picture 180°, for a camera mounted upside down. The camera's person, vehicle and pet detection needs the picture the right way up.</small>
+          {#if imageErrors.flip}<span class="err" data-testid="field-error-flip">{imageErrors.flip}</span>{/if}
+        </fieldset>
+        <fieldset>
           <legend>On-screen text</legend>
           <label class="row"><input type="checkbox" data-testid="osd-name-toggle" bind:checked={imageEdit.osd.showName} /> Show camera name</label>
           <label>Name <input data-testid="osd-name" aria-invalid={!!osdNameError} bind:value={imageEdit.osd.name} />

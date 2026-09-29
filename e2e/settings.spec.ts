@@ -83,6 +83,31 @@ test('the watermark can be switched off and stays off', async ({ page }, testInf
   await expect(page.getByTestId('settings-card-image').getByTestId('save-state')).toHaveAttribute('data-state', 'saved');
 });
 
+// Klaus, 2026-09-29: a camera mounted upside down is turned right side up
+// with both switches (Isp.rotation + Isp.mirroring = rotated 180°).
+test('the picture can be flipped, and stays flipped', async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== 'desktop', 'mutates Porch, which is shared simulated-camera state; avoid racing with other projects');
+  await page.goto('/app/settings');
+  await page.getByTestId('camera-picker').selectOption({ label: 'Porch' });
+  const vertical = page.getByTestId('flip-vertical');
+  const mirror = page.getByTestId('flip-mirror');
+  await expect(vertical).toBeVisible();
+  const was = { v: await vertical.isChecked(), m: await mirror.isChecked() };
+  await vertical.setChecked(!was.v);
+  await mirror.setChecked(!was.m);
+  await page.getByTestId('save-image').click();
+  await expect(page.getByTestId('settings-card-image').getByTestId('save-state')).toHaveAttribute('data-state', 'saved');
+  await page.reload();
+  await page.getByTestId('camera-picker').selectOption({ label: 'Porch' });
+  await expect(page.getByTestId('flip-vertical')).toBeChecked({ checked: !was.v });
+  await expect(page.getByTestId('flip-mirror')).toBeChecked({ checked: !was.m });
+  // restore
+  await page.getByTestId('flip-vertical').setChecked(was.v);
+  await page.getByTestId('flip-mirror').setChecked(was.m);
+  await page.getByTestId('save-image').click();
+  await expect(page.getByTestId('settings-card-image').getByTestId('save-state')).toHaveAttribute('data-state', 'saved');
+});
+
 test('a rejected field shows the error next to it while the others save', async ({ page }, testInfo) => {
   test.skip(testInfo.project.name !== 'desktop', 'mutates Porch, which is shared simulated-camera state; avoid racing with other projects');
   await page.goto('/app/settings');
