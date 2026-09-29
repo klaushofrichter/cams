@@ -100,6 +100,15 @@
   });
 
   let historyView: { jump: (at: number, play?: boolean) => void; position: () => number } | undefined = $state();
+  // History's hour groups: "Collapse hours" / "Expand hours" (Klaus, 2026-09-29).
+  let eventList: { setAllHours: (open: boolean) => void } | undefined = $state();
+  let hoursOpen = $state(true);
+  // A tap on a card's thumbnail brings the player into view when it has
+  // scrolled away (the phone layout); on the desktop it never has.
+  let mainEl: HTMLElement | undefined = $state();
+  function revealPlayer() {
+    if (mainEl && mainEl.getBoundingClientRect().top < 0) mainEl.scrollIntoView({ block: 'start', behavior: 'smooth' });
+  }
   // Glued: the Live panel's playhead is at now and the player shows live.
   let glued = $state(untrack(() => $route.panel === 'live' && !$route.params.has('at')));
   // Each navigation to the Live panel without a position (menu, tab,
@@ -419,7 +428,7 @@
     <div class="placeholder">No cameras are configured.</div>
   {:else}
     <div class="workspace" data-panel={panel}>
-      <div class="main">
+      <div class="main" bind:this={mainEl}>
         {#key cam}
           <HistoryView bind:this={historyView} {cam} proxy={camProxy}
             date={cursor.date} {initialAt} {filter}
@@ -445,10 +454,15 @@
       </div>
 
       <aside class="side">
-        <div class="tabs" role="tablist">
-          {#each TABS as tab (tab.id)}
-            <button role="tab" data-testid={`panel-tab-${tab.id}`} aria-selected={panel === tab.id} class:on={panel === tab.id} onclick={() => go({}, { panel: tab.id })}>{tab.label}</button>
-          {/each}
+        <div class="tabrow">
+          <div class="tabs" role="tablist">
+            {#each TABS as tab (tab.id)}
+              <button role="tab" data-testid={`panel-tab-${tab.id}`} aria-selected={panel === tab.id} class:on={panel === tab.id} onclick={() => go({}, { panel: tab.id })}>{tab.label}</button>
+            {/each}
+          </div>
+          {#if panel === 'history' && visible.length}
+            <button class="hours" data-testid="hours-toggle" onclick={() => eventList?.setAllHours(!hoursOpen)}>{hoursOpen ? 'Collapse hours' : 'Expand hours'}</button>
+          {/if}
         </div>
         {#if panel === 'live'}
           {#if camera}
@@ -456,7 +470,8 @@
               onplay={(e) => historyView?.jump(Date.parse(e.start), true)} />
           {/if}
         {:else}
-          <EventList cameraId={cam} events={visible} {filter} date={cursor.date} selectedId={playheadClip} pending={pendingToday}
+          <EventList bind:this={eventList} cameraId={cam} events={visible} {filter} date={cursor.date} selectedId={playheadClip} pending={pendingToday}
+            onreveal={revealPlayer} onhours={(o) => (hoursOpen = o)}
             onfilter={(f) => go({}, { filter: f }, 'replace')}
             onselect={(e) => historyView?.jump(Date.parse(e.start), true)} onthumberror={recheckDownloads} downloadsOk={downloads !== 'unavailable'} />
         {/if}
@@ -490,7 +505,10 @@
   .center.off, .updated.off { visibility: hidden; }
   .main { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
   .side { display: flex; flex-direction: column; gap: 10px; max-height: calc(100vh - 170px); overflow: auto; }
+  .tabrow { display: flex; align-items: center; gap: 6px; }
   .tabs { display: flex; gap: 6px; }
+  .hours { margin-left: auto; padding: 5px 10px; border-radius: 9px; border: 1px solid var(--border); background: transparent; color: var(--muted); font: inherit; font-size: 12px; cursor: pointer; }
+  .hours:hover { color: var(--text); border-color: color-mix(in srgb, var(--accent) 40%, var(--border)); }
   .tabs button { padding: 6px 14px; border-radius: 9px; border: 1px solid var(--border); background: transparent; color: var(--muted); cursor: pointer; }
   .tabs button.on { background: var(--surface-2); color: var(--text); border-color: color-mix(in srgb, var(--accent) 40%, var(--border)); }
   .note { color: var(--muted); margin: 0; }
