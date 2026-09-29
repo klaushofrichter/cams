@@ -112,6 +112,27 @@ test('clicking the timeline selects the recording under the click', async ({ pag
   await expect(page).toHaveURL(/clip=\d{8}-120505-120530/);
 });
 
+// iPhone, 2026-09-29: selecting a clip on the strip scrolled the page down to
+// its card in the list, and the video left the screen.
+test('on a phone, selecting a clip on the strip keeps the page where it is', async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== 'phone', 'phone layout only');
+  await page.goto('/app/recordings?panel=history');
+  const seg = page.locator('[data-testid="timeline-seg"][data-clip-id$="-081510-081535"]'); // the oldest: the lowest card
+  await expect(seg).toBeVisible();
+  // The app may scroll its own content area rather than the window: measure
+  // where the video is on the screen.
+  const video = page.locator('.player .box');
+  const before = (await video.boundingBox())!.y;
+  const box = (await seg.boundingBox())!;
+  await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
+  await expect(page).toHaveURL(/clip=\d{8}-081510-081535/);
+  await page.waitForTimeout(500);
+  // The video stays on the screen (a small shift from the header's contents is fine).
+  const after = (await video.boundingBox())!.y;
+  expect(after).toBeGreaterThanOrEqual(0);
+  expect(Math.abs(after - before)).toBeLessThan(40);
+});
+
 test('previous day shows yesterday\'s recordings; a day without any says so', async ({ page }) => {
   await openEvents(page);
   await page.getByTestId('day-prev').click();

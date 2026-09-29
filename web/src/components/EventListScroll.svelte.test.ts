@@ -9,7 +9,9 @@
 // the card is actually found and scrolled to.
 import { flushSync, mount, unmount, tick as svelteTick } from 'svelte';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+vi.mock('../lib/scroll', () => ({ scrollIntoContainer: vi.fn(() => true) }));
 import EventList from './EventList.svelte';
+import { scrollIntoContainer } from '../lib/scroll';
 import { makeEvents } from './testing/eventFixtures';
 import { ALL_KINDS } from '../lib/recordings';
 
@@ -26,8 +28,11 @@ afterEach(() => {
 });
 
 describe('EventList scrolls to a selection set before its events arrive', () => {
-  it('calls scrollIntoView exactly once once the 20 events (including the selection) load', async () => {
-    const scrollSpy = vi.spyOn(Element.prototype, 'scrollIntoView').mockImplementation(() => {});
+  // It scrolls within the list's own scroll area only (iPhone, 2026-09-29): never the page.
+  it('scrolls to the card exactly once once the 20 events (including the selection) load', async () => {
+    const scrollSpy = vi.mocked(scrollIntoContainer);
+    scrollSpy.mockClear();
+    const pageSpy = vi.spyOn(Element.prototype, 'scrollIntoView').mockImplementation(() => {});
     target = document.createElement('div');
     document.body.appendChild(target);
 
@@ -65,6 +70,7 @@ describe('EventList scrolls to a selection set before its events arrive', () => 
     await Promise.resolve();
 
     expect(scrollSpy).toHaveBeenCalledTimes(1);
-    scrollSpy.mockRestore();
+    expect(pageSpy).not.toHaveBeenCalled();
+    pageSpy.mockRestore();
   });
 });

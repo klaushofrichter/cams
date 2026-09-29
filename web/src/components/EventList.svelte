@@ -3,6 +3,7 @@
   import { ALL_KINDS, TRIGGER_LABELS, isAllKinds, toggleFilter, defaultGroupOpen, formatClock, groupByHour, thumbUrl, type EventClip, type Filter } from '../lib/recordings';
   import ComposeDialog from './ComposeDialog.svelte';
   import Icon from './Icon.svelte';
+  import { scrollIntoContainer } from '../lib/scroll';
   import { cameras } from '../lib/stores';
 
   let {
@@ -133,7 +134,7 @@
       if (pendingScroll !== target) return;
       const el = listEl?.querySelector<HTMLElement>(`[data-testid="event-card"][data-clip-id="${CSS.escape(target)}"]`);
       if (!el) return;
-      el.scrollIntoView({ block: 'nearest' });
+      scrollIntoContainer(el, el.closest('aside')); // the sidebar's own scroll area only, never the page
       pendingScroll = null;
     });
   });
