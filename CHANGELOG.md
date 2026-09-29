@@ -8,3 +8,5 @@ published as [GitHub releases](https://github.com/klaushofrichter/cams/releases)
 
 ## [Unreleased]
 
+- History on a phone: selecting a clip (dragging the strip, the timeline) no longer scrolls the page down to its card and the video off the screen. The list scrolls within the sidebar only where the sidebar has its own scroll area (desktop).
+
