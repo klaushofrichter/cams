@@ -8,3 +8,5 @@ published as [GitHub releases](https://github.com/klaushofrichter/cams/releases)
 
 ## [Unreleased]
 
+- Save clip: pre- and post-roll (and "Mark still sections") are available only for SD. For other sizes they are dimmed, with a line saying so, and a composed copy is the clip alone, resized.
+

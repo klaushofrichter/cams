@@ -19,7 +19,11 @@
 
   // 4K is the camera's original: no pre- or post-roll.
   const is4k = $derived(size === '4k');
-  const length = $derived(is4k ? resultLength(clip.durationSec, 0, 0) : resultLength(clip.durationSec, Number(preS), Number(postS)));
+  // Pre- and post-roll are for SD only (Klaus, 2026-09-29): other sizes save
+  // or resize the clip alone.
+  const rollOff = $derived(size !== 'sd');
+  const roll = $derived(rollOff ? { pre: 0, post: 0 } : { pre: Number(preS), post: Number(postS) });
+  const length = $derived(resultLength(clip.durationSec, roll.pre, roll.post));
   const plain = $derived(is4k || (Number(preS) === 0 && Number(postS) === 0 && size === 'sd'));
   const ready = $derived(job?.state === 'done');
   const busy = $derived(job?.state === 'queued' || job?.state === 'running');
@@ -95,7 +99,7 @@
     starting = true;
     let started: JobView;
     try {
-      started = await startJob(camera, { eventId: clip.id, preS: Number(preS), postS: Number(postS), size: size as ComposeSize, badge, timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone });
+      started = await startJob(camera, { eventId: clip.id, preS: roll.pre, postS: roll.post, size: size as ComposeSize, badge, timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone });
     } catch (e) {
       if (mine === gen) {
         starting = false;
@@ -159,8 +163,8 @@
   {/if}
   <div class="fields">
     {#if !simple}
-      <label>Pre-roll (s) <input type="number" data-testid="compose-pre" min="-600" max="60" step="1" disabled={is4k} bind:value={preS} /></label>
-      <label>Post-roll (s) <input type="number" data-testid="compose-post" min="-600" max="60" step="1" disabled={is4k} bind:value={postS} /></label>
+      <label>Pre-roll (s) <input type="number" data-testid="compose-pre" min="-600" max="60" step="1" disabled={rollOff} bind:value={preS} /></label>
+      <label>Post-roll (s) <input type="number" data-testid="compose-post" min="-600" max="60" step="1" disabled={rollOff} bind:value={postS} /></label>
     {/if}
     <label>Size
       <select data-testid="compose-size" bind:value={size}>
@@ -168,11 +172,14 @@
       </select>
     </label>
     {#if !simple}
-      <label class="row"><input type="checkbox" data-testid="compose-badge" disabled={is4k} bind:checked={badge} /> Mark still sections</label>
+      <label class="row"><input type="checkbox" data-testid="compose-badge" disabled={rollOff} bind:checked={badge} /> Mark still sections</label>
     {/if}
   </div>
+  {#if !simple && rollOff}
+    <p class="muted" data-testid="compose-roll-note">Pre- and post-roll are available only for SD quality.</p>
+  {/if}
   {#if is4k}
-    <p class="muted" data-testid="compose-4k-note">4K saves the camera's original recording as it is{simple ? '' : ', so there is no pre- or post-roll. For one, choose an SD size'}.</p>
+    <p class="muted" data-testid="compose-4k-note">4K saves the camera's original recording as it is.</p>
   {/if}
   {#if length.ok}
     <p class="muted" data-testid="compose-length" role="status">Result: {formatLength(length.seconds)}</p>
@@ -212,6 +219,9 @@
   .fields label { display: grid; gap: 4px; }
   .fields .row { grid-column: 1 / -1; display: flex; gap: 6px; align-items: center; }
   input[type='number'], select { padding: 6px 8px; border-radius: 8px; border: 1px solid var(--border); background: var(--surface-2); color: var(--text); font: inherit; }
+  /* Pre-/post-roll off for sizes other than SD: dimmed, label included. */
+  input:disabled { opacity: 0.45; cursor: not-allowed; }
+  .fields label:has(input:disabled) { color: var(--muted); }
   progress { width: 100%; }
   video { width: 100%; border-radius: 8px; background: #000; }
   .muted { margin: 0; color: var(--muted); font-size: 13px; }
