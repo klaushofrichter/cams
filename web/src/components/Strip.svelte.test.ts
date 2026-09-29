@@ -24,7 +24,7 @@ function render(props: Record<string, unknown>) {
   preferences.set(PREFS);
   target = document.createElement('div');
   document.body.appendChild(target);
-  component = mount(Strip, { target, props: { coverage: cov, events: [], visibleIds: new Set(), failedIds: new Set(), at: T, now: T + 1_800_000, currentId: null, previews: [], onseek: () => undefined, ...props } });
+  component = mount(Strip, { target, props: { coverage: cov, events: [], visibleIds: new Set<string>(), failedIds: new Set<string>(), at: T, now: T + 1_800_000, currentId: null, previews: [], onseek: () => undefined, ...props } });
   flushSync();
   const bar = target.querySelector('[data-testid="timeline"]') as HTMLElement;
   bar.getBoundingClientRect = () => ({ left: 0, top: 0, width: 600, height: 46, right: 600, bottom: 46, x: 0, y: 0, toJSON: () => ({}) });
@@ -210,7 +210,7 @@ describe('Strip', () => {
     const onseek = vi.fn();
     render({ onseek, filmWidth: 600 });
     const frames = [...target!.querySelectorAll('[data-testid="strip-film-frame"]')] as HTMLElement[];
-    expect(frames.length).toBe(10); // 600 px / (48 + 8)
+    expect(frames.length).toBe(11); // 600 px / (48 + 4)
     frames[0].click();
     expect(onseek).toHaveBeenCalledTimes(1);
     expect(Number(frames[0].dataset.t)).toBe(onseek.mock.calls[0][0]);

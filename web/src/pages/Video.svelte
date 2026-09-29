@@ -13,7 +13,7 @@
   import { clipStartFromId } from '../lib/strip';
   import {
     addDays, cursorSearch, daysUrl, filterEvents, loadCursor, localDate,
-    parseCursor, parseFilter, saveCursor, type Cursor, type EventClip, type Filter,
+    filterParam, parseCursor, parseFilter, saveCursor, type Cursor, type EventClip, type Filter,
   } from '../lib/recordings';
   import { liveEventsOn, preferences } from '../lib/preferences';
   import { createTodayRefresher, todayDate } from '../lib/refresh';
@@ -91,7 +91,6 @@
     const id = setInterval(() => (pending = prunePending(pending, events, Date.now())), 30_000);
     return () => clearInterval(id);
   });
-  const pendingToday = $derived(cursor.date === $todayDate ? [...pending].sort((a, b) => b.ts - a.ts) : []);
 
   // The route this page reads: frozen while it is kept alive behind another
   // page, so that page's URL (a Timeline day, its camera) never moves it.
@@ -174,16 +173,6 @@
     if (pageVisible) navigate('/app/live');
   }
 
-  // The Live panel's camera status: checked on opening it and on another
-  // camera, whether or not the stream is open.
-  const liveShown = $derived(panel === 'live' && pageVisible);
-  $effect(() => {
-    if (cam && liveShown) untrack(() => void checkLiveStatus(cam));
-  });
-  const camProxy = $derived(!!$cameras.find((x) => x.id === cam)?.proxy);
-  const camera = $derived($cameras.find((x) => x.id === cam) ?? null);
-  // The Live panel's latest event: the newest of today's.
-  const latest = $derived(date === $todayDate && events.length ? events.reduce((a, b) => (Date.parse(b.start) > Date.parse(a.start) ? b : a)) : null);
   let proxyInfo: { reachable: boolean; webUrl: string | null } | null = $state(null);
   $effect(() => {
     const c = cam;
@@ -219,6 +208,7 @@
   const urlCam = $derived(parsed.cam);
   const cam = $derived(parsed.cam && $cameras.some((c) => c.id === parsed.cam) ? parsed.cam : $selectedCameraId);
   const cursor: Cursor = $derived(parsed.cursor);
+  const pendingToday = $derived(cursor.date === $todayDate ? [...pending].sort((a, b) => b.ts - a.ts) : []);
   // Likewise, a primitive projection of cursor.date for the events effect.
   const date = $derived(cursor.date);
 
@@ -227,8 +217,22 @@
   // Reads the preferences store reactively (not the pref() snapshot helper,
   // which uses get() and would not update this derived value if the
   // preference arrived or changed after the page mounted).
-  const filter: Filter = $derived(vroute.params.has('filter') ? parsed.filter : parseFilter($preferences?.eventFilter));
+  // A string first: the list only changes when the kinds do, not on every
+  // URL update (every 2 s while playing), so lists and the strip don't
+  // recompute (issue #69).
+  const filterKey = $derived(filterParam(vroute.params.has('filter') ? parsed.filter : parseFilter($preferences?.eventFilter)));
+  const filter: Filter = $derived(parseFilter(filterKey === 'all' ? 'all' : filterKey));
   const panel: Panel = $derived(vroute.panel);
+  // The Live panel's camera status: checked on opening it and on another
+  // camera, whether or not the stream is open.
+  const liveShown = $derived(panel === 'live' && pageVisible);
+  $effect(() => {
+    if (cam && liveShown) untrack(() => void checkLiveStatus(cam));
+  });
+  const camProxy = $derived(!!$cameras.find((x) => x.id === cam)?.proxy);
+  const camera = $derived($cameras.find((x) => x.id === cam) ?? null);
+  // The Live panel's latest event: the newest of today's.
+  const latest = $derived(date === $todayDate && events.length ? events.reduce((a, b) => (Date.parse(b.start) > Date.parse(a.start) ? b : a)) : null);
   const visible = $derived(filterEvents(events, filter));
   // The strip's first position: the URL's `at`, else an old link's clip and
   // offset, else (null) the day's first event.
@@ -391,8 +395,8 @@
     void $cameras; // re-run once the camera list (and whether any has a proxy) is known
     void $liveEventsOn; // and when live events are turned on or off
     const stream = eventStream();
-    const r = createTodayRefresher({ isToday: () => date === $todayDate, refresh: () => { if (!loading && !stream?.streaming(cam)) refreshTick++; } });
-    const stopWatch = stream?.watch(() => cam, () => { if (!loading && date === $todayDate) refreshTick++; });
+    const r = createTodayRefresher({ isToday: () => date === $todayDate, refresh: () => { if (!loading && !stream?.streaming(cam ?? '')) refreshTick++; } });
+    const stopWatch = stream?.watch(() => cam ?? '', () => { if (!loading && date === $todayDate) refreshTick++; });
     return () => {
       r.stop();
       stopWatch?.();
@@ -423,7 +427,7 @@
             unavailable={downloads === 'unavailable'} onposition={onPosition} {pending}
             live={panel === 'live'} bind:glued onlive={panel === 'history' && pageVisible ? toLive : undefined} liveBox={liveWanted ? liveBoxSnippet : undefined} />
         {/key}
-        {#if downloads !== 'unavailable' && !loading}
+        {#if downloads !== 'unavailable' && !loading && !failed}
           <p class="note" data-testid="recordings-source" role="status">Source of recordings and thumbnails: {downloads === 'proxy' ? 'cam-proxy' : 'camera'}</p>
         {/if}
         {#if downloads === 'unavailable'}
@@ -456,7 +460,7 @@
           <DownloadList cameraId={cam} {events} date={cursor.date} selectedId={playheadClip} />
         {:else}
           <EventList cameraId={cam} events={visible} {filter} date={cursor.date} selectedId={playheadClip} pending={pendingToday}
-            onfilter={(f) => go({}, { filter: f })}
+            onfilter={(f) => go({}, { filter: f }, 'replace')}
             onselect={(e) => historyView?.jump(Date.parse(e.start), true)} onthumberror={recheckDownloads} downloadsOk={downloads !== 'unavailable'} />
         {/if}
       </aside>

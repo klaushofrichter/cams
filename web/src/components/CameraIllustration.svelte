@@ -1,3 +1,7 @@
+<script lang="ts">
+  // Artwork only: no props.
+</script>
+
 <!-- Brand artwork with fixed brand colours (matching the favicon); intentionally exempt from the theme-token rule. -->
 <!-- Drawn illustration of a turret camera like the RLC-1224A. Our own artwork,
      not a manufacturer product photo. -->

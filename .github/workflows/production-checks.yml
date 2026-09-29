@@ -22,9 +22,12 @@ jobs:
         run: command -v ffmpeg || (sudo apt-get update && sudo apt-get install -y --no-install-recommends ffmpeg)
       - run: npm test
       # Build every artifact in PR checks: the server, the web bundle, and a
-      # tsc type check of web/ (.svelte files wait for svelte-check TS7 support).
+      # tsc type check of web/ (svelte-check for .svelte files below).
       - run: npm run build
       - run: npm run check
+      # Template errors in .svelte files (tsc doesn't read them). Pinned; run
+      # through npx because svelte-check doesn't accept TypeScript 7 yet.
+      - run: npm run check:svelte
       - run: npm audit --audit-level=high
 
   e2e:
