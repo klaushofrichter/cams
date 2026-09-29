@@ -8,3 +8,5 @@ published as [GitHub releases](https://github.com/klaushofrichter/cams/releases)
 
 ## [Unreleased]
 
+- Timeline: a tile opens History at that minute. Opened from the menu, the Timeline goes to History's position (the nearest still, in its viewer), or to the newest minute after Live. Stepping in the viewer moves History's position too, so History continues from there.
+

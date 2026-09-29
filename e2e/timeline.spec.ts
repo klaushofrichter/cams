@@ -11,26 +11,56 @@ test.beforeEach(async ({ context, baseURL, page }) => {
   test.skip(minutesToday < 12, "the fake proxy's stills are still yesterday's");
 });
 
-test('the Timeline shows the day’s minutes from the camera gateway, and a still on click', async ({ page }) => {
+test('the Timeline shows the day’s minutes from the camera gateway; a tile opens History at that minute', async ({ page }) => {
   await page.goto('/app/timeline');
   await page.getByTestId('camera-picker').selectOption('cam1');
   const tiles = page.getByTestId('timeline-minute');
   await expect(tiles.first()).toBeVisible();
   expect(await tiles.count()).toBeGreaterThanOrEqual(10);
-  await tiles.first().click();
+  await tiles.first().click(); // Klaus, 2026-09-29: straight to History
+  await expect(page).toHaveURL(/\/app\/recordings\?.*at=\d+.*panel=history/);
+  await expect(page.getByTestId('source-badge')).toBeVisible();
+});
+
+// Klaus, 2026-09-29: the Timeline shares the cursor with History and Live.
+test('from History, the Timeline menu opens the viewer at that time; steps and a reload keep it', async ({ page }, testInfo) => {
+  const at = Math.floor((Date.now() - 180_000) / 1000) * 1000; // three minutes ago: inside the fake's stills
+  await page.goto(`/app/recordings?cam=cam1&panel=history&at=${at}`);
+  await expect(page.getByTestId('source-badge')).toBeVisible();
+  if (testInfo.project.name === 'phone') {
+    await page.getByTestId('hamburger').click();
+    await page.getByTestId('drawer').getByTestId('nav-timeline').click();
+  } else await page.getByTestId('sidebar').getByTestId('nav-timeline').click();
   const still = page.getByTestId('timeline-still');
   await expect(still).toBeVisible();
+  const src = await still.getAttribute('src');
+  const shown = Number(/stills\/(\d+)\.jpg/.exec(src!)![1]);
+  expect(Math.abs(shown - at)).toBeLessThanOrEqual(60_000); // the nearest still to History's time
   await expect.poll(() => still.evaluate((img: HTMLImageElement) => img.naturalWidth)).toBe(896);
   await page.keyboard.press('ArrowRight');
-  await expect(page.getByTestId('timeline-still')).toBeVisible();
-  // The URL holds the view: a reload opens the same still.
+  await expect(page.getByTestId('timeline-still')).not.toHaveAttribute('src', src!); // the step has happened
   await expect(page).toHaveURL(/cam=cam1&date=\d{4}-\d{2}-\d{2}&t=\d+/);
-  const src = await page.getByTestId('timeline-still').getAttribute('src');
+  const stepped = await page.getByTestId('timeline-still').getAttribute('src');
   await page.reload();
-  await expect(page.getByTestId('timeline-still')).toHaveAttribute('src', src!);
+  await expect(page.getByTestId('timeline-still')).toHaveAttribute('src', stepped!);
   await expect(page.getByTestId('timeline-open-history')).toHaveAttribute('href', /panel=history&at=\d+/);
   await page.getByTestId('timeline-close').click();
   await expect(page.getByTestId('timeline-viewer')).toHaveCount(0);
+});
+
+test('from Live, the Timeline menu opens the newest minute', async ({ page }, testInfo) => {
+  await page.goto('/app/live');
+  await page.getByTestId('camera-picker').selectOption('cam1');
+  await expect(page.getByTestId('live-panel')).toBeVisible();
+  await page.waitForTimeout(500);
+  if (testInfo.project.name === 'phone') {
+    await page.getByTestId('hamburger').click();
+    await page.getByTestId('drawer').getByTestId('nav-timeline').click();
+  } else await page.getByTestId('sidebar').getByTestId('nav-timeline').click();
+  const still = page.getByTestId('timeline-still');
+  await expect(still).toBeVisible();
+  const shown = Number(/stills\/(\d+)\.jpg/.exec((await still.getAttribute('src'))!)![1]);
+  expect(Date.now() - shown).toBeLessThan(3 * 60_000); // the newest minute, not an old History time
 });
 
 test('the Timeline explains a camera without a gateway', async ({ page }) => {
@@ -55,10 +85,10 @@ test('the Recordings timeline previews the frame under the pointer', async ({ pa
   await expect(page.getByTestId('scrub-preview')).toHaveCount(0);
 });
 
-test('a still opens that moment in History', async ({ page }) => {
-  await page.goto('/app/timeline');
-  await page.getByTestId('camera-picker').selectOption('cam1');
-  await page.getByTestId('timeline-minute').first().click();
+test('the viewer\'s still opens that moment in History', async ({ page }) => {
+  const at = Math.floor((Date.now() - 120_000) / 1000) * 1000;
+  await page.goto(`/app/timeline?cam=cam1&date=${await page.evaluate(() => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; })}&t=${at}`);
+  await expect(page.getByTestId('timeline-still')).toBeVisible();
   await page.getByTestId('timeline-open-history').click();
   await expect(page).toHaveURL(/\/app\/recordings\?.*at=\d+.*panel=history/);
   await expect(page.getByTestId('source-badge')).toBeVisible();
