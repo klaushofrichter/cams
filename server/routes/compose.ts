@@ -35,6 +35,23 @@ async function relay(res: Response, up: globalThis.Response) {
 }
 const jobOk = (req: Request, res: Response) => (JOB.test(String(req.params.job)) ? true : (res.status(400).json({ error: 'invalid' }), false));
 
+// The jobs cams started, per camera, with cams's own copy of the proxy's id:
+// only those are asked about, and never by the id from the request (CodeQL
+// js/request-forgery). Kept a little longer than the proxy keeps a result.
+const started = new Map<string, { id: string; at: number }>();
+const KEEP_MS = 20 * 60_000;
+const keyOf = (cam: string, job: string) => `${cam}\u0000${job}`;
+function remember(cam: string, id: string) {
+  const t = Date.now();
+  for (const [k, v] of started) if (t - v.at > KEEP_MS) started.delete(k);
+  started.set(keyOf(cam, id), { id, at: t });
+}
+function known(cam: string, req: Request, res: Response): string | undefined {
+  const job = started.get(keyOf(cam, String(req.params.job)))?.id;
+  if (!job) res.status(404).json({ error: 'not_found' });
+  return job;
+}
+
 composeRouter.post('/api/cameras/:id/compositions', async (req, res) => {
   const t = target(req, res);
   if (!t) return;
@@ -44,7 +61,14 @@ composeRouter.post('/api/cameras/:id/compositions', async (req, res) => {
     const clip = await getRecordings().proxyClipOf(t.id, b.eventId);
     if (!clip) return void res.status(404).json({ error: 'no_clip' });
     const up = await t.client.open(t.base, undefined, { method: 'POST', body: JSON.stringify({ clipId: clip.id, preS: b.preS, postS: b.postS, size: b.size, badge: b.badge, ...(typeof b.timeZone === 'string' ? { timeZone: b.timeZone } : {}) }) });
-    await relay(res, up);
+    const text = await up.text();
+    if (up.status === 201) {
+      const id = (JSON.parse(text) as { id?: unknown }).id;
+      if (typeof id === 'string' && JOB.test(id)) remember(t.id, id);
+    }
+    res.status(up.status);
+    if (text) res.type('application/json').send(text);
+    else res.end();
   } catch (err) {
     failed(err, res);
   }
@@ -54,8 +78,10 @@ composeRouter.get('/api/cameras/:id/compositions/:job', async (req, res) => {
   if (!jobOk(req, res)) return;
   const t = target(req, res);
   if (!t) return;
+  const job = known(t.id, req, res);
+  if (!job) return;
   try {
-    await relay(res, await t.client.open(`${t.base}/${req.params.job}`));
+    await relay(res, await t.client.open(`${t.base}/${job}`));
   } catch (err) {
     failed(err, res);
   }
@@ -65,8 +91,10 @@ composeRouter.get('/api/cameras/:id/compositions/:job/video', async (req, res) =
   if (!jobOk(req, res)) return;
   const t = target(req, res);
   if (!t) return;
+  const job = known(t.id, req, res);
+  if (!job) return;
   try {
-    const up = await t.client.open(`${t.base}/${req.params.job}.mp4`, undefined, { idleMs: 30_000 });
+    const up = await t.client.open(`${t.base}/${job}.mp4`, undefined, { idleMs: 30_000 });
     if (!up.ok || !up.body) return void (await relay(res, up));
     const name = typeof req.query.name === 'string' && NAME.test(req.query.name) ? req.query.name : 'composed.mp4';
     res.status(200).set({
@@ -86,8 +114,11 @@ composeRouter.delete('/api/cameras/:id/compositions/:job', async (req, res) => {
   if (!jobOk(req, res)) return;
   const t = target(req, res);
   if (!t) return;
+  const job = known(t.id, req, res);
+  if (!job) return;
+  started.delete(keyOf(t.id, job));
   try {
-    await relay(res, await t.client.open(`${t.base}/${req.params.job}`, undefined, { method: 'DELETE' }));
+    await relay(res, await t.client.open(`${t.base}/${job}`, undefined, { method: 'DELETE' }));
   } catch (err) {
     failed(err, res);
   }

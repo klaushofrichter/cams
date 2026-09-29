@@ -82,4 +82,25 @@ describe('compositions pass-through', () => {
     expect((await post('den', { eventId: EVENT, preS: 0, postS: 5, size: 'sd', badge: false })).status).toBe(502);
     fake = await startFakeProxy();
   });
+
+  // CodeQL js/request-forgery: only jobs cams started go to the proxy, by
+  // cams's own copy of the id.
+  it('refuses a job it did not start, without asking the proxy', async () => {
+    const before = fake.requests.length;
+    const stranger = 'z'.repeat(22);
+    expect((await request(createApp()).get(`/api/cameras/den/compositions/${stranger}`).set('Cookie', auth)).status).toBe(404);
+    expect((await request(createApp()).get(`/api/cameras/den/compositions/${stranger}/video`).set('Cookie', auth)).status).toBe(404);
+    expect((await request(createApp()).delete(`/api/cameras/den/compositions/${stranger}`).set('Cookie', auth)).status).toBe(404);
+    expect(fake.requests.length).toBe(before);
+  });
+
+  it('keeps jobs per camera', async () => {
+    setCameras([
+      { id: 'den', name: 'Den', host: '127.0.0.1:9', protocol: 'http', user: 'u', password: 'p', proxy: { url: fake.url, token: FAKE_TOKEN, camera: 'cam1' } },
+      { id: 'barn', name: 'Barn', host: '127.0.0.1:9', protocol: 'http', user: 'u', password: 'p', proxy: { url: fake.url, token: FAKE_TOKEN, camera: 'cam1' } },
+    ]);
+    resetProxyClients();
+    const { body } = await post('den', { eventId: EVENT, preS: 0, postS: 5, size: 'sd', badge: false });
+    expect((await request(createApp()).get(`/api/cameras/barn/compositions/${body.id}`).set('Cookie', auth)).status).toBe(404);
+  });
 });
