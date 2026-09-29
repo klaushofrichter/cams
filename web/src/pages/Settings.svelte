@@ -401,6 +401,7 @@
           <label>Time position
             <select data-testid="osd-time-pos" bind:value={imageEdit.osd.timePosition}>{#each OSD_POSITIONS as p (p)}<option value={p}>{p}</option>{/each}</select>
           </label>
+          <label class="row"><input type="checkbox" data-testid="osd-watermark-toggle" bind:checked={imageEdit.osd.watermark} /> Show Reolink logo (watermark)</label>
           {#if imageErrors.osd}<span class="err" data-testid="field-error-osd">{imageErrors.osd}</span>{/if}
         </fieldset>
       {:else if loadError}

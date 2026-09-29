@@ -8,3 +8,5 @@ published as [GitHub releases](https://github.com/klaushofrichter/cams/releases)
 
 ## [Unreleased]
 
+- Settings: "Show Reolink logo (watermark)" in On-screen text. It is stored on the camera, so it stays as set.
+
