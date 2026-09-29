@@ -11,10 +11,15 @@ process.env.ALLOWED_EMAILS ??= 'klaus@klaushofrichter.net';
 // concurrently in different workers (see test/recordingsRoutes.test.ts),
 // since each worker re-runs this setupFile's top level once. VITEST_POOL_ID
 // is stable per worker; process.pid is the fallback outside vitest's pool.
+// A fresh folder per test file (mkdtemp), not one named after the worker:
+// that name outlived the run, so a later run started on the last run's
+// cached clips and preferences — the occasional unrelated 400/404 (issue #69).
+import { mkdtempSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
-process.env.CACHE_DIR = join(tmpdir(), `cams-test-cache-${process.env.VITEST_POOL_ID ?? process.pid}`);
-process.env.PREFS_FILE ??= join(tmpdir(), `cams-test-prefs-${process.env.VITEST_POOL_ID ?? process.pid}.json`);
+const scratch = mkdtempSync(join(tmpdir(), 'cams-test-'));
+process.env.CACHE_DIR = join(scratch, 'cache');
+process.env.PREFS_FILE ??= join(scratch, 'prefs.json');
 
 import { beforeEach } from 'vitest';
 import { resetRateLimits } from '../server/middleware/rateLimit';

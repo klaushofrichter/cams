@@ -7,7 +7,7 @@ import type { PreviewMinute } from './timeline';
 // the strip instead of changing picture every second.
 export const FILM_W = 48;
 export const FILM_H = 27;
-export const FILM_GAP = 8; // a visible gap (Klaus, 2026-09-28)
+export const FILM_GAP = 4; // a visible gap: 4 px (Klaus, 2026-09-28)
 
 export interface FilmFrame {
   t: number;
@@ -29,12 +29,16 @@ function tileNear(byMinute: Map<number, PreviewMinute>, t: number): FilmFrame['t
   return null;
 }
 
+const lookups = new WeakMap<PreviewMinute[], Map<number, PreviewMinute>>();
+
 export function filmFrames(win: Run, width: number, previews: PreviewMinute[]): FilmFrame[] {
   const n = Math.floor((width + FILM_GAP) / (FILM_W + FILM_GAP));
   const span = win.end - win.start;
   if (n <= 0 || !(span > 0)) return [];
   const step = span / n;
-  const byMinute = new Map(previews.map((m) => [m.minute, m]));
+  // Built once per preview list, not on every redraw (issue #69).
+  let byMinute = lookups.get(previews);
+  if (!byMinute) lookups.set(previews, (byMinute = new Map(previews.map((m) => [m.minute, m]))));
   const out: FilmFrame[] = [];
   for (let g = Math.ceil((win.start - step / 2) / step); ; g++) {
     const t = g * step + step / 2;

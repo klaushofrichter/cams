@@ -436,3 +436,21 @@ test('a wide window centres the whole app, top bar included', async ({ page }, t
   await page.setViewportSize({ width: 1400, height: 1000 });
   expect((await page.locator('.topbar').boundingBox())!.x).toBe(0);
 });
+
+// Issue #69 items.
+test('a day that failed to load names no source', async ({ page }) => {
+  await page.route(/\/api\/cameras\/cam1\/events\?date=/, (r) => r.fulfill({ status: 502, json: { error: 'camera_offline' } }));
+  await page.goto('/app/recordings?panel=history&cam=cam1');
+  await expect(page.getByText('The recordings could not be loaded')).toBeVisible();
+  await expect(page.getByTestId('recordings-source')).toHaveCount(0);
+});
+
+test('filter chips do not add browser history entries', async ({ page }) => {
+  await page.goto('/app/recordings?panel=history&cam=cam1');
+  await expect(page.getByTestId('event-card').first()).toBeVisible();
+  const before = await page.evaluate(() => history.length);
+  await page.getByTestId('filter-person').click();
+  await page.getByTestId('filter-vehicle').click();
+  await expect(page).toHaveURL(/filter=person%2Cvehicle/);
+  expect(await page.evaluate(() => history.length)).toBe(before);
+});

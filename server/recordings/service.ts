@@ -12,6 +12,7 @@ import { clipIdOf, clipTimes, CLIP_ID, parseClipName, ParsedClip, Trigger } from
 import { DiskCache } from './cache';
 import { PriorityGate } from './priorityGate';
 import { makeThumbnail } from './thumbnail';
+import { Semaphore } from '../reolink/semaphore';
 import { findProxyClip, findProxyStill, openProxyClip, openProxyStill } from './proxyClips';
 
 export interface EventClip {
@@ -133,6 +134,13 @@ export class RecordingsService {
     const c = getClient(cameraId);
     if (!c) throw new RecordingError('unknown_clip', 'unknown camera');
     return c;
+  }
+
+  private stillGates = new Map<string, Semaphore>();
+  private stillGate(cameraId: string): Semaphore {
+    let g = this.stillGates.get(cameraId);
+    if (!g) this.stillGates.set(cameraId, (g = new Semaphore(3)));
+    return g;
   }
 
   private gate(cameraId: string): PriorityGate {
@@ -422,8 +430,9 @@ export class RecordingsService {
               await pipeline(res, createWriteStream(tmp));
             } catch (err) {
               // The camera refused (or its breaker is open): the clip it
-              // uploaded to its cam-proxy, if there is one.
-              const proxied = await this.proxyClipFor(cameraId, clipId, err);
+              // uploaded to its cam-proxy, if there is one — unless the proxy
+              // was just asked above (issue #38: no second lookup).
+              const proxied = proxyActive(cameraId) ? null : await this.proxyClipFor(cameraId, clipId, err);
               if (!proxied) throw err;
               await pipeline((await openProxyClip(cameraId, proxied.id)).stream, createWriteStream(tmp));
             }
@@ -451,7 +460,9 @@ export class RecordingsService {
           const span = await this.eventSpan(cameraId, clipId);
           const ts = span && (await findProxyStill(cameraId, span.start + 2000, span.start + 12_000));
           if (ts) {
-            await pipeline(await openProxyStill(cameraId, ts), createWriteStream(tmp));
+            // At most three at a time per camera: a day's list asked for all
+            // its thumbnails at once (issue #38).
+            await this.stillGate(cameraId).run(async () => pipeline(await openProxyStill(cameraId, ts), createWriteStream(tmp)));
             // Only a JPEG becomes the (cached) thumbnail.
             const head = await fs.readFile(tmp).then((b) => b.subarray(0, 3)).catch(() => Buffer.alloc(0));
             if (head.length === 3 && head[0] === 0xff && head[1] === 0xd8 && head[2] === 0xff) return;
@@ -531,23 +542,26 @@ export class RecordingsService {
       await slot.ready;
       release = slot.release;
     }
-    if (!fromProxy) try {
-      const res = await this.downloadWithRetry(cameraId, name, signal);
-      stream = res;
-      const cl = res.headers['content-length'];
-      size = typeof cl === 'string' && /^\d+$/.test(cl) ? Number(cl) : null;
-    } catch (err) {
-      const proxied = signal?.aborted ? null : await this.proxyClipFor(cameraId, clipId, err);
-      if (!proxied) {
-        release();
-        throw err;
-      }
+    if (!fromProxy) {
       try {
-        ({ stream, size } = await openProxyClip(cameraId, proxied.id, signal));
-        fromProxy = true;
-      } catch {
-        release();
-        throw err;
+        const res = await this.downloadWithRetry(cameraId, name, signal);
+        stream = res;
+        const cl = res.headers['content-length'];
+        size = typeof cl === 'string' && /^\d+$/.test(cl) ? Number(cl) : null;
+      } catch (err) {
+        // The sub stream was already asked of the proxy above (issue #38).
+        const proxied = signal?.aborted || quality === 'sub' ? null : await this.proxyClipFor(cameraId, clipId, err);
+        if (!proxied) {
+          release();
+          throw err;
+        }
+        try {
+          ({ stream, size } = await openProxyClip(cameraId, proxied.id, signal));
+          fromProxy = true;
+        } catch {
+          release();
+          throw err;
+        }
       }
     }
     let released = false;

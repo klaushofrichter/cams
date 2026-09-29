@@ -65,8 +65,8 @@
   let detectionEdit: DetectionSettings | null = $state(null);
   let detectionState: State = $state('idle');
   let detectionErrors: Record<string, string> = $state({});
-  let image: ImageSettings | null = $state(null);
-  let imageEdit: ImageSettings | null = $state(null);
+  let image = $state<ImageSettings | null>(null);
+  let imageEdit = $state<ImageSettings | null>(null);
   let imageState: State = $state('idle');
   let imageErrors: Record<string, string> = $state({});
   let device: DeviceInfo | null = $state(null);
@@ -195,7 +195,7 @@
 
   // --- reboot (review focus 4: two explicit clicks) ---
   let confirmReboot = $state(false);
-  let rebootState: 'idle' | 'rebooting' | 'done' | 'partial' | 'cooldown' | 'error' = $state('idle');
+  let rebootState = $state<'idle' | 'rebooting' | 'done' | 'partial' | 'cooldown' | 'error'>('idle');
   let cancelBtnEl: HTMLButtonElement | undefined = $state();
 
   const rebootMessage = $derived(

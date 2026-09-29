@@ -9,6 +9,14 @@ export const eventsRouter = Router();
 const MAX_CLIENTS = 20;
 const PING_MS = 25_000;
 let clients = 0;
+const open = new Set<Response>();
+
+// On shutdown (SIGTERM): end every relay, so the old revision isn't held
+// open until Knative cuts it (issue #38).
+export function closeEventStreams(): void {
+  for (const res of open) res.end();
+}
+export const eventStreamCount = () => clients;
 
 interface ProxyMessage {
   cam: string;
@@ -36,6 +44,7 @@ eventsRouter.get('/api/events/stream', (req: Request, res: Response) => {
     return;
   }
   clients++;
+  open.add(res);
   res.status(200).set({ 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-store', 'X-Accel-Buffering': 'no' });
   res.flushHeaders();
   const send = (event: string, data: unknown) => res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
@@ -59,11 +68,17 @@ eventsRouter.get('/api/events/stream', (req: Request, res: Response) => {
   proxyHub.on('message', onMessage);
   proxyHub.on('cameras', onCameras);
   const ping = setInterval(() => res.write(': ping\n\n'), PING_MS);
-  req.on('close', () => {
+  let done = false;
+  const finish = () => {
+    if (done) return;
+    done = true;
     clients--;
+    open.delete(res);
     clearInterval(ping);
     proxyHub.off('state', onState);
     proxyHub.off('message', onMessage);
     proxyHub.off('cameras', onCameras);
-  });
+  };
+  req.on('close', finish);
+  res.on('finish', finish);
 });

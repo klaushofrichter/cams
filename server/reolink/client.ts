@@ -233,18 +233,20 @@ export class ReolinkClient {
   }
 
   // GetEnc changes rarely: asked once per 10 minutes; a failure only leaves
-  // the streams out of the status.
-  private enc?: { at: number; streams: { main: StreamInfo | null; sub: StreamInfo | null } };
+  // the streams out of the status, and is asked again after 30 s.
+  private enc?: { at: number; ok: boolean; streams: { main: StreamInfo | null; sub: StreamInfo | null } };
   private async streams(): Promise<{ main: StreamInfo | null; sub: StreamInfo | null }> {
-    if (this.enc && Date.now() - this.enc.at < 600_000) return this.enc.streams;
+    if (this.enc && Date.now() - this.enc.at < (this.enc.ok ? 600_000 : 30_000)) return this.enc.streams;
+    let ok = false;
     let streams: { main: StreamInfo | null; sub: StreamInfo | null } = { main: null, sub: null };
     try {
       const v = await this.command<{ Enc?: { mainStream?: RawStream; subStream?: RawStream } }>('GetEnc', { channel: 0 });
       streams = { main: toStream(v.Enc?.mainStream), sub: toStream(v.Enc?.subStream) };
+      ok = true;
     } catch {
       // extra information: the status stands without it
     }
-    this.enc = { at: Date.now(), streams };
+    this.enc = { at: Date.now(), ok, streams };
     return streams;
   }
 
@@ -408,11 +410,19 @@ export class ReolinkClient {
     );
   }
 
+  // Concurrent callers share one GetTime (issue #38: a burst of proxy
+  // messages asked once each until the first answer was cached).
+  private timePending?: Promise<TimeInfo>;
   async timeInfo(): Promise<TimeInfo> {
     if (this.time && this.now() - this.time.at < 3600_000) return this.time.value;
-    const value = timeInfoFromGetTime(await this.command<unknown>('GetTime'));
-    this.time = { value, at: this.now() };
-    return value;
+    this.timePending ??= this.command<unknown>('GetTime')
+      .then((raw) => {
+        const value = timeInfoFromGetTime(raw);
+        this.time = { value, at: this.now() };
+        return value;
+      })
+      .finally(() => (this.timePending = undefined));
+    return this.timePending;
   }
 
   private static dayRange(date: string) {

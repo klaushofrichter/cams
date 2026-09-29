@@ -1,4 +1,5 @@
 import { createApp } from './app';
+import { closeEventStreams } from './routes/events';
 import { assertRequiredEnv } from './config';
 import { loadCameras, setCameras } from './cameraRegistry';
 import { loadProxyState } from './proxyState';
@@ -16,5 +17,6 @@ const server = createApp().listen(port, () => {
 startProxyStreams();
 process.once('SIGTERM', () => {
   stopProxyStreams(true);
+  closeEventStreams();
   server.close();
 });

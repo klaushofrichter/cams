@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { openProxyUi } from '../lib/proxyLink';
+  import { openProxyClick } from '../lib/proxyLink';
   import { cameras } from '../lib/stores';
   import { putJson } from '../lib/settings';
   import { getJson } from '../lib/api';
@@ -69,7 +69,7 @@
   {#if info?.webUrl}
     <p class="link">
       <a data-testid="proxy-web-link" href={info.webUrl} target="_blank" rel="noopener noreferrer"
-        onclick={(e) => { e.preventDefault(); void openProxyUi(cameraId, info!.webUrl!); }}>Open this camera's cam-proxy <Icon name="external" size={14} /></a>
+        onclick={(e) => openProxyClick(e, cameraId, info!.webUrl!)}>Open this camera's cam-proxy <Icon name="external" size={14} /></a>
     </p>
   {:else if info && !info.reachable}
     <p class="muted" data-testid="proxy-unreachable">The cam-proxy isn't answering right now.</p>

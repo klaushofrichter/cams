@@ -3,8 +3,12 @@ import { signIn } from './session';
 
 // Plan 6: Den (cam1) has a fake cam-proxy (e2e/fakeProxyData.ts) with the
 // last ten minutes of stills; Porch has none.
-test.beforeEach(async ({ context, baseURL }) => {
+test.beforeEach(async ({ context, baseURL, page }) => {
   await signIn(context, baseURL!);
+  // The fake's stills are the last ten minutes: until 00:12 (the browser's
+  // zone) they are still yesterday's, and today has none (issue #38).
+  const minutesToday = await page.evaluate(() => { const d = new Date(); return d.getHours() * 60 + d.getMinutes(); });
+  test.skip(minutesToday < 12, "the fake proxy's stills are still yesterday's");
 });
 
 test('the Timeline shows the day’s minutes from the camera gateway, and a still on click', async ({ page }) => {

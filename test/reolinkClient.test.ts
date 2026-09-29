@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { AddressInfo } from 'net';
 import { Server } from 'http';
 import express from 'express';
@@ -33,7 +33,7 @@ afterEach(() => new Promise<void>((r) => server.close(() => r())));
 describe('ReolinkClient', () => {
   it('logs in once and reuses the token', async () => {
     const client = new ReolinkClient(cam);
-    expect(await client.status()).toMatchObject({ model: 'RLC-1224A', firmware: 'v3.2.0.6011_2607012059', simulator: 'cam-sim' });
+    expect(await client.status()).toMatchObject({ model: 'RLC-1224A', firmware: 'v3.2.0.6011_2607012059', simulator: expect.stringMatching(/^cam-sim( |$)/) });
     await client.status();
     await client.status();
     expect(state.logins).toBe(1);
@@ -393,5 +393,41 @@ describe('classifyNetworkError', () => {
       'camera_offline',
     );
     expect(classifyNetworkError(new Error('boom')).code).toBe('camera_offline');
+  });
+
+  // Issue #69: a failed GetEnc was kept for the full 10 minutes.
+  it('asks for the stream info again soon after it failed', async () => {
+    const client = new ReolinkClient(cam);
+    const calls: string[] = [];
+    let fail = true;
+    const real = (client as unknown as { command: (c: string, p?: unknown) => Promise<unknown> }).command.bind(client);
+    (client as unknown as { command: (c: string, p?: unknown) => Promise<unknown> }).command = async (c: string, p?: unknown) => {
+      calls.push(c);
+      if (c === 'GetEnc' && fail) throw new Error('boom');
+      if (c === 'GetEnc') return { Enc: { mainStream: { vType: 'h265', width: 4512, height: 2512, frameRate: 20 }, subStream: { vType: 'h264', width: 896, height: 512, frameRate: 10 } } };
+      return real(c, p);
+    };
+    const t0 = Date.now();
+    const clock = vi.spyOn(Date, 'now');
+    clock.mockReturnValue(t0);
+    expect((await client.status()).streams).toEqual({ main: null, sub: null });
+    fail = false;
+    clock.mockReturnValue(t0 + 31_000);
+    expect((await client.status()).streams.main).toMatchObject({ codec: 'h265' });
+    clock.mockRestore();
+  });
+
+  // Issue #38: a burst of proxy messages asked GetTime once each until the
+  // first answer was cached.
+  it('shares one GetTime between concurrent callers', async () => {
+    const client = new ReolinkClient(cam);
+    const calls: string[] = [];
+    const real = (client as unknown as { command: (c: string, p?: unknown) => Promise<unknown> }).command.bind(client);
+    (client as unknown as { command: (c: string, p?: unknown) => Promise<unknown> }).command = async (c: string, p?: unknown) => {
+      calls.push(c);
+      return real(c, p);
+    };
+    await Promise.all(Array.from({ length: 5 }, () => client.timeInfo()));
+    expect(calls.filter((c) => c === 'GetTime')).toHaveLength(1);
   });
 });

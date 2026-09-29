@@ -14,10 +14,23 @@ export function resultLength(clipS: number, preS: number, postS: number): { ok: 
   return seconds > 60 ? { ok: false, error: 'At most 1:00' } : { ok: true, seconds };
 }
 export const formatLength = (s: number) => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
-export function composedName(cam: string, startIso: string, size: ComposeSize): string {
-  const d = new Date(startIso);
-  const p = (n: number) => String(n).padStart(2, '0');
-  return `${cam}-${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}_${p(d.getHours())}-${p(d.getMinutes())}-${p(d.getSeconds())}-composed-${size}.mp4`;
+// The camera's local time, from the event id (YYYYMMDD-HHMMSS-…), like the
+// original download's name (issue #72), not the browser's zone.
+export function composedName(cam: string, eventId: string, size: ComposeSize): string {
+  const m = /^(\d{4})(\d{2})(\d{2})-(\d{2})(\d{2})(\d{2})/.exec(eventId);
+  const when = m ? `${m[1]}-${m[2]}-${m[3]}_${m[4]}-${m[5]}-${m[6]}` : 'clip';
+  return `${cam}-${when}-composed-${size}.mp4`;
+}
+
+// Whether the proxy has a copy of the event (issue #72); true when unsure.
+export async function isAvailable(cam: string, eventId: string): Promise<boolean> {
+  try {
+    const r = await fetch(`${base(cam)}/available?eventId=${encodeURIComponent(eventId)}`, { credentials: 'same-origin' });
+    const j = (await r.json()) as { available?: unknown };
+    return j.available !== false;
+  } catch {
+    return true;
+  }
 }
 const base = (cam: string) => `/api/cameras/${encodeURIComponent(cam)}/compositions`;
 export async function startJob(cam: string, body: { eventId: string; preS: number; postS: number; size: ComposeSize; badge: boolean; timeZone?: string }): Promise<JobView> {

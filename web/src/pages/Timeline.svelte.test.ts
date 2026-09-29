@@ -74,4 +74,38 @@ describe('Timeline', () => {
     expect(target.querySelector('[data-testid="timeline-still"]')).not.toBeNull();
     expect(target.querySelectorAll('[data-testid="timeline-minute"]').length).toBe(1);
   });
+
+  // Issue #38 items.
+  it('marks events from the neighbouring camera days too (another time zone)', async () => {
+    const asked: string[] = [];
+    vi.stubGlobal('IntersectionObserver', class { observe() {} disconnect() {} });
+    vi.stubGlobal('fetch', async (url: string) => {
+      if (url.includes('/previews?')) return json([{ minute, cols: 10, rows: 6, tileW: 160, tileH: 90, intervalS: 1, present: Array(60).fill(true), url: `/x/${minute}.jpg` }]);
+      if (url.includes('/events?')) {
+        asked.push(new URL(url, 'http://x').searchParams.get('date')!);
+        return json({ events: [] });
+      }
+      return json({});
+    });
+    cameras.set([{ id: 'den', name: 'Den', webUiUrl: null, proxy: true }]);
+    selectedCameraId.set('den');
+    target = document.createElement('div');
+    document.body.appendChild(target);
+    component = mount(Timeline, { target });
+    for (let i = 0; i < 5; i++) await tick();
+    expect(asked).toHaveLength(3); // the day and its neighbours
+  });
+
+  it('says the proxy keeps no stills, instead of "not reachable"', async () => {
+    vi.stubGlobal('IntersectionObserver', class { observe() {} disconnect() {} });
+    vi.stubGlobal('fetch', async (url: string) => (url.includes('/previews?') ? new Response('{"error":"stills_disabled"}', { status: 404 }) : json({ events: [] })));
+    cameras.set([{ id: 'den', name: 'Den', webUiUrl: null, proxy: true }]);
+    selectedCameraId.set('den');
+    target = document.createElement('div');
+    document.body.appendChild(target);
+    component = mount(Timeline, { target });
+    for (let i = 0; i < 5; i++) await tick();
+    flushSync();
+    expect(target.textContent).toContain("keeps no stills");
+  });
 });

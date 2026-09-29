@@ -38,6 +38,9 @@
   const clampT = (t: number) => Math.min(hi, Math.max(lo, t));
   const seekTo = (t: number) => onseek(clampT(t));
   const span = $derived(win.end - win.start);
+  // "30 min", not "0.5 h" (issue #69).
+  const span_label = $derived($zoom >= 1 ? `${$zoom} h` : `${$zoom * 60} min`);
+  const span_words = $derived($zoom >= 1 ? `${$zoom} hour${$zoom === 1 ? '' : 's'}` : `${$zoom * 60} minutes`);
   const pct = (t: number) => ((t - win.start) / span) * 100;
   const spans = $derived(stripSpans(coverage, win, now, oldest));
   const segs = $derived(
@@ -195,7 +198,7 @@
   <div class="row">
   <div class="edge">
     <button data-testid="strip-oldest" title="The oldest recording" aria-label="Go to the oldest recording" disabled={oldest === null || at <= lo} onclick={() => seekTo(lo)}>⇤</button>
-    <button data-testid="strip-back" title={`Back ${$zoom} h`} aria-label={`Back ${$zoom} hours`} disabled={at <= lo} onclick={() => seekTo(at - span)}>‹</button>
+    <button data-testid="strip-back" title={`Back ${span_label}`} aria-label={`Back ${span_words}`} disabled={at <= lo} onclick={() => seekTo(at - span)}>‹</button>
   </div>
   <div class="barwrap">
   <!-- The playhead's mark above the bar (Klaus, 2026-09-28: more prominent). -->
@@ -224,7 +227,7 @@
   </div>
   </div>
   <div class="edge">
-    <button data-testid="strip-forward" title={`Forward ${$zoom} h`} aria-label={`Forward ${$zoom} hours`} disabled={at >= hi} onclick={() => seekTo(at + span)}>›</button>
+    <button data-testid="strip-forward" title={`Forward ${span_label}`} aria-label={`Forward ${span_words}`} disabled={at >= hi} onclick={() => seekTo(at + span)}>›</button>
     <button data-testid="strip-now" title="Now" aria-label="Go to now" disabled={!onglue && at >= now - 5000} onclick={() => (onglue ? onglue() : onseek(Math.max(lo, now - 2000)))}>⇥</button>
   </div>
   </div>

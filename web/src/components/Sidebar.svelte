@@ -37,7 +37,7 @@
   {#if drawer}
     <div class="drawer-actions">
       <ThemeToggle />
-      <a class="item" data-testid="logout" href="/auth/logout"><Icon name="logout" /><span class="label">Logout</span></a>
+      <a class="item" data-testid="drawer-logout" href="/auth/logout"><Icon name="logout" /><span class="label">Logout</span></a>
     </div>
   {:else}
     <button
