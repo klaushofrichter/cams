@@ -372,6 +372,23 @@ Quirks:
 
 - **`size` is a string.**
 - **A day with no clips has no `File` key**, rather than an empty array.
+- **Only the start day is searched** (measured 2026-09-29): from `StartTime`'s
+  time of day to `EndTime`'s, and `EndTime`'s date is ignored.
+
+  | Window | Result |
+  |---|---|
+  | 28th 00:00 → 29th 23:59 | only the 28th |
+  | 28th 12:00 → 29th 12:00 | nothing |
+  | 29th 00:00 → 28th 23:59 (reversed dates) | the 29th, all day |
+  | 29th 12:00 → 29th 11:00 (reversed times) | nothing, still `code 0` |
+
+  Ask one day at a time, as cams does.
+- **`Status` comes with a clips search too:** the start month's table. It
+  lists only months that have recordings. With none, the key is missing, so a
+  past month without recordings or a future day answers just `{"channel":0}`.
+- **`onlyStatus: 1` over several months** lists only the months with
+  recordings (Aug–Sep gives September only). With the end month before the
+  start month, it fails: `rspCode -64`, "err received data from json".
 - **The sub and main copies of one event can end a few seconds apart.** For
   example, sub ends `065224` and main ends `065226` for an event that starts
   `065221`. Pair the two copies by **start time**, and use the later end.
