@@ -1,10 +1,16 @@
 <script lang="ts">
   import { tick, untrack } from 'svelte';
+  import ComposeDialog from './ComposeDialog.svelte';
+  import { cameras } from '../lib/stores';
   import { defaultGroupOpen, downloadUrl, formatBytes, formatClock, groupByHour, thumbUrl, type EventClip } from '../lib/recordings';
 
   let { cameraId, events, date, selectedId }: { cameraId: string; events: EventClip[]; date: string; selectedId: string | null } = $props();
 
   const groups = $derived(groupByHour(events, date));
+  // SD opens the pre-/post-roll dialog when the camera has a cam-proxy in use
+  // (cam-proxy spec 2026-09-28); Full stays a direct download.
+  const composable = $derived(!!$cameras.find((c) => c.id === cameraId)?.proxy);
+  let composing: EventClip | null = $state(null);
   // Thumbnails that failed to load (per camera and clip): the hatched placeholder instead.
   let broken = $state(new Set<string>());
 
@@ -79,7 +85,11 @@
                     onerror={() => (broken = new Set(broken).add(`${cameraId}|${e.id}`))} />
                 {/if}
                 <span class="when">{formatClock(e.start)} · {e.durationSec} s</span>
-                <a data-testid="download-sub" href={downloadUrl(cameraId, e.id, 'sub')} download>SD <small>{formatBytes(e.sizeSub)}</small></a>
+                {#if composable}
+                  <button data-testid="download-sub" title="Save SD, with a pre-/post-roll if wanted" onclick={() => (composing = e)}>SD <small>{formatBytes(e.sizeSub)}</small></button>
+                {:else}
+                  <a data-testid="download-sub" href={downloadUrl(cameraId, e.id, 'sub')} download>SD <small>{formatBytes(e.sizeSub)}</small></a>
+                {/if}
                 <a data-testid="download-main" href={downloadUrl(cameraId, e.id, 'main')} download>Full <small>{formatBytes(e.sizeMain)}</small></a>
               </li>
             {/each}
@@ -90,6 +100,10 @@
   </div>
 {/if}
 
+
+{#if composing}
+  <ComposeDialog camera={cameraId} clip={composing} onclose={() => (composing = null)} />
+{/if}
 <style>
   .groups { display: flex; flex-direction: column; gap: 10px; }
   .thumb { width: 64px; height: 36px; object-fit: cover; border-radius: 5px; background: var(--surface-2); flex: none; display: block; }
@@ -105,6 +119,7 @@
   .row { display: flex; align-items: center; gap: 8px; padding: 8px 10px; border-radius: 10px; border: 1px solid var(--border); background: var(--surface); font-size: 13px; }
   .row[aria-current='true'] { border-color: var(--accent); }
   .when { flex: 1; font-family: var(--mono); font-size: 12px; }
+  button { padding: 4px 10px; border-radius: 8px; border: 1px solid var(--border); background: var(--surface-2); color: var(--text); font: inherit; font-size: 12px; cursor: pointer; }
   a { padding: 4px 10px; border-radius: 8px; border: 1px solid var(--border); background: var(--surface-2); color: var(--text); text-decoration: none; font-size: 12px; }
   a:hover { border-color: var(--accent); }
   small { color: var(--muted); }

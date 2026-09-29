@@ -314,8 +314,8 @@ test('the strip plays proxy stills in real time, and says so', async ({ page }) 
 });
 
 test('a stretch with nothing recorded says so', async ({ page }) => {
-  const d = new Date();
-  const earlyToday = new Date(d.getFullYear(), d.getMonth(), d.getDate(), 0, 1).getTime(); // Shed: no proxy, no event at 00:01
+  // Shed: no proxy, no event at 00:01 (the browser's day, not the runner's).
+  const earlyToday = await page.evaluate(() => { const d = new Date(); return new Date(d.getFullYear(), d.getMonth(), d.getDate(), 0, 1).getTime(); });
   await page.goto(`/app/recordings?cam=shed&panel=history&at=${earlyToday}`);
   await expect(page.getByTestId('source-badge')).toHaveText('No recording');
   await expect(page.getByTestId('strip-empty')).toBeVisible();
@@ -323,8 +323,9 @@ test('a stretch with nothing recorded says so', async ({ page }) => {
 
 test('dragging the strip to yesterday changes the date and the list', async ({ page }) => {
   await keepZoomLocal(page); // the zoom is a shared user's preference
-  const d = new Date();
-  const earlyToday = new Date(d.getFullYear(), d.getMonth(), d.getDate(), 0, 30).getTime();
+  // In the browser's zone (America/Chicago), not the runner's (UTC on CI):
+  // between 00:00 and 05:00 UTC they are different days.
+  const earlyToday = await page.evaluate(() => { const d = new Date(); return new Date(d.getFullYear(), d.getMonth(), d.getDate(), 0, 30).getTime(); });
   await page.goto(`/app/recordings?panel=history&at=${earlyToday}`);
   await page.getByTestId('zoom-3').click();
   const bar = page.getByTestId('timeline');

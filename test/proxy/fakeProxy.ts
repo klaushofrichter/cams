@@ -6,6 +6,7 @@ import express, { type Response } from 'express';
 import rateLimit from 'express-rate-limit';
 import { mkdtempSync, writeFileSync } from 'fs';
 import http from 'http';
+import { randomBytes } from 'crypto';
 import type { AddressInfo } from 'net';
 import { tmpdir } from 'os';
 import { join } from 'path';
@@ -26,6 +27,9 @@ export interface FakeProxy {
   publicUrl: string | null; // what /api/cameras reports as the proxy's web address
   camerasBody?: unknown; // tests: answer /api/cameras with this instead
   loginLinks: number; // one-time admin UI links minted (POST /control/login-links)
+  compositions: Map<string, { state: 'queued' | 'running' | 'done'; progress: number; durationS: number }>;
+  composeRequests: unknown[];
+  composeDelayMs: number; // a composition goes running → done over this long
   streamConnections(): number;
   push(m: Omit<FakeMessage, 'id' | 'ts'> & { ts?: number }): FakeMessage;
   dropStreams(): void; // ends every open stream (a proxy restart)
@@ -56,6 +60,9 @@ export async function startFakeProxy(opts: { port?: number; token?: string } = {
     requests: [],
     publicUrl: null,
     loginLinks: 0,
+    compositions: new Map(),
+    composeRequests: [],
+    composeDelayMs: 300,
     streamConnections: () => streams.size,
     push(m) {
       const msg: FakeMessage = { id: nextId++, ts: m.ts ?? Date.now(), cam: m.cam, type: m.type, data: m.data };
@@ -144,6 +151,34 @@ export async function startFakeProxy(opts: { port?: number; token?: string } = {
     writeFileSync(file, body);
     res.setHeader('Cache-Control', 'private, max-age=604800, immutable');
     res.sendFile(file, { headers: { 'Content-Type': m![2] === 'mp4' ? 'video/mp4' : 'image/jpeg' } });
+  });
+  // Composed clips (cam-proxy spec 2026-09-28), like the real API.
+  app.post('/api/cameras/:cam/compositions', express.json(), (req, res) => {
+    fake.composeRequests.push(req.body);
+    const id = randomBytes(16).toString('base64url');
+    const job = { state: 'running' as 'queued' | 'running' | 'done', progress: 0, durationS: 30 };
+    fake.compositions.set(id, job);
+    const steps = 4;
+    for (let k = 1; k <= steps; k++) {
+      setTimeout(() => {
+        if (!fake.compositions.has(id)) return;
+        job.progress = k / steps;
+        if (k === steps) job.state = 'done';
+      }, (fake.composeDelayMs * k) / steps);
+    }
+    res.status(201).json({ id, ...job });
+  });
+  app.get('/api/cameras/:cam/compositions/:file', (req, res) => {
+    const m = /^([A-Za-z0-9_-]{22})(\.mp4)?$/.exec(req.params.file);
+    const job = m && fake.compositions.get(m[1]);
+    if (!m || !job) return void res.status(404).json({ error: 'not_found' });
+    if (!m[2]) return void res.json({ id: m[1], ...job });
+    if (job.state !== 'done') return void res.status(409).json({ error: 'not_ready' });
+    res.type('video/mp4').send(Buffer.concat([Buffer.from([0, 0, 0, 16]), Buffer.from('ftypisom'), Buffer.alloc(4)]));
+  });
+  app.delete('/api/cameras/:cam/compositions/:id', (req, res) => {
+    if (!fake.compositions.delete(req.params.id)) return void res.status(404).json({ error: 'not_found' });
+    res.status(204).end();
   });
   const images = (kind: 'stills' | 'previews') => {
     app.get(`/api/cameras/:cam/${kind}`, (req, res) => {

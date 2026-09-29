@@ -367,6 +367,11 @@ export class RecordingsService {
     return ev ? { start: Date.parse(ev.start), end: Date.parse(ev.end) } : null;
   }
 
+  // The proxy's clip for an event (composed clips, cam-proxy spec 2026-09-28).
+  proxyClipOf(cameraId: string, clipId: string): Promise<{ id: number } | null> {
+    return this.proxyClip(cameraId, clipId);
+  }
+
   // The proxy's clip for the event, for a camera with a cam-proxy (Plan 7:
   // asked first; Plan 6: when the camera refuses).
   private async proxyClip(cameraId: string, clipId: string): Promise<{ id: number } | null> {
