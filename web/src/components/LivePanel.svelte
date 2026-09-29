@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { openProxyUi } from '../lib/proxyLink';
+  import { openProxyClick } from '../lib/proxyLink';
   import Icon from './Icon.svelte';
   import { checkLiveStatus, liveFullscreen, liveUi, offlineReason, saveSnapshot, toggleMute, toggleQuality, type StreamInfo } from '../lib/liveUi';
   import { formatClock, thumbUrl, TRIGGER_LABELS, type EventClip } from '../lib/recordings';
@@ -9,12 +9,13 @@
 
   // The Live panel (spec 2026-09-28): the camera, its latest event and the
   // live controls, beside the player column. The stream itself is LiveBox's.
-  let { camera, latest, pending, onplay, proxyInfo }: {
+  let { camera, latest, pending, onplay, proxyInfo, paused = false }: {
     camera: CameraSummary;
     latest: EventClip | null;
     pending: Pending[];
     onplay: (e: EventClip) => void;
     proxyInfo: { reachable: boolean; webUrl: string | null } | null;
+    paused?: boolean; // the stream isn't open: the tab is hidden
   } = $props();
 
   const status = $derived($liveUi.status);
@@ -35,27 +36,33 @@
 <div class="panel" data-testid="live-panel">
   <section class="tile">
     <h2 data-testid="live-camera-name">{camera.name}</h2>
-    <span class="kind" data-testid="live-camera-kind">{status?.simulator ? 'Simulated camera' : 'Camera'}</span>
+    <span class="kind"><span data-testid="live-camera-kind">{status?.simulator ? 'Simulated camera' : 'Camera'}</span>{#if status?.simulator}
+      <small class="meta" data-testid="live-camera-simulator">{status.simulator}</small>{/if}</span>
     {#if status?.model}<span class="meta" data-testid="live-camera-model">{status.model} · firmware {status.firmware}</span>{/if}
     {#if status && !status.online}
       <div class="offline" data-testid="offline-banner" role="alert">
         <strong>{camera.name} is offline.</strong>
         <span data-testid="offline-reason">{offlineReason(status.error)}</span>
+        {#if status.offlineSince}<span class="meta" data-testid="live-offline-since">Offline since {formatClock(new Date(status.offlineSince).toISOString())} · {timeAgo(status.offlineSince, nowMs)}</span>{/if}
         <button data-testid="retry" disabled={$liveUi.checking} onclick={() => checkLiveStatus(camera.id)}>
           <Icon name="refresh" size={16} /> {$liveUi.checking ? 'Checking…' : 'Retry'}
         </button>
       </div>
     {:else if status?.online}
       <span class="state" data-testid="live-state">
-        {$liveUi.playerState === 'playing' ? 'Live' : $liveUi.playerState === 'reconnecting' ? 'Reconnecting…' : 'Connecting…'}
+        {paused ? 'Paused while the tab is hidden' : $liveUi.playerState === 'playing' ? 'Live' : $liveUi.playerState === 'reconnecting' ? 'Reconnecting…' : 'Connecting…'}
       </span>
     {:else}
       <span class="meta">Checking camera…</span>
     {/if}
     {#if streams}<span class="meta" data-testid="live-camera-streams">{streams}</span>{/if}
-    {#if proxyInfo?.webUrl}
-      <a class="meta" data-testid="live-proxy-link" href={proxyInfo.webUrl} target="_blank" rel="noopener noreferrer"
-        onclick={(e) => { e.preventDefault(); void openProxyUi(camera.id, proxyInfo!.webUrl!); }}>cam-proxy {proxyInfo.reachable ? '' : '(down)'}</a>
+    {#if proxyInfo}
+      <!-- The proxy's state always; its link when it reports one (issue #69). -->
+      <span class="meta" data-testid="live-proxy-state">cam-proxy: {proxyInfo.reachable ? 'reachable' : 'not reachable'}</span>
+      {#if proxyInfo.webUrl}
+        <a class="meta" data-testid="live-proxy-link" href={proxyInfo.webUrl} target="_blank" rel="noopener noreferrer"
+          onclick={(e) => openProxyClick(e, camera.id, proxyInfo!.webUrl!)}>Open cam-proxy</a>
+      {/if}
     {/if}
   </section>
 

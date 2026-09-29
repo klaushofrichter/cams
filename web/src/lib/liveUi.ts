@@ -23,6 +23,7 @@ export interface CameraStatus {
   error?: string;
   simulator?: string | null;
   streams?: { main: StreamInfo | null; sub: StreamInfo | null };
+  offlineSince?: number; // when it was first found offline
 }
 export interface LiveUi {
   quality: Quality;

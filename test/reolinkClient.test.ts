@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { AddressInfo } from 'net';
 import { Server } from 'http';
 import express from 'express';
@@ -393,5 +393,27 @@ describe('classifyNetworkError', () => {
       'camera_offline',
     );
     expect(classifyNetworkError(new Error('boom')).code).toBe('camera_offline');
+  });
+
+  // Issue #69: a failed GetEnc was kept for the full 10 minutes.
+  it('asks for the stream info again soon after it failed', async () => {
+    const client = new ReolinkClient(cam);
+    const calls: string[] = [];
+    let fail = true;
+    const real = (client as unknown as { command: (c: string, p?: unknown) => Promise<unknown> }).command.bind(client);
+    (client as unknown as { command: (c: string, p?: unknown) => Promise<unknown> }).command = async (c: string, p?: unknown) => {
+      calls.push(c);
+      if (c === 'GetEnc' && fail) throw new Error('boom');
+      if (c === 'GetEnc') return { Enc: { mainStream: { vType: 'h265', width: 4512, height: 2512, frameRate: 20 }, subStream: { vType: 'h264', width: 896, height: 512, frameRate: 10 } } };
+      return real(c, p);
+    };
+    const t0 = Date.now();
+    const clock = vi.spyOn(Date, 'now');
+    clock.mockReturnValue(t0);
+    expect((await client.status()).streams).toEqual({ main: null, sub: null });
+    fail = false;
+    clock.mockReturnValue(t0 + 31_000);
+    expect((await client.status()).streams.main).toMatchObject({ codec: 'h265' });
+    clock.mockRestore();
   });
 });

@@ -87,7 +87,15 @@ describe('camera routes', () => {
   it('reports an unreachable camera as offline with only an error code', async () => {
     const res = await request(appServer).get('/api/cameras/down/status').set('Cookie', auth);
     expect(res.status).toBe(200);
-    expect(res.body).toEqual({ id: 'down', online: false, error: 'camera_offline' });
+    expect(res.body).toEqual({ id: 'down', online: false, error: 'camera_offline', offlineSince: expect.any(Number) });
+  });
+
+  // Issue #69: the Live panel says since when a camera is offline.
+  it('keeps the time a camera went offline across checks', async () => {
+    const first = (await request(appServer).get('/api/cameras/down/status').set('Cookie', auth)).body.offlineSince as number;
+    expect(first).toBeLessThanOrEqual(Date.now());
+    await new Promise((r) => setTimeout(r, 20));
+    expect((await request(appServer).get('/api/cameras/down/status').set('Cookie', auth)).body.offlineSince).toBe(first);
   });
 
   it('404s an unknown camera', async () => {

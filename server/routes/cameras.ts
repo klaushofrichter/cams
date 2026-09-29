@@ -45,16 +45,22 @@ function errorDetail(err: unknown): string {
   return 'unknown';
 }
 
+// Since when each camera has been found offline (issue #69: the Live panel
+// says so); forgotten when it answers again.
+const offlineSince = new Map<string, number>();
+
 camerasRouter.get('/api/cameras/:id/status', async (req: Request, res: Response, next: NextFunction) => {
   const id = cameraId(req, res);
   if (!id) return;
   try {
     const status = await getClient(id)!.status();
+    offlineSince.delete(id);
     res.json({ id, online: true, ...status });
   } catch (err) {
     if (!(err instanceof CameraError)) return next(err);
     logger.warn({ cameraId: id, code: err.code, message: err.message }, 'camera_status_failed');
-    res.json({ id, online: false, error: err.code });
+    if (!offlineSince.has(id)) offlineSince.set(id, Date.now());
+    res.json({ id, online: false, error: err.code, offlineSince: offlineSince.get(id) });
   }
 });
 

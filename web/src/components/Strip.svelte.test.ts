@@ -185,6 +185,10 @@ describe('Strip', () => {
     preferences.set({ ...PREFS, timelineZoom: 0.5 });
     flushSync();
     expect(q('zoom-0.5')!.textContent).toBe('30 min');
+    q('zoom-0.5')!.click();
+    flushSync();
+    expect(q('strip-back')!.title).toBe('Back 30 min'); // issue #69: not "0.5 h"
+    expect(q('strip-forward')!.getAttribute('aria-label')).toBe('Forward 30 minutes');
     const labels = [...target!.querySelectorAll('[data-testid="strip-tick"]')].map((e) => e.textContent);
     expect(labels).toContain('12:05');
     expect(labels).toContain('11:50');

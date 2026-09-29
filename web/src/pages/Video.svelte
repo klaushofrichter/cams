@@ -449,7 +449,7 @@
         </div>
         {#if panel === 'live'}
           {#if camera}
-            <LivePanel {camera} {latest} pending={pendingToday} proxyInfo={proxyInfo}
+            <LivePanel {camera} {latest} pending={pendingToday} proxyInfo={proxyInfo} paused={!liveWanted}
               onplay={(e) => historyView?.jump(Date.parse(e.start), true)} />
           {/if}
         {:else if panel === 'downloads'}

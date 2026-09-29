@@ -92,7 +92,12 @@ proxyRouter.post('/api/cameras/:id/proxy/login-link', async (req: Request, res: 
       logger.warn({ cameraId: id, status: r.status }, 'proxy_login_link_refused');
       return void res.status(502).json({ error: 'proxy_unavailable' });
     }
-    res.json({ url: `${info.webUrl.replace(/\/+$/, '')}/control/login-link?code=${encodeURIComponent(body.code)}` });
+    // Under the public address's path; its query and hash dropped (issue #69).
+    const u = new URL(info.webUrl);
+    u.pathname = `${u.pathname.replace(/\/+$/, '')}/control/login-link`;
+    u.search = `?code=${encodeURIComponent(body.code)}`;
+    u.hash = '';
+    res.json({ url: u.toString() });
   } catch (err) {
     logger.warn({ cameraId: id, message: (err as Error).message }, 'proxy_login_link_failed');
     res.status(502).json({ error: 'proxy_unavailable' });
