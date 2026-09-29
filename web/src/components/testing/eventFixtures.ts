@@ -2,7 +2,7 @@ import type { EventClip } from '../../lib/recordings';
 
 // `count` clips inside one clock hour on `date`, one per minute starting at
 // :00 (so up to 60 are distinct and land in the same hour bucket). Shared by
-// the EventList/DownloadList component tests (fix round 1, items 2-4).
+// the EventList component tests (fix round 1, items 2-4).
 export function makeEvents(date: string, hour: number, count: number): EventClip[] {
   const hh = String(hour).padStart(2, '0');
   const events: EventClip[] = [];

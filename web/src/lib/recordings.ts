@@ -228,7 +228,7 @@ export const COLLAPSE_OVER = 10;
 
 // Whether an hour group with no explicit open/closed state yet should start
 // open: a busy hour starts collapsed unless it holds the current selection.
-// Shared by EventList and DownloadList so both the template's initial
+// Used by EventList so the template's initial
 // render and the effect's later bookkeeping ever agree, and a busy hour's
 // thumbnails are never built on the very first paint just to be torn down
 // again once the effect decides it should have been collapsed.

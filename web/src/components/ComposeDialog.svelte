@@ -1,29 +1,42 @@
 <script lang="ts">
   import { onDestroy, onMount, tick } from 'svelte';
   import { downloadUrl, formatClock, thumbUrl, TRIGGER_LABELS, type EventClip } from '../lib/recordings';
-  import { cancelJob, composedName, formatLength, isAvailable, pollJob, resultLength, SIZE_LABELS, startJob, videoUrl, type ComposeSize, type JobView } from '../lib/compose';
+  import { cancelJob, composedName, formatLength, isAvailable, ORIGINAL_4K_LABEL, pollJob, resultLength, SIZE_LABELS, startJob, videoUrl, type ComposeSize, type JobView, type SaveSize } from '../lib/compose';
 
-  // The SD download with pre-/post-roll (cam-proxy spec 2026-09-28).
-  let { camera, clip, onclose }: { camera: string; clip: EventClip; onclose: () => void } = $props();
+  // Every download of a clip goes through this dialog (Klaus, 2026-09-29): SD
+  // or 4K as recorded, or, with a cam-proxy, SD sizes with a pre-/post-roll
+  // (cam-proxy spec 2026-09-28). `composable`: the camera has a cam-proxy in use.
+  let { camera, clip, onclose, composable = true }: { camera: string; clip: EventClip; onclose: () => void; composable?: boolean } = $props();
 
   let preS = $state(0);
   let postS = $state(0);
   let badge = $state(true);
-  let size = $state<ComposeSize>('sd');
+  let size = $state<SaveSize>('sd');
   let job = $state<JobView | null>(null);
   let error = $state('');
   let timer: ReturnType<typeof setInterval> | undefined;
   let keep: ReturnType<typeof setInterval> | undefined; // keeps a finished result alive
 
-  const length = $derived(resultLength(clip.durationSec, Number(preS), Number(postS)));
-  const plain = $derived(Number(preS) === 0 && Number(postS) === 0 && size === 'sd');
+  // 4K is the camera's original: no pre- or post-roll.
+  const is4k = $derived(size === '4k');
+  const length = $derived(is4k ? resultLength(clip.durationSec, 0, 0) : resultLength(clip.durationSec, Number(preS), Number(postS)));
+  const plain = $derived(is4k || (Number(preS) === 0 && Number(postS) === 0 && size === 'sd'));
   const ready = $derived(job?.state === 'done');
   const busy = $derived(job?.state === 'queued' || job?.state === 'running');
-  const name = $derived(composedName(camera, clip.id, size));
+  const name = $derived(composedName(camera, clip.id, (is4k ? 'sd' : size) as ComposeSize));
 
   // Whether the proxy has a copy of this clip at all (issue #72): without
   // one, only the plain save is offered.
   let available = $state(true);
+  // Only SD and 4K as recorded: no cam-proxy, or it has no copy of this clip.
+  const simple = $derived(!composable || !available);
+  const sizes = $derived<[SaveSize, string][]>(simple
+    ? [['sd', SIZE_LABELS.sd], ['4k', ORIGINAL_4K_LABEL]]
+    : [...(Object.entries(SIZE_LABELS) as [SaveSize, string][]), ['4k', ORIGINAL_4K_LABEL]]);
+  // A size the list no longer offers (the proxy answered "no copy") falls back to SD.
+  $effect(() => {
+    if (!sizes.some(([k]) => k === size)) size = 'sd';
+  });
   let dialogEl: HTMLElement | undefined = $state();
   // Focus: into the dialog on open, kept inside by Tab, back to where it was
   // on close (issue #72).
@@ -31,7 +44,7 @@
   const focusables = () => [...(dialogEl?.querySelectorAll<HTMLElement>('button, input, select, a[href]') ?? [])].filter((e) => !e.hasAttribute('disabled'));
   onMount(() => {
     void tick().then(() => focusables()[0]?.focus());
-    void isAvailable(camera, clip.id).then((a) => (available = a));
+    if (composable) void isAvailable(camera, clip.id).then((a) => (available = a));
     const onVisible = () => {
       if (document.visibilityState === 'visible' && job) void poll(gen, job.id, true);
     };
@@ -75,14 +88,14 @@
     job = null;
   }
   async function generate() {
-    if (starting || busy) return;
+    if (starting || busy || size === '4k') return; // 4K is saved as it is, never composed
     stop();
     error = '';
     const mine = gen;
     starting = true;
     let started: JobView;
     try {
-      started = await startJob(camera, { eventId: clip.id, preS: Number(preS), postS: Number(postS), size, badge, timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone });
+      started = await startJob(camera, { eventId: clip.id, preS: Number(preS), postS: Number(postS), size: size as ComposeSize, badge, timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone });
     } catch (e) {
       if (mine === gen) {
         starting = false;
@@ -132,28 +145,34 @@
 
 <svelte:window onkeydown={(e) => e.key === 'Escape' && close()} onbeforeunload={() => stop()} />
 <div class="backdrop" role="presentation" onclick={close}></div>
-<div class="dialog" role="dialog" aria-modal="true" aria-label="Save SD clip" data-testid="compose-dialog" tabindex="-1" bind:this={dialogEl} onkeydown={trap}>
+<div class="dialog" role="dialog" aria-modal="true" aria-label="Save clip" data-testid="compose-dialog" tabindex="-1" bind:this={dialogEl} onkeydown={trap}>
   <header>
-    <h2>Save SD clip</h2>
+    <h2>Save clip</h2>
     <button class="x" data-testid="compose-close" aria-label="Close" onclick={close}>✕</button>
   </header>
   <div class="clip">
     <img data-testid="compose-thumb" src={thumbUrl(camera, clip.id)} alt="" />
     <span>{formatClock(clip.start)} · {clip.durationSec} s · {clip.triggers.map((t) => TRIGGER_LABELS[t]).join(', ')}</span>
   </div>
-  {#if !available}
+  {#if composable && !available}
     <p class="muted" data-testid="compose-unavailable">The cam-proxy has no copy of this clip, so it can only be saved as it is.</p>
-  {:else}
+  {/if}
   <div class="fields">
-    <label>Pre-roll (s) <input type="number" data-testid="compose-pre" min="-600" max="60" step="1" bind:value={preS} /></label>
-    <label>Post-roll (s) <input type="number" data-testid="compose-post" min="-600" max="60" step="1" bind:value={postS} /></label>
+    {#if !simple}
+      <label>Pre-roll (s) <input type="number" data-testid="compose-pre" min="-600" max="60" step="1" disabled={is4k} bind:value={preS} /></label>
+      <label>Post-roll (s) <input type="number" data-testid="compose-post" min="-600" max="60" step="1" disabled={is4k} bind:value={postS} /></label>
+    {/if}
     <label>Size
       <select data-testid="compose-size" bind:value={size}>
-        {#each Object.entries(SIZE_LABELS) as [k, label] (k)}<option value={k}>{label}</option>{/each}
+        {#each sizes as [k, label] (k)}<option value={k}>{label}</option>{/each}
       </select>
     </label>
-    <label class="row"><input type="checkbox" data-testid="compose-badge" bind:checked={badge} /> Mark still sections</label>
+    {#if !simple}
+      <label class="row"><input type="checkbox" data-testid="compose-badge" disabled={is4k} bind:checked={badge} /> Mark still sections</label>
+    {/if}
   </div>
+  {#if is4k}
+    <p class="muted" data-testid="compose-4k-note">4K saves the camera's original recording as it is{simple ? '' : ', so there is no pre- or post-roll. For one, choose an SD size'}.</p>
   {/if}
   {#if length.ok}
     <p class="muted" data-testid="compose-length" role="status">Result: {formatLength(length.seconds)}</p>
@@ -176,7 +195,7 @@
       <button data-testid="compose-generate" disabled={starting} onclick={generate}>{starting ? 'Starting…' : ready ? 'Generate again' : 'Generate'}</button>
     {/if}
     <a data-testid="compose-save" class="primary" download
-      href={plain ? downloadUrl(camera, clip.id, 'sub') : ready && job ? videoUrl(camera, job.id, false, name) : undefined}
+      href={plain ? downloadUrl(camera, clip.id, is4k ? 'main' : 'sub') : ready && job ? videoUrl(camera, job.id, false, name) : undefined}
       aria-disabled={plain || ready ? 'false' : 'true'}>Save</a>
   </footer>
 </div>

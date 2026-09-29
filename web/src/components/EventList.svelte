@@ -1,6 +1,9 @@
 <script lang="ts">
   import { tick, untrack } from 'svelte';
   import { ALL_KINDS, TRIGGER_LABELS, isAllKinds, toggleFilter, defaultGroupOpen, formatClock, groupByHour, thumbUrl, type EventClip, type Filter } from '../lib/recordings';
+  import ComposeDialog from './ComposeDialog.svelte';
+  import Icon from './Icon.svelte';
+  import { cameras } from '../lib/stores';
 
   let {
     cameraId,
@@ -51,6 +54,12 @@
   }
 
   const groups = $derived(groupByHour(events, date));
+
+  // Downloads (Klaus, 2026-09-29): each card's button opens the save dialog
+  // (SD or 4K; with a cam-proxy also a pre-/post-roll). Nothing downloads
+  // without the dialog's Save.
+  const composable = $derived(!!$cameras.find((c) => c.id === cameraId)?.proxy);
+  let saving: EventClip | null = $state(null);
 
   // Open/closed state per `cameraId|date|hour` -- not just `date|hour`:
   // switching cameras (without changing the date) must not carry over a
@@ -172,7 +181,7 @@
         {#if open}
           <ul class="list">
             {#each g.events as e (e.id)}
-              <li>
+              <li class="item" class:current={e.id === selectedId}>
                 <button class="card" data-testid="event-card" data-clip-id={e.id} aria-current={e.id === selectedId ? 'true' : undefined} onclick={() => select(e)}>
                   {#if broken.has(brokenKey(e.id))}
                     <span class="thumb placeholder" data-testid="event-thumb"></span>
@@ -187,6 +196,9 @@
                     </span>
                   </span>
                 </button>
+                <button class="dl" data-testid="event-download" aria-label={`Download the clip from ${formatClock(e.start)}`} title="Download…" onclick={() => (saving = e)}>
+                  <Icon name="downloads" size={18} />
+                </button>
               </li>
             {/each}
           </ul>
@@ -194,6 +206,10 @@
       </section>
     {/each}
   </div>
+{/if}
+
+{#if saving}
+  <ComposeDialog camera={cameraId} clip={saving} {composable} onclose={() => (saving = null)} />
 {/if}
 
 <style>
@@ -209,12 +225,22 @@
   .group-head .label { font-weight: 600; }
   .group-head .count { color: var(--muted); }
   .list { list-style: none; margin: 6px 0 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+  /* One card: the play area and, beside it, the download button. */
+  .item {
+    display: flex; align-items: stretch; border-radius: 10px; border: 1px solid var(--border); background: var(--surface);
+    overflow: hidden; transition: border-color 0.15s ease, background-color 0.15s ease;
+  }
+  .item.current { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 10%, var(--surface)); }
   .card {
-    width: 100%; display: flex; gap: 10px; align-items: center; padding: 6px; border-radius: 10px; text-align: left;
-    border: 1px solid var(--border); background: var(--surface); cursor: pointer; transition: border-color 0.15s ease, background-color 0.15s ease;
+    flex: 1; min-width: 0; display: flex; gap: 10px; align-items: center; padding: 6px; text-align: left;
+    border: 0; border-radius: 0; background: transparent; color: inherit; font: inherit; cursor: pointer; transition: background-color 0.15s ease;
   }
   .card:hover { background: var(--surface-2); }
-  .card[aria-current='true'] { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 10%, var(--surface)); }
+  .dl {
+    flex: none; width: 42px; display: grid; place-items: center; border: 0; border-left: 1px solid var(--border);
+    background: transparent; color: var(--muted); cursor: pointer; transition: color 0.15s ease, background-color 0.15s ease;
+  }
+  .dl:hover, .dl:focus-visible { color: var(--accent); background: var(--surface-2); }
   .thumb { width: 96px; height: 54px; object-fit: cover; border-radius: 6px; background: var(--surface-2); flex: none; }
   /* No thumbnail: the same look as the timeline where there is none. */
   .thumb.placeholder { background: var(--no-thumb-bg); }

@@ -201,5 +201,18 @@ describe('StripPlayer', () => {
     expect(line).toMatch(/^Sun Sep 27, \d{2}:\d{2}:\d{2}( [AP]M)? · 59 minutes ago · SD 10 FPS · Person, Motion$/);
     expect(target!.querySelector('.box [data-testid="source-badge"]')).toBeNull(); // no overlay on the video
   });
-});
 
+  // Klaus, 2026-09-29: no silent downloads. The player's download button
+  // opens the same save dialog as the History cards.
+  it('opens the save dialog from its download button instead of downloading', () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response('{"available":true}', { status: 200 })));
+    render({ at: T + 12_000 });
+    const b = q('clip-download')!;
+    expect(b.tagName).toBe('BUTTON');
+    expect(b.getAttribute('href')).toBeNull();
+    b.click();
+    flushSync();
+    expect(document.querySelector('[data-testid="compose-dialog"]')).not.toBeNull();
+    expect(document.querySelector('[data-testid="compose-thumb"]')!.getAttribute('src')).toContain(clip.id);
+  });
+});

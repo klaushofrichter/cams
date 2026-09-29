@@ -2,8 +2,10 @@
 <script lang="ts">
   import { untrack, type Snippet } from 'svelte';
   import Icon from './Icon.svelte';
+  import ComposeDialog from './ComposeDialog.svelte';
+  import { cameras } from '../lib/stores';
   import { nextChange, sourceAt, type Coverage, type Source } from '../lib/strip';
-  import { downloadUrl, TRIGGER_LABELS, videoUrl } from '../lib/recordings';
+  import { TRIGGER_LABELS, videoUrl, type EventClip } from '../lib/recordings';
   import { timeAgo } from '../lib/clock';
   import { previewAt, tileStyle, type PreviewMinute } from '../lib/timeline';
   import { liveUi } from '../lib/liveUi';
@@ -44,6 +46,9 @@
   const stillUrl = (ts: number) => `/api/cameras/${encodeURIComponent(cam)}/stills/${ts}.jpg`;
 
   const source = $derived(sourceAt(coverage, at, now));
+  // Downloads go through the save dialog, as on the History cards (Klaus, 2026-09-29).
+  let saving: EventClip | null = $state(null);
+  const composable = $derived(!!$cameras.find((c) => c.id === cam)?.proxy);
 
   // --- video A/B ---
   let vids: (HTMLVideoElement | undefined)[] = $state([undefined, undefined]);
@@ -295,10 +300,14 @@
       {/if}
     </span>
     {#if !glued && source.kind === 'clip' && !unavailable}
-      <a class="dl" data-testid="clip-download" href={downloadUrl(cam, source.clip.id, 'main')} title="Download (full quality)"><Icon name="downloads" size={16} /></a>
+      {@const c = source.clip}
+      <button class="dl" data-testid="clip-download" title="Download…" aria-label="Download this clip" onclick={() => (saving = c)}><Icon name="downloads" size={16} /></button>
     {/if}
   </div>
 </div>
+{#if saving}
+  <ComposeDialog camera={cam} clip={saving} {composable} onclose={() => (saving = null)} />
+{/if}
 
 <style>
   .player { display: flex; flex-direction: column; gap: 8px; min-width: 0; }

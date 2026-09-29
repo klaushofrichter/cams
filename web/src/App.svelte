@@ -28,7 +28,7 @@
   let drawerPanelEl: HTMLDivElement | undefined = $state();
   let drawerWasOpen = false;
 
-  // The video page (Live, History, Downloads) stays mounted but hidden
+  // The video page (Live and History) stays mounted but hidden
   // while it holds the live stream for the keep-alive after the user left
   // (spec 2026-09-28); the page runs that countdown itself. When it lets go,
   // the page unmounts and the stream closes. The page's <video> is never
