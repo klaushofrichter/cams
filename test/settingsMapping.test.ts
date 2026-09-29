@@ -15,7 +15,7 @@ const REAL = {
     vehicle: { AiAlarm: { ai_type: 'vehicle', sensitivity: 50 } },
     pet: { AiAlarm: { ai_type: 'dog_cat', sensitivity: 40 } },
   },
-  isp: { Isp: { channel: 0, dayNight: 'Auto', antiFlicker: '60HZ' } },
+  isp: { Isp: { channel: 0, dayNight: 'Auto', antiFlicker: '60HZ', rotation: 1, mirroring: 1 } },
   ir: { IrLights: { state: 'Auto' } },
   wl: { WhiteLed: { channel: 0, mode: 1, bright: 100, state: 0 } },
   osd: { Osd: { channel: 0, osdChannel: { enable: 1, name: 'Den', pos: 'Lower Right' }, osdTime: { enable: 1, pos: 'Top Center' }, watermark: 1 } },
@@ -37,6 +37,7 @@ describe('reading settings', () => {
       dayNight: 'auto',
       irLights: 'auto',
       spotlight: { mode: 'auto', brightness: 100 },
+      flip: { vertical: true, mirror: true },
       osd: { showName: true, name: 'Den', namePosition: 'Lower Right', showTime: true, timePosition: 'Top Center', watermark: true },
     });
   });
@@ -168,6 +169,22 @@ describe('building commands', () => {
       { fields: ['osd'], cmd: 'SetOsd', param: { Osd: { ...FULL.osd.Osd, watermark: 0 } } },
     ]);
     expect(patchApplied('osd', { osd: { watermark: true } }, imageFrom(REAL))).toBe(true);
+  });
+
+  // Isp.rotation flips the picture upside down, Isp.mirroring left-right;
+  // both = rotated 180° (measured on cam1, 2026-09-29).
+  it('reads, validates and writes the picture flip', () => {
+    expect(imageFrom({ ...REAL, isp: { Isp: { dayNight: 'Auto', rotation: 0, mirroring: 1 } } }).flip).toEqual({ vertical: false, mirror: true });
+    expect(validateImagePatch({ flip: { vertical: true } }).ok).toBe(true);
+    expect(validateImagePatch({ flip: { vertical: 1 } }).ok).toBe(false);
+    expect(validateImagePatch({ flip: { sideways: true } }).ok).toBe(false);
+    expect(imageCommands({ flip: { vertical: false } }, FULL)).toEqual([
+      { fields: ['flip'], cmd: 'SetIsp', param: { Isp: { ...FULL.isp.Isp, rotation: 0 } } },
+    ]);
+    // With day/night in the same save: one SetIsp carrying both.
+    const both = imageCommands({ dayNight: 'color', flip: { vertical: true, mirror: true } }, FULL);
+    expect(both).toEqual([{ fields: ['dayNight', 'flip'], cmd: 'SetIsp', param: { Isp: { ...FULL.isp.Isp, dayNight: 'Color', rotation: 1, mirroring: 1 } } }]);
+    expect(patchApplied('flip', { flip: { mirror: true } }, imageFrom(REAL))).toBe(true);
   });
 
   it('sends nothing for an empty spotlight or OSD patch', () => {

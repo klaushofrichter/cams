@@ -35,11 +35,25 @@ describe('diffPatch', () => {
       dayNight: 'auto' as const,
       irLights: 'auto' as const,
       spotlight: { mode: 'off' as const, brightness: 50 },
+      flip: { vertical: false, mirror: false },
       osd: { showName: true, name: 'Front Door', namePosition: 'Upper Left', showTime: true, timePosition: 'Lower Right', watermark: true },
     };
     const edited = structuredClone(image);
     edited.osd.name = 'custom';
     expect(diffPatch(image, edited)).toEqual({ osd: { name: 'custom' } });
+  });
+
+  it('sends only the changed half of the picture flip', () => {
+    const image = {
+      dayNight: 'auto' as const,
+      irLights: 'auto' as const,
+      spotlight: { mode: 'off' as const, brightness: 50 },
+      flip: { vertical: true, mirror: false },
+      osd: { showName: true, name: 'Den', namePosition: 'Upper Left', showTime: true, timePosition: 'Lower Right', watermark: false },
+    };
+    const edited = structuredClone(image);
+    edited.flip.mirror = true;
+    expect(diffPatch(image, edited)).toEqual({ flip: { mirror: true } });
   });
 });
 
