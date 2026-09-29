@@ -13,9 +13,10 @@ async function freshLimiters(env: Record<string, string>) {
   return import('../server/middleware/rateLimit');
 }
 
-function buildApp(createApiRateLimit: () => express.RequestHandler, createMediaRateLimit: () => express.RequestHandler) {
+function buildApp(createApiRateLimit: () => express.RequestHandler, createMediaRateLimit: () => express.RequestHandler, createImageRateLimit?: () => express.RequestHandler) {
   const app = express();
   app.use(createApiRateLimit(), createMediaRateLimit());
+  if (createImageRateLimit) app.use(createImageRateLimit());
   app.get('/me', (_req, res) => res.json({ ok: true }));
   app.get('/cameras/:id/clips/:clipId/thumb.jpg', (_req, res) => res.json({ ok: true }));
   app.get('/cameras/:id/previews/:file', (_req, res) => res.json({ ok: true }));
@@ -28,6 +29,7 @@ describe('rate limits', () => {
   afterEach(() => {
     delete process.env.RATE_LIMIT_API_MAX;
     delete process.env.RATE_LIMIT_MEDIA_MAX;
+    delete process.env.RATE_LIMIT_IMAGE_MAX;
     delete process.env.RATE_LIMIT_WINDOW_MS;
     vi.resetModules();
   });
@@ -47,20 +49,38 @@ describe('rate limits', () => {
     expect((await request(app).get('/me')).status).toBe(200);
   });
 
-  // Plan 6: a day on the Timeline is up to 1440 sprites, plus stills.
-  it('counts proxy sprites and stills as media', async () => {
-    const { createApiRateLimit, createMediaRateLimit } = await freshLimiters({
+  // Plan 6: a day on the Timeline is up to 1440 sprites, plus stills. Since
+  // 2026-09-29 they have their own budget: a burst of stills (a drag through
+  // History) spent the shared one, and the Timeline's sprites got 429.
+  it('gives proxy sprites and stills their own budget, apart from the API and clip media', async () => {
+    const { createApiRateLimit, createMediaRateLimit, createImageRateLimit } = await freshLimiters({
       RATE_LIMIT_API_MAX: '2',
-      RATE_LIMIT_MEDIA_MAX: '50',
+      RATE_LIMIT_MEDIA_MAX: '3',
+      RATE_LIMIT_IMAGE_MAX: '50',
       RATE_LIMIT_WINDOW_MS: '60000',
     });
-    const app = buildApp(createApiRateLimit, createMediaRateLimit);
+    const app = buildApp(createApiRateLimit, createMediaRateLimit, createImageRateLimit);
     for (let i = 0; i < 10; i++) {
       expect((await request(app).get(`/cameras/cam1/previews/${i}.jpg`)).status).toBe(200);
       expect((await request(app).get(`/cameras/cam1/stills/${i}.jpg`)).status).toBe(200);
       expect((await request(app).get('/cameras/cam1/still/latest.jpg')).status).toBe(200); // the Live fallback, once a second
     }
-    expect((await request(app).get('/me')).status).toBe(200);
+    expect((await request(app).get('/me')).status).toBe(200); // the API budget (2) untouched
+    expect((await request(app).get('/cameras/cam1/clips/x/thumb.jpg')).status).toBe(200); // clip media (3) untouched
+  });
+
+  it('answers 429 for stills once their own budget is spent, without touching clip media', async () => {
+    const { createApiRateLimit, createMediaRateLimit, createImageRateLimit } = await freshLimiters({
+      RATE_LIMIT_API_MAX: '1000',
+      RATE_LIMIT_MEDIA_MAX: '1000',
+      RATE_LIMIT_IMAGE_MAX: '2',
+      RATE_LIMIT_WINDOW_MS: '60000',
+    });
+    const app = buildApp(createApiRateLimit, createMediaRateLimit, createImageRateLimit);
+    await request(app).get('/cameras/cam1/stills/1.jpg');
+    await request(app).get('/cameras/cam1/previews/2.jpg');
+    expect((await request(app).get('/cameras/cam1/stills/3.jpg')).status).toBe(429);
+    expect((await request(app).get('/cameras/cam1/clips/x/thumb.jpg')).status).toBe(200);
   });
 
   it('answers a media request 429 once the media limit itself is exceeded', async () => {

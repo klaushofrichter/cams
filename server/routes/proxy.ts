@@ -112,6 +112,8 @@ function range(req: Request, res: Response): [number, number] | undefined {
 }
 
 function proxyFailed(err: unknown, id: string, res: Response): void {
+  // The browser left (a tile scrolled away, a page closed): nothing to answer.
+  if (res.destroyed) return;
   if (!(err instanceof ProxyError)) throw err;
   // The proxy keeps no stills (stills.enabled false): say so, not "not reachable" (issue #38).
   if (err.status === 404 && !res.headersSent) return void res.status(404).json({ error: 'stills_disabled' });
@@ -160,6 +162,7 @@ for (const kind of ['previews', 'stills'] as const) {
         await up.body?.cancel();
         return void res.status(up.status === 404 ? 404 : 502).json({ error: up.status === 404 ? 'not_found' : 'proxy_unavailable' });
       }
+      if (res.destroyed) return void (await up.body.cancel()); // the browser left while we waited
       res.status(200).set({ 'Content-Type': 'image/jpeg', 'Cache-Control': up.headers.get('cache-control') ?? 'no-store' });
       await pipeline(Readable.fromWeb(up.body as import('stream/web').ReadableStream), res);
     } catch (err) {
@@ -183,6 +186,7 @@ proxyRouter.get('/api/cameras/:id/still/latest.jpg', async (req: Request, res: R
       await up.body?.cancel();
       return void res.status(up.status === 404 ? 404 : 502).json({ error: up.status === 404 ? 'not_found' : 'proxy_unavailable' });
     }
+    if (res.destroyed) return void (await up.body?.cancel()); // the browser left while we waited
     res.status(200).set({ 'Content-Type': 'image/jpeg', 'Cache-Control': 'no-store', 'X-Still-Time': String(ts) });
     await pipeline(Readable.fromWeb(up.body as import('stream/web').ReadableStream), res);
   } catch (err) {

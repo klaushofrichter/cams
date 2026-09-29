@@ -199,14 +199,36 @@
     if (stillState.size > 700) for (const k of [...stillState.keys()].slice(0, 100)) stillState.delete(k);
   }
   const stillTs = $derived(source.kind === 'still' ? source.ts : null);
+  // Playing forward, stills load as they come (a second at a time). Any
+  // other move (a drag, a jump, a step) loads only where it settles, after
+  // 150 ms; meanwhile the minute's sprite tile stands in. A drag across
+  // hours once asked for 2,542 stills in a minute (2026-09-29).
+  const SETTLE_MS = 150;
+  let lastStillTs: number | null = null;
+  let settleTimer: ReturnType<typeof setTimeout> | undefined;
+  let stillPending = $state<number | null>(null);
   $effect(() => {
     const ts = stillTs;
-    if (ts === null) return;
+    clearTimeout(settleTimer);
+    if (ts === null) {
+      stillPending = null;
+      return;
+    }
     untrack(() => {
-      loadStill(ts, true);
-      for (let k = 1; k <= 3; k++) loadStill(ts + k * 1000, false);
+      const load = (t: number) => {
+        stillPending = null;
+        loadStill(t, true);
+        for (let k = 1; k <= 3; k++) loadStill(t + k * 1000, false);
+      };
+      const step = lastStillTs === null ? 0 : ts - lastStillTs;
+      lastStillTs = ts;
+      if (playing && step > 0 && step <= 2000) return load(ts);
+      stillPending = ts;
+      settleTimer = setTimeout(() => load(ts), SETTLE_MS);
     });
   });
+  $effect(() => () => clearTimeout(settleTimer));
+  const pendingTile = $derived(stillPending !== null ? previewAt(previews, stillPending) : null);
 
   // --- preview tile, scaled up to the box ---
   let boxW = $state(0);
@@ -266,6 +288,10 @@
     {/if}
     {#if glued}
       <!-- live: the layer above -->
+    {:else if source.kind === 'still' && pendingTile}
+      <div class="layer tile-wrap" data-testid="strip-preview">
+        <span class="tile" style={`${tileStyle(pendingTile.minute, pendingTile.index, 1)};transform:scale(${boxW / 160})`}></span>
+      </div>
     {:else if source.kind === 'still' && stillShown}
       <img class="layer" data-testid="strip-still" src={stillShown} alt="" />
     {:else if source.kind === 'preview' && tile}

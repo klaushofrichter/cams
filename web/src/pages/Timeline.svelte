@@ -146,21 +146,49 @@
   }
 
   // Sprites load when their tile scrolls into view (a day is up to 1440).
-  function lazyStyle(node: HTMLElement, style: string) {
-    let current = style;
+  // Each is fetched through an Image first, so a refused one (429 after a
+  // burst, 2026-09-29) is tried again after 3, 6, 12 and 24 s instead of
+  // leaving an empty tile; the tile shows once its sprite has loaded.
+  const RETRY_MS = [3000, 6000, 12_000, 24_000];
+  function lazyStyle(node: HTMLElement, arg: { style: string; url: string }) {
+    let current = arg;
+    let visible = false;
+    let gone = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const load = (want: { style: string; url: string }, attempt: number) => {
+      const img = new Image();
+      img.onload = () => {
+        if (!gone && current.url === want.url) node.setAttribute('style', current.style);
+      };
+      img.onerror = () => {
+        if (gone || current.url !== want.url || attempt >= RETRY_MS.length) return;
+        timer = setTimeout(() => load(want, attempt + 1), RETRY_MS[attempt]);
+      };
+      img.src = want.url;
+    };
     const io = new IntersectionObserver((entries) => {
       if (entries.some((x) => x.isIntersecting)) {
-        node.setAttribute('style', current);
+        visible = true;
         io.disconnect();
+        load(current, 0);
       }
     }, { rootMargin: '200px' });
     io.observe(node);
     return {
-      update(s: string) {
-        current = s;
-        if (node.getAttribute('style')) node.setAttribute('style', s);
+      update(a: { style: string; url: string }) {
+        const changed = a.url !== current.url;
+        current = a;
+        if (!visible) return;
+        if (changed) {
+          clearTimeout(timer);
+          load(current, 0);
+        } else if (node.getAttribute('style')) node.setAttribute('style', a.style);
       },
-      destroy: () => io.disconnect(),
+      destroy: () => {
+        gone = true;
+        clearTimeout(timer);
+        io.disconnect();
+      },
     };
   }
 </script>
@@ -202,7 +230,7 @@
             <button class="tile" class:event={!!ev} class:active={open?.minute.minute === m.minute} title={clock(m.minute) + (ev ? ` · ${ev.triggers.join(', ')}` : '')}
               aria-label={`${clock(m.minute)}${ev ? `, event: ${ev.triggers.join(', ')}` : ''}`}
               onclick={() => void show(m)} data-testid="timeline-minute">
-              <span class="img" use:lazyStyle={tileStyle(m, firstTile(m), 0.5)}></span>
+              <span class="img" use:lazyStyle={{ style: tileStyle(m, firstTile(m), 0.5), url: m.url }}></span>
             </button>
           {/each}
         </div>
