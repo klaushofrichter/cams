@@ -5,7 +5,7 @@
 [![Build and publish image](https://github.com/klaushofrichter/cams/actions/workflows/build-push.yml/badge.svg)](https://github.com/klaushofrichter/cams/actions/workflows/build-push.yml)
 [![Deploy production](https://github.com/klaushofrichter/cams/actions/workflows/deploy-production.yml/badge.svg)](https://github.com/klaushofrichter/cams/actions/workflows/deploy-production.yml)
 <!-- Static badge: Dependabot has no status endpoint; alerts and security fixes are enabled in repo settings. -->
-![Dependabot](https://img.shields.io/badge/dependabot-enabled-025E8C?logo=dependabot)
+[![Dependabot](https://img.shields.io/badge/dependabot-enabled-025E8C?logo=dependabot&logoColor=white)](https://github.com/klaushofrichter/cams/security/dependabot)
 
 Private viewer for Skylar Technology's Reolink security cameras, at
 <https://cams.skylar.technology>: live video, recorded events with AI detection,
