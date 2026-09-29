@@ -17,6 +17,8 @@
     onthumberror,
     downloadsOk = true,
     pending = [],
+    onreveal,
+    onhours,
   }: {
     cameraId: string;
     events: EventClip[];
@@ -29,6 +31,10 @@
     downloadsOk?: boolean;
     // Live events that started and aren't listed as recordings yet (Klaus, 2026-09-28).
     pending?: { kind: string; ts: number }[];
+    // A tap on a card's thumbnail: bring the player into view (Klaus, 2026-09-29).
+    onreveal?: () => void;
+    // Whether any hour group is open, for the "Collapse hours" / "Expand hours" button.
+    onhours?: (anyOpen: boolean) => void;
   } = $props();
 
   // Keyed by cameraId|id, not just id: a clip id is only unique within its
@@ -139,6 +145,14 @@
     });
   });
 
+  // "Collapse hours" / "Expand hours" (Klaus, 2026-09-29). The button offers
+  // "Expand hours" only when every hour is collapsed.
+  const anyOpen = $derived(groups.some((g) => groupOpen[keyOf(g.hour)] ?? defaultGroupOpen(g, selectedId)));
+  $effect(() => onhours?.(anyOpen));
+  export function setAllHours(open: boolean): void {
+    groupOpen = { ...groupOpen, ...Object.fromEntries(groups.map((g) => [keyOf(g.hour), open])) };
+  }
+
   function toggle(hour: number) {
     const key = keyOf(hour);
     groupOpen = { ...groupOpen, [key]: !groupOpen[key] };
@@ -183,7 +197,11 @@
           <ul class="list">
             {#each g.events as e (e.id)}
               <li class="item" class:current={e.id === selectedId}>
-                <button class="card" data-testid="event-card" data-clip-id={e.id} aria-current={e.id === selectedId ? 'true' : undefined} onclick={() => select(e)}>
+                <button class="card" data-testid="event-card" data-clip-id={e.id} aria-current={e.id === selectedId ? 'true' : undefined} onclick={(ev) => {
+                  select(e);
+                  // The thumbnail also brings the player into view; the rest of the card keeps the list in view.
+                  if ((ev.target as Element | null)?.closest('[data-testid="event-thumb"]')) onreveal?.();
+                }}>
                   {#if broken.has(brokenKey(e.id))}
                     <span class="thumb placeholder" data-testid="event-thumb"></span>
                   {:else}

@@ -133,6 +133,40 @@ test('on a phone, selecting a clip on the strip keeps the page where it is', asy
   expect(Math.abs(after - before)).toBeLessThan(40);
 });
 
+// Klaus, 2026-09-29: on a phone, a tap on a card's thumbnail scrolls up to
+// the player; a tap elsewhere on the card keeps the list in view.
+test('on a phone, the thumbnail brings the player into view, the rest of the card does not', async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== 'phone', 'phone layout only');
+  await page.goto('/app/recordings?panel=history');
+  const video = page.locator('.player .box');
+  const card = page.locator('[data-testid="event-card"][data-clip-id$="-081510-081535"]');
+  await card.scrollIntoViewIfNeeded();
+  expect((await video.boundingBox())!.y).toBeLessThan(0); // scrolled away
+  await card.locator('.meta').click();
+  await page.waitForTimeout(600);
+  expect((await video.boundingBox())!.y).toBeLessThan(0); // still the list
+  await card.locator('[data-testid="event-thumb"]').click();
+  await expect.poll(async () => (await video.boundingBox())!.y).toBeGreaterThanOrEqual(0);
+});
+
+// Klaus, 2026-09-29: collapse or expand all hour groups; "Expand hours"
+// only when every hour is collapsed.
+test('the hours button collapses and expands them all, and offers Collapse hours once one is opened', async ({ page }) => {
+  await page.goto('/app/recordings?panel=history');
+  const btn = page.getByTestId('hours-toggle');
+  const toggles = page.getByTestId('hour-toggle');
+  await expect(toggles.first()).toBeVisible();
+  await expect(btn).toHaveText('Collapse hours');
+  await btn.click();
+  await expect(btn).toHaveText('Expand hours');
+  for (const t of await toggles.all()) await expect(t).toHaveAttribute('aria-expanded', 'false');
+  await toggles.first().click();
+  await expect(btn).toHaveText('Collapse hours');
+  await btn.click();
+  await btn.click();
+  for (const t of await toggles.all()) await expect(t).toHaveAttribute('aria-expanded', 'true');
+});
+
 test('previous day shows yesterday\'s recordings; a day without any says so', async ({ page }) => {
   await openEvents(page);
   await page.getByTestId('day-prev').click();
