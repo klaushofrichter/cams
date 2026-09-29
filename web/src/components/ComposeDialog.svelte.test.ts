@@ -13,10 +13,10 @@ afterEach(() => {
   component = target = undefined;
   vi.unstubAllGlobals();
 });
-function render(onclose = vi.fn()) {
+function render(onclose = vi.fn(), composable = true) {
   target = document.createElement('div');
   document.body.appendChild(target);
-  component = mount(ComposeDialog, { target, props: { camera: 'den', clip, onclose } });
+  component = mount(ComposeDialog, { target, props: { camera: 'den', clip, onclose, composable } });
   flushSync();
   return onclose;
 }
@@ -299,5 +299,60 @@ describe('ComposeDialog', () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  // Klaus, 2026-09-29: every download goes through this dialog; 4K (the
+  // camera's original main stream, formerly "Full") is one of its sizes.
+  describe('as the only way to download (History cards)', () => {
+    const SUB = '/api/cameras/den/clips/20260928-140000-140020/download?quality=sub';
+    const MAIN = '/api/cameras/den/clips/20260928-140000-140020/download?quality=main';
+    const choose = (v: string) => {
+      const el = q('compose-size') as HTMLSelectElement;
+      el.value = v;
+      el.dispatchEvent(new Event('change', { bubbles: true }));
+      flushSync();
+    };
+
+    it('is titled for any save, not only SD', () => {
+      render();
+      expect(target!.querySelector('h2')!.textContent).toBe('Save clip');
+    });
+
+    it('offers 4K, which saves the original with no pre- or post-roll', () => {
+      render();
+      expect([...(q('compose-size') as HTMLSelectElement).options].map((o) => o.value)).toContain('4k');
+      set('compose-post', '10');
+      choose('4k');
+      expect((q('compose-pre') as HTMLInputElement).disabled).toBe(true);
+      expect((q('compose-post') as HTMLInputElement).disabled).toBe(true);
+      expect(q('compose-4k-note')).not.toBeNull();
+      expect(q('compose-generate')).toBeNull();
+      expect(q('compose-save')!.getAttribute('href')).toBe(MAIN);
+      expect(q('compose-save')!.getAttribute('aria-disabled')).toBe('false');
+      expect(q('compose-length')!.textContent).toContain('0:20');
+    });
+
+    it('without a cam-proxy offers only SD and 4K, saved as they are', () => {
+      const fetchSpy = vi.fn(async () => new Response('{}', { status: 200 }));
+      vi.stubGlobal('fetch', fetchSpy);
+      render(vi.fn(), false);
+      expect(q('compose-pre')).toBeNull();
+      expect(q('compose-post')).toBeNull();
+      expect([...(q('compose-size') as HTMLSelectElement).options].map((o) => o.value)).toEqual(['sd', '4k']);
+      expect(q('compose-save')!.getAttribute('href')).toBe(SUB);
+      choose('4k');
+      expect(q('compose-save')!.getAttribute('href')).toBe(MAIN);
+      expect(fetchSpy).not.toHaveBeenCalled(); // no proxy to ask about a copy
+    });
+
+    it('when the proxy has no copy, still lets you pick SD or 4K', async () => {
+      vi.stubGlobal('fetch', vi.fn(async () => new Response('{"available":false}', { status: 200 })));
+      render();
+      await vi.waitFor(() => expect(q('compose-unavailable')).not.toBeNull());
+      flushSync();
+      expect([...(q('compose-size') as HTMLSelectElement).options].map((o) => o.value)).toEqual(['sd', '4k']);
+      choose('4k');
+      expect(q('compose-save')!.getAttribute('href')).toBe(MAIN);
+    });
   });
 });

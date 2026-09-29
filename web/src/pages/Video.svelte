@@ -3,7 +3,6 @@
   import DayPicker from '../components/DayPicker.svelte';
   import HistoryView from '../components/HistoryView.svelte';
   import EventList from '../components/EventList.svelte';
-  import DownloadList from '../components/DownloadList.svelte';
   import LiveBox from '../components/LiveBox.svelte';
   import LivePanel from '../components/LivePanel.svelte';
   import { cameras, selectedCameraId } from '../lib/stores';
@@ -22,7 +21,8 @@
   import { createKeepAlive } from '../lib/keepAlive';
   import { checkLiveStatus, liveStreamHeld } from '../lib/liveUi';
 
-  // One page for Live, History and Downloads (spec 2026-09-28): the player
+  // One page for Live and History (spec 2026-09-28; Downloads joined History
+  // on 2026-09-29, a download button on each card): the player
   // column never changes, the panel on the right does. On Live the strip's
   // right end is the live stream. App keeps this page mounted (hidden) while
   // the live stream is kept alive after leaving it.
@@ -31,7 +31,6 @@
   const TABS: { id: Panel; label: string }[] = [
     { id: 'live', label: 'Live' },
     { id: 'history', label: 'History' },
-    { id: 'downloads', label: 'Downloads' },
   ];
 
   let events: EventClip[] = $state([]);
@@ -308,7 +307,7 @@
     });
   });
 
-  // Entering History or Downloads without a position (a sidebar link) puts
+  // Entering History without a position (a sidebar link) puts
   // the restored session cursor into the URL; after that the URL is
   // canonical. On every entry: the page stays mounted across pages now.
   $effect(() => {
@@ -456,8 +455,6 @@
             <LivePanel {camera} {latest} pending={pendingToday} proxyInfo={proxyInfo} paused={!liveWanted}
               onplay={(e) => historyView?.jump(Date.parse(e.start), true)} />
           {/if}
-        {:else if panel === 'downloads'}
-          <DownloadList cameraId={cam} {events} date={cursor.date} selectedId={playheadClip} />
         {:else}
           <EventList cameraId={cam} events={visible} {filter} date={cursor.date} selectedId={playheadClip} pending={pendingToday}
             onfilter={(f) => go({}, { filter: f }, 'replace')}
@@ -489,7 +486,7 @@
      video keeps its size between pages and the page itself doesn't scroll. */
   /* Wide windows centre the whole app (App.svelte), so the columns are just
      the player and the panel (Klaus, 2026-09-28). */
-  .workspace { display: grid; grid-template-columns: minmax(0, var(--player-max-w)) 340px; gap: 18px; align-items: start; }
+  .workspace { display: grid; grid-template-columns: minmax(0, var(--player-max-w)) 370px; gap: 18px; align-items: start; }
   .center.off, .updated.off { visibility: hidden; }
   .main { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
   .side { display: flex; flex-direction: column; gap: 10px; max-height: calc(100vh - 170px); overflow: auto; }
