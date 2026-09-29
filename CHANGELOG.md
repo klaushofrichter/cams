@@ -8,3 +8,8 @@ published as [GitHub releases](https://github.com/klaushofrichter/cams/releases)
 
 ## [Unreleased]
 
+- Downloads: SD opens a dialog to save the clip, or a composed clip with a
+  pre-/post-roll (up to 1:00, filled from other clips, stills or "No
+  recording" cards), with a progress bar and a preview. Needs a cam-proxy
+  with composed clips; Full stays a direct download.
+
