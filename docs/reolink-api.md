@@ -533,7 +533,7 @@ carry the whole object (see above).
 | Day/night | `GetIsp` → `Isp.dayNight` | `SetIsp {Isp:{channel:0,dayNight}}` | `Auto`, `Color`, `Black&White` |
 | IR lights | `GetIrLights` → `IrLights.state` | `SetIrLights {IrLights:{channel:0,state}}` | `Auto`, `Off` |
 | Spotlight | `GetWhiteLed` → `WhiteLed.mode`, `bright` | `SetWhiteLed {WhiteLed:{channel:0,mode,bright}}` | mode 0 off, 1 on motion at night, 2 on at night, 3 schedule; bright 0–100 |
-| On-screen text | `GetOsd` → `Osd.osdChannel {enable,name,pos}`, `Osd.osdTime {enable,pos}` | `SetOsd {Osd:{channel:0,osdChannel:{…},osdTime:{…}}}` | 6 positions (`Upper Left` … `Lower Right`); name ≤ 31 bytes (cams: UTF-8 bytes, no control or format characters) |
+| On-screen text | `GetOsd` → `Osd.osdChannel {enable,name,pos}`, `Osd.osdTime {enable,pos}`, `Osd.watermark` (0/1, the Reolink logo) | `SetOsd {Osd:{channel:0,osdChannel:{…},osdTime:{…},watermark}}` | 6 positions (`Upper Left` … `Lower Right`); name ≤ 31 bytes (cams: UTF-8 bytes, no control or format characters); `range` lists `watermark` as `boolean` (measured 2026-09-29) |
 | Storage | `GetHddInfo` → `HddInfo[0] {capacity, size, mount}` | — | MB; **`size` is the FREE space** |
 | Certificate | TLS handshake (`getPeerCertificate()`) | — | `GetCertificateInfo` has no subject or expiry |
 | Reboot | — | `Reboot {}` | the camera is offline about a minute; it may drop the connection before answering. cams answers `202` when the reply doesn't confirm it, and refuses another reboot for 120 s (`429`) |
