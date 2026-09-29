@@ -8,3 +8,6 @@ published as [GitHub releases](https://github.com/klaushofrichter/cams/releases)
 
 ## [Unreleased]
 
+- History: a tap on a card's thumbnail plays the clip and scrolls up to the player when it has scrolled away (on a phone); a tap elsewhere on the card keeps the list in view.
+- History: "Collapse hours" / "Expand hours" for the hour groups, next to the Live/History tabs. It offers "Expand hours" only when every hour is collapsed.
+
