@@ -43,6 +43,7 @@ describe('ComposeDialog', () => {
       calls.push([url, init]);
       if (init?.method === 'POST') return new Response(JSON.stringify({ id: 'a'.repeat(22), state: 'running', progress: 0, durationS: 50 }), { status: 201 });
       if (init?.method === 'DELETE') return new Response(null, { status: 204 });
+      if (url.includes('/available')) return new Response('{"available":true}', { status: 200 });
       polls++;
       return new Response(JSON.stringify({ id: 'a'.repeat(22), state: polls > 1 ? 'done' : 'running', progress: polls > 1 ? 1 : 0.5, durationS: 50 }), { status: 200 });
     }));
@@ -55,7 +56,7 @@ describe('ComposeDialog', () => {
       q('compose-generate')!.click();
       await vi.advanceTimersByTimeAsync(10);
       flushSync();
-      expect(JSON.parse(String(calls[0][1]!.body))).toEqual({ eventId: clip.id, preS: 0, postS: 30, size: 'sd', badge: true, timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone });
+      expect(JSON.parse(String(calls.find((c) => c[1]?.method === 'POST')![1]!.body))).toEqual({ eventId: clip.id, preS: 0, postS: 30, size: 'sd', badge: true, timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone });
       await vi.advanceTimersByTimeAsync(1000);
       flushSync();
       expect((q('compose-progress') as HTMLProgressElement).value).toBe(0.5);
@@ -118,7 +119,7 @@ describe('ComposeDialog', () => {
     q('compose-generate')?.click();
     await settle();
     expect(calls.filter((c) => c.method === 'POST')).toHaveLength(1);
-    expect(JSON.parse(calls[0].body!).timeZone).toBe(Intl.DateTimeFormat().resolvedOptions().timeZone);
+    expect(JSON.parse(calls.find((c) => c.method === 'POST')!.body!).timeZone).toBe(Intl.DateTimeFormat().resolvedOptions().timeZone);
   });
 
   it('cancels a job whose start answer arrives after Close', async () => {
@@ -198,5 +199,85 @@ describe('ComposeDialog', () => {
     q('compose-generate')!.click();
     await settle();
     expect(target!.textContent).toContain('At least 1 s of the clip must remain');
+  });
+
+  // Issue #72 items.
+  it('moves focus into the dialog, keeps Tab inside it, and gives it back on close', async () => {
+    server();
+    const opener = document.createElement('button');
+    document.body.appendChild(opener);
+    opener.focus();
+    const onclose = render();
+    await settle(); // focus moves in after the first render
+    const dialog = q('compose-dialog')!;
+    expect(dialog.contains(document.activeElement)).toBe(true);
+    const focusable = [...dialog.querySelectorAll<HTMLElement>('button, input, select, a[href]')].filter((e) => !e.hasAttribute('disabled'));
+    focusable.at(-1)!.focus();
+    dialog.dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab', bubbles: true }));
+    expect(document.activeElement).toBe(focusable[0]);
+    q('compose-close')!.click();
+    expect(onclose).toHaveBeenCalled();
+    component && unmount(component);
+    component = undefined;
+    expect(document.activeElement).toBe(opener);
+    opener.remove();
+  });
+
+  it('labels the progress and announces the length politely', async () => {
+    server();
+    render();
+    set('compose-post', '10');
+    expect(q('compose-length')!.getAttribute('role')).toBe('status');
+    set('compose-post', '99');
+    expect(q('compose-error')!.getAttribute('role')).toBe('status');
+    set('compose-post', '10');
+    q('compose-generate')!.click();
+    await settle();
+    expect(q('compose-progress')!.getAttribute('aria-label')).toBe('Composing');
+  });
+
+  it('says when the proxy has no copy of the clip, and offers only the plain save', async () => {
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => new Response(JSON.stringify(url.includes('/available') ? { available: false } : {}), { status: 200 })));
+    render();
+    await settle();
+    expect(q('compose-unavailable')!.textContent).toContain('no copy of this clip');
+    expect(q('compose-post')).toBeNull();
+    expect(q('compose-save')!.getAttribute('href')).toContain('quality=sub');
+  });
+
+  it('keeps a finished result alive while the dialog is open', async () => {
+    vi.useFakeTimers();
+    try {
+      const calls = server({ poll: async () => new Response(JSON.stringify(job('c', 'done', 1)), { status: 200 }) });
+      render();
+      set('compose-post', '10');
+      q('compose-generate')!.click();
+      await vi.advanceTimersByTimeAsync(1000);
+      const before = calls.filter((c) => c.method === 'GET' && !c.url.includes('/available')).length;
+      await vi.advanceTimersByTimeAsync(60_000);
+      expect(calls.filter((c) => c.method === 'GET' && !c.url.includes('/available')).length).toBeGreaterThan(before);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('says a composition stopped while the page was in the background', async () => {
+    vi.useFakeTimers();
+    try {
+      let gone = false;
+      server({ poll: async () => (gone ? new Response('{"error":"not_found"}', { status: 404 }) : new Response(JSON.stringify(job('c')), { status: 200 })) });
+      render();
+      set('compose-post', '10');
+      q('compose-generate')!.click();
+      await vi.advanceTimersByTimeAsync(1000);
+      gone = true; // the proxy swept it while the phone was elsewhere
+      Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => 'visible' });
+      document.dispatchEvent(new Event('visibilitychange'));
+      await vi.advanceTimersByTimeAsync(10);
+      flushSync();
+      expect(target!.textContent).toContain('stopped while the page was in the background');
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

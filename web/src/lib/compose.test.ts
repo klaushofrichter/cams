@@ -14,6 +14,7 @@ describe('compose helpers', () => {
   it('formats lengths and file names', () => {
     expect(formatLength(52)).toBe('0:52');
     expect(formatLength(60)).toBe('1:00');
-    expect(composedName('den', '2026-09-28T14:00:00-05:00', 'sd')).toBe('den-2026-09-28_14-00-00-composed-sd.mp4'); // TZ=America/Chicago in vitest
+    // The camera's local time, from the event id, like the original download (issue #72).
+    expect(composedName('den', '20260928-140000-140020', 'sd')).toBe('den-2026-09-28_14-00-00-composed-sd.mp4');
   });
 });

@@ -174,7 +174,13 @@ export async function startFakeProxy(opts: { port?: number; token?: string } = {
     if (!m || !job) return void res.status(404).json({ error: 'not_found' });
     if (!m[2]) return void res.json({ id: m[1], ...job });
     if (job.state !== 'done') return void res.status(409).json({ error: 'not_ready' });
-    res.type('video/mp4').send(Buffer.concat([Buffer.from([0, 0, 0, 16]), Buffer.from('ftypisom'), Buffer.alloc(4)]));
+    const mp4 = Buffer.concat([Buffer.from([0, 0, 0, 16]), Buffer.from('ftypisom'), Buffer.alloc(4)]);
+    const range = /^bytes=(\d+)-(\d*)$/.exec(req.get('range') ?? '');
+    res.type('video/mp4').setHeader('Accept-Ranges', 'bytes');
+    if (!range) return void res.send(mp4);
+    const from = Number(range[1]), to = range[2] ? Math.min(Number(range[2]), mp4.length - 1) : mp4.length - 1;
+    res.status(206).setHeader('Content-Range', `bytes ${from}-${to}/${mp4.length}`);
+    res.send(mp4.subarray(from, to + 1));
   });
   app.delete('/api/cameras/:cam/compositions/:id', (req, res) => {
     if (!fake.compositions.delete(req.params.id)) return void res.status(404).json({ error: 'not_found' });
