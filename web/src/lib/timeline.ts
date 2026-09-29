@@ -133,3 +133,42 @@ export function thumbCoverage(
   return merged.map((s) => ({ left: ((s.start - win.start) / len) * 100, width: ((s.end - s.start) / len) * 100 }));
 }
 
+
+// The view point shared by History, Live and the Timeline (Klaus,
+// 2026-09-29): the last History time, or null for Live ("now"), per camera,
+// for this browser session.
+const VIEW_POINT_KEY = 'cams.viewPoint';
+
+export function saveViewPoint(cam: string, at: number | null): void {
+  try {
+    sessionStorage.setItem(VIEW_POINT_KEY, JSON.stringify({ cam, at }));
+  } catch {
+    // not remembered this session
+  }
+}
+
+export function loadViewPoint(cam: string): { at: number | null } | undefined {
+  try {
+    const v = JSON.parse(sessionStorage.getItem(VIEW_POINT_KEY) ?? 'null') as { cam?: unknown; at?: unknown } | null;
+    if (!v || v.cam !== cam) return undefined;
+    if (v.at === null) return { at: null };
+    return typeof v.at === 'number' && Number.isSafeInteger(v.at) && v.at > 0 ? { at: v.at } : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+// The minute whose sprite holds `t`, else the one nearest to it (for "now":
+// the newest, since the current minute may have no sprite yet).
+export function nearestMinute(minutes: PreviewMinute[], t: number): PreviewMinute | null {
+  let best: PreviewMinute | null = null;
+  let bestD = Infinity;
+  for (const m of minutes) {
+    const d = t < m.minute ? m.minute - t : t > m.minute + 59_999 ? t - (m.minute + 59_999) : 0;
+    if (d < bestD) {
+      best = m;
+      bestD = d;
+    }
+  }
+  return best;
+}

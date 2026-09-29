@@ -5,6 +5,8 @@
 import { flushSync, mount, unmount } from 'svelte';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { cameras, selectedCameraId } from '../lib/stores';
+import { loadViewPoint, saveViewPoint } from '../lib/timeline';
+import { loadCursor } from '../lib/recordings';
 
 let fireChange: (() => void) | undefined;
 vi.mock('../lib/eventStream', () => ({
@@ -53,13 +55,14 @@ describe('Timeline', () => {
     });
     cameras.set([{ id: 'den', name: 'Den', webUiUrl: null, proxy: true }]);
     selectedCameraId.set('den');
+    // The viewer opens at the shared cursor (a tile click goes to History since 2026-09-29).
+    sessionStorage.clear();
+    history.replaceState(null, '', '/app/timeline');
+    saveViewPoint('den', minute);
     target = document.createElement('div');
     document.body.appendChild(target);
     component = mount(Timeline, { target });
-    for (let i = 0; i < 5; i++) await tick();
-    flushSync();
-    (target.querySelector('[data-testid="timeline-minute"]') as HTMLButtonElement).click();
-    for (let i = 0; i < 5; i++) await tick();
+    for (let i = 0; i < 8; i++) await tick();
     flushSync();
     expect(target.querySelector('[data-testid="timeline-still"]')).not.toBeNull();
 
@@ -150,5 +153,71 @@ describe('Timeline', () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  // Klaus, 2026-09-29: the Timeline shares the cursor with History and Live.
+  describe('shared cursor', () => {
+    const m0 = minute - 60_000; // two minutes with sprites: minute-1 and minute
+    const sprite = (x: number) => ({ minute: x, cols: 10, rows: 6, tileW: 160, tileH: 90, intervalS: 1, present: Array(60).fill(true), url: `/x/${x}.jpg` });
+    async function open(vp?: number | null) {
+      sessionStorage.clear();
+      history.replaceState(null, '', '/app/timeline');
+      if (vp !== undefined) saveViewPoint('den', vp);
+      vi.stubGlobal('IntersectionObserver', class { observe() {} disconnect() {} });
+      vi.stubGlobal('fetch', async (url: string) => {
+        if (url.includes('/previews?')) return json([sprite(m0), sprite(minute)]);
+        if (url.includes('/stills?')) {
+          const from = Number(new URL(url, 'http://x').searchParams.get('from'));
+          return json(Array.from({ length: 60 }, (_, i) => from + i * 1000));
+        }
+        if (url.includes('/events?')) return json({ events: [] });
+        return json({});
+      });
+      cameras.set([{ id: 'den', name: 'Den', webUiUrl: null, proxy: true }]);
+      selectedCameraId.set('den');
+      target = document.createElement('div');
+      document.body.appendChild(target);
+      component = mount(Timeline, { target });
+      for (let i = 0; i < 8; i++) await tick();
+      flushSync();
+    }
+    const still = () => target!.querySelector('[data-testid="timeline-still"]')?.getAttribute('src') ?? null;
+
+    it('opens the viewer on the History time it was left at', async () => {
+      await open(m0 + 17_000);
+      expect(still()).toBe(`/api/cameras/den/stills/${m0 + 17_000}.jpg`);
+    });
+
+    it('coming from Live, opens the newest minute', async () => {
+      await open(null);
+      const ts = Number(/stills\/(\d+)\.jpg/.exec(still()!)![1]);
+      expect(ts).toBeGreaterThanOrEqual(minute); // in the newest minute
+      expect(ts).toBeLessThan(minute + 60_000);
+    });
+
+    it('opens nothing without a view point for the camera', async () => {
+      await open();
+      expect(still()).toBeNull();
+    });
+
+    it('a tile click goes to History at that time', async () => {
+      await open();
+      (target!.querySelectorAll('[data-testid="timeline-minute"]')[1] as HTMLButtonElement).click();
+      flushSync();
+      expect(location.pathname).toBe('/app/recordings');
+      const q = new URLSearchParams(location.search);
+      expect(q.get('panel')).toBe('history');
+      expect(Number(q.get('at'))).toBe(minute);
+      expect(loadViewPoint('den')).toEqual({ at: minute });
+    });
+
+    it('a step in the viewer moves the shared cursor', async () => {
+      await open(m0 + 17_000);
+      (target!.querySelector('[aria-label="Next second"]') as HTMLButtonElement).click();
+      for (let i = 0; i < 4; i++) await tick();
+      flushSync();
+      expect(loadViewPoint('den')).toEqual({ at: m0 + 18_000 });
+      expect(loadCursor()?.cursor.at).toBe(m0 + 18_000);
+    });
   });
 });
