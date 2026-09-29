@@ -1,10 +1,10 @@
 import { writable, type Readable } from 'svelte/store';
 import type { IconName } from './icons';
 
-// Live, History and Downloads are one video page; the panel says which
-// (spec 2026-09-28). The URLs stay: /app/live and /app/recordings?panel=.
+// Live and History are one video page; the panel says which (spec
+// 2026-09-28). The URLs stay: /app/live and /app/recordings.
 export type Page = 'video' | 'timeline' | 'settings' | 'about';
-export type Panel = 'live' | 'history' | 'downloads';
+export type Panel = 'live' | 'history';
 
 export interface Route {
   page: Page;
@@ -30,17 +30,16 @@ export function parseRoute(pathname: string, search: string): Route {
   if ((OTHER_PAGES as string[]).includes(segment)) return { page: segment as Page, panel: 'live', params };
   // Anything unknown is Live, never a blank shell.
   if (segment !== 'recordings') return { page: 'video', panel: 'live', params };
-  // 'events' was a second door to the same list; it is History now (Klaus, 2026-09-28).
-  const panel = params.get('panel') === 'downloads' ? 'downloads' : 'history';
-  return { page: 'video', panel, params };
+  // 'events' (2026-09-28) and 'downloads' (2026-09-29) were more doors to the
+  // same list; both are History now, where each card has a download button (Klaus).
+  return { page: 'video', panel: 'history', params };
 }
 
-// Live, History and Downloads are three doors into one video page; the
-// panel decides which side panel is open.
+// Live and History are two doors into one video page; the panel decides
+// which side panel is open.
 export const NAV_ITEMS: NavItem[] = [
   { id: 'live', label: 'Live', icon: 'live', href: '/app/live', page: 'video', panel: 'live' },
   { id: 'history', label: 'History', icon: 'history', href: '/app/recordings?panel=history', page: 'video', panel: 'history' },
-  { id: 'downloads', label: 'Downloads', icon: 'downloads', href: '/app/recordings?panel=downloads', page: 'video', panel: 'downloads' },
   { id: 'timeline', label: 'Timeline', icon: 'timeline', href: '/app/timeline', page: 'timeline', needsProxy: true },
   { id: 'settings', label: 'Settings', icon: 'settings', href: '/app/settings', page: 'settings' },
   { id: 'about', label: 'About', icon: 'about', href: '/app/about', page: 'about' },

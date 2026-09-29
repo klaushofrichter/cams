@@ -82,9 +82,6 @@ test('filters narrow the list and an empty filter says so', async ({ page }) => 
 test('the cursor carries across panels and back from another page', async ({ page }, testInfo) => {
   await openEvents(page);
   await card(page, '093000').click();
-  await page.getByTestId('panel-tab-downloads').click();
-  await expect(page.locator('[data-testid="download-row"][aria-current="true"]')).toHaveCount(1);
-  await expect(page.locator('[data-testid="download-row"][aria-current="true"]')).toHaveAttribute('data-clip-id', /-093000-093020$/);
   // leave and come back through the menu
   if (testInfo.project.name === 'phone') {
     await page.getByTestId('hamburger').click();
@@ -125,8 +122,10 @@ test('previous day shows yesterday\'s recordings; a day without any says so', as
 });
 
 test('downloads return MP4 attachments with readable names', async ({ page }) => {
-  await page.goto('/app/recordings?panel=downloads');
-  const href = await page.getByTestId('download-main').first().getAttribute('href');
+  await page.goto('/app/recordings?panel=history');
+  await page.getByTestId('event-download').first().click();
+  await page.getByTestId('compose-size').selectOption('4k');
+  const href = await page.getByTestId('compose-save').getAttribute('href');
   const res = await page.request.get(href!);
   expect(res.status()).toBe(200);
   expect(res.headers()['content-type']).toBe('video/mp4');
@@ -141,7 +140,7 @@ test('the Live panel’s latest event plays it', async ({ page }) => {
   await expect(page).toHaveURL(/\/app\/recordings\?.*at=\d+.*panel=history/); // History (Klaus, 2026-09-28)
 });
 
-test('the video stays in place between Live, History and Downloads', async ({ page }) => {
+test('the video stays in place between Live and History', async ({ page }) => {
   await page.goto('/app/live');
   const box = () => page.locator('.player .box').boundingBox();
   await expect(page.getByTestId('live-panel')).toBeVisible();
@@ -149,10 +148,7 @@ test('the video stays in place between Live, History and Downloads', async ({ pa
   await page.getByTestId('panel-tab-history').click();
   await expect(page.getByTestId('page-title')).toHaveText('Recordings');
   const b = await box();
-  await page.getByTestId('panel-tab-downloads').click();
-  const c = await box();
   expect(b).toEqual(a);
-  expect(c).toEqual(a);
 });
 
 // --- Pinned review fixes, with no automated coverage yet ---
@@ -376,10 +372,13 @@ test('an old Events link opens History; the menu has no Events entry', async ({ 
   await expect(page.getByTestId('nav-events')).toHaveCount(0);
 });
 
-test('the Downloads list shows each recording’s thumbnail', async ({ page }) => {
+// Klaus, 2026-09-29: Downloads joined History (a download button on each card).
+test('an old Downloads link opens History; the menu has no Downloads entry', async ({ page }) => {
   await page.goto('/app/recordings?panel=downloads');
-  const thumb = page.locator('[data-testid="download-row"][data-clip-id*="-174540-"] [data-testid="download-thumb"]');
-  await expect.poll(() => thumb.evaluate((img: HTMLImageElement) => img.complete && img.naturalWidth > 0), { timeout: 15_000 }).toBe(true);
+  await expect(page.getByTestId('panel-tab-history')).toHaveAttribute('aria-selected', 'true');
+  await expect(page.getByTestId('panel-tab-downloads')).toHaveCount(0);
+  await expect(page.getByTestId('nav-downloads')).toHaveCount(0);
+  await expect(page.getByTestId('event-download').first()).toBeVisible();
 });
 
 // Live events (Klaus, 2026-09-28): the fake proxy sends a person event for
@@ -407,15 +406,6 @@ test('names the source of recordings and thumbnails: cam-proxy or camera (Klaus,
   await expect(page.getByTestId('recordings-source')).toHaveText('Source of recordings and thumbnails: cam-proxy');
   await page.goto('/app/recordings?panel=history&cam=porch');
   await expect(page.getByTestId('recordings-source')).toHaveText('Source of recordings and thumbnails: camera');
-});
-
-// Final review (batch 2): only History goes to Live.
-test('Downloads stays on Downloads when ⇥ is pressed while playing', async ({ page }) => {
-  await page.goto(`/app/recordings?panel=downloads&cam=cam1&at=${Date.now() - 600_000}`);
-  await page.getByTestId('play-toggle').click();
-  await page.getByTestId('strip-now').click();
-  await page.waitForTimeout(500);
-  await expect(page).toHaveURL(/panel=downloads/);
 });
 
 // Wide windows (Klaus, 2026-09-28): the whole app, top bar included, is

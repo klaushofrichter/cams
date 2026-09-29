@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 //
-// Fix round 1, item 2: EventList's and DownloadList's hour-group open/closed
+// Fix round 1, item 2: EventList's hour-group open/closed (DownloadList joined
+// it on 2026-09-29)
 // state used to be keyed by `date|hour` only, so switching cameras (without
 // changing the date) could carry a manually-opened busy group's state over
 // to a different camera's same hour, which has nothing to do with it. The
@@ -8,7 +9,6 @@
 import { flushSync, mount, unmount } from 'svelte';
 import { afterEach, describe, expect, it } from 'vitest';
 import EventList from './EventList.svelte';
-import DownloadList from './DownloadList.svelte';
 import { makeEvents } from './testing/eventFixtures';
 import { ALL_KINDS } from '../lib/recordings';
 
@@ -47,30 +47,6 @@ describe('hour-group state is keyed per camera', () => {
     // Switch to camera B with a busy 14:00 hour (20 > COLLAPSE_OVER): if the
     // group key didn't include the camera id, this key (`14:00`) would
     // already exist in groupOpen from camera A above and stay open.
-    flushSync(() => {
-      props.cameraId = 'camB';
-      props.events = makeEvents(DATE, 14, 20);
-    });
-
-    toggle = target.querySelector<HTMLElement>('[data-testid="hour-toggle"]');
-    expect(toggle?.getAttribute('aria-expanded')).toBe('false');
-  });
-
-  it('DownloadList: camera B\'s busy 14:00 group starts collapsed after switching from camera A', () => {
-    target = document.createElement('div');
-    document.body.appendChild(target);
-
-    const props = $state({
-      cameraId: 'camA',
-      events: makeEvents(DATE, 14, 3),
-      date: DATE,
-      selectedId: null as string | null,
-    });
-    component = mount(DownloadList, { target, props }) as unknown as Record<string, unknown>;
-
-    let toggle = target.querySelector<HTMLElement>('[data-testid="hour-toggle"]');
-    expect(toggle?.getAttribute('aria-expanded')).toBe('true');
-
     flushSync(() => {
       props.cameraId = 'camB';
       props.events = makeEvents(DATE, 14, 20);

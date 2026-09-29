@@ -71,8 +71,6 @@ test('navigation reaches every page and keeps the URL in sync', async ({ page },
   // plain nav-item href.
   const cases: [string, string | RegExp, string][] = [
     ['history', /^http:\/\/[^/]+\/app\/recordings\?.*[?&]panel=history(&|$)/, 'Recordings'],
-    // the strip reports its position into the URL, so match the panel only
-    ['downloads', /^http:\/\/[^/]+\/app\/recordings\?.*[?&]?panel=downloads(&|$)/, 'Recordings'],
     ['settings', '/app/settings', 'Settings'],
     ['about', '/app/about', 'About'],
     ['live', '/app/live', 'Live'],
@@ -123,7 +121,7 @@ test.describe('desktop sidebar', () => {
     await page.goto('/app/live');
     const sidebar = page.getByTestId('sidebar');
     await expect.poll(async () => (await sidebar.boundingBox())!.width).toBe(220);
-    for (const id of ['live', 'history', 'downloads', 'settings', 'about']) {
+    for (const id of ['live', 'history', 'settings', 'about']) {
       const box = await sidebar.getByTestId(`nav-${id}`).locator('svg').boundingBox();
       expect(box, `icon for ${id}`).not.toBeNull();
       expect(box!.width, `icon width for ${id}`).toBeGreaterThanOrEqual(18);
@@ -137,7 +135,7 @@ test.describe('desktop sidebar', () => {
     await expect.poll(async () => (await sidebar.boundingBox())!.width).toBe(64);
     // A window wider than the app centres it (Klaus, 2026-09-28): measure from the column's left edge.
     const left = (await sidebar.boundingBox())!.x;
-    for (const id of ['live', 'history', 'downloads', 'settings', 'about']) {
+    for (const id of ['live', 'history', 'settings', 'about']) {
       const box = await sidebar.getByTestId(`nav-${id}`).locator('svg').boundingBox();
       expect(box, `icon for ${id}`).not.toBeNull();
       expect(box!.width, `icon width for ${id}`).toBeGreaterThanOrEqual(18);

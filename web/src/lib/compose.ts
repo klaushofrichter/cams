@@ -1,8 +1,12 @@
-// Composed SD clips (cam-proxy spec 2026-09-28): the Downloads modal's API.
+// Composed SD clips (cam-proxy spec 2026-09-28): the save dialog's API.
 export type ComposeSize = 'sd' | '360p' | '720p' | '1080p';
 export const SIZE_LABELS: Record<ComposeSize, string> = {
   sd: 'SD 896×512 (original)', '360p': '640×360', '720p': '1280×720 (upscaled)', '1080p': '1920×1080 (upscaled)',
 };
+// What the save dialog offers: the composed sizes, plus the camera's original
+// main stream (4K, formerly "Full"), which is saved as it is (Klaus, 2026-09-29).
+export type SaveSize = ComposeSize | '4k';
+export const ORIGINAL_4K_LABEL = '4K 4512×2512 (original)';
 export interface JobView { id: string; state: 'queued' | 'running' | 'done' | 'failed' | 'cancelled'; progress: number; durationS: number; error?: string }
 
 const roll = (v: number) => Number.isInteger(v) && v >= -600 && v <= 60;
