@@ -33,7 +33,7 @@ afterEach(() => new Promise<void>((r) => server.close(() => r())));
 describe('ReolinkClient', () => {
   it('logs in once and reuses the token', async () => {
     const client = new ReolinkClient(cam);
-    expect(await client.status()).toMatchObject({ model: 'RLC-1224A', firmware: 'v3.2.0.6011_2607012059', simulator: 'cam-sim' });
+    expect(await client.status()).toMatchObject({ model: 'RLC-1224A', firmware: 'v3.2.0.6011_2607012059', simulator: expect.stringMatching(/^cam-sim( |$)/) });
     await client.status();
     await client.status();
     expect(state.logins).toBe(1);

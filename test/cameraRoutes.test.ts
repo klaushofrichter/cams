@@ -70,7 +70,7 @@ describe('camera routes', () => {
     const res = await request(appServer).get('/api/cameras/cam1/status').set('Cookie', auth);
     expect(res.body).toMatchObject({
       online: true,
-      simulator: 'cam-sim',
+      simulator: expect.stringMatching(/^cam-sim( |$)/), // with its version from cam-sim 2026.09.29 on
       streams: {
         main: { codec: 'h265', width: 4512, height: 2512, fps: 20 },
         sub: { codec: 'h264', width: 896, height: 512, fps: 10 },
@@ -81,7 +81,7 @@ describe('camera routes', () => {
   it('reports status for an online camera', async () => {
     const res = await request(appServer).get('/api/cameras/cam1/status').set('Cookie', auth);
     expect(res.status).toBe(200);
-    expect(res.body).toEqual({ id: 'cam1', online: true, model: 'RLC-1224A', firmware: 'v3.2.0.6011_2607012059', simulator: 'cam-sim', streams: expect.any(Object) });
+    expect(res.body).toEqual({ id: 'cam1', online: true, model: 'RLC-1224A', firmware: 'v3.2.0.6011_2607012059', simulator: expect.stringMatching(/^cam-sim( |$)/), streams: expect.any(Object) });
   });
 
   it('reports an unreachable camera as offline with only an error code', async () => {
