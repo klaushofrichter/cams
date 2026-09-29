@@ -95,4 +95,29 @@ describe('cam-proxy minors (#38)', () => {
     for (const r of open) r.destroy();
     await new Promise<void>((r) => http.close(() => r()));
   });
+
+  // 2026-09-29: a sprite the browser gave up on (a tile scrolled away, a page
+  // left) logged "Cannot pipe to a closed or destroyed stream" as a 500.
+  it('ends quietly when the browser leaves before the sprite arrives', async () => {
+    const p = await standIn((_req, res) => void setTimeout(() => res.type('image/jpeg').send(Buffer.from([0xff, 0xd8, 0xff, 0xd9])), 300));
+    useProxy(p.url);
+    const errors: unknown[] = [];
+    vi.spyOn(logger, 'error').mockImplementation(((...a: unknown[]) => void errors.push(a)) as never);
+    const cams = createApp().listen(0);
+    await new Promise((r) => cams.once('listening', r));
+    try {
+      const port = (cams.address() as AddressInfo).port;
+      const http = await import('http');
+      await new Promise<void>((resolve) => {
+        const req = http.get({ port, path: '/api/cameras/den/previews/1790000040000.jpg', headers: { Cookie: auth } });
+        req.on('error', () => resolve());
+        setTimeout(() => (req.destroy(), resolve()), 100);
+      });
+      await new Promise((r) => setTimeout(r, 600));
+      expect(errors.map((e) => inspect(e))).not.toEqual(expect.arrayContaining([expect.stringMatching(/unhandled_error|Cannot pipe/)]));
+    } finally {
+      cams.closeAllConnections();
+      await new Promise<void>((r) => cams.close(() => r()));
+    }
+  });
 });

@@ -332,6 +332,38 @@ describe('ComposeDialog', () => {
       expect(q('compose-length')!.textContent).toContain('0:20');
     });
 
+    // Klaus, 2026-09-29: pre- and post-roll are for SD only.
+    it('dims pre- and post-roll for every size but SD, with a note, and resizes without them', async () => {
+      const calls: RequestInit[] = [];
+      vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => {
+        if (init?.method === 'POST') {
+          calls.push(init);
+          return new Response(JSON.stringify({ id: 'b'.repeat(22), state: 'running', progress: 0, durationS: 20 }), { status: 201 });
+        }
+        if (init?.method === 'DELETE') return new Response(null, { status: 204 });
+        return new Response('{"available":true}', { status: 200 });
+      }));
+      render();
+      expect((q('compose-pre') as HTMLInputElement).disabled).toBe(false);
+      expect(q('compose-roll-note')).toBeNull();
+      set('compose-post', '10');
+      for (const size of ['360p', '720p', '1080p', '4k']) {
+        choose(size);
+        expect((q('compose-pre') as HTMLInputElement).disabled).toBe(true);
+        expect((q('compose-post') as HTMLInputElement).disabled).toBe(true);
+        expect(q('compose-roll-note')!.textContent).toMatch(/only for SD/i);
+        expect(q('compose-length')!.textContent).toContain('0:20'); // the roll doesn't count
+      }
+      choose('720p');
+      q('compose-generate')!.click(); // a resized copy of the clip alone
+      await vi.waitFor(() => expect(calls).toHaveLength(1));
+      expect(JSON.parse(String(calls[0].body))).toMatchObject({ preS: 0, postS: 0, size: '720p' });
+      choose('sd');
+      expect((q('compose-pre') as HTMLInputElement).disabled).toBe(false);
+      expect(q('compose-roll-note')).toBeNull();
+      expect(q('compose-length')!.textContent).toContain('0:30'); // the post-roll counts again
+    });
+
     it('without a cam-proxy offers only SD and 4K, saved as they are', () => {
       const fetchSpy = vi.fn(async () => new Response('{}', { status: 200 }));
       vi.stubGlobal('fetch', fetchSpy);

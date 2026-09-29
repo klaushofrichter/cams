@@ -108,4 +108,47 @@ describe('Timeline', () => {
     flushSync();
     expect(target.textContent).toContain("keeps no stills");
   });
+
+  // 2026-09-29: sprites refused (429 after a burst) stayed empty for good.
+  it('retries a sprite that failed to load, and shows it once it loads', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    try {
+      vi.stubGlobal('IntersectionObserver', class {
+        constructor(private cb: (e: Array<{ isIntersecting: boolean }>) => void) {}
+        observe() { queueMicrotask(() => this.cb([{ isIntersecting: true }])); }
+        disconnect() {}
+      });
+      const tries = new Map<string, number>();
+      vi.stubGlobal('Image', class {
+        onload: (() => void) | null = null;
+        onerror: (() => void) | null = null;
+        set src(v: string) {
+          const n = (tries.get(v) ?? 0) + 1;
+          tries.set(v, n);
+          queueMicrotask(() => (n === 1 ? this.onerror?.() : this.onload?.()));
+        }
+      });
+      vi.stubGlobal('fetch', async (url: string) => {
+        if (url.includes('/previews?')) return json([{ minute, cols: 10, rows: 6, tileW: 160, tileH: 90, intervalS: 1, present: Array(60).fill(true), url: `/x/${minute}.jpg` }]);
+        if (url.includes('/events?')) return json({ events: [] });
+        return json({});
+      });
+      cameras.set([{ id: 'den', name: 'Den', webUiUrl: null, proxy: true }]);
+      selectedCameraId.set('den');
+      target = document.createElement('div');
+      document.body.appendChild(target);
+      component = mount(Timeline, { target });
+      for (let i = 0; i < 10; i++) await vi.advanceTimersByTimeAsync(0);
+      flushSync();
+      const img = () => target!.querySelector('[data-testid="timeline-minute"] .img') as HTMLElement;
+      expect(tries.get(`/x/${minute}.jpg`)).toBe(1);
+      expect(img().getAttribute('style') ?? '').not.toContain('background-image'); // failed: empty for now
+      await vi.advanceTimersByTimeAsync(3500);
+      flushSync();
+      expect(tries.get(`/x/${minute}.jpg`)).toBe(2);
+      expect(img().getAttribute('style')).toContain(`/x/${minute}.jpg`);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });
