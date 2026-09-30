@@ -57,6 +57,16 @@ describe('analyses on the events', () => {
     expect(r.body.events[0]).not.toHaveProperty('analysis');
   });
 
+  it('never hold the events back: a stalled proxy answers within the fetch timeout, without analysis', async () => {
+    resetAnalysisStore({ timeoutMs: 300 });
+    fake.analysesStall = true;
+    const t0 = Date.now();
+    const r = await get('/api/cameras/den/events?date=2026-09-30');
+    expect(Date.now() - t0).toBeLessThan(1500);
+    expect(r.status).toBe(200);
+    expect(r.body.events[0]).not.toHaveProperty('analysis');
+  });
+
   it('are not asked for a camera without a proxy', async () => {
     const r = await get('/api/cameras/shed/events?date=2026-09-30');
     expect(r.status).toBe(200);

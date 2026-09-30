@@ -50,7 +50,10 @@ test('a card shows Vision’s confidence next to the camera’s label', async ({
 
 test('a new analysis updates the open page without a reload', async ({ page }) => {
   const card = await personCard(page);
+  // The push must come after the page's EventSource is attached.
+  const stream = page.waitForResponse((r) => r.url().includes('/api/events/stream'));
   await page.goto(`/app/recordings?cam=cam1&panel=history&date=${today()}`);
+  await stream;
   await expect(page.locator(`[data-testid="event-card"][data-clip-id="${card.id}"]`)).toBeVisible();
   const { subtype } = await analyse(page, card);
   await expect(badge(page, card)).toHaveAttribute('title', new RegExp(subtype), { timeout: 15_000 });
@@ -58,10 +61,10 @@ test('a new analysis updates the open page without a reload', async ({ page }) =
 
 test('Live’s recent events show the badge too', async ({ page }) => {
   const card = await personCard(page);
-  await analyse(page, card);
+  const { subtype } = await analyse(page, card);
   await page.goto('/app/live');
   await page.getByTestId('camera-picker').selectOption('cam1');
-  await expect(page.getByTestId('live-recent').locator('[data-testid="vision-badge"][data-kind="agree"]').first()).toBeVisible();
+  await expect(page.getByTestId('live-recent').locator(`[data-testid="vision-badge"][data-kind="agree"][title*="${subtype}"]`).first()).toBeVisible();
 });
 
 test('the Timeline marks the analysed second and shows its boxes; "Open in History" lands paused', async ({ page }) => {

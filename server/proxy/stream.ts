@@ -17,8 +17,8 @@ export interface StreamOptions {
   remoteCam?: string; // the proxy's id for this camera: messages for others are dropped
 }
 
-// `analysis` since cam-proxy v2026.10 (Vision's summary); an older proxy
-// refuses the type, and the stream asks again without it.
+// A proxy from before the `analysis` stream type existed (v2026.09.30.3 and
+// older) answers 400 to it, and the stream asks again without it.
 const TYPES = ['camera-event', 'camera-status', 'clip', 'analysis'];
 
 export class ProxyStream extends EventEmitter {

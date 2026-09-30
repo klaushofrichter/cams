@@ -50,6 +50,8 @@ export interface FakeProxy {
   streamStatus: number | null; // tests: /api/stream answers this error status
   analyses: Map<string, FakeAnalysis[]>; // proxy camera id → its analyses
   analysesStatus: number | null; // tests: /analyses answers this error (404: an older proxy)
+  analysesDelayMs: number; // tests: /analyses answers this late
+  analysesStall: boolean; // tests: /analyses sends its headers and the body's start, then nothing
   knownTypes: string[] | null; // tests: the stream refuses other types (an older proxy)
   streamConnections(): number;
   push(m: Omit<FakeMessage, 'id' | 'ts'> & { ts?: number }): FakeMessage;
@@ -90,6 +92,8 @@ export async function startFakeProxy(opts: { port?: number; token?: string } = {
     streamStatus: null,
     analyses: new Map(),
     analysesStatus: null,
+    analysesDelayMs: 0,
+    analysesStall: false,
     knownTypes: null,
     streamConnections: () => streams.size,
     push(m) {
@@ -227,7 +231,12 @@ export async function startFakeProxy(opts: { port?: number; token?: string } = {
     res.status(204).end();
   });
   // The day's analyses and one analysis in full, like cam-proxy's API.
-  app.get('/api/cameras/:cam/analyses', (req, res) => {
+  app.get('/api/cameras/:cam/analyses', async (req, res) => {
+    if (fake.analysesDelayMs) await new Promise((r) => setTimeout(r, fake.analysesDelayMs));
+    if (fake.analysesStall) {
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      return void res.write('[');
+    }
     if (fake.analysesStatus) return void res.status(fake.analysesStatus).json({ error: 'not_found' });
     const r = range(req.query);
     if (!r) return void res.status(400).json({ error: 'invalid' });

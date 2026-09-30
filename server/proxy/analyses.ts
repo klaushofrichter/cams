@@ -23,18 +23,19 @@ export interface ProxyAnalysis {
 }
 
 const num = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v);
+const unit = (v: unknown): v is number => num(v) && v >= 0 && v <= 1;
 const int = (v: unknown): v is number => Number.isSafeInteger(v);
 
 function parseBox(v: unknown): Box | null {
   const b = v as Partial<Box> | null | undefined;
-  return b && num(b.x0) && num(b.y0) && num(b.x1) && num(b.y1) ? { x0: b.x0, y0: b.y0, x1: b.x1, y1: b.y1 } : null;
+  return b && unit(b.x0) && unit(b.y0) && unit(b.x1) && unit(b.y1) ? { x0: b.x0, y0: b.y0, x1: b.x1, y1: b.y1 } : null;
 }
 
 export function parseSummary(v: unknown): SummaryEntry[] {
   return (Array.isArray(v) ? v : []).flatMap((x) => {
     const e = x as { category?: unknown; subtype?: unknown; score?: unknown; box?: unknown } | null;
     const box = parseBox(e?.box);
-    if (!e || !CATEGORIES.includes(e.category as Category) || typeof e.subtype !== 'string' || !num(e.score) || !box) return [];
+    if (!e || !CATEGORIES.includes(e.category as Category) || typeof e.subtype !== 'string' || !unit(e.score) || !box) return [];
     return [{ category: e.category as Category, subtype: e.subtype.slice(0, 64), score: e.score, box }];
   });
 }
@@ -42,7 +43,7 @@ export function parseSummary(v: unknown): SummaryEntry[] {
 export function parseObjects(v: unknown): StillObject[] {
   return (Array.isArray(v) ? v : []).flatMap((x) => {
     const o = x as { name?: unknown; score?: unknown; box?: unknown } | null;
-    if (!o || typeof o.name !== 'string' || !num(o.score)) return [];
+    if (!o || typeof o.name !== 'string' || !unit(o.score)) return [];
     return [{ name: o.name.slice(0, 64), score: o.score, box: parseBox(o.box) }];
   });
 }
@@ -70,6 +71,7 @@ const RECENT_TTL = 60_000;
 const PAST_TTL = 3_600_000;
 const LIVE_KEEP_MS = 2 * DAY;
 const FETCH_TIMEOUT_MS = 3000;
+const FAIL_TTL = 30_000; // after a failed fetch, the proxy is not asked again for this long
 
 // The camera's day as [first ms, last ms], from a card's time and its offset:
 // 5 s early for the slack, and one day long, the proxy's limit (a 25-hour
@@ -86,6 +88,9 @@ export class AnalysisStore {
   private live = new Map<string, Map<number, ProxyAnalysis>>(); // cam → eventId → received
   private days = new Map<string, { at: number; list: ProxyAnalysis[] }>(); // `${cam}|${date}`
   private inflight = new Map<string, Promise<ProxyAnalysis[]>>();
+  private failed = new Map<string, number>(); // `${cam}|${date}` → when the fetch failed
+
+  constructor(private readonly o: { timeoutMs?: number } = {}) {}
 
   ingest(cam: string, a: ProxyAnalysis, now = Date.now()): void {
     let m = this.live.get(cam);
@@ -102,10 +107,11 @@ export class AnalysisStore {
     const win = dayWindow(date, events[0].start);
     if (!win) return [];
     for (const [k, d] of this.days) if (now - d.at >= PAST_TTL) this.days.delete(k);
+    for (const [k, at] of this.failed) if (now - at >= FAIL_TTL) this.failed.delete(k);
     const key = `${cam}|${date}`;
     const ttl = now <= win[1] ? RECENT_TTL : PAST_TTL;
     const hit = this.days.get(key);
-    const list = hit && now - hit.at < ttl ? hit.list : await (this.inflight.get(key) ?? this.fetch(cam, key, win, now));
+    const list = hit && now - hit.at < ttl ? hit.list : this.failed.has(key) ? [] : await (this.inflight.get(key) ?? this.fetch(cam, key, win, now));
     const byId = new Map(list.map((a) => [a.eventId, a]));
     for (const a of this.live.get(cam)?.values() ?? []) if (a.start >= win[0] && a.start <= win[1]) byId.set(a.eventId, a);
     return [...byId.values()].sort((a, b) => a.start - b.start || a.eventId - b.eventId);
@@ -116,14 +122,19 @@ export class AnalysisStore {
       const client = getProxyClient(cam);
       if (!client) return [];
       try {
-        const body = await client.json<unknown>(`/api/cameras/${encodeURIComponent(proxyCameraId(cam))}/analyses`, { from: win[0], to: win[1] }, { timeoutMs: FETCH_TIMEOUT_MS });
+        // The whole fetch, body included, is bound by one timer: the events
+        // page waits for this.
+        const ms = this.o.timeoutMs ?? FETCH_TIMEOUT_MS;
+        const body = await client.json<unknown>(`/api/cameras/${encodeURIComponent(proxyCameraId(cam))}/analyses`, { from: win[0], to: win[1] }, { timeoutMs: ms, signal: AbortSignal.timeout(ms) });
         const list = (Array.isArray(body) ? body : []).map(parseAnalysis).filter((a): a is ProxyAnalysis => a !== null);
         this.days.set(key, { at: now, list });
+        this.failed.delete(key);
         return list;
       } catch (err) {
         // An older proxy has no /analyses (404): no badges, remembered like an empty day.
         const status = err instanceof ProxyError ? err.status : undefined;
         if (status === 404) this.days.set(key, { at: now, list: [] });
+        else this.failed.set(key, now);
         logger.debug({ cameraId: cam, code: err instanceof ProxyError ? err.code : 'error', status }, 'proxy_analyses_unavailable');
         return [];
       }
@@ -135,8 +146,8 @@ export class AnalysisStore {
 
 let store = new AnalysisStore();
 export const getAnalysisStore = (): AnalysisStore => store;
-export function resetAnalysisStore(): void {
-  store = new AnalysisStore();
+export function resetAnalysisStore(o: { timeoutMs?: number } = {}): void {
+  store = new AnalysisStore(o);
 }
 
 // Every camera's `analysis` messages, as they arrive.

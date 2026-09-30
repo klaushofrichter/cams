@@ -99,7 +99,7 @@ export class ProxyClient {
     return new Response(body, { status: res.status, statusText: res.statusText, headers: res.headers });
   }
 
-  async json<T>(path: string, query?: Query, init: { timeoutMs?: number } = {}): Promise<T> {
+  async json<T>(path: string, query?: Query, init: { timeoutMs?: number; signal?: AbortSignal } = {}): Promise<T> {
     const res = await this.open(path, query, init);
     if (!res.ok) {
       await res.body?.cancel();

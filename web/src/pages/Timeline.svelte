@@ -11,7 +11,7 @@
   import type { StillObject } from '../lib/vision';
   import TimelineStill from '../components/TimelineStill.svelte';
   import {
-    analysedSeconds, cardKind, cardsInMinute, cursorSearch, dayRange, hourGroups, loadViewPoint, minuteMarks, nearestMinute, saveViewPoint,
+    analysedSeconds, cardKind, cardsInMinute, cursorSearch, dayRange, hourGroups, loadViewPoint, minuteKind, minuteMarks, nearestMinute, saveViewPoint,
     secondKinds, splitRange, stepMinute, stillIndex, tileStyle, timelineCursor, type PreviewMinute, type SeenStill, type TimelineCard,
   } from '../lib/timeline';
 
@@ -283,7 +283,7 @@
             {#each h.minutes as m (m.minute)}
               {@const list = cardsInMinute(m, cards)}
               {@const marks = minuteMarks(m, cards)}
-              <button class="tile {list.length ? `ev-${cardKind(list[0])}` : ''}" class:active={open?.minute === m.minute} class:analysed={marks.analysed}
+              <button class="tile {list.length ? `ev-${minuteKind(m, cards)}` : ''}" class:active={open?.minute === m.minute} class:analysed={marks.analysed}
                 title={clock(m.minute) + (list.length ? ` · ${list.map(labels).join(' · ')}` : '')}
                 aria-label={`${clock(m.minute)}${list.length ? `, ${list.map(labels).join('; ')}` : ''}`} aria-expanded={open?.minute === m.minute}
                 onclick={() => openMinute(m)} data-testid="timeline-minute" data-minute={m.minute}>

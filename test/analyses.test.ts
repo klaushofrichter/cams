@@ -25,6 +25,15 @@ describe('parseAnalysis', () => {
     expect(got).toEqual(a());
   });
 
+  it('drops entries with a score outside 0..1 and boxes outside 0..1', () => {
+    const got = parseAnalysis({
+      ...a(),
+      summary: [person(0.84), person(1.5), person(-0.1), { ...person(0.5), box: { ...box, x1: 1.2 } }, { ...person(0.6), box: { ...box, y0: -0.2 } }],
+    });
+    expect(got?.summary).toEqual([person(0.84)]);
+    expect(parseObjects([{ name: 'Fan', score: 2, box }, { name: 'Fan', score: 0.5, box: { ...box, x1: 3 } }])).toEqual([{ name: 'Fan', score: 0.5, box: null }]);
+  });
+
   it('refuses an older proxy’s message (no start, no summary)', () => {
     expect(parseAnalysis({ eventId: 1, provider: 'google-vision', status: 'ok', reason: null, objects: [] })).toBeNull();
   });
@@ -155,6 +164,28 @@ describe('AnalysisStore', () => {
     fake.offline = true;
     expect(await s.forDay('den', '2026-09-30', day, NOW)).toEqual([a()]);
     fake.offline = false;
+    await s.forDay('den', '2026-09-30', day, NOW + 31_000);
+    expect(asked()).toBe(1);
+  });
+
+  it('remembers a failure for 30 s: one request for loads within it, another after', async () => {
+    fake.analysesStatus = 500;
+    const s = new AnalysisStore();
+    s.ingest('den', a(), NOW);
+    expect(await s.forDay('den', '2026-09-30', day, NOW)).toEqual([a()]);
+    expect(await s.forDay('den', '2026-09-30', day, NOW + 29_000)).toEqual([a()]);
+    expect(asked()).toBe(1);
+    fake.analysesStatus = null;
+    await s.forDay('den', '2026-09-30', day, NOW + 31_000);
+    expect(asked()).toBe(2);
+  });
+
+  it('gives up on a stalled body after its timeout, and remembers that as a failure', async () => {
+    fake.analysesStall = true;
+    const s = new AnalysisStore({ timeoutMs: 300 });
+    const t0 = Date.now();
+    expect(await s.forDay('den', '2026-09-30', day, NOW)).toEqual([]);
+    expect(Date.now() - t0).toBeLessThan(1500);
     await s.forDay('den', '2026-09-30', day, NOW + 1000);
     expect(asked()).toBe(1);
   });

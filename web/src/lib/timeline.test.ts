@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { dayRange, hourGroups, thumbCoverage, minuteOf, previewAt, splitRange, stillIndex, tileIndex, tileStyle, timelineCursor, cursorSearch, stepMinute, cardsInMinute, cardKind, secondKinds, seenStills, minuteMarks, analysedSeconds, type PreviewMinute } from './timeline';
+import { dayRange, hourGroups, thumbCoverage, minuteOf, previewAt, splitRange, stillIndex, tileIndex, tileStyle, timelineCursor, cursorSearch, stepMinute, cardsInMinute, cardKind, minuteKind, secondKinds, seenStills, minuteMarks, analysedSeconds, type PreviewMinute } from './timeline';
 
 // Tests run with TZ=America/Chicago (vitest.config).
 const m = (minute: number, present = Array(60).fill(true)): PreviewMinute => ({ minute, cols: 10, rows: 6, tileW: 160, tileH: 90, intervalS: 1, present, url: `/x/${minute}.jpg` });
@@ -136,6 +136,12 @@ describe('the minute view (spec 2026-09-30-analytics-in-cams-design)', () => {
   it('colours a card by its most specific trigger', () => {
     expect(cardKind({ triggers: ['motion', 'person'] })).toBe('person');
     expect(cardKind({ triggers: [] })).toBe('motion');
+  });
+
+  it('colours a minute by the most specific kind among its cards, not the earliest', () => {
+    const cards = [card(M, M + 5000, ['motion']), card(M + 20_000, M + 25_000, ['person'])];
+    expect(minuteKind(minute, cards)).toBe('person');
+    expect(minuteKind(minute, [])).toBeNull();
   });
 
   it('colours each second by the most specific card covering it', () => {

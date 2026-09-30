@@ -35,7 +35,7 @@ clip playback and downloads, and camera settings, behind Google sign-in.
   - `GET /api/me`, `GET /api/cameras`, `GET/PUT /api/preferences`, `GET /api/cameras/:id/extent` (`{oldest}`: the oldest content on the SD card or at the cam-proxy), `GET /api/cameras/:id/status` (online, model, firmware, `simulator` when it is cam-sim, and the main/sub `streams`, cached 10 min);
   - per camera `/api/cameras/:id/…`: `status`, `snapshot.jpg`, `live` (at most 4 per camera), `days`, `events`, `settings` (`PUT settings/:section`), `device`, `POST reboot`, `light` (`GET`, `PUT {"on":true|false}`: the camera's manual light, `WhiteLed.state`);
   - clips: `/api/cameras/:id/clips/:clipId/video|thumb.jpg|download?quality=sub|main`;
-  - cam-proxy: `PUT /api/cameras/:id/proxy` (`{"enabled": true|false}`, for all users; 404 `no_proxy` without one), `/api/cameras/:id/previews`, `previews/:minute.jpg`, `stills`, `stills/:ts.jpg`, `still/latest.jpg`, and `GET /api/events/stream` (SSE, at most 20 browsers, a ping every 25 s).
+  - cam-proxy: `PUT /api/cameras/:id/proxy` (`{"enabled": true|false}`, for all users; 404 `no_proxy` without one), `/api/cameras/:id/previews`, `previews/:minute.jpg`, `stills`, `stills/:ts.jpg`, `still/latest.jpg`, `GET /api/cameras/:id/analyses/:eventId` (Vision's full record for one event), and `GET /api/events/stream` (SSE, at most 20 browsers, a ping every 25 s).
 
 ## Cameras
 

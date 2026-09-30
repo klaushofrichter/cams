@@ -211,6 +211,16 @@ export function cardKind(c: { triggers: readonly string[] }): string {
   return [...c.triggers].sort((a, b) => rank(a) - rank(b))[0] ?? 'motion';
 }
 
+// A minute's colour: the most specific kind among its cards (null: none).
+export function minuteKind(m: { minute: number; intervalS?: number }, cards: { start: string; end: string; triggers: readonly string[] }[]): string | null {
+  let best: string | null = null;
+  for (const c of cardsInMinute(m, cards)) {
+    const k = cardKind(c);
+    if (best === null || rank(k) < rank(best)) best = k;
+  }
+  return best;
+}
+
 export function secondKinds(m: { minute: number; intervalS: number; present: boolean[] }, cards: { start: string; end: string; triggers: readonly string[] }[]): (string | null)[] {
   const list = cardsInMinute(m, cards);
   return m.present.map((_, i) => {
