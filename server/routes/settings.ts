@@ -131,6 +131,50 @@ settingsRouter.get('/api/cameras/:id/device', async (req, res, next) => {
   }
 });
 
+// The camera's manual light: WhiteLed.state, 1 on, 0 off. It stays on until
+// switched off (measured on cam1 2026-09-29). The write sends the whole
+// object, like every settings write, then the light is re-read.
+async function readWhiteLed(client: NonNullable<ReturnType<typeof getClient>>): Promise<Record<string, unknown>> {
+  const r = await client.command<{ WhiteLed?: Record<string, unknown> }>('GetWhiteLed', { channel: 0 });
+  return r.WhiteLed ?? {};
+}
+
+settingsRouter.get('/api/cameras/:id/light', async (req, res, next) => {
+  const c = cameraOr404(req, res);
+  if (!c) return;
+  try {
+    res.json({ on: (await readWhiteLed(c.client)).state === 1 });
+  } catch (err) {
+    fail(err, c.cam.id, res, next);
+  }
+});
+
+settingsRouter.put('/api/cameras/:id/light', async (req, res, next) => {
+  const body = req.body as unknown;
+  if (typeof body !== 'object' || body === null || Array.isArray(body) || Object.keys(body).length !== 1 || typeof (body as { on?: unknown }).on !== 'boolean') {
+    res.status(400).json({ error: 'bad_request' });
+    return;
+  }
+  const want = (body as { on: boolean }).on;
+  const c = cameraOr404(req, res);
+  if (!c) return;
+  try {
+    const before = await readWhiteLed(c.client);
+    if ((before.state === 1) !== want) {
+      await c.client.command('SetWhiteLed', { WhiteLed: { ...before, channel: 0, state: want ? 1 : 0 } });
+      const on = (await readWhiteLed(c.client)).state === 1;
+      logger.info({ cameraId: c.cam.id, on, by: currentUser(req)?.email }, 'camera_light_switched');
+      if (on !== want) {
+        res.status(502).json({ error: 'not_applied', on });
+        return;
+      }
+    }
+    res.json({ on: want });
+  } catch (err) {
+    fail(err, c.cam.id, res, next);
+  }
+});
+
 // A camera takes about a minute to come back; a second reboot in that time
 // (a double click, a second tab) would only restart it again.
 export const REBOOT_COOLDOWN_MS = 120_000;

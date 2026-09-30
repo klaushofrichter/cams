@@ -41,13 +41,15 @@ const at = async (ms: number) => {
 };
 
 describe('LiveNotice', () => {
-  it('shows "Person on Den" for a second, then fades within 0.4 s', async () => {
+  it('shows "Person on Den" for 1.5 s (Klaus, 2026-09-29), then fades within 0.4 s', async () => {
     render();
     fire({ cam: 'cam1', kind: 'person', ts: 1 });
     flushSync();
     expect(notice()!.textContent!.trim()).toBe('Person on Den');
     expect(notice()!.classList.contains('fading')).toBe(false);
-    await at(1000);
+    await at(1499);
+    expect(notice()!.classList.contains('fading')).toBe(false);
+    await at(1);
     expect(notice()!.classList.contains('fading')).toBe(true);
     await at(400);
     expect(notice()).toBeNull();
@@ -60,7 +62,7 @@ describe('LiveNotice', () => {
     fire({ cam: 'cam2', kind: 'motion', ts: 2 });
     flushSync();
     expect(notice()!.textContent!.trim()).toBe('Motion on cam2');
-    await at(900);
+    await at(1400);
     expect(notice()!.classList.contains('fading')).toBe(false); // the new timer
     await at(500);
     expect(notice()).toBeNull();

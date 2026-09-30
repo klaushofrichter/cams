@@ -240,8 +240,8 @@
   });
   const camProxy = $derived(!!$cameras.find((x) => x.id === cam)?.proxy);
   const camera = $derived($cameras.find((x) => x.id === cam) ?? null);
-  // The Live panel's latest event: the newest of today's.
-  const latest = $derived(date === $todayDate && events.length ? events.reduce((a, b) => (Date.parse(b.start) > Date.parse(a.start) ? b : a)) : null);
+  // The Live panel's recent events: today's, newest first (it shows five).
+  const recent = $derived(date === $todayDate ? [...events].sort((a, b) => Date.parse(b.start) - Date.parse(a.start)) : []);
   const visible = $derived(filterEvents(events, filter));
   // The strip's first position: the URL's `at`, else an old link's clip and
   // offset, else (null) the day's first event.
@@ -470,7 +470,7 @@
         </div>
         {#if panel === 'live'}
           {#if camera}
-            <LivePanel {camera} {latest} pending={pendingToday} proxyInfo={proxyInfo} paused={!liveWanted}
+            <LivePanel {camera} {recent} pending={pendingToday} proxyInfo={proxyInfo} paused={!liveWanted}
               onplay={(e) => historyView?.jump(Date.parse(e.start), true)} />
           {/if}
         {:else}

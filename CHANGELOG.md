@@ -8,5 +8,10 @@ published as [GitHub releases](https://github.com/klaushofrichter/cams/releases)
 
 ## [Unreleased]
 
-- Timeline: a tile opens History at that minute. Opened from the menu, the Timeline goes to History's position (the nearest still, in its viewer), or to the newest minute after Live. Stepping in the viewer moves History's position too, so History continues from there.
+- Live panel: up to five of today's events, newest on top (a recording in progress first), or "No events today"; the heading is "Most recent events".
+- Live panel: the controls are icons with tooltips; the quality switch reads SD/4K (the line under the video says 4K too).
+- Live panel: a light button shows the camera's manual light (spotlight) and switches it on and off (`GET/PUT /api/cameras/:id/light`, `WhiteLed.state`, measured on cam1).
+- The live event notice in the top bar shows for 1.5 s before it fades (was 1 s).
+- Timeline: "Show in timeline grid" scrolls to the open minute, which now has a red frame, 3× thicker.
+- History: "Show in Timeline" in the line under the video (cameras with a cam-proxy) opens the Timeline at that moment, scrolled to its framed minute.
 

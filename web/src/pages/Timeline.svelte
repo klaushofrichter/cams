@@ -1,6 +1,6 @@
 <script lang="ts">
   import { navigate } from '../lib/router';
-  import { onMount } from 'svelte';
+  import { onMount, tick } from 'svelte';
   import { get } from 'svelte/store';
   import { getJson } from '../lib/api';
   import { cameras, selectedCameraId } from '../lib/stores';
@@ -24,6 +24,9 @@
   const sharedAt = shared ? (shared.at ?? Date.now()) : null;
   let date = $state(sharedAt !== null ? localDate(new Date(sharedAt)) : initial.date);
   let wantT: number | null = sharedAt ?? initial.t; // a still to open once its day is loaded
+  // ?grid=1 (History's "Show in Timeline"): once that still is open, scroll
+  // to its minute in the grid. The URL drops it after that.
+  let wantGrid = new URLSearchParams(location.search).get('grid') === '1';
   let minutes = $state<PreviewMinute[]>([]);
   let events = $state<Ev[]>([]);
   let message = $state('');
@@ -78,7 +81,8 @@
         wantT = null;
         // The minute holding the time, else the nearest one (for now: the newest).
         const target = t === null ? null : nearestMinute(m, t);
-        if (target && t !== null) void show(target, t, 1);
+        if (target && t !== null) void show(target, t, 1).then(() => { if (wantGrid) void showInGrid(); });
+        wantGrid = false;
       },
       (err: Error) => {
         if (stale) return;
@@ -154,6 +158,12 @@
     } catch {
       if (seq === showSeq) message = 'Could not load that minute.';
     }
+  }
+  // "Show in timeline grid" (Klaus, 2026-09-29): the open minute's tile, in the middle.
+  let grid = $state<HTMLElement | undefined>();
+  async function showInGrid() {
+    await tick();
+    grid?.querySelector<HTMLElement>('[data-testid="timeline-minute"].active')?.scrollIntoView({ block: 'center', behavior: 'smooth' });
   }
   function step(dir: -1 | 1) {
     if (!open) return;
@@ -243,11 +253,13 @@
           <button onclick={() => step(1)} aria-label="Next second">▶</button>
           <a data-testid="timeline-open-history" href={`/app/recordings?cam=${encodeURIComponent(camera.id)}&panel=history&at=${ts}`}
             onclick={(e) => { if (e.button === 0 && !e.metaKey && !e.ctrlKey && !e.shiftKey) { e.preventDefault(); navigate((e.currentTarget as HTMLAnchorElement).getAttribute('href')!); } }}>Open in History</a>
+          <button class="link" data-testid="timeline-show-grid" onclick={() => void showInGrid()}>Show in timeline grid</button>
           <button onclick={() => (open = null)} data-testid="timeline-close">Close</button>
         </div>
       </div>
     {/if}
     {#if message}<p class="muted" data-testid="timeline-message">{message}</p>{/if}
+    <div class="grid" bind:this={grid}>
     {#each hours as h (h.hour)}
       <div class="hour">
         <div class="label mono">{String(h.hour).padStart(2, '0')}:00</div>
@@ -263,6 +275,7 @@
         </div>
       </div>
     {/each}
+    </div>
   {/if}
 </section>
 
@@ -275,14 +288,18 @@
   .mono { font-family: var(--mono); }
   .viewer { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 10px; display: grid; gap: 8px; }
   .viewer img { width: 100%; max-height: 60vh; object-fit: contain; background: var(--bg); border-radius: 8px; }
-  .bar { display: flex; gap: 8px; align-items: center; }
+  .bar { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  .bar button.link { background: none; border: 0; padding: 0; color: var(--accent); font: inherit; text-decoration: underline; cursor: pointer; }
+  .grid { display: grid; gap: 12px; }
   .bar button { font: inherit; color: var(--text); background: var(--surface-2); border: 1px solid var(--border); border-radius: 8px; padding: 4px 10px; cursor: pointer; }
   .hour { display: grid; grid-template-columns: 52px 1fr; gap: 8px; align-items: start; }
   .label { color: var(--muted); font-size: 12px; padding-top: 4px; }
   .tiles { display: flex; flex-wrap: wrap; gap: 3px; }
   .tile { padding: 0; border: 2px solid transparent; border-radius: 4px; background: var(--surface-2); cursor: pointer; line-height: 0; }
   .tile.event { border-color: var(--accent); }
-  .tile.active { border-color: var(--accent-2); }
+  /* The selected minute: red and 3× thicker, easy to see in both themes
+     (Klaus, 2026-09-29). The negative margin keeps its place in the grid. */
+  .tile.active { border: 6px solid var(--danger); margin: -4px; position: relative; z-index: 1; }
   .img { display: block; width: 80px; height: 45px; }
   @media (max-width: 600px) {
     .hour { grid-template-columns: 1fr; }
