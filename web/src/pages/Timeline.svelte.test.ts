@@ -194,14 +194,16 @@ describe('Timeline', () => {
   describe('shared cursor', () => {
     const m0 = minute - 60_000; // two minutes with sprites: minute-1 and minute
     const sprite = (x: number) => ({ minute: x, cols: 10, rows: 6, tileW: 160, tileH: 90, intervalS: 1, present: Array(60).fill(true), url: `/x/${x}.jpg` });
-    async function open(vp?: number | null, sprites: number[] = [m0, minute], events: unknown[] = []) {
+    // opts.missing: tiles missing from every sprite; opts.hold: awaited before each /stills answer.
+    async function open(vp?: number | null, sprites: number[] = [m0, minute], events: unknown[] = [], opts: { missing?: number[]; hold?: () => Promise<void> } = {}) {
       sessionStorage.clear();
       history.replaceState(null, '', '/app/timeline');
       if (vp !== undefined) saveViewPoint('den', vp);
       vi.stubGlobal('IntersectionObserver', class { observe() {} disconnect() {} });
       vi.stubGlobal('fetch', async (url: string) => {
-        if (url.includes('/previews?')) return json(sprites.map(sprite));
+        if (url.includes('/previews?')) return json(sprites.map(sprite).map((x) => ({ ...x, present: x.present.map((p, i) => p && !opts.missing?.includes(i)) })));
         if (url.includes('/stills?')) {
+          await opts.hold?.();
           const from = Number(new URL(url, 'http://x').searchParams.get('from'));
           return json(Array.from({ length: 60 }, (_, i) => from + i * 1000));
         }
@@ -269,6 +271,10 @@ describe('Timeline', () => {
       await open(a + 5000, [a, a + 60_000, a + 120_000]); // 10:58, 10:59, 11:00
       const active = () => q('[data-testid="timeline-minute"].active')?.getAttribute('data-minute');
       expect(active()).toBe(String(a));
+      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', altKey: true })); // Alt+→ is the browser's
+      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', metaKey: true }));
+      flushSync();
+      expect(active()).toBe(String(a));
       window.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight' }));
       flushSync();
       expect(active()).toBe(String(a + 60_000));
@@ -296,6 +302,44 @@ describe('Timeline', () => {
       expect(qa('[data-testid="timeline-boxes"] rect')).toHaveLength(1);
       expect(q('[data-testid="timeline-box-label"]')?.textContent).toBe('person 0.84');
       expect(q('[data-testid="timeline-open-history"]')?.getAttribute('href')).toBe(`/app/recordings?cam=den&panel=history&at=${m0 + 20_000}`);
+    });
+
+    const analysedCard = () => ({ id: 'c1', start: new Date(m0 + 5000).toISOString(), end: new Date(m0 + 40_000).toISOString(), triggers: ['person'], durationSec: 35, sizeSub: 1, sizeMain: 1,
+      analysis: { best: { person: { score: 0.84, subtype: 'person' } }, notConfirmed: [], stills: [{ eventId: 7, stillTs: m0 + 20_000, summary: [{ category: 'person', subtype: 'person', score: 0.84, box: { x0: 0.1, y0: 0.2, x1: 0.3, y1: 0.9 } }] }] } });
+
+    it('an analysed second opens even when its sprite tile is missing', async () => {
+      await open(undefined, [m0, minute], [analysedCard()], { missing: [20] });
+      qa('[data-testid="timeline-minute"]')[0].click();
+      flushSync();
+      const second = qa('[data-testid="timeline-second"]')[20];
+      expect((second as HTMLButtonElement).disabled).toBe(false);
+      second.click();
+      flushSync();
+      expect(still()).toBe(`/api/cameras/den/stills/${m0 + 20_000}.jpg`);
+      expect(qa('[data-testid="timeline-boxes"] rect')).toHaveLength(1);
+    });
+
+    it('opened at an analysed still, shows it with Vision’s boxes', async () => {
+      await open(m0 + 20_000, [m0, minute], [analysedCard()]);
+      expect(still()).toBe(`/api/cameras/den/stills/${m0 + 20_000}.jpg`);
+      expect(qa('[data-testid="timeline-boxes"] rect')).toHaveLength(1);
+    });
+
+    it('Escape drops a still that is still loading', async () => {
+      let calls = 0;
+      let release: (() => void) | undefined;
+      const held = new Promise<void>((r) => (release = r));
+      await open(m0 + 5000, [m0, minute], [], { hold: () => (++calls === 1 ? Promise.resolve() : held) });
+      expect(still()).toBe(`/api/cameras/den/stills/${m0 + 5000}.jpg`);
+      qa('[data-testid="timeline-second"]')[30].click(); // its still is held
+      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
+      flushSync();
+      expect(still()).toBeNull();
+      expect(q('[data-testid="timeline-minute-view"]')).not.toBeNull(); // the first Escape keeps the minute
+      release!();
+      for (let i = 0; i < 4; i++) await tick();
+      flushSync();
+      expect(still()).toBeNull();
     });
   });
 });

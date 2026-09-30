@@ -87,7 +87,10 @@
         const target = t === null ? null : nearestMinute(m, t);
         if (target && t !== null) {
           open = target;
-          void pick(target, t);
+          // An analysed still opens as such, with Vision's boxes.
+          const seen = analysedSeconds(target, ev).find((x) => x?.stillTs === t) ?? null;
+          if (seen) openSecond(target, 0, seen);
+          else void pick(target, t);
           void reveal();
         }
       },
@@ -191,12 +194,17 @@
     still = null;
   }
   function onkey(e: KeyboardEvent) {
-    if (!open || (e.target as HTMLElement | null)?.tagName === 'INPUT') return;
+    // Modified keys are the browser's (Alt+← is Back); fields keep their keys.
+    if (!open || e.altKey || e.metaKey || e.ctrlKey) return;
+    const el = e.target as HTMLElement | null;
+    if (el && (['INPUT', 'TEXTAREA', 'SELECT'].includes(el.tagName) || el.isContentEditable)) return;
     if (e.key === 'ArrowLeft') step(-1);
     else if (e.key === 'ArrowRight') step(1);
     else if (e.key === 'Escape') {
-      if (still) still = null;
-      else close();
+      if (still) {
+        ++pickSeq; // a still still loading is dropped too
+        still = null;
+      } else close();
     } else return;
     e.preventDefault();
   }
@@ -307,7 +315,7 @@
                   {@const ts = m.minute + i * m.intervalS * 1000}
                   <button class="second {kinds[i] ? `ev-${kinds[i]}` : ''}" class:missing={!ok} class:analysed={seen[i] !== null}
                     class:active={still !== null && still.ts >= ts && still.ts < ts + m.intervalS * 1000}
-                    disabled={!ok} style={tileStyle(m, i, 0.6)} title={clock(ts, true)} aria-label={`${clock(ts, true)}${seen[i] ? ', analysed by Vision' : ''}`}
+                    disabled={!ok && !seen[i]} style={tileStyle(m, i, 0.6)} title={clock(ts, true)} aria-label={`${clock(ts, true)}${seen[i] ? ', analysed by Vision' : ''}`}
                     onclick={() => openSecond(m, i, seen[i])} data-testid="timeline-second" data-ts={ts}>{#if seen[i]}<span class="spark">✦</span>{/if}</button>
                 {/each}
               </div>
@@ -349,7 +357,8 @@
   .tile.analysed { box-shadow: 0 0 0 2px #a855f7; }
   .second.analysed { outline: 2px solid #a855f7; outline-offset: 1px; }
   .second.active { outline: 3px solid var(--accent); outline-offset: 1px; }
-  .second.missing { opacity: 0.25; cursor: default; }
+  .second.missing { opacity: 0.25; }
+  .second:disabled { cursor: default; }
   .img { display: block; width: 80px; height: 45px; }
   .count { position: absolute; right: 2px; bottom: 2px; background: rgb(0 0 0 / 0.7); color: #fff; font-size: 10px; line-height: 1.3; padding: 0 3px; border-radius: 3px; }
   .spark { position: absolute; top: 1px; left: 3px; color: #a855f7; font-size: 11px; line-height: 1; }
