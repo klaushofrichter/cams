@@ -3,6 +3,7 @@
   import { ALL_KINDS, TRIGGER_LABELS, isAllKinds, toggleFilter, defaultGroupOpen, formatClock, groupByHour, thumbUrl, type EventClip, type Filter } from '../lib/recordings';
   import ComposeDialog from './ComposeDialog.svelte';
   import Icon from './Icon.svelte';
+  import VisionBadges from './VisionBadges.svelte';
   import { scrollIntoContainer } from '../lib/scroll';
   import { groupPending } from '../lib/eventStream';
   import { cameras } from '../lib/stores';
@@ -214,6 +215,7 @@
                     <span class="dur">{e.durationSec} s</span>
                     <span class="tags">
                       {#each e.triggers as t (t)}<span class="tag" class:ai={t !== 'motion' && t !== 'timer'}>{TRIGGER_LABELS[t]}</span>{/each}
+                      <VisionBadges triggers={e.triggers} analysis={e.analysis} />
                     </span>
                   </span>
                 </button>

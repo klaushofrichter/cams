@@ -17,7 +17,9 @@ export interface StreamOptions {
   remoteCam?: string; // the proxy's id for this camera: messages for others are dropped
 }
 
-const TYPES = 'camera-event,camera-status,clip';
+// A proxy from before the `analysis` stream type existed (v2026.09.30.3 and
+// older) answers 400 to it, and the stream asks again without it.
+const TYPES = ['camera-event', 'camera-status', 'clip', 'analysis'];
 
 export class ProxyStream extends EventEmitter {
   private lastId: string | undefined;
@@ -27,6 +29,7 @@ export class ProxyStream extends EventEmitter {
   private timer: NodeJS.Timeout | undefined;
   private delay: number;
   private error: string | null = null;
+  private types = [...TYPES];
 
   constructor(
     readonly cam: string,
@@ -70,9 +73,16 @@ export class ProxyStream extends EventEmitter {
     this.abort = abort;
     const connectedAt = Date.now();
     try {
-      const res = await this.client.open('/api/stream', { types: TYPES, since: this.lastId }, { signal: abort.signal, idleMs: this.o.idleMs ?? 45_000 });
+      const res = await this.client.open('/api/stream', { types: this.types.join(','), since: this.lastId }, { signal: abort.signal, idleMs: this.o.idleMs ?? 45_000 });
       if (!res.ok || !res.body) {
-        await res.body?.cancel();
+        let text = '';
+        if (res.status === 400) text = await res.text().catch(() => '');
+        else await res.body?.cancel();
+        if (this.types.includes('analysis') && /unknown type: analysis/.test(text)) {
+          this.types = this.types.filter((t) => t !== 'analysis');
+          logger.debug({ cameraId: this.cam }, 'proxy_stream_without_analysis');
+          return void this.connect();
+        }
         throw new ProxyError('proxy_error', `cam-proxy ${this.client.host()} stream answered ${res.status}`, res.status);
       }
       this.error = null;

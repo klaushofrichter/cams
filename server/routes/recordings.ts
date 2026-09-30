@@ -1,4 +1,7 @@
 import { Router, Request, Response, NextFunction } from 'express';
+import { getProxyClient } from '../proxy/client';
+import { getAnalysisStore } from '../proxy/analyses';
+import { attachAnalyses } from '../recordings/analysis';
 import { pipeline } from 'stream/promises';
 import { getCamera } from '../cameraRegistry';
 import { CameraError } from '../reolink/client';
@@ -82,7 +85,9 @@ recordingsRouter.get('/api/cameras/:id/events', async (req, res, next) => {
     const rec = getRecordings();
     const events = await rec.events(id, date);
     rec.probeIfDue(id, events.at(-1)?.id);
-    res.json({ date, events, downloads: rec.downloadsState(id) });
+    // cam-proxy's Vision results on the cards (spec 2026-09-30-analytics-in-cams-design).
+    const shown = getProxyClient(id) ? attachAnalyses(events, await getAnalysisStore().forDay(id, date, events)) : events;
+    res.json({ date, events: shown, downloads: rec.downloadsState(id) });
   } catch (err) {
     fail(err, id, res, next);
   }
