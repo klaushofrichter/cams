@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import LivePanel from './LivePanel.svelte';
 import { liveUi } from '../lib/liveUi';
 import { get } from 'svelte/store';
+import { ICONS } from '../lib/icons';
 
 let component: Record<string, unknown> | undefined;
 let target: HTMLDivElement | undefined;
@@ -134,7 +135,7 @@ describe('LivePanel', () => {
   it('shows the cam-proxy state even without a web link', () => {
     liveUi.update((u) => ({ ...u, status: { id: 'cam2', online: true } }));
     render({ proxyInfo: { reachable: false, webUrl: null } });
-    expect(q('live-proxy-state')!.textContent).toBe('cam-proxy: not reachable');
+    expect(q('live-proxy-state')!.textContent).toBe('cam-proxy: not available');
     expect(q('live-proxy-link')).toBeNull();
   });
 
@@ -205,5 +206,89 @@ describe('LivePanel', () => {
     await new Promise((r) => setTimeout(r, 20));
     expect(urls.filter((u) => u.endsWith('/light'))).toEqual([]);
     vi.unstubAllGlobals();
+  });
+
+  // Klaus, 2026-09-29: one line, "connected" is the link.
+  it('shows a reachable cam-proxy as "connected", which is the link', () => {
+    liveUi.update((u) => ({ ...u, status: { id: 'cam2', online: true } }));
+    render({ proxyInfo: { reachable: true, webUrl: 'https://proxy.example/' } });
+    expect(q('live-proxy-state')!.textContent!.replace(/\s+/g, ' ').trim()).toBe('cam-proxy: connected');
+    const link = q('live-proxy-link') as HTMLAnchorElement;
+    expect(link.textContent).toBe('connected');
+    expect(link.href).toBe('https://proxy.example/');
+    expect(q('live-proxy-state')!.contains(link)).toBe(true);
+  });
+
+  it('shows "connected" without a link when the proxy has no web page', () => {
+    liveUi.update((u) => ({ ...u, status: { id: 'cam2', online: true } }));
+    render({ proxyInfo: { reachable: true, webUrl: null } });
+    expect(q('live-proxy-state')!.textContent!.trim()).toBe('cam-proxy: connected');
+    expect(q('live-proxy-link')).toBeNull();
+  });
+
+  // Klaus, 2026-09-29: one colour; rays when on. The camera is slow, so the
+  // button waits up to 2 s for the new state, which blocks a double click.
+  function lightServer(opts: { putDelayMs: number }) {
+    let on = false;
+    const puts: string[] = [];
+    vi.stubGlobal('fetch', async (_url: string, init?: RequestInit) => {
+      if (init?.method === 'PUT') {
+        puts.push(init.body as string);
+        await new Promise((r) => setTimeout(r, opts.putDelayMs));
+        on = JSON.parse(init.body as string).on;
+      }
+      return new Response(JSON.stringify({ on }), { status: 200 });
+    });
+    return puts;
+  }
+  const icon = () => q('light-toggle')!.querySelector('path')!.getAttribute('d');
+
+  it('draws the light as a plain bulb when off and with rays when on', async () => {
+    lightServer({ putDelayMs: 0 });
+    liveUi.update((u) => ({ ...u, status: { id: 'cam2', online: true } }));
+    render();
+    await vi.waitFor(() => expect(q('light-toggle')).not.toBeNull());
+    expect(icon()).toBe(ICONS.light);
+    q('light-toggle')!.click();
+    await vi.waitFor(() => expect(icon()).toBe(ICONS.lightOn));
+    vi.unstubAllGlobals();
+  });
+
+  it('keeps the light button disabled until the light has switched', async () => {
+    const puts = lightServer({ putDelayMs: 500 });
+    liveUi.update((u) => ({ ...u, status: { id: 'cam2', online: true } }));
+    render();
+    await vi.waitFor(() => expect(q('light-toggle')).not.toBeNull());
+    q('light-toggle')!.click();
+    flushSync();
+    expect((q('light-toggle') as HTMLButtonElement).disabled).toBe(true);
+    q('light-toggle')!.click(); // the double click
+    await vi.waitFor(() => expect(q('light-toggle')!.getAttribute('aria-pressed')).toBe('true'));
+    expect((q('light-toggle') as HTMLButtonElement).disabled).toBe(false);
+    expect(puts).toEqual(['{"on":true}']);
+    vi.unstubAllGlobals();
+  });
+
+  it('enables the light button again after 2 s when the camera is slower', async () => {
+    const puts = lightServer({ putDelayMs: 5000 });
+    liveUi.update((u) => ({ ...u, status: { id: 'cam2', online: true } }));
+    render();
+    await vi.waitFor(() => expect(q('light-toggle')).not.toBeNull());
+    vi.useFakeTimers();
+    try {
+      q('light-toggle')!.click();
+      flushSync();
+      await vi.advanceTimersByTimeAsync(1900);
+      flushSync();
+      expect((q('light-toggle') as HTMLButtonElement).disabled).toBe(true);
+      await vi.advanceTimersByTimeAsync(200);
+      flushSync();
+      expect((q('light-toggle') as HTMLButtonElement).disabled).toBe(false);
+      expect(q('light-toggle')!.getAttribute('aria-pressed')).toBe('false'); // not switched yet
+      expect(puts).toHaveLength(1);
+    } finally {
+      vi.useRealTimers();
+      vi.unstubAllGlobals();
+    }
   });
 });

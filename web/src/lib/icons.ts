@@ -17,7 +17,9 @@ export const ICONS = {
   camera: 'M4 8h3l2-3h6l2 3h3a1 1 0 0 1 1 1v9a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V9a1 1 0 0 1 1-1zm8 9a4 4 0 1 0 0-8 4 4 0 0 0 0 8z',
   volumeOff: 'M11 5 6 9H3v6h3l5 4V5zm11 4-6 6m0-6 6 6',
   volumeOn: 'M11 5 6 9H3v6h3l5 4V5zm4.5 3.5a5 5 0 0 1 0 7m2.8-9.8a9 9 0 0 1 0 12.6',
-  light: 'M15 14c.2-1 .7-1.7 1.5-2.5 1-.9 1.5-2.2 1.5-3.5A6 6 0 0 0 6 8c0 1 .2 2.2 1.5 3.5.7.7 1.3 1.5 1.5 2.5M9 18h6M10 22h4',
+  // The camera's light: a plain bulb when off, with rays when on (one colour, Klaus 2026-09-29).
+  light: 'M14.8 15c.2-.9.6-1.4 1.3-2.1a5 5 0 1 0-8.2 0c.7.7 1.1 1.2 1.3 2.1M9.5 18h5M10.5 21h3',
+  lightOn: 'M14.8 15c.2-.9.6-1.4 1.3-2.1a5 5 0 1 0-8.2 0c.7.7 1.1 1.2 1.3 2.1M9.5 18h5M10.5 21h3M12 1.5v1.5M4.2 4.2l1.1 1.1M19.8 4.2l-1.1 1.1M1.5 10H3M21 10h1.5',
   expand: 'M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5',
   refresh: 'M20 11a8 8 0 1 0-2.3 5.7M20 4v7h-7',
   play: 'M8 5v14l11-7z',
