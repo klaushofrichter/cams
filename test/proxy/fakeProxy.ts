@@ -38,7 +38,7 @@ export interface FakeProxy {
   messages: FakeMessage[];
   oldestId: number; // resuming from an id before this answers `reset`
   offline: boolean; // every request is answered by closing the connection
-  requests: { path: string; auth: string | undefined }[];
+  requests: { path: string; auth: string | undefined; query: Record<string, unknown> }[];
   publicUrl: string | null; // what /api/cameras reports as the proxy's web address
   camerasBody?: unknown; // tests: answer /api/cameras with this instead
   loginLinks: number; // one-time admin UI links minted (POST /control/login-links)
@@ -118,7 +118,7 @@ export async function startFakeProxy(opts: { port?: number; token?: string } = {
   app.use(rateLimit({ windowMs: 60_000, limit: 100_000, standardHeaders: false, legacyHeaders: false }));
   app.use((req, res, next) => {
     if (fake.offline) return void req.socket.destroy();
-    fake.requests.push({ path: req.path, auth: req.get('authorization') });
+    fake.requests.push({ path: req.path, auth: req.get('authorization'), query: { ...req.query } });
     if (req.path === '/health') return next();
     // The control API takes the admin token only, like the real one.
     if (req.path.startsWith('/control/')) {

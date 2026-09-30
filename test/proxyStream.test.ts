@@ -57,6 +57,19 @@ describe('ProxyStream (upstream)', () => {
     fake.push({ cam: 'den', type: 'camera-event', data: { eventId: 1, kind: 'person', phase: 'start', ts: 1000 } });
     await until(() => got.length === 1);
     expect(got[0].type).toBe('camera-event');
+    const asks = fake.requests.filter((r) => r.path === '/api/stream').map((r) => String(r.query.types).split(','));
+    expect(asks).toHaveLength(2); // asked once with analysis, once without, no loop
+    expect(asks[0]).toContain('analysis');
+    expect(asks[1]).not.toContain('analysis');
+  });
+
+  it('keeps asking for analyses after a 400 that is not about the type', async () => {
+    const fake = await fakeProxy();
+    fake.streamStatus = 400;
+    stream(fake);
+    const asks = () => fake.requests.filter((r) => r.path === '/api/stream');
+    await until(() => asks().length >= 2);
+    for (const r of asks()) expect(String(r.query.types).split(',')).toContain('analysis');
   });
 
   it('passes on only its own camera’s messages when a proxy serves several (review #5)', async () => {
