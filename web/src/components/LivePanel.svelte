@@ -6,12 +6,14 @@
   import { timeAgo } from '../lib/clock';
   import type { CameraSummary } from '../lib/stores';
   import type { Pending } from '../lib/eventStream';
+  import { getJson } from '../lib/api';
+  import { putJson } from '../lib/settings';
 
-  // The Live panel (spec 2026-09-28): the camera, its latest event and the
+  // The Live panel (spec 2026-09-28): the camera, its recent events and the
   // live controls, beside the player column. The stream itself is LiveBox's.
-  let { camera, latest, pending, onplay, proxyInfo, paused = false }: {
+  let { camera, recent, pending, onplay, proxyInfo, paused = false }: {
     camera: CameraSummary;
-    latest: EventClip | null;
+    recent: EventClip[]; // today's events, newest first
     pending: Pending[];
     onplay: (e: EventClip) => void;
     proxyInfo: { reachable: boolean; webUrl: string | null } | null;
@@ -29,7 +31,48 @@
     const id = setInterval(() => (nowMs = Date.now()), 30_000);
     return () => clearInterval(id);
   });
-  const newestPending = $derived(pending.length ? pending.reduce((a, b) => (b.ts > a.ts ? b : a)) : null);
+  // Up to five, newest on top; recordings still in progress first (Klaus, 2026-09-29).
+  const MAX_RECENT = 5;
+  const pendingShown = $derived([...pending].sort((a, b) => b.ts - a.ts).slice(0, MAX_RECENT));
+  const recentShown = $derived(recent.slice(0, MAX_RECENT - pendingShown.length));
+
+  // The camera's manual light (WhiteLed.state): read when the panel opens and
+  // every 30 s (not while the tab is hidden), so a change from the Reolink
+  // app shows too. No button when the camera can't say (no light, an error).
+  let light = $state<boolean | null>(null);
+  let lightBusy = $state(false);
+  const online = $derived(!!status?.online);
+  $effect(() => {
+    const id = camera.id;
+    if (!online || paused) return;
+    let stale = false;
+    const read = () =>
+      getJson<{ on: boolean }>(`/api/cameras/${encodeURIComponent(id)}/light`).then(
+        (r) => { if (!stale && !lightBusy) light = r.on; },
+        () => { if (!stale) light = null; },
+      );
+    void read();
+    const t = setInterval(read, 30_000);
+    return () => {
+      stale = true;
+      clearInterval(t);
+      light = null;
+    };
+  });
+  async function toggleLight() {
+    if (light === null || lightBusy) return;
+    lightBusy = true;
+    try {
+      const r = await putJson<{ on?: boolean }>(`/api/cameras/${encodeURIComponent(camera.id)}/light`, { on: !light });
+      if (typeof r.body.on === 'boolean') light = r.body.on;
+    } catch {
+      // keep the last known state
+    } finally {
+      lightBusy = false;
+    }
+  }
+  const muteTip = $derived($liveUi.muted ? 'Muted, click to unmute' : 'Sound on, click to mute');
+  const lightTip = $derived(light ? 'Light is on, click to turn off' : 'Light is off, click to turn on');
   const label = (kind: string) => TRIGGER_LABELS[kind as keyof typeof TRIGGER_LABELS] ?? kind;
 </script>
 
@@ -68,43 +111,52 @@
 
   {#if status?.online}
     <section class="tile controls" data-testid="live-controls">
-      <button data-testid="mute-toggle" aria-pressed={!$liveUi.muted} onclick={() => toggleMute()} title={$liveUi.muted ? 'Unmute' : 'Mute'}>
-        <Icon name={$liveUi.muted ? 'volumeOff' : 'volumeOn'} size={18} /><span>{$liveUi.muted ? 'Muted' : 'Sound'}</span>
+      <!-- Icons only, the tooltips explain them (Klaus, 2026-09-29). -->
+      <button data-testid="mute-toggle" aria-pressed={!$liveUi.muted} onclick={() => toggleMute()} title={muteTip} aria-label={muteTip}>
+        <Icon name={$liveUi.muted ? 'volumeOff' : 'volumeOn'} size={18} />
       </button>
       {#if $liveUi.hevc}
-        <button data-testid="quality-toggle" aria-pressed={$liveUi.quality === 'main'} onclick={() => toggleQuality()} title="Switch stream quality">
-          {$liveUi.quality === 'main' ? 'HD' : 'SD'}
+        <button data-testid="quality-toggle" aria-pressed={$liveUi.quality === 'main'} onclick={() => toggleQuality()}
+          title={$liveUi.quality === 'main' ? 'Switch to SD' : 'Switch to 4K'}>
+          {$liveUi.quality === 'main' ? '4K' : 'SD'}
         </button>
       {/if}
-      <button data-testid="snapshot" onclick={() => saveSnapshot(camera.id)} disabled={$liveUi.snapshotBusy} title="Save a snapshot">
-        <Icon name="camera" size={18} /><span>{$liveUi.snapshotBusy ? 'Saving…' : 'Snapshot'}</span>
+      {#if light !== null}
+        <button data-testid="light-toggle" class="light" aria-pressed={light} disabled={lightBusy} onclick={toggleLight} title={lightTip} aria-label={lightTip}>
+          <Icon name="light" size={18} />
+        </button>
+      {/if}
+      <button data-testid="snapshot" onclick={() => saveSnapshot(camera.id)} disabled={$liveUi.snapshotBusy}
+        title={$liveUi.snapshotBusy ? 'Saving…' : 'Save a snapshot'} aria-label={$liveUi.snapshotBusy ? 'Saving…' : 'Save a snapshot'}>
+        <Icon name="camera" size={18} />
       </button>
       <button data-testid="fullscreen" onclick={() => liveFullscreen()} title="Fullscreen"><Icon name="expand" size={18} /></button>
       {#if $liveUi.snapshotError}<p class="snapshot-error" data-testid="snapshot-error" role="alert">{$liveUi.snapshotError}</p>{/if}
     </section>
   {/if}
 
-  {#if newestPending || latest}
-  <!-- Under the controls, with a title (Klaus, 2026-09-28). -->
+  <!-- Under the controls, with a title (Klaus, 2026-09-28); up to five (2026-09-29). -->
   <section class="tile recent" data-testid="live-recent">
-    <h3>Most recent event</h3>
-    {#if newestPending}
+    <h3>Most recent events</h3>
+    {#each pendingShown as p (p.ts + p.kind)}
       <div class="latest pending" data-testid="live-latest-pending">
         <span class="dot"></span>
-        <span>{label(newestPending.kind)} · recording…</span>
+        <span>{label(p.kind)} · recording…</span>
       </div>
-    {:else if latest}
-      <button class="latest" data-testid="live-latest" title="Play this event" onclick={() => onplay(latest)}>
-        <img src={thumbUrl(camera.id, latest.id)} alt="" loading="lazy" />
+    {/each}
+    {#each recentShown as e (e.id)}
+      <button class="latest" data-testid="live-latest" title="Play this event" onclick={() => onplay(e)}>
+        <img src={thumbUrl(camera.id, e.id)} alt="" loading="lazy" />
         <span class="what">
-          <strong>{latest.triggers.map((t) => TRIGGER_LABELS[t]).join(', ') || 'Recording'}</strong>
-          <span>{formatClock(latest.start)}</span>
-          <span data-testid="live-latest-ago">{timeAgo(Date.parse(latest.start), nowMs)}</span>
+          <strong>{e.triggers.map((t) => TRIGGER_LABELS[t]).join(', ') || 'Recording'}</strong>
+          <span>{formatClock(e.start)}</span>
+          <span data-testid="live-latest-ago">{timeAgo(Date.parse(e.start), nowMs)}</span>
         </span>
       </button>
-    {/if}
+    {:else}
+      {#if !pendingShown.length}<p class="none" data-testid="live-no-events">No events today</p>{/if}
+    {/each}
   </section>
-  {/if}
 </div>
 
 <style>
@@ -130,6 +182,11 @@
   }
   .controls button:hover { background: color-mix(in srgb, var(--accent) 14%, var(--surface-2)); }
   .controls button[aria-pressed='true'] { border-color: var(--accent); }
+  .controls button:disabled { opacity: 0.6; cursor: default; }
+  .controls .light[aria-pressed='true'] { color: #CA8A04; }
+  .controls .light[aria-pressed='true'] :global(svg) { fill: #FACC15; }
+  .recent { gap: 10px; }
+  .none { margin: 0; font-size: 13px; color: var(--muted); }
   .snapshot-error { margin: 0; width: 100%; font-size: 13px; color: var(--danger); }
   .offline {
     display: flex; flex-direction: column; align-items: flex-start; gap: 8px; padding: 12px; border-radius: 10px;

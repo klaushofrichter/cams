@@ -93,3 +93,54 @@ test('the viewer\'s still opens that moment in History', async ({ page }) => {
   await expect(page).toHaveURL(/\/app\/recordings\?.*at=\d+.*panel=history/);
   await expect(page.getByTestId('source-badge')).toBeVisible();
 });
+
+// Klaus, 2026-09-29: the selected minute has a red frame, 3× thicker, and
+// "Show in timeline grid" scrolls to it.
+async function expectRedFrame(tile: import('@playwright/test').Locator) {
+  await expect(tile).toBeInViewport();
+  const { width, color } = await tile.evaluate((el) => {
+    const cs = getComputedStyle(el);
+    return { width: cs.borderTopWidth, color: cs.borderTopColor };
+  });
+  expect(width).toBe('6px');
+  const [r, g, b] = color.match(/\d+/g)!.map(Number);
+  expect(r).toBeGreaterThan(200);
+  expect(g).toBeLessThan(90);
+  expect(b).toBeLessThan(90);
+}
+
+test('"Show in timeline grid" scrolls to the selected minute, framed in red', async ({ page }) => {
+  const at = Math.floor((Date.now() - 180_000) / 1000) * 1000;
+  const date = await page.evaluate((t) => { const d = new Date(t); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; }, at);
+  await page.goto(`/app/timeline?cam=cam1&date=${date}&t=${at}`);
+  await expect(page.getByTestId('timeline-still')).toBeVisible();
+  const active = page.locator('[data-testid="timeline-minute"].active');
+  await expect(active).toHaveCount(1);
+  await page.getByTestId('timeline-show-grid').click();
+  await expectRedFrame(active);
+  // The thicker frame grows outward by 4 px (a negative margin), so the
+  // other tiles keep their places.
+  const rects = await page.getByTestId('timeline-minute').evaluateAll((els) => els.map((e) => ({ active: e.classList.contains('active'), w: e.getBoundingClientRect().width })));
+  const others = new Set(rects.filter((r) => !r.active).map((r) => r.w));
+  expect(others.size).toBe(1);
+  expect(rects.find((r) => r.active)!.w).toBe([...others][0] + 8);
+});
+
+test('History\'s "Show in Timeline" opens the Timeline at that moment, the minute framed in red and in view', async ({ page }) => {
+  const at = Math.floor((Date.now() - 180_000) / 1000) * 1000;
+  await page.goto(`/app/recordings?cam=cam1&panel=history&at=${at}`);
+  await expect(page.getByTestId('source-badge')).toBeVisible();
+  const link = page.getByTestId('show-in-timeline');
+  await expect(link).toBeVisible();
+  await link.click();
+  await expect(page).toHaveURL(/\/app\/timeline\?cam=cam1&date=\d{4}-\d{2}-\d{2}&t=\d+$/); // grid=1 is used once, then dropped
+  const src = await page.getByTestId('timeline-still').getAttribute('src');
+  expect(Math.abs(Number(/stills\/(\d+)\.jpg/.exec(src!)![1]) - at)).toBeLessThanOrEqual(60_000);
+  await expectRedFrame(page.locator('[data-testid="timeline-minute"].active'));
+});
+
+test('History offers no Timeline link for a camera without a gateway', async ({ page }) => {
+  await page.goto(`/app/recordings?cam=porch&panel=history&at=${Date.now() - 180_000}`);
+  await expect(page.getByTestId('source-badge')).toBeVisible();
+  await expect(page.getByTestId('show-in-timeline')).toHaveCount(0);
+});

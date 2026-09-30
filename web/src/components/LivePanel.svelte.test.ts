@@ -17,7 +17,7 @@ const ev = { id: '20260928-091953-092013', start: new Date(Date.now() - 12 * 60_
 function render(extra: Record<string, unknown> = {}) {
   target = document.createElement('div');
   document.body.appendChild(target);
-  component = mount(LivePanel, { target, props: { camera: { id: 'cam2', name: 'cam2', webUiUrl: null }, latest: ev, pending: [], onplay: vi.fn(), proxyInfo: null, ...extra } });
+  component = mount(LivePanel, { target, props: { camera: { id: 'cam2', name: 'cam2', webUiUrl: null }, recent: [ev], pending: [], onplay: vi.fn(), proxyInfo: null, ...extra } });
   flushSync();
   return target;
 }
@@ -38,6 +38,34 @@ describe('LivePanel', () => {
     expect(q('live-latest-ago')!.textContent).toBe('12 minutes ago');
     q('live-latest')!.click();
     expect(onplay).toHaveBeenCalledWith(ev);
+  });
+
+  // Klaus, 2026-09-29: up to five, newest on top.
+  const evAt = (minAgo: number) => ({ ...ev, id: `e${minAgo}`, start: new Date(Date.now() - minAgo * 60_000).toISOString() });
+  const all = (id: string) => [...target!.querySelectorAll(`[data-testid="${id}"]`)] as HTMLElement[];
+  it('lists up to five recent events, newest first', () => {
+    const onplay = vi.fn();
+    render({ recent: [1, 2, 3, 4, 5, 6, 7].map(evAt), onplay });
+    const rows = all('live-latest');
+    expect(rows).toHaveLength(5);
+    expect(all('live-latest-ago').map((x) => x.textContent)).toEqual(['1 minute ago', '2 minutes ago', '3 minutes ago', '4 minutes ago', '5 minutes ago']);
+    rows[2].click();
+    expect(onplay).toHaveBeenCalledWith(expect.objectContaining({ id: 'e3' }));
+    expect(q('live-no-events')).toBeNull();
+  });
+
+  it('puts a recording in progress on top, within the five', () => {
+    render({ recent: [1, 2, 3, 4, 5].map(evAt), pending: [{ kind: 'person', ts: Date.now() }] });
+    const recent = q('live-recent')!;
+    expect(recent.firstElementChild!.nextElementSibling).toBe(q('live-latest-pending'));
+    expect(q('live-latest-pending')!.textContent).toContain('recording…');
+    expect(all('live-latest')).toHaveLength(4);
+  });
+
+  it('says so when there are no events', () => {
+    render({ recent: [] });
+    expect(q('live-recent')!.textContent).toContain('Most recent events');
+    expect(q('live-no-events')!.textContent).toBe('No events today');
   });
 
   it('shows the offline banner with Retry', () => {
@@ -90,7 +118,7 @@ describe('LivePanel', () => {
     const controls = q('live-controls')!;
     const recent = q('live-recent')!;
     expect(controls.compareDocumentPosition(recent) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    expect(recent.textContent).toContain('Most recent event');
+    expect(recent.textContent).toContain('Most recent events');
     expect(recent.contains(q('live-latest'))).toBe(true);
   });
 
@@ -114,5 +142,68 @@ describe('LivePanel', () => {
     liveUi.update((u) => ({ ...u, status: { id: 'cam2', online: true }, playerState: 'connecting' }));
     render({ paused: true });
     expect(q('live-state')!.textContent!.trim()).toBe('Paused while the tab is hidden');
+  });
+
+  // Klaus, 2026-09-29: icons only, with tooltips; SD/4K.
+  it('shows the controls as icons with tooltips', () => {
+    liveUi.update((u) => ({ ...u, status: { id: 'cam2', online: true }, muted: true, hevc: true, quality: 'sub', snapshotBusy: false }));
+    render();
+    expect(q('mute-toggle')!.textContent!.trim()).toBe('');
+    expect(q('mute-toggle')!.title).toBe('Muted, click to unmute');
+    expect(q('mute-toggle')!.getAttribute('aria-label')).toBe('Muted, click to unmute');
+    expect(q('snapshot')!.textContent!.trim()).toBe('');
+    expect(q('snapshot')!.title).toBe('Save a snapshot');
+    expect(q('quality-toggle')!.textContent!.trim()).toBe('SD');
+    expect(q('quality-toggle')!.title).toBe('Switch to 4K');
+    liveUi.update((u) => ({ ...u, muted: false, quality: 'main' }));
+    flushSync();
+    expect(q('mute-toggle')!.title).toBe('Sound on, click to mute');
+    expect(q('quality-toggle')!.textContent!.trim()).toBe('4K');
+    expect(q('quality-toggle')!.title).toBe('Switch to SD');
+  });
+
+  // The camera's manual light (WhiteLed.state), Klaus 2026-09-29.
+  it('shows the light and switches it', async () => {
+    const calls: { url: string; method: string; body?: string }[] = [];
+    let on = false;
+    vi.stubGlobal('fetch', async (url: string, init?: RequestInit) => {
+      calls.push({ url, method: init?.method ?? 'GET', body: init?.body as string | undefined });
+      if (init?.method === 'PUT') on = JSON.parse(init.body as string).on;
+      return new Response(JSON.stringify({ on }), { status: 200 });
+    });
+    liveUi.update((u) => ({ ...u, status: { id: 'cam2', online: true } }));
+    render();
+    await vi.waitFor(() => expect(q('light-toggle')).not.toBeNull());
+    expect(q('light-toggle')!.getAttribute('aria-pressed')).toBe('false');
+    expect(q('light-toggle')!.title).toBe('Light is off, click to turn on');
+    q('light-toggle')!.click();
+    await vi.waitFor(() => expect(q('light-toggle')!.getAttribute('aria-pressed')).toBe('true'));
+    expect(q('light-toggle')!.title).toBe('Light is on, click to turn off');
+    expect(calls.find((c) => c.method === 'PUT')).toMatchObject({ url: '/api/cameras/cam2/light', body: '{"on":true}' });
+    expect(calls[0]).toMatchObject({ url: '/api/cameras/cam2/light', method: 'GET' });
+    vi.unstubAllGlobals();
+  });
+
+  it('hides the light when the camera has none', async () => {
+    vi.stubGlobal('fetch', async () => new Response('{"error":"camera_error"}', { status: 502 }));
+    liveUi.update((u) => ({ ...u, status: { id: 'cam2', online: true } }));
+    render();
+    await new Promise((r) => setTimeout(r, 20));
+    flushSync();
+    expect(q('light-toggle')).toBeNull();
+    vi.unstubAllGlobals();
+  });
+
+  it('does not ask for the light while the tab is hidden', async () => {
+    const urls: string[] = [];
+    vi.stubGlobal('fetch', async (url: string) => {
+      urls.push(url);
+      return new Response('{"on":false}', { status: 200 });
+    });
+    liveUi.update((u) => ({ ...u, status: { id: 'cam2', online: true } }));
+    render({ paused: true });
+    await new Promise((r) => setTimeout(r, 20));
+    expect(urls.filter((u) => u.endsWith('/light'))).toEqual([]);
+    vi.unstubAllGlobals();
   });
 });
