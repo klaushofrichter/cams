@@ -62,8 +62,11 @@
 
 <style>
   figure { margin: 0; display: grid; gap: 6px; }
-  .frame { position: relative; line-height: 0; }
-  img { width: 100%; max-height: 60vh; object-fit: contain; background: var(--bg); border-radius: 8px; }
+  /* The frame shrink-wraps the image (fit-content, no object-fit): when max-height
+     caps the image, the frame narrows with it, so the box overlay and the %-placed
+     labels always cover exactly the drawn image and never a letterbox. */
+  .frame { position: relative; line-height: 0; width: fit-content; max-width: 100%; }
+  img { display: block; max-width: 100%; max-height: 60vh; width: auto; height: auto; background: var(--bg); border-radius: 8px; }
   svg { position: absolute; inset: 0; width: 100%; height: 100%; }
   rect { fill: none; stroke: #a855f7; stroke-width: 3; }
   .label { position: absolute; transform: translateY(-100%); background: #a855f7; color: #fff; font-size: 12px; line-height: 1.4; padding: 0 4px; border-radius: 3px; white-space: nowrap; }
