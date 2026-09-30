@@ -133,7 +133,12 @@ settingsRouter.get('/api/cameras/:id/device', async (req, res, next) => {
 
 // The camera's manual light: WhiteLed.state, 1 on, 0 off. It stays on until
 // switched off (measured on cam1 2026-09-29). The write sends the whole
-// object, like every settings write, then the light is re-read.
+// object, like every settings write, then the light is re-read. The camera
+// reports the new state late, about 1 s after switching on and 3 s after
+// switching off (measured 2026-09-30), so the re-read is repeated for up to
+// 5 s before the switch counts as not applied.
+const LIGHT_WAIT_MS = 5000;
+const LIGHT_POLL_MS = 250;
 async function readWhiteLed(client: NonNullable<ReturnType<typeof getClient>>): Promise<Record<string, unknown>> {
   const r = await client.command<{ WhiteLed?: Record<string, unknown> }>('GetWhiteLed', { channel: 0 });
   return r.WhiteLed ?? {};
@@ -162,7 +167,12 @@ settingsRouter.put('/api/cameras/:id/light', async (req, res, next) => {
     const before = await readWhiteLed(c.client);
     if ((before.state === 1) !== want) {
       await c.client.command('SetWhiteLed', { WhiteLed: { ...before, channel: 0, state: want ? 1 : 0 } });
-      const on = (await readWhiteLed(c.client)).state === 1;
+      const until = Date.now() + LIGHT_WAIT_MS;
+      let on = (await readWhiteLed(c.client)).state === 1;
+      while (on !== want && Date.now() < until) {
+        await new Promise((r) => setTimeout(r, LIGHT_POLL_MS));
+        on = (await readWhiteLed(c.client)).state === 1;
+      }
       logger.info({ cameraId: c.cam.id, on, by: currentUser(req)?.email }, 'camera_light_switched');
       if (on !== want) {
         res.status(502).json({ error: 'not_applied', on });
