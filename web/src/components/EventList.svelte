@@ -4,6 +4,7 @@
   import ComposeDialog from './ComposeDialog.svelte';
   import Icon from './Icon.svelte';
   import { scrollIntoContainer } from '../lib/scroll';
+  import { groupPending } from '../lib/eventStream';
   import { cameras } from '../lib/stores';
 
   let {
@@ -172,12 +173,13 @@
   {/each}
 </div>
 
-{#each pending as p (p.ts)}
+<!-- One card per recording in progress (Klaus, 2026-09-30). -->
+{#each groupPending(pending) as p (p.start)}
   <div class="card pending" data-testid="event-pending" role="status">
     <span class="dot" aria-hidden="true"></span>
     <span class="meta">
-      <strong>{new Date(p.ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}</strong>
-      <span class="tags"><span class="tag">{TRIGGER_LABELS[p.kind as keyof typeof TRIGGER_LABELS] ?? p.kind}</span></span>
+      <strong>{new Date(p.start).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}</strong>
+      <span class="tags">{#each p.kinds as k (k)}<span class="tag">{TRIGGER_LABELS[k as keyof typeof TRIGGER_LABELS] ?? k}</span>{/each}</span>
       <span class="dur">recording…</span>
     </span>
   </div>

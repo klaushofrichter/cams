@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { createEventStream, prunePending, type EventSourceLike } from './eventStream';
+import { createEventStream, groupPending, prunePending, type EventSourceLike } from './eventStream';
 
 afterEach(() => vi.useRealTimers());
 
@@ -181,3 +181,36 @@ describe('a closed stream (review #2)', () => {
   });
 });
 
+
+// Klaus, 2026-09-30: one row per recording. The camera extends a recording
+// while events keep coming; on cam1 (24 h, 96 events) events of one clip were
+// at most 25 s apart and events of consecutive clips at least 22 s.
+describe('groupPending (one row per recording in progress)', () => {
+  const t0 = 1_790_000_000_000;
+  it('groups events at most 20 s after the previous one, newest group first', () => {
+    const groups = groupPending([
+      { kind: 'motion', ts: t0 },
+      { kind: 'person', ts: t0 + 3_000 },
+      { kind: 'motion', ts: t0 + 23_000 }, // 20 s after the previous: same recording
+      { kind: 'motion', ts: t0 + 44_000 }, // 21 s: a new one
+      { kind: 'pet', ts: t0 + 50_000 },
+    ]);
+    expect(groups).toEqual([
+      { start: t0 + 44_000, ts: t0 + 50_000, kinds: ['pet', 'motion'] },
+      { start: t0, ts: t0 + 23_000, kinds: ['person', 'motion'] },
+    ]);
+  });
+
+  it('takes events in any order and lists each kind once, AI kinds first', () => {
+    expect(groupPending([
+      { kind: 'motion', ts: t0 + 5_000 },
+      { kind: 'vehicle', ts: t0 + 9_000 },
+      { kind: 'motion', ts: t0 },
+      { kind: 'person', ts: t0 + 2_000 },
+    ])).toEqual([{ start: t0, ts: t0 + 9_000, kinds: ['person', 'vehicle', 'motion'] }]);
+  });
+
+  it('is empty for no events', () => {
+    expect(groupPending([])).toEqual([]);
+  });
+});
