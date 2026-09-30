@@ -71,11 +71,15 @@ describe('light API', () => {
     expect(state.setCalls).toEqual([]);
   });
 
-  it('reports a write the camera ignored as not applied', async () => {
+  // The camera may report late (below), so cams waits 5 s before giving up.
+  it('reports a write the camera ignored as not applied, after 5 s', async () => {
     await start({ ignoreWrites: ['SetWhiteLed'] });
+    const t0 = Date.now();
     const res = await put({ on: true });
     expect(res.status).toBe(502);
     expect(res.body).toEqual({ error: 'not_applied', on: false });
+    expect(Date.now() - t0).toBeGreaterThanOrEqual(4500);
+    expect(Date.now() - t0).toBeLessThan(8000);
   }, 15_000);
 
   it('reports a refused write as a camera error', async () => {
@@ -93,7 +97,8 @@ describe('light API', () => {
 
   // Measured on cam1 2026-09-30: GetWhiteLed reports the new state about 1 s
   // (on) or 3 s (off) after the switch. The released cam-sim in cams' tests
-  // doesn't do that yet (cam-sim #51 does), so it's emulated here.
+  // doesn't do that yet (cam-sim #51 does), so it's emulated here; with a
+  // cam-sim that already does, the emulation sees no change and stays out.
   function reportLate(ms: { on: number; off: number }) {
     const store = sim.engine.settings;
     const set = store.set.bind(store);
@@ -118,16 +123,6 @@ describe('light API', () => {
     expect(off.status).toBe(200);
     expect(off.body).toEqual({ on: false });
     expect(state.setCalls).toEqual(['SetWhiteLed', 'SetWhiteLed']);
-  }, 15_000);
-
-  it('gives up after 5 s and says the switch was not applied', async () => {
-    reportLate({ on: 60_000, off: 60_000 });
-    const t0 = Date.now();
-    const res = await put({ on: true });
-    expect(res.status).toBe(502);
-    expect(res.body).toEqual({ error: 'not_applied', on: false });
-    expect(Date.now() - t0).toBeGreaterThanOrEqual(4500);
-    expect(Date.now() - t0).toBeLessThan(8000);
   }, 15_000);
 });
 
