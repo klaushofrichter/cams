@@ -12,6 +12,7 @@ import { createSimCamera, SimCameraOptions, SimState } from './camera/sim';
 const auth = `${SESSION_COOKIE}=${signSession('klaus@klaushofrichter.net')}`;
 let cam: Server;
 let state: SimState;
+let sim: Awaited<ReturnType<typeof createSimCamera>>['sim'];
 
 const stop = (server: Server) =>
   new Promise<void>((r) => {
@@ -23,6 +24,7 @@ async function start(opts: Partial<SimCameraOptions> = {}) {
   if (cam) await stop(cam);
   const simCam = await createSimCamera({ user: 'u', password: 'p', ...opts });
   state = simCam.state;
+  sim = simCam.sim;
   cam = simCam.app.listen(0);
   await new Promise((r) => cam.once('listening', r));
   resetClients();
@@ -74,7 +76,7 @@ describe('light API', () => {
     const res = await put({ on: true });
     expect(res.status).toBe(502);
     expect(res.body).toEqual({ error: 'not_applied', on: false });
-  });
+  }, 15_000);
 
   it('reports a refused write as a camera error', async () => {
     await start({ settingsFailures: ['SetWhiteLed'] });
@@ -88,4 +90,44 @@ describe('light API', () => {
     expect((await get()).status).toBe(503);
     expect((await request(createApp()).get('/api/cameras/nope/light').set('Cookie', auth)).status).toBe(404);
   });
+
+  // Measured on cam1 2026-09-30: GetWhiteLed reports the new state about 1 s
+  // (on) or 3 s (off) after the switch. The released cam-sim in cams' tests
+  // doesn't do that yet (cam-sim #51 does), so it's emulated here.
+  function reportLate(ms: { on: number; off: number }) {
+    const store = sim.engine.settings;
+    const set = store.set.bind(store);
+    store.set = (cmd, param, opts) => {
+      const was = store.running.WhiteLed.state;
+      const r = set(cmd, param, opts);
+      const now = store.running.WhiteLed.state;
+      if (cmd === 'SetWhiteLed' && r === null && now !== was) {
+        store.running.WhiteLed.state = was;
+        setTimeout(() => (store.running.WhiteLed.state = now), now === 1 ? ms.on : ms.off);
+      }
+      return r;
+    };
+  }
+
+  it('waits for the camera to report the new state', async () => {
+    reportLate({ on: 1000, off: 3000 });
+    const on = await put({ on: true });
+    expect(on.status).toBe(200);
+    expect(on.body).toEqual({ on: true });
+    const off = await put({ on: false });
+    expect(off.status).toBe(200);
+    expect(off.body).toEqual({ on: false });
+    expect(state.setCalls).toEqual(['SetWhiteLed', 'SetWhiteLed']);
+  }, 15_000);
+
+  it('gives up after 5 s and says the switch was not applied', async () => {
+    reportLate({ on: 60_000, off: 60_000 });
+    const t0 = Date.now();
+    const res = await put({ on: true });
+    expect(res.status).toBe(502);
+    expect(res.body).toEqual({ error: 'not_applied', on: false });
+    expect(Date.now() - t0).toBeGreaterThanOrEqual(4500);
+    expect(Date.now() - t0).toBeLessThan(8000);
+  }, 15_000);
 });
+
