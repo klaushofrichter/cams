@@ -2,6 +2,7 @@
   import { openProxyClick } from '../lib/proxyLink';
   import Icon from './Icon.svelte';
   import VisionBadges from './VisionBadges.svelte';
+  import { badges } from '../lib/vision';
   import { checkLiveStatus, liveFullscreen, liveUi, offlineReason, saveSnapshot, toggleMute, toggleQuality, type StreamInfo } from '../lib/liveUi';
   import { formatClock, thumbUrl, TRIGGER_LABELS, type EventClip } from '../lib/recordings';
   import { timeAgo } from '../lib/clock';
@@ -162,7 +163,7 @@
         <img src={thumbUrl(camera.id, e.id)} alt="" loading="lazy" />
         <span class="what">
           <strong>{e.triggers.map((t) => TRIGGER_LABELS[t]).join(', ') || 'Recording'}</strong>
-          <span class="badges"><VisionBadges triggers={e.triggers} analysis={e.analysis} /></span>
+          {#if badges(e.triggers, e.analysis).length}<span class="badges"><VisionBadges triggers={e.triggers} analysis={e.analysis} /></span>{/if}
           <span>{formatClock(e.start)}</span>
           <span data-testid="live-latest-ago">{timeAgo(Date.parse(e.start), nowMs)}</span>
         </span>

@@ -72,6 +72,21 @@ describe('LivePanel', () => {
     expect(all('live-latest')).toHaveLength(4);
   });
 
+  it('adds Vision badges to a recent event, and no space when there is no analysis', () => {
+    render();
+    expect(target!.querySelectorAll('[data-testid="vision-badge"]')).toHaveLength(0);
+    const wrap = target!.querySelector('.badges');
+    expect(wrap).toBeNull();
+    unmount(component!);
+    target!.remove();
+    const box = { x0: 0, y0: 0, x1: 1, y1: 1 };
+    const analysis = { best: { pet: { score: 0.7, subtype: 'dog' } }, notConfirmed: [], stills: [{ eventId: 1, stillTs: 1, summary: [{ category: 'pet' as const, subtype: 'dog', score: 0.7, box }] }] };
+    render({ recent: [{ ...ev, analysis }] });
+    const badge = q('vision-badge')!;
+    expect(badge.textContent).toBe('+ Pet 70%');
+    expect(target!.querySelector('.badges')!.contains(badge)).toBe(true);
+  });
+
   it('says so when there are no events', () => {
     render({ recent: [] });
     expect(q('live-recent')!.textContent).toContain('Most recent events');
