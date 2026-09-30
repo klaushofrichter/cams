@@ -5,7 +5,8 @@
   import ComposeDialog from './ComposeDialog.svelte';
   import { cameras } from '../lib/stores';
   import { nextChange, sourceAt, type Coverage, type Source } from '../lib/strip';
-  import { TRIGGER_LABELS, videoUrl, type EventClip } from '../lib/recordings';
+  import { localDate, TRIGGER_LABELS, videoUrl, type EventClip } from '../lib/recordings';
+  import { navigate } from '../lib/router';
   import { timeAgo } from '../lib/clock';
   import { previewAt, tileStyle, type PreviewMinute } from '../lib/timeline';
   import { liveUi } from '../lib/liveUi';
@@ -31,6 +32,12 @@
     live?: Snippet; // the live stream; kept mounted while unglued so it resumes at once
   } = $props();
 
+  // The Timeline needs the camera's cam-proxy (its stills).
+  const hasProxy = $derived(!!$cameras.find((c) => c.id === cam)?.proxy);
+  const timelineHref = $derived(hasProxy && !glued
+    ? `/app/timeline?cam=${encodeURIComponent(cam)}&date=${localDate(new Date(at))}&t=${Math.floor(at / 1000) * 1000}&grid=1`
+    : null);
+
   const TICK_MS = 250;
   const PRELOAD_MS = 3000;
   const BADGE: Record<Source['kind'], string> = {
@@ -41,7 +48,7 @@
     const u = $liveUi;
     if (u.playerState !== 'playing' && u.stillsShowing) return 'STILLS';
     const s = u.quality === 'main' ? u.status?.streams?.main : u.status?.streams?.sub;
-    return `${u.quality === 'main' ? 'HD' : 'SD'} ${s?.fps ?? (u.quality === 'main' ? 20 : 10)} FPS`;
+    return `${u.quality === 'main' ? '4K' : 'SD'} ${s?.fps ?? (u.quality === 'main' ? 20 : 10)} FPS`;
   });
   const stillUrl = (ts: number) => `/api/cameras/${encodeURIComponent(cam)}/stills/${ts}.jpg`;
 
@@ -323,6 +330,11 @@
         · <span data-testid="clip-ago">{ago}</span>
         · <span class="src" class:clip={source.kind === 'clip'} data-testid="source-badge">{BADGE[source.kind]}</span>
         {#if triggers}· <span data-testid="clip-triggers">{triggers}</span>{/if}
+        {#if timelineHref}
+          <!-- This moment in the Timeline's grid (Klaus, 2026-09-29). -->
+          · <a data-testid="show-in-timeline" href={timelineHref}
+            onclick={(e) => { if (e.button === 0 && !e.metaKey && !e.ctrlKey && !e.shiftKey) { e.preventDefault(); navigate(timelineHref!); } }}>Show in Timeline</a>
+        {/if}
       {/if}
     </span>
     {#if !glued && source.kind === 'clip' && !unavailable}
@@ -349,6 +361,7 @@
   .info { font-size: 13px; color: var(--muted); }
   .info .time { font-family: var(--mono); }
   .info .src.clip { color: var(--accent); font-weight: 600; }
+  .info a { color: var(--accent); }
   .controls { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
   .controls button, .dl { display: inline-flex; align-items: center; gap: 4px; height: 34px; padding: 0 10px; border-radius: 9px; border: 1px solid var(--border); background: var(--surface-2); color: var(--text); cursor: pointer; text-decoration: none; }
   .controls button.primary { background: var(--grad); color: var(--on-grad); border: none; }

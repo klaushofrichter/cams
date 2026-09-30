@@ -187,9 +187,15 @@ test('downloads return MP4 attachments with readable names', async ({ page }) =>
   expect(res.headers()['content-disposition']).toMatch(/^attachment; filename="cam1-\d{4}-\d{2}-\d{2}_17-45-40-main\.mp4"$/); // the newest is first
 });
 
-test('the Live panel’s latest event plays it', async ({ page }) => {
+test('the Live panel lists today’s events, newest first, and plays one', async ({ page }) => {
   await page.goto('/app/live');
-  await page.getByTestId('live-latest').click();
+  const rows = page.getByTestId('live-latest');
+  await expect(rows.first()).toBeVisible();
+  const times = await rows.evaluateAll((els) => els.map((e) => e.querySelector('.what span')!.textContent!));
+  expect(times.length).toBeGreaterThan(1);
+  expect(times.length).toBeLessThanOrEqual(5); // Klaus, 2026-09-29: up to five
+  expect([...times].sort().reverse()).toEqual(times);
+  await rows.first().click();
   await expect(page.getByTestId('live-badge')).toHaveCount(0);
   await expect(page.getByTestId('source-badge')).toContainText(/SD 10 FPS|Stills|No recording/);
   await expect(page).toHaveURL(/\/app\/recordings\?.*at=\d+.*panel=history/); // History (Klaus, 2026-09-28)

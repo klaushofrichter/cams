@@ -6,12 +6,12 @@
   import { TRIGGER_LABELS, type Trigger } from '../lib/recordings';
 
   // The live notification in the centre of the top bar (Klaus, 2026-09-28):
-  // "Person on Den" for a second, then fading within 0.4 s. A new event
+  // "Person on Den" for 1.5 s, then fading within 0.4 s. A new event
   // replaces it with a fresh timer; one at a time. Only the types chosen in
   // Settings, and only with live events on.
   let { source }: { source?: { onCameraEvent: (fn: (e: CameraEvent) => void) => () => void } } = $props();
 
-  const SHOW_MS = 1000;
+  const SHOW_MS = 1500; // Klaus, 2026-09-29 (was 1 s)
   const FADE_MS = 400;
   let text = $state<string | null>(null);
   let fading = $state(false);

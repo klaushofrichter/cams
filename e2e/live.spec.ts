@@ -184,3 +184,25 @@ test('a camera with a gateway falls back to stills, clearly marked, when live vi
   await expect(page.getByTestId('stills-badge')).toContainText(/^STILLS · \d{1,2}:\d{2}:\d{2}.* · \d+ s old$/);
   await expect(page.getByTestId('live-still').locator('img')).toHaveJSProperty('complete', true);
 });
+
+// Klaus, 2026-09-29: the controls are icons with tooltips, and the camera's
+// light (WhiteLed.state in cam-sim) is shown and switched from the panel.
+test('the live controls are icons with tooltips, and the light switches', async ({ page }, testInfo) => {
+  // One project only: the light is the simulator's state, shared by both.
+  test.skip(testInfo.project.name !== 'desktop', 'shared camera state');
+  await page.goto('/app/live');
+  await expect(page.getByTestId('mute-toggle')).toHaveAttribute('title', 'Muted, click to unmute');
+  await expect(page.getByTestId('mute-toggle')).toHaveText('');
+  await expect(page.getByTestId('snapshot')).toHaveAttribute('title', 'Save a snapshot');
+  await expect(page.getByTestId('snapshot')).toHaveText('');
+  const light = page.getByTestId('light-toggle');
+  await expect(light).toHaveAttribute('aria-pressed', 'false');
+  await expect(light).toHaveAttribute('title', 'Light is off, click to turn on');
+  await light.click();
+  await expect(light).toHaveAttribute('aria-pressed', 'true');
+  await page.reload(); // read back from the camera
+  await expect(page.getByTestId('light-toggle')).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.getByTestId('light-toggle')).toHaveAttribute('title', 'Light is on, click to turn off');
+  await page.getByTestId('light-toggle').click();
+  await expect(page.getByTestId('light-toggle')).toHaveAttribute('aria-pressed', 'false');
+});
