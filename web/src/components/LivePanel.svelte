@@ -40,7 +40,15 @@
   // every 30 s (not while the tab is hidden), so a change from the Reolink
   // app shows too. No button when the camera can't say (no light, an error).
   let light = $state<boolean | null>(null);
-  let lightBusy = $state(false);
+  let lightInFlight = 0; // PUTs not answered yet: the poll doesn't overwrite them
+  // The camera takes a while. After a click the button waits for the new
+  // state, 2 s at most, so a double click doesn't switch it back (Klaus, 2026-09-29).
+  const LIGHT_HOLD_MS = 2000;
+  let lightWant = $state<boolean | null>(null);
+  let lightHold = $state(false);
+  let holdTimer: ReturnType<typeof setTimeout> | undefined;
+  const lightDisabled = $derived(lightHold && light !== lightWant);
+  $effect(() => () => clearTimeout(holdTimer));
   const online = $derived(!!status?.online);
   $effect(() => {
     const id = camera.id;
@@ -48,7 +56,7 @@
     let stale = false;
     const read = () =>
       getJson<{ on: boolean }>(`/api/cameras/${encodeURIComponent(id)}/light`).then(
-        (r) => { if (!stale && !lightBusy) light = r.on; },
+        (r) => { if (!stale && !lightInFlight) light = r.on; },
         () => { if (!stale) light = null; },
       );
     void read();
@@ -60,15 +68,20 @@
     };
   });
   async function toggleLight() {
-    if (light === null || lightBusy) return;
-    lightBusy = true;
+    if (light === null || lightDisabled) return;
+    const want = !light;
+    lightWant = want;
+    lightHold = true;
+    clearTimeout(holdTimer);
+    holdTimer = setTimeout(() => (lightHold = false), LIGHT_HOLD_MS);
+    lightInFlight++;
     try {
-      const r = await putJson<{ on?: boolean }>(`/api/cameras/${encodeURIComponent(camera.id)}/light`, { on: !light });
+      const r = await putJson<{ on?: boolean }>(`/api/cameras/${encodeURIComponent(camera.id)}/light`, { on: want });
       if (typeof r.body.on === 'boolean') light = r.body.on;
     } catch {
       // keep the last known state
     } finally {
-      lightBusy = false;
+      lightInFlight--;
     }
   }
   const muteTip = $derived($liveUi.muted ? 'Muted, click to unmute' : 'Sound on, click to mute');
@@ -101,11 +114,9 @@
     {#if streams}<span class="meta" data-testid="live-camera-streams">{streams}</span>{/if}
     {#if proxyInfo}
       <!-- The proxy's state always; its link when it reports one (issue #69). -->
-      <span class="meta" data-testid="live-proxy-state">cam-proxy: {proxyInfo.reachable ? 'reachable' : 'not reachable'}</span>
-      {#if proxyInfo.webUrl}
-        <a class="meta" data-testid="live-proxy-link" href={proxyInfo.webUrl} target="_blank" rel="noopener noreferrer"
-          onclick={(e) => openProxyClick(e, camera.id, proxyInfo!.webUrl!)}>Open cam-proxy</a>
-      {/if}
+      <!-- One line: "connected" is the link to the proxy's page (Klaus, 2026-09-29). -->
+      <span class="meta" data-testid="live-proxy-state">cam-proxy: {#if !proxyInfo.reachable}not available{:else if proxyInfo.webUrl}<a data-testid="live-proxy-link" href={proxyInfo.webUrl} target="_blank" rel="noopener noreferrer"
+          onclick={(e) => openProxyClick(e, camera.id, proxyInfo!.webUrl!)}>connected</a>{:else}connected{/if}</span>
     {/if}
   </section>
 
@@ -122,8 +133,8 @@
         </button>
       {/if}
       {#if light !== null}
-        <button data-testid="light-toggle" class="light" aria-pressed={light} disabled={lightBusy} onclick={toggleLight} title={lightTip} aria-label={lightTip}>
-          <Icon name="light" size={18} />
+        <button data-testid="light-toggle" aria-pressed={light} disabled={lightDisabled} onclick={toggleLight} title={lightTip} aria-label={lightTip}>
+          <Icon name={light ? 'lightOn' : 'light'} size={18} />
         </button>
       {/if}
       <button data-testid="snapshot" onclick={() => saveSnapshot(camera.id)} disabled={$liveUi.snapshotBusy}
@@ -164,8 +175,9 @@
   .tile { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 14px; display: flex; flex-direction: column; gap: 6px; }
   h2 { margin: 0; font-size: 17px; }
   .kind { font-size: 13px; }
+  .kind small { margin-left: 6px; }
   .meta, .state { font-size: 12px; color: var(--muted); }
-  a.meta { color: var(--accent); }
+  .meta a { color: var(--accent); }
   h3 { margin: 0 0 4px; font-size: 13px; font-weight: 600; color: var(--muted); }
   .latest { display: flex; align-items: center; gap: 12px; text-align: left; color: var(--text); font: inherit; padding: 6px; margin: -6px; border: 1px solid transparent; border-radius: 8px; background: none; cursor: pointer; }
   button.latest:hover { border-color: var(--accent); }
@@ -183,8 +195,6 @@
   .controls button:hover { background: color-mix(in srgb, var(--accent) 14%, var(--surface-2)); }
   .controls button[aria-pressed='true'] { border-color: var(--accent); }
   .controls button:disabled { opacity: 0.6; cursor: default; }
-  .controls .light[aria-pressed='true'] { color: #CA8A04; }
-  .controls .light[aria-pressed='true'] :global(svg) { fill: #FACC15; }
   .recent { gap: 10px; }
   .none { margin: 0; font-size: 13px; color: var(--muted); }
   .snapshot-error { margin: 0; width: 100%; font-size: 13px; color: var(--danger); }
