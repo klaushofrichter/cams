@@ -5,6 +5,7 @@ import { createApp } from '../server/app';
 import { setCameras } from '../server/cameraRegistry';
 import { ProxyClient, resetProxyClients } from '../server/proxy/client';
 import { ProxyStream, startProxyStreams, stopProxyStreams } from '../server/proxy/stream';
+import { getAnalysisStore, resetAnalysisStore } from '../server/proxy/analyses';
 import { SESSION_COOKIE, signSession } from '../server/session';
 import { FAKE_TOKEN, startFakeProxy, type FakeProxy } from './proxy/fakeProxy';
 
@@ -39,6 +40,25 @@ function stream(fake: FakeProxy, token = FAKE_TOKEN) {
 }
 
 describe('ProxyStream (upstream)', () => {
+  it('asks for analyses too', async () => {
+    const fake = await fakeProxy();
+    const { s, got } = stream(fake);
+    await until(() => s.up());
+    fake.push({ cam: 'den', type: 'analysis', data: { eventId: 5, kind: 'person', start: 1000, summary: [] } });
+    await until(() => got.length === 1);
+    expect(got[0]).toMatchObject({ type: 'analysis', data: { eventId: 5 } });
+  });
+
+  it('asks again without analyses when an older proxy refuses the type', async () => {
+    const fake = await fakeProxy();
+    fake.knownTypes = ['camera-event', 'camera-status', 'clip'];
+    const { s, got } = stream(fake);
+    await until(() => s.up());
+    fake.push({ cam: 'den', type: 'camera-event', data: { eventId: 1, kind: 'person', phase: 'start', ts: 1000 } });
+    await until(() => got.length === 1);
+    expect(got[0].type).toBe('camera-event');
+  });
+
   it('passes on only its own camera’s messages when a proxy serves several (review #5)', async () => {
     const fake = await fakeProxy();
     const s = new ProxyStream('den', new ProxyClient({ url: fake.url, token: FAKE_TOKEN }), { backoffMinMs: 50, backoffMaxMs: 400, healthyMs: 200, remoteCam: 'cam1' });
@@ -141,6 +161,22 @@ describe('ProxyStream (upstream)', () => {
 
 describe('GET /api/events/stream (to browsers)', () => {
   const auth = `${SESSION_COOKIE}=${signSession('klaus@klaushofrichter.net')}`;
+
+  it('tells browsers about a new analysis, and keeps it for the day’s cards', async () => {
+    resetAnalysisStore();
+    const fake = await fakeProxy();
+    const base = await app(fake);
+    const c = open(base, auth);
+    await until(() => c.frames.some((f) => f.includes('event: proxy') && f.includes('"up":true')));
+    const start = Date.parse('2026-09-30T15:48:20-05:00');
+    fake.push({ cam: 'den', type: 'analysis', data: { eventId: 9, kind: 'person', start, end: null, provider: 'google-vision', status: 'ok', reason: null, stillTs: start + 1000, summary: [], objects: [{ name: 'Fan', score: 0.9 }] } });
+    await until(() => c.frames.some((f) => f.startsWith('event: change')));
+    const change = c.frames.find((f) => f.startsWith('event: change'))!;
+    expect(JSON.parse(change.split('data: ')[1])).toEqual({ cam: 'den', type: 'analysis', ts: start });
+    expect(c.frames.join('\n')).not.toContain('Fan'); // the objects stay on the server
+    const got = await getAnalysisStore().forDay('den', '2026-09-30', [{ start: '2026-09-30T15:48:24-05:00', end: '2026-09-30T15:48:40-05:00' }], start);
+    expect(got.map((x) => x.eventId)).toEqual([9]);
+  });
 
   async function app(fake: FakeProxy) {
     setCameras([

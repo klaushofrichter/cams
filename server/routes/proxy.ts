@@ -5,6 +5,7 @@ import { getCamera } from '../cameraRegistry';
 import { logger } from '../logger';
 import { setProxyEnabled } from '../proxyState';
 import { proxyHub, startProxyStream, stopProxyStream } from '../proxy/stream';
+import { parseObjects, parseSummary } from '../proxy/analyses';
 import { getProxyClient, ProxyClient, ProxyError, proxyCameraId } from '../proxy/client';
 
 // Stills and preview sprites from a camera's cam-proxy, for the Timeline
@@ -143,6 +144,28 @@ proxyRouter.get('/api/cameras/:id/stills', async (req: Request, res: Response) =
   try {
     res.json(await p.client.json<number[]>(`/api/cameras/${p.cam}/stills`, { from: r[0], to: r[1] }));
   } catch (err) {
+    proxyFailed(err, String(req.params.id), res);
+  }
+});
+
+// One analysis in full, for the Timeline's "Show all objects": the summary
+// and every object, never the provider's raw answer.
+proxyRouter.get('/api/cameras/:id/analyses/:eventId', async (req: Request, res: Response) => {
+  if (!/^\d{1,12}$/.test(String(req.params.eventId))) return bad(res, 'an event id is a number');
+  const p = proxied(req, res);
+  if (!p) return;
+  const eventId = Number(req.params.eventId);
+  try {
+    const a = await p.client.json<{ status?: unknown; stillTs?: unknown; summary?: unknown; objects?: unknown }>(`/api/cameras/${p.cam}/events/${eventId}/analysis`);
+    res.json({
+      eventId,
+      status: typeof a.status === 'string' ? a.status : 'unknown',
+      stillTs: Number.isSafeInteger(a.stillTs) ? a.stillTs : null,
+      summary: parseSummary(a.summary),
+      objects: parseObjects(a.objects),
+    });
+  } catch (err) {
+    if (err instanceof ProxyError && err.status === 404 && !res.headersSent) return void res.status(404).json({ error: 'not_found' });
     proxyFailed(err, String(req.params.id), res);
   }
 });
