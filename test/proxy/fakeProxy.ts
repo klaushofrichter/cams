@@ -13,6 +13,21 @@ import { join } from 'path';
 
 export interface FakeClip { id: number; cam: string; start: number; end: number; stream: string; events: number[]; body: Buffer; snapshot?: Buffer }
 export interface FakeMessage { id: number; ts: number; cam: string; type: string; data: Record<string, unknown> }
+export interface FakeBox { x0: number; y0: number; x1: number; y1: number }
+// An analysis as cam-proxy stores it (spec 2026-09-30-analytics-in-cams-design):
+// the stream message's shape, plus the full object list.
+export interface FakeAnalysis {
+  eventId: number;
+  kind: string;
+  start: number;
+  end: number | null;
+  provider: string;
+  status: string;
+  reason: string | null;
+  stillTs: number | null;
+  summary: { category: string; subtype: string; score: number; box: FakeBox }[];
+  objects: { name: string; score: number; box: FakeBox }[];
+}
 
 export interface FakeProxy {
   url: string;
@@ -33,6 +48,9 @@ export interface FakeProxy {
   stillDelayMs: number; // tests: each still image answers this late
   maxStillsInFlight: number; // the most still images served at once
   streamStatus: number | null; // tests: /api/stream answers this error status
+  analyses: Map<string, FakeAnalysis[]>; // proxy camera id → its analyses
+  analysesStatus: number | null; // tests: /analyses answers this error (404: an older proxy)
+  knownTypes: string[] | null; // tests: the stream refuses other types (an older proxy)
   streamConnections(): number;
   push(m: Omit<FakeMessage, 'id' | 'ts'> & { ts?: number }): FakeMessage;
   dropStreams(): void; // ends every open stream (a proxy restart)
@@ -70,6 +88,9 @@ export async function startFakeProxy(opts: { port?: number; token?: string } = {
     stillDelayMs: 0,
     maxStillsInFlight: 0,
     streamStatus: null,
+    analyses: new Map(),
+    analysesStatus: null,
+    knownTypes: null,
     streamConnections: () => streams.size,
     push(m) {
       const msg: FakeMessage = { id: nextId++, ts: m.ts ?? Date.now(), cam: m.cam, type: m.type, data: m.data };
@@ -113,6 +134,9 @@ export async function startFakeProxy(opts: { port?: number; token?: string } = {
   app.get('/api/stream', (req, res) => {
     if (fake.streamStatus) return void res.status(fake.streamStatus).json({ error: 'upstream' });
     const types = typeof req.query.types === 'string' ? req.query.types.split(',') : undefined;
+    // Like the real one: an unknown type is refused (a cam-proxy before `analysis` existed).
+    const unknown = fake.knownTypes && types?.find((t) => !fake.knownTypes!.includes(t));
+    if (unknown) return void res.status(400).json({ error: 'invalid', detail: `unknown type: ${unknown}` });
     const since = req.query.since !== undefined ? Number(req.query.since) : req.get('last-event-id') ? Number(req.get('last-event-id')) : undefined;
     res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-store' });
     res.write('retry: 3000\n\n');
@@ -202,6 +226,25 @@ export async function startFakeProxy(opts: { port?: number; token?: string } = {
     if (!fake.compositions.delete(req.params.id)) return void res.status(404).json({ error: 'not_found' });
     res.status(204).end();
   });
+  // The day's analyses and one analysis in full, like cam-proxy's API.
+  app.get('/api/cameras/:cam/analyses', (req, res) => {
+    if (fake.analysesStatus) return void res.status(fake.analysesStatus).json({ error: 'not_found' });
+    const r = range(req.query);
+    if (!r) return void res.status(400).json({ error: 'invalid' });
+    if (r[1] - r[0] > 86_400_000) return void res.status(400).json({ error: 'invalid', detail: 'at most one day per request' });
+    res.json(
+      (fake.analyses.get(req.params.cam) ?? [])
+        .filter((a) => a.start >= r[0] && a.start <= r[1])
+        .sort((a, b) => a.start - b.start)
+        .map(({ objects: _objects, ...a }) => a),
+    );
+  });
+  app.get('/api/cameras/:cam/events/:id/analysis', (req, res) => {
+    const a = (fake.analyses.get(req.params.cam) ?? []).find((x) => x.eventId === Number(req.params.id));
+    if (!a) return void res.status(404).json({ error: 'not_found' });
+    res.json({ eventId: a.eventId, provider: a.provider, status: a.status, reason: a.reason, stillTs: a.stillTs, requestedAt: a.start, tookMs: 300, objects: a.objects, summary: a.summary, raw: { secret: 'raw' } });
+  });
+
   let inFlight = 0;
   const images = (kind: 'stills' | 'previews') => {
     app.get(`/api/cameras/:cam/${kind}`, (req, res) => {
