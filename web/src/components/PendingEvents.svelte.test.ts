@@ -37,6 +37,17 @@ describe('pending live events', () => {
     expect(first.compareDocumentPosition(target!.querySelector('[data-testid="hour-group"]')!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
+  // Klaus, 2026-09-30: events of one recording are one card.
+  it('show events close together as one card, from the first event, each kind once', () => {
+    mountIt(EventList, { cameraId: 'cam1', events: [], filter: 'all', date: DATE, selectedId: null, onfilter: () => {}, onselect: () => {},
+      pending: [{ kind: 'motion', ts: T }, { kind: 'person', ts: T + 5_000 }, { kind: 'motion', ts: T + 12_000 }, { kind: 'pet', ts: T + 60_000 }] });
+    const cards = [...target!.querySelectorAll('[data-testid="event-pending"]')] as HTMLElement[];
+    expect(cards).toHaveLength(2);
+    expect([...cards[0].querySelectorAll('.tag')].map((x) => x.textContent)).toEqual(['Pet']);
+    expect([...cards[1].querySelectorAll('.tag')].map((x) => x.textContent)).toEqual(['Person', 'Motion']);
+    expect(cards[1].querySelector('strong')!.textContent).toBe(new Date(T).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }));
+  });
+
   it('mark the strip where they started', () => {
     preferences.set({ defaultCamera: null, liveQuality: 'sub', eventFilter: ['person', 'vehicle', 'pet', 'motion'], timelineZoom: 1, liveKeepAlive: 60 });
     mountIt(Strip, { coverage: { clips: [], stills: [], previews: [] }, events: [], visibleIds: new Set(), failedIds: new Set(), at: T, now: T + 600_000, currentId: null, previews: [], onseek: () => {}, pending: [{ kind: 'motion', ts: T + 60_000 }] });

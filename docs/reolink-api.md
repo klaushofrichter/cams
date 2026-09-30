@@ -563,6 +563,13 @@ Rules cams follows:
 - **After a save, cams re-reads the objects and logs `camera_setting_side_effect`** (key names only) if anything changed that it didn't send.
 - **The AI record schedule on this camera is fully on** (168 × `1` for people, vehicles and pets). The clips so far are all motion-only.
 
+## Recordings and events (measured on cam1, 2026-09-30)
+
+Over 24 h (96 events, 48 sub-stream clips uploaded to cam-proxy):
+- **An event during a recording extends it** instead of starting a second clip. Clips never run side by side, but a new clip can begin up to about 4 s before the previous one ended (its pre-record repeats the other's tail), and the same event can then be listed in both.
+- **Events of one clip were at most 25 s apart; consecutive events in different clips at least 22 s apart.** The clip runs on about 18–30 s after its last event starts.
+- cams groups live events waiting for their recording by these numbers: an event at most 20 s after the previous one joins its "recording…" entry.
+
 ## FTP upload
 
 The camera is an FTP **client**: it uploads recordings to a server you name.

@@ -63,6 +63,15 @@ describe('LivePanel', () => {
     expect(all('live-latest')).toHaveLength(4);
   });
 
+  it('shows events of one recording as one row (Klaus, 2026-09-30)', () => {
+    const now = Date.now();
+    render({ recent: [1, 2, 3, 4, 5].map(evAt), pending: [{ kind: 'motion', ts: now - 8_000 }, { kind: 'person', ts: now - 2_000 }] });
+    const rows = all('live-latest-pending');
+    expect(rows).toHaveLength(1);
+    expect(rows[0].textContent).toContain('Person, Motion · recording…');
+    expect(all('live-latest')).toHaveLength(4);
+  });
+
   it('says so when there are no events', () => {
     render({ recent: [] });
     expect(q('live-recent')!.textContent).toContain('Most recent events');
