@@ -53,4 +53,37 @@ describe('TimelineStill', () => {
     expect(t.querySelector('[data-testid="timeline-boxes"]')).toBeNull();
     expect(t.querySelector('[data-testid="timeline-show-all"]')).toBeNull();
   });
+
+  it('drops a stale loadAll result after src changes, and does not fetch twice for on/off/on', async () => {
+    let resolveOld!: (o: StillObject[]) => void;
+    const loadOld = vi.fn(() => new Promise<StillObject[]>((r) => (resolveOld = r)));
+    const loadNew = vi.fn(async () => [{ name: 'Fresh', score: 0.9, box }]);
+    const props = $state<{ src: string; alt: string; summary: SummaryEntry[] | null; loadAll: () => Promise<StillObject[]> }>({
+      src: '/a.jpg',
+      alt: 'still',
+      summary: [{ category: 'person', subtype: 'person', score: 0.84, box }],
+      loadAll: loadOld,
+    });
+    target = document.createElement('div');
+    document.body.appendChild(target);
+    component = mount(TimelineStill, { target, props });
+    flushSync();
+    const all = target.querySelector('[data-testid="timeline-show-all"]') as HTMLInputElement;
+    all.click(); // on: pending
+    all.click(); // off
+    all.click(); // on again: reuses the in-flight request
+    expect(loadOld).toHaveBeenCalledTimes(1);
+    props.src = '/b.jpg';
+    props.loadAll = loadNew;
+    flushSync();
+    resolveOld([{ name: 'Stale', score: 0.5, box }]);
+    await tick();
+    flushSync();
+    expect(labels()).toEqual(['person 0.84']);
+    all.click();
+    await tick();
+    flushSync();
+    expect(loadNew).toHaveBeenCalledTimes(1);
+    expect(labels()).toEqual(['Fresh 0.90']);
+  });
 });

@@ -24,9 +24,17 @@
         }),
   );
 
+  // `gen` counts stills: a loadAll answer that arrives after src changed belongs
+  // to the previous still and is dropped. `pending` shares one in-flight request
+  // between quick on/off/on toggles.
+  let gen = 0;
+  let pending: Promise<StillObject[]> | null = null;
+
   // Another still: back to its summary.
   $effect(() => {
     void src;
+    gen++;
+    pending = null;
     showAll = false;
     all = null;
     failed = false;
@@ -35,9 +43,14 @@
   async function toggle() {
     showAll = !showAll;
     if (!showAll || all || !loadAll) return;
+    const mine = gen;
+    const request = (pending ??= loadAll());
     try {
-      all = await loadAll();
+      const result = await request;
+      if (mine === gen) all = result;
     } catch {
+      if (mine !== gen) return;
+      pending = null;
       failed = true;
       showAll = false;
     }
