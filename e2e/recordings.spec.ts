@@ -456,6 +456,8 @@ test('a new event shows at once: a top-bar notification and a "recording…" ent
     return (await page.getByTestId('live-notice').allTextContents()).join('').trim(); // no waiting
   }, { timeout: 15_000 }).toBe('Person on Barn');
   await expect(page.getByTestId('event-pending').first()).toContainText('Person');
+  // The events sent 0.25 s apart are one recording: one entry (Klaus, 2026-09-30).
+  await expect(page.getByTestId('event-pending')).toHaveCount(1);
   // Another preference change (the zoom) keeps it (review #1).
   await page.getByTestId('zoom-3').click();
   await expect(page.getByTestId('event-pending').first()).toContainText('Person');

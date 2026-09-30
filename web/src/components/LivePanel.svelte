@@ -5,7 +5,7 @@
   import { formatClock, thumbUrl, TRIGGER_LABELS, type EventClip } from '../lib/recordings';
   import { timeAgo } from '../lib/clock';
   import type { CameraSummary } from '../lib/stores';
-  import type { Pending } from '../lib/eventStream';
+  import { groupPending, type Pending } from '../lib/eventStream';
   import { getJson } from '../lib/api';
   import { putJson } from '../lib/settings';
 
@@ -31,9 +31,10 @@
     const id = setInterval(() => (nowMs = Date.now()), 30_000);
     return () => clearInterval(id);
   });
-  // Up to five, newest on top; recordings still in progress first (Klaus, 2026-09-29).
+  // Up to five, newest on top; recordings still in progress first (Klaus,
+  // 2026-09-29), one row per recording (2026-09-30).
   const MAX_RECENT = 5;
-  const pendingShown = $derived([...pending].sort((a, b) => b.ts - a.ts).slice(0, MAX_RECENT));
+  const pendingShown = $derived(groupPending(pending).slice(0, MAX_RECENT));
   const recentShown = $derived(recent.slice(0, MAX_RECENT - pendingShown.length));
 
   // The camera's manual light (WhiteLed.state): read when the panel opens and
@@ -149,10 +150,10 @@
   <!-- Under the controls, with a title (Klaus, 2026-09-28); up to five (2026-09-29). -->
   <section class="tile recent" data-testid="live-recent">
     <h3>Most recent events</h3>
-    {#each pendingShown as p (p.ts + p.kind)}
+    {#each pendingShown as p (p.start)}
       <div class="latest pending" data-testid="live-latest-pending">
         <span class="dot"></span>
-        <span>{label(p.kind)} · recording…</span>
+        <span>{p.kinds.map(label).join(', ')} · recording…</span>
       </div>
     {/each}
     {#each recentShown as e (e.id)}

@@ -8,5 +8,5 @@ published as [GitHub releases](https://github.com/klaushofrichter/cams/releases)
 
 ## [Unreleased]
 
-- Fix: the light button needed two clicks. The camera reports the light's new state 1–3 s late, and cams read it back at once and called the switch not applied; it now waits for the new state (5 s at most).
+- Recordings in progress: events of one recording show as one "recording…" entry naming each kind (Live panel and History's list). The camera extends a recording while events keep coming, so events at most 20 s after the previous one are grouped (measured on cam1: one clip's events ≤ 25 s apart, consecutive clips' ≥ 22 s).
 

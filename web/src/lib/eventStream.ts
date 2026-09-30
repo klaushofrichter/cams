@@ -188,3 +188,33 @@ export function prunePending(pending: Pending[], events: { start: string; end: s
   // falls inside it (a recording the camera extended).
   return pending.filter((p) => now - p.ts < 15 * 60_000 && !spans.some(([s, e]) => p.ts >= s - 90_000 && p.ts <= e + 5_000));
 }
+
+// One row per recording in progress (Klaus, 2026-09-30). The camera extends
+// a recording while events keep coming, and clips don't run side by side
+// (a new one only repeats the last ~4 s, its pre-record). On cam1 (24 h, 96
+// events) events of one clip were at most 25 s apart, events of consecutive
+// clips at least 22 s: an event at most 20 s after the previous one joins its
+// recording. Newest group first; each kind once, AI kinds first.
+export const PENDING_GROUP_MS = 20_000;
+const KIND_ORDER = ['person', 'vehicle', 'pet', 'motion'];
+export interface PendingGroup {
+  start: number; // the first event
+  ts: number; // the latest event
+  kinds: string[];
+}
+export function groupPending(pending: Pending[]): PendingGroup[] {
+  const groups: PendingGroup[] = [];
+  for (const p of [...pending].sort((a, b) => a.ts - b.ts)) {
+    const g = groups[groups.length - 1];
+    if (g && p.ts - g.ts <= PENDING_GROUP_MS) {
+      g.ts = p.ts;
+      if (!g.kinds.includes(p.kind)) g.kinds.push(p.kind);
+    } else groups.push({ start: p.ts, ts: p.ts, kinds: [p.kind] });
+  }
+  const rank = (k: string) => {
+    const i = KIND_ORDER.indexOf(k);
+    return i < 0 ? KIND_ORDER.length : i;
+  };
+  for (const g of groups) g.kinds.sort((a, b) => rank(a) - rank(b));
+  return groups.reverse();
+}
