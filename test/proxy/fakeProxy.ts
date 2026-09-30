@@ -289,7 +289,7 @@ if (require.main === module) {
   void (async () => {
     const { FAKE_PROXY_PORT, FAKE_PROXY_TOKEN, seed } = await import('../../e2e/fakeProxyData');
     const fake = await startFakeProxy({ port: FAKE_PROXY_PORT, token: FAKE_PROXY_TOKEN });
-    seed(fake);
+    const media = seed(fake);
     // e2e only: POST /push {cam, type, data} makes the fake send a stream
     // message (live events, Klaus 2026-09-28). A separate local port, so the
     // fake's own API keeps its token check.
@@ -299,6 +299,25 @@ if (require.main === module) {
       const b = req.body as { cam?: unknown; type?: unknown; data?: unknown };
       if (typeof b.cam !== 'string' || typeof b.type !== 'string' || typeof b.data !== 'object' || !b.data) return void res.status(400).json({ error: 'cam, type and data' });
       res.json(fake.push({ cam: b.cam, type: b.type, data: b.data as Record<string, unknown> }));
+    });
+    // e2e only: POST /analyses {cam, analysis} stores an analysis (for
+    // /analyses and the full record) and gives its still's minute one still
+    // per second and a sprite, so the Timeline can show it.
+    hooks.post('/analyses', (req, res) => {
+      const b = req.body as { cam?: unknown; analysis?: FakeAnalysis };
+      const a = b.analysis;
+      if (typeof b.cam !== 'string' || !a || !Number.isSafeInteger(a.eventId) || !Number.isSafeInteger(a.start)) return void res.status(400).json({ error: 'cam and analysis' });
+      fake.analyses.set(b.cam, [...(fake.analyses.get(b.cam) ?? []).filter((x) => x.eventId !== a.eventId), a]);
+      if (a.stillTs !== null) {
+        const minute = Math.floor(a.stillTs / 60_000) * 60_000;
+        const stills = fake.stills.get(b.cam) ?? new Map<number, Buffer>();
+        for (let s = 0; s < 60; s++) stills.set(minute + s * 1000, media.jpeg);
+        fake.stills.set(b.cam, stills);
+        const previews = fake.previews.get(b.cam) ?? new Map<number, Buffer>();
+        previews.set(minute, media.sprite);
+        fake.previews.set(b.cam, previews);
+      }
+      res.json({ ok: true });
     });
     hooks.listen(FAKE_PROXY_PORT - 2, '127.0.0.1');
     process.stdout.write(`fake cam-proxy on ${fake.url} (test hooks on ${FAKE_PROXY_PORT - 2})\n`);

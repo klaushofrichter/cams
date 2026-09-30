@@ -191,7 +191,7 @@ test('the Live panel lists today’s events, newest first, and plays one', async
   await page.goto('/app/live');
   const rows = page.getByTestId('live-latest');
   await expect(rows.first()).toBeVisible();
-  const times = await rows.evaluateAll((els) => els.map((e) => e.querySelector('.what span')!.textContent!));
+  const times = await rows.evaluateAll((els) => els.map((e) => e.querySelector('.what > span:not(.badges)')!.textContent!));
   expect(times.length).toBeGreaterThan(1);
   expect(times.length).toBeLessThanOrEqual(5); // Klaus, 2026-09-29: up to five
   expect([...times].sort().reverse()).toEqual(times);
