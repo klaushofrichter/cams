@@ -3,7 +3,7 @@ import request from 'supertest';
 import { createApp } from '../server/app';
 import { setCameras } from '../server/cameraRegistry';
 import { resetProxyClients } from '../server/proxy/client';
-import { resetAnalysisStore } from '../server/proxy/analyses';
+import { getAnalysisStore, resetAnalysisStore } from '../server/proxy/analyses';
 import { getRecordings, type EventClip } from '../server/recordings/service';
 import { SESSION_COOKIE, signSession } from '../server/session';
 import { FAKE_TOKEN, startFakeProxy, type FakeAnalysis, type FakeProxy } from './proxy/fakeProxy';
@@ -46,7 +46,7 @@ describe('analyses on the events', () => {
     expect(r.body.events[0].analysis).toEqual({
       best: { person: { score: 0.84, subtype: 'person' } },
       notConfirmed: [],
-      stills: [{ eventId: 7, stillTs: T + 1000, summary: [{ category: 'person', subtype: 'person', score: 0.84, box }] }],
+      stills: [{ eventId: 7, kind: 'person', stillTs: T + 1000, summary: [{ category: 'person', subtype: 'person', score: 0.84, box }] }],
     });
   });
 
@@ -68,10 +68,13 @@ describe('analyses on the events', () => {
   });
 
   it('are not asked for a camera without a proxy', async () => {
+    const forDay = vi.spyOn(getAnalysisStore(), 'forDay');
     const r = await get('/api/cameras/shed/events?date=2026-09-30');
     expect(r.status).toBe(200);
     expect(r.body.events[0]).not.toHaveProperty('analysis');
-    expect(fake.requests.some((x) => x.path.endsWith('/analyses'))).toBe(false);
+    expect(forDay).not.toHaveBeenCalled();
+    await get('/api/cameras/den/events?date=2026-09-30');
+    expect(forDay).toHaveBeenCalledTimes(1); // the spy sees the route's calls
   });
 });
 
@@ -97,5 +100,13 @@ describe('GET /api/cameras/:id/analyses/:eventId', () => {
     expect((await get('/api/cameras/den/analyses/8')).status).toBe(404);
     expect((await get('/api/cameras/den/analyses/x')).status).toBe(400);
     expect((await get('/api/cameras/shed/analyses/7')).body).toEqual({ error: 'no_proxy' });
+  });
+
+  it('says unknown_camera, and 502 when the proxy fails (issue #109)', async () => {
+    expect((await get('/api/cameras/nope/analyses/7')).body).toEqual({ error: 'unknown_camera' });
+    fake.offline = true;
+    const r = await get('/api/cameras/den/analyses/7');
+    expect(r.status).toBe(502);
+    expect(r.body).toEqual({ error: 'proxy_unavailable' });
   });
 });

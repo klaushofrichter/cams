@@ -5,7 +5,8 @@
   import { portal } from '../lib/portal';
   import { localDate } from '../lib/recordings';
   import { navigate } from '../lib/router';
-  import { LABEL, type CardAnalysis, type Category, type StillObject } from '../lib/vision';
+  import { historyHref, openHistory } from '../lib/timeline';
+  import { findingLine, LABEL, type CardAnalysis, type Category, type StillObject } from '../lib/vision';
 
   // A Vision badge's dialog (Klaus, 2026-09-30): the card's analysed still with
   // Vision's boxes, the best one for the clicked category first; ◀ ▶ step
@@ -13,8 +14,9 @@
   let { cameraId, analysis, category, onclose }: { cameraId: string; analysis: CardAnalysis; category: Category; onclose: () => void } = $props();
 
   const stills = $derived(analysis.stills);
-  // The still where Vision saw the category best; for "not confirmed", one
-  // where it saw none (that analysis covered it), else the first.
+  // The still where Vision saw the category best; for "not confirmed", the
+  // still of an analysis of that kind (issue #113), else (an older server
+  // without `kind`) one where it saw none, else the first.
   function startIndex(): number {
     let best = -1;
     let score = -1;
@@ -22,6 +24,8 @@
       for (const e of s.summary) if (e.category === category && e.score > score) [best, score] = [i, e.score];
     });
     if (best >= 0) return best;
+    const own = analysis.stills.findIndex((s) => s.kind === category);
+    if (own >= 0) return own;
     const none = analysis.stills.findIndex((s) => !s.summary.some((e) => e.category === category));
     return Math.max(0, none);
   }
@@ -45,13 +49,23 @@
     return getJson<{ objects: StillObject[] }>(`/api/cameras/${enc(cameraId)}/analyses/${id}`).then((r) => r.objects);
   }
 
-  // Focus: into the dialog on open and kept there by Tab; the badge takes it
-  // back on close (VisionBadges).
+  // Focus: into the dialog on open and kept there by Tab, and brought back
+  // when it lands outside while open (issue #113); the badge takes it back on
+  // close (VisionBadges).
   let dialogEl: HTMLElement | undefined = $state();
   const focusables = () => [...(dialogEl?.querySelectorAll<HTMLElement>('button, input, select, a[href]') ?? [])].filter((e) => !e.hasAttribute('disabled'));
   onMount(() => {
     void tick().then(() => (focusables()[0] ?? dialogEl)?.focus());
   });
+  // Closing hands focus back to the badge before the dialog goes: let it.
+  let closing = false;
+  function close() {
+    closing = true;
+    onclose();
+  }
+  function keepFocus(e: FocusEvent) {
+    if (!closing && dialogEl && e.target instanceof Node && !dialogEl.contains(e.target)) (focusables()[0] ?? dialogEl).focus();
+  }
   function trap(e: KeyboardEvent) {
     if (e.key !== 'Tab') return;
     const f = focusables();
@@ -61,21 +75,26 @@
     e.preventDefault();
     f[next].focus();
   }
-  function openTimeline(e: MouseEvent) {
+  // History at the still's second, paused, from the same shared cursor the
+  // Timeline's "Open in History" leaves (Klaus, 2026-10-01).
+  const historyLink = $derived(still ? historyHref(cameraId, still.stillTs) : '');
+  // A plain click closes the dialog and stays in the app; a modified one is the browser's.
+  function go(e: MouseEvent, open: () => void) {
     if (e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey) return;
     e.preventDefault();
-    onclose();
-    navigate(timelineHref);
+    close();
+    open();
   }
 </script>
 
-<svelte:window onkeydown={(e) => e.key === 'Escape' && onclose()} />
+<svelte:window onkeydown={(e) => e.key === 'Escape' && close()} />
+<svelte:document onfocusin={keepFocus} />
 <div class="layer" use:portal>
-  <div class="backdrop" role="presentation" data-testid="vision-dialog-backdrop" onclick={onclose}></div>
+  <div class="backdrop" role="presentation" data-testid="vision-dialog-backdrop" onclick={close}></div>
   <div class="dialog" role="dialog" aria-modal="true" aria-label={`Vision: ${LABEL[category]}`} data-testid="vision-dialog" tabindex="-1" bind:this={dialogEl} onkeydown={trap}>
     <header>
       <h2>✦ Vision · {LABEL[category]}{#if still}<span class="time">{clock(still.stillTs)}</span>{/if}</h2>
-      <button class="x" aria-label="Close" data-testid="vision-dialog-close" onclick={onclose}>✕</button>
+      <button class="x" aria-label="Close" data-testid="vision-dialog-close" onclick={close}>✕</button>
     </header>
     {#if still}
       <TimelineStill {src} alt={`The analysed still at ${clock(still.stillTs)}`} summary={still.summary} {loadAll} />
@@ -88,12 +107,15 @@
       {/if}
       {#if entries.length}
         <ul class="found">
-          {#each entries as e, i (i)}<li>{e.subtype} {e.score.toFixed(2)}</li>{/each}
+          {#each entries as e, i (i)}<li>{findingLine(e.subtype, e.score)}</li>{/each}
         </ul>
       {:else}
         <p class="muted">Vision found nothing relevant in this still.</p>
       {/if}
-      <footer><a href={timelineHref} data-testid="vision-dialog-timeline" onclick={openTimeline}>Open in Timeline</a></footer>
+      <footer>
+        <a href={historyLink} data-testid="vision-dialog-history" onclick={(e) => go(e, () => openHistory(cameraId, still!.stillTs))}>Open in History</a>
+        <a href={timelineHref} data-testid="vision-dialog-timeline" onclick={(e) => go(e, () => navigate(timelineHref))}>Open in Timeline</a>
+      </footer>
     {:else}
       <p class="muted">No still was kept for this analysis.</p>
     {/if}
@@ -111,6 +133,6 @@
   .steps button { padding: 2px 10px; border-radius: 8px; border: 1px solid var(--border); background: var(--surface-2); color: var(--text); cursor: pointer; }
   .found { margin: 0; padding-left: 18px; font-size: 13px; }
   .muted { margin: 0; color: var(--muted); font-size: 13px; }
-  footer { display: flex; justify-content: flex-end; }
+  footer { display: flex; justify-content: flex-end; gap: 16px; }
   footer a { color: var(--accent); font-size: 13px; }
 </style>

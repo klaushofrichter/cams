@@ -9,7 +9,7 @@ import { createApp } from '../server/app';
 import { setCameras } from '../server/cameraRegistry';
 import { resetClients } from '../server/reolink/clients';
 import { resetProxyClients } from '../server/proxy/client';
-import { resetRecordings } from '../server/recordings/service';
+import { getRecordings, resetRecordings } from '../server/recordings/service';
 import { SESSION_COOKIE, signSession } from '../server/session';
 import { createSimCamera, type SimState } from './camera/sim';
 import { FAKE_TOKEN, JPEG, startFakeProxy, type FakeProxy } from './proxy/fakeProxy';
@@ -74,6 +74,14 @@ describe('proxy first (Plan 7)', () => {
     expect(r.status).toBe(200);
     expect(Buffer.compare(r.body, CLIP)).toBe(0);
     expect(state.downloads).toBe(0);
+  });
+
+  // Issue #76: the dialog tells "no copy" from "could not ask".
+  it('finds the proxy clip for composing: null when it has none, an error when the proxy fails', async () => {
+    const { ev } = await firstEvent(createApp());
+    expect(await getRecordings().proxyClipOf('cam1', ev.id)).toBeNull();
+    fake.offline = true;
+    await expect(getRecordings().proxyClipOf('cam1', ev.id)).rejects.toThrow();
   });
 
   it('asks the camera when the proxy has no clip for the event', async () => {

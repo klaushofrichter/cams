@@ -3,7 +3,8 @@ import { flushSync, mount, tick, unmount } from 'svelte';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import VisionBadges from './VisionBadges.svelte';
 import Harness from './testing/VisionBadgesHarness.svelte';
-import { localDate } from '../lib/recordings';
+import { loadCursor, localDate } from '../lib/recordings';
+import { loadViewPoint } from '../lib/timeline';
 import type { CardAnalysis } from '../lib/vision';
 
 let component: Record<string, unknown> | undefined;
@@ -66,8 +67,8 @@ describe('VisionBadges', () => {
   it('renders the agreement and the extra finding, coloured by confidence', () => {
     const got = render({ triggers: ['person'], analysis });
     expect(got).toEqual([
-      { kind: 'agree', level: 'high', text: '✦ Vision 84%', title: 'Vision: person 0.84 · high confidence' },
-      { kind: 'extra', level: 'low', text: '+ Pet 42%', title: 'Vision: dog 0.42 · low confidence' },
+      { kind: 'agree', level: 'high', text: '✦ Vision 84%', title: 'Vision: Person 84% · high confidence' },
+      { kind: 'extra', level: 'low', text: '+ Pet 42%', title: 'Vision: Dog 42% · low confidence' },
     ]);
   });
 
@@ -89,11 +90,15 @@ describe('VisionBadges', () => {
     ]);
   });
 
-  it('makes each badge a keyboard-reachable button', () => {
+  // Issue #113: real buttons (beside the card's button, not in it), so the
+  // browser's own Enter and Space work and nothing is nested.
+  it('makes each badge a native button', () => {
     render({ triggers: ['person'], analysis });
     for (const b of document.querySelectorAll('[data-testid="vision-badge"]')) {
-      expect(b.getAttribute('role')).toBe('button');
-      expect(b.getAttribute('tabindex')).toBe('0');
+      expect(b.tagName).toBe('BUTTON');
+      expect(b.getAttribute('type')).toBe('button');
+      expect(b.hasAttribute('role')).toBe(false);
+      expect(b.hasAttribute('tabindex')).toBe(false);
     }
   });
 });
@@ -113,8 +118,8 @@ describe('the Vision dialog', () => {
     // The person and the dog.
     expect(document.querySelectorAll('[data-testid="timeline-boxes"] rect')).toHaveLength(2);
     expect(dialog.textContent).toContain('2 of 2');
-    expect(dialog.textContent).toContain('person 0.84');
-    expect(dialog.textContent).toContain('dog 0.42');
+    // Klaus, 2026-10-01: "Person - 61% Confidence", best first.
+    expect([...dialog.querySelectorAll('.found li')].map((l) => l.textContent)).toEqual(['Person - 84% Confidence', 'Dog - 42% Confidence']);
   });
 
   it('steps between the analysed stills', async () => {
@@ -142,24 +147,15 @@ describe('the Vision dialog', () => {
     expect(document.querySelectorAll('[data-testid="timeline-boxes"] rect')).toHaveLength(1);
   });
 
-  it('opens with Enter or Space on a focused badge, and the card does not see the key', async () => {
+  // Enter and Space are the browser's on a native button (e2e: the dialog
+  // opens and stays open); here the badge only reacts to its click.
+  it('handles no keys itself: a key on a badge reaches nothing until the browser clicks', async () => {
     const oncard = inCard();
     const e = key(badge('agree'), 'Enter');
+    key(badge('agree'), ' ', false, 'keyup');
     await tick();
-    expect(e.defaultPrevented).toBe(true);
-    expect(byId('vision-dialog')).not.toBeNull();
-    key(byId('vision-dialog')!, 'Escape');
+    expect(e.defaultPrevented).toBe(false);
     expect(byId('vision-dialog')).toBeNull();
-    // Space opens on keyup (a keydown open would let the keyup click ✕ in
-    // Firefox/WebKit); its keydown is only kept from scrolling the page.
-    const down = key(badge('extra'), ' ');
-    await tick();
-    expect(down.defaultPrevented).toBe(true);
-    expect(byId('vision-dialog')).toBeNull();
-    const up = key(badge('extra'), ' ', false, 'keyup');
-    await tick();
-    expect(up.defaultPrevented).toBe(true);
-    expect(byId('vision-dialog')!.textContent).toContain('✦ Vision · Pet');
     expect(oncard).not.toHaveBeenCalled();
   });
 
@@ -194,6 +190,26 @@ describe('the Vision dialog', () => {
     expect(document.activeElement).toBe(focusables[focusables.length - 1]);
   });
 
+  // Issue #113: focus that escapes (a click on the still, a page element)
+  // comes back, so Tab never continues on the page behind.
+  it('brings focus back into the dialog when it lands outside', async () => {
+    const outside = document.createElement('button');
+    document.body.appendChild(outside);
+    try {
+      inCard();
+      const dialog = await open();
+      outside.focus();
+      expect(dialog.contains(document.activeElement)).toBe(true);
+      byId('vision-dialog-close')!.click();
+      flushSync();
+      // Closed: the page has its focus again.
+      outside.focus();
+      expect(document.activeElement).toBe(outside);
+    } finally {
+      outside.remove();
+    }
+  });
+
   it('shows all objects from the full analysis', async () => {
     const fetch = vi.fn(async () => new Response(JSON.stringify({ eventId: 12, status: 'ok', stillTs: T2, summary: [], objects: [{ name: 'Person', score: 0.84, box }, { name: 'Ceiling fan', score: 0.7, box }, { name: 'Lamp', score: 0.5, box: null }] }), { status: 200 }));
     vi.stubGlobal('fetch', fetch);
@@ -212,6 +228,19 @@ describe('the Vision dialog', () => {
     expect(byId('timeline-show-all')).not.toBeNull();
   });
 
+  // Issue #113: the still of the analysis that covered the category, not a guess.
+  it('opens "not confirmed" on the still whose analysed event was of that kind', async () => {
+    inCard({ best: {}, notConfirmed: ['person'], stills: [{ eventId: 13, kind: 'motion', stillTs: T1, summary: [] }, { eventId: 14, kind: 'person', stillTs: T2, summary: [] }] }, ['person', 'motion']);
+    await open('not-confirmed');
+    expect(byId('timeline-still')!.getAttribute('src')).toBe(`/api/cameras/cam1/stills/${T2}.jpg`);
+  });
+
+  it('falls back to the first still without the category when the server names no kind', async () => {
+    inCard({ best: {}, notConfirmed: ['person'], stills: [{ eventId: 13, stillTs: T1, summary: [] }, { eventId: 14, stillTs: T2, summary: [] }] }, ['person', 'motion']);
+    await open('not-confirmed');
+    expect(byId('timeline-still')!.getAttribute('src')).toBe(`/api/cameras/cam1/stills/${T1}.jpg`);
+  });
+
   it('"Open in Timeline" goes to that still in-app and closes', async () => {
     inCard();
     await open();
@@ -222,6 +251,24 @@ describe('the Vision dialog', () => {
     flushSync();
     expect(location.pathname + location.search).toBe(href);
     expect(byId('vision-dialog')).toBeNull();
+  });
+
+  // Klaus, 2026-10-01: History at the analysed second, paused; the shared
+  // cursor moves there as the Timeline's link does.
+  it('"Open in History" goes to that second in-app, saves the shared view point and closes', async () => {
+    sessionStorage.clear();
+    inCard();
+    await open();
+    const link = byId('vision-dialog-history') as HTMLAnchorElement;
+    const href = `/app/recordings?cam=cam1&panel=history&at=${T2}`;
+    expect(link.textContent).toBe('Open in History');
+    expect(link.getAttribute('href')).toBe(href);
+    link.click();
+    flushSync();
+    expect(location.pathname + location.search).toBe(href);
+    expect(byId('vision-dialog')).toBeNull();
+    expect(loadViewPoint('cam1')).toEqual({ at: T2 });
+    expect(loadCursor()).toEqual({ cam: 'cam1', cursor: { date: localDate(new Date(T2)), clipId: null, offsetSec: 0, at: T2 } });
   });
 
   it('closes when the analysis goes away or the opened badge disappears, and does not reopen by itself', async () => {

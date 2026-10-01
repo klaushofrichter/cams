@@ -63,6 +63,18 @@ describe('ProxyStream (upstream)', () => {
     expect(asks[1]).not.toContain('analysis');
   });
 
+  it('asks for analyses again after a drop, in case the proxy was upgraded (issue #109)', async () => {
+    const fake = await fakeProxy();
+    fake.knownTypes = ['camera-event', 'camera-status', 'clip'];
+    const { s } = stream(fake);
+    await until(() => s.up());
+    fake.knownTypes = null; // the proxy restarts as a newer version
+    fake.dropStreams();
+    const asks = () => fake.requests.filter((r) => r.path === '/api/stream').map((r) => String(r.query.types).split(','));
+    await until(() => asks().length >= 3 && s.up());
+    expect(asks().at(-1)).toContain('analysis');
+  });
+
   it('keeps asking for analyses after a 400 that is not about the type', async () => {
     const fake = await fakeProxy();
     fake.streamStatus = 400;

@@ -63,6 +63,26 @@ describe('cam-proxy minors (#38)', () => {
     expect(r.body).toEqual({ error: 'stills_disabled' });
   });
 
+  it('calls any other 404 from the proxy unavailable, not "stills disabled" (issue #76)', async () => {
+    const p = await standIn((_req, res) => void res.status(404).json({ error: 'not_found' }));
+    useProxy(p.url);
+    const r = await request(createApp()).get('/api/cameras/den/stills?from=0&to=1000').set('Cookie', auth);
+    expect(r.status).toBe(502);
+    expect(r.body).toEqual({ error: 'proxy_unavailable' });
+  });
+
+  it('does not wait more than a second for a stalled error body', async () => {
+    const p = await standIn((_req, res) => {
+      res.writeHead(404, { 'Content-Type': 'application/json' });
+      res.write('{"error":'); // and nothing more
+    });
+    useProxy(p.url);
+    const t0 = Date.now();
+    const r = await request(createApp()).get('/api/cameras/den/stills?from=0&to=1000').set('Cookie', auth);
+    expect(r.status).toBe(502);
+    expect(Date.now() - t0).toBeLessThan(2500);
+  });
+
   it('never writes the proxy token into a log line', async () => {
     const lines: string[] = [];
     // inspect, not JSON.stringify: pino-http logs req/res, which are circular.

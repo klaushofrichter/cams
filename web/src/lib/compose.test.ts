@@ -1,6 +1,6 @@
 // web/src/lib/compose.test.ts
-import { describe, expect, it } from 'vitest';
-import { composedName, formatLength, resultLength } from './compose';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { composedName, formatLength, isAvailable, resultLength } from './compose';
 
 describe('compose helpers', () => {
   it('computes the result length and its limits', () => {
@@ -16,5 +16,16 @@ describe('compose helpers', () => {
     expect(formatLength(60)).toBe('1:00');
     // The camera's local time, from the event id, like the original download (issue #72).
     expect(composedName('den', '20260928-140000-140020', 'sd')).toBe('den-2026-09-28_14-00-00-composed-sd.mp4');
+  });
+});
+
+describe('isAvailable', () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  it('is true when cams could not ask the proxy (502), false only when it says so (issue #76)', async () => {
+    vi.stubGlobal('fetch', async () => new Response('{"error":"proxy_unavailable"}', { status: 502 }));
+    expect(await isAvailable('den', '20260928-140000-140020')).toBe(true);
+    vi.stubGlobal('fetch', async () => new Response('{"available":false}', { status: 200 }));
+    expect(await isAvailable('den', '20260928-140000-140020')).toBe(false);
   });
 });

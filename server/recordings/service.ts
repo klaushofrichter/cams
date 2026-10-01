@@ -375,21 +375,22 @@ export class RecordingsService {
     return ev ? { start: Date.parse(ev.start), end: Date.parse(ev.end) } : null;
   }
 
-  // The proxy's clip for an event (composed clips, cam-proxy spec 2026-09-28).
-  proxyClipOf(cameraId: string, clipId: string): Promise<{ id: number } | null> {
-    return this.proxyClip(cameraId, clipId);
+  // The proxy's clip for an event (composed clips, cam-proxy spec 2026-09-28):
+  // null when it has none; a failed lookup throws (issue #76).
+  async proxyClipOf(cameraId: string, clipId: string): Promise<{ id: number } | null> {
+    if (!proxyActive(cameraId)) return null;
+    const span = await this.eventSpan(cameraId, clipId);
+    if (!span) return null;
+    const clip = await findProxyClip(cameraId, span.start, span.end);
+    if (clip) logger.info({ cameraId, clipId, proxyClip: clip.id }, 'recording_from_proxy');
+    return clip;
   }
 
   // The proxy's clip for the event, for a camera with a cam-proxy (Plan 7:
-  // asked first; Plan 6: when the camera refuses).
+  // asked first; Plan 6: when the camera refuses). A failed lookup: none.
   private async proxyClip(cameraId: string, clipId: string): Promise<{ id: number } | null> {
-    if (!proxyActive(cameraId)) return null;
     try {
-      const span = await this.eventSpan(cameraId, clipId);
-      if (!span) return null;
-      const clip = await findProxyClip(cameraId, span.start, span.end);
-      if (clip) logger.info({ cameraId, clipId, proxyClip: clip.id }, 'recording_from_proxy');
-      return clip;
+      return await this.proxyClipOf(cameraId, clipId);
     } catch (e) {
       logger.warn({ cameraId, clipId, message: (e as Error).message }, 'proxy_clip_lookup_failed');
       return null;
@@ -423,19 +424,12 @@ export class RecordingsService {
             logger.warn({ cameraId, clipId, message: (e as Error).message }, 'proxy_clip_fetch_failed');
           }
         }
+        // The proxy was asked above, so a camera refusal is final here (issue
+        // #38: no second lookup); a retry asks the proxy again.
         await this.gate(cameraId).run(
           async () => {
-            try {
-              const res = await this.downloadWithRetry(cameraId, sub);
-              await pipeline(res, createWriteStream(tmp));
-            } catch (err) {
-              // The camera refused (or its breaker is open): the clip it
-              // uploaded to its cam-proxy, if there is one — unless the proxy
-              // was just asked above (issue #38: no second lookup).
-              const proxied = proxyActive(cameraId) ? null : await this.proxyClipFor(cameraId, clipId, err);
-              if (!proxied) throw err;
-              await pipeline((await openProxyClip(cameraId, proxied.id)).stream, createWriteStream(tmp));
-            }
+            const res = await this.downloadWithRetry(cameraId, sub);
+            await pipeline(res, createWriteStream(tmp));
           },
           { high: priority === 'high', key },
         );
@@ -457,12 +451,16 @@ export class RecordingsService {
       // no clip transfer and no ffmpeg.
       if (proxyActive(cameraId)) {
         try {
-          const span = await this.eventSpan(cameraId, clipId);
-          const ts = span && (await findProxyStill(cameraId, span.start + 2000, span.start + 12_000));
-          if (ts) {
-            // At most three at a time per camera: a day's list asked for all
-            // its thumbnails at once (issue #38).
-            await this.stillGate(cameraId).run(async () => pipeline(await openProxyStill(cameraId, ts), createWriteStream(tmp)));
+          // At most three at a time per camera, lookups included: a day's
+          // list asked for all its thumbnails at once (issues #38, #76).
+          const got = await this.stillGate(cameraId).run(async () => {
+            const span = await this.eventSpan(cameraId, clipId);
+            const ts = span && (await findProxyStill(cameraId, span.start + 2000, span.start + 12_000));
+            if (!ts) return false;
+            await pipeline(await openProxyStill(cameraId, ts), createWriteStream(tmp));
+            return true;
+          });
+          if (got) {
             // Only a JPEG becomes the (cached) thumbnail.
             const head = await fs.readFile(tmp).then((b) => b.subarray(0, 3)).catch(() => Buffer.alloc(0));
             if (head.length === 3 && head[0] === 0xff && head[1] === 0xd8 && head[2] === 0xff) return;

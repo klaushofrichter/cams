@@ -27,7 +27,18 @@ describe('TimelineStill', () => {
   it('draws a box and a label per summary entry, skipping zero-area boxes', () => {
     const t = render({ summary: [{ category: 'person', subtype: 'person', score: 0.84, box }, { category: 'pet', subtype: 'dog', score: 0.5, box: { x0: 0.5, y0: 0.5, x1: 0.5, y1: 0.5 } }] });
     expect(t.querySelectorAll('[data-testid="timeline-boxes"] rect')).toHaveLength(1);
-    expect(labels()).toEqual(['person 0.84']);
+    expect(labels()).toEqual(['Person 84%']);
+  });
+
+  // Klaus, 2026-10-01: "Clothing 56%" -- a capital first letter only, the rounded percent.
+  it('labels a box with the name capitalised and the rounded percent', async () => {
+    const loadAll = vi.fn(async () => [{ name: 'clothing', score: 0.556, box }, { name: 'ceiling fan', score: 0.904, box }, { name: 'Lamp', score: 0.5, box }]);
+    const t = render({ summary: [{ category: 'pet', subtype: 'dog', score: 0.704, box }], loadAll });
+    expect(labels()).toEqual(['Dog 70%']);
+    (t.querySelector('[data-testid="timeline-show-all"]') as HTMLInputElement).click();
+    await tick();
+    flushSync();
+    expect(labels()).toEqual(['Clothing 56%', 'Ceiling fan 90%', 'Lamp 50%']);
   });
 
   it('"Show all objects" loads them once and draws them; off again shows the summary', async () => {
@@ -37,10 +48,10 @@ describe('TimelineStill', () => {
     all.click();
     await tick();
     flushSync();
-    expect(labels()).toEqual(['Person 0.84', 'Ceiling fan 0.70']);
+    expect(labels()).toEqual(['Person 84%', 'Ceiling fan 70%']);
     all.click();
     flushSync();
-    expect(labels()).toEqual(['person 0.84']);
+    expect(labels()).toEqual(['Person 84%']);
     all.click();
     await tick();
     flushSync();
@@ -79,11 +90,67 @@ describe('TimelineStill', () => {
     resolveOld([{ name: 'Stale', score: 0.5, box }]);
     await tick();
     flushSync();
-    expect(labels()).toEqual(['person 0.84']);
+    expect(labels()).toEqual(['Person 84%']);
     all.click();
     await tick();
     flushSync();
     expect(loadNew).toHaveBeenCalledTimes(1);
-    expect(labels()).toEqual(['Fresh 0.90']);
+    expect(labels()).toEqual(['Fresh 90%']);
+  });
+
+  // Issue #109 items.
+  it('switches "Show all objects" back off and says so when they could not load, and tries again on the next click', async () => {
+    let fail = true;
+    const loadAll = vi.fn(async () => {
+      if (fail) throw new Error('502');
+      return [{ name: 'Lamp', score: 0.5, box }];
+    });
+    const t = render({ summary: [{ category: 'person', subtype: 'person', score: 0.84, box }], loadAll });
+    const all = t.querySelector('[data-testid="timeline-show-all"]') as HTMLInputElement;
+    all.click();
+    await tick();
+    flushSync();
+    expect(all.checked).toBe(false);
+    const msg = t.querySelector('[data-testid="timeline-show-all-failed"]');
+    expect(msg?.textContent).toBe('Could not load all objects.');
+    expect(msg?.getAttribute('role')).toBe('status');
+    fail = false;
+    all.click();
+    await tick();
+    flushSync();
+    expect(loadAll).toHaveBeenCalledTimes(2);
+    expect(labels()).toEqual(['Lamp 50%']);
+    expect(t.querySelector('[data-testid="timeline-show-all-failed"]')?.textContent ?? '').toBe('');
+  });
+
+  it('starts another still on its summary: "Show all objects" off, no failure left', async () => {
+    const props = $state<{ src: string; alt: string; summary: SummaryEntry[] | null; loadAll: () => Promise<StillObject[]> }>({
+      src: '/a.jpg', alt: 'still', summary: [{ category: 'person', subtype: 'person', score: 0.84, box }], loadAll: async () => { throw new Error('502'); },
+    });
+    target = document.createElement('div');
+    document.body.appendChild(target);
+    component = mount(TimelineStill, { target, props });
+    flushSync();
+    (target.querySelector('[data-testid="timeline-show-all"]') as HTMLInputElement).click();
+    await tick();
+    flushSync();
+    expect(target.querySelector('[data-testid="timeline-show-all-failed"]')?.textContent).toBe('Could not load all objects.');
+    props.src = '/b.jpg';
+    props.loadAll = async () => [{ name: 'Lamp', score: 0.5, box }];
+    flushSync();
+    expect(target.querySelector('[data-testid="timeline-show-all-failed"]')?.textContent ?? '').toBe('');
+    expect((target.querySelector('[data-testid="timeline-show-all"]') as HTMLInputElement).checked).toBe(false);
+    expect(labels()).toEqual(['Person 84%']);
+  });
+
+  it('keeps a label inside the picture at the top and right edges', () => {
+    render({ summary: [
+      { category: 'person', subtype: 'person', score: 0.84, box: { x0: 0.1, y0: 0.01, x1: 0.3, y1: 0.5 } },
+      { category: 'pet', subtype: 'dog', score: 0.6, box: { x0: 0.8, y0: 0.5, x1: 0.99, y1: 0.9 } },
+    ] });
+    const [top, right] = [...target!.querySelectorAll('[data-testid="timeline-box-label"]')] as HTMLElement[];
+    expect(top.classList.contains('inside')).toBe(true); // drawn inside the box, under its top edge
+    expect(right.style.right).toBe('1%'); // ends at the box's right edge
+    expect(right.style.left).toBe('');
   });
 });

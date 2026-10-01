@@ -1,5 +1,5 @@
 <script lang="ts">
-  import type { Box, StillObject, SummaryEntry } from '../lib/vision';
+  import { boxLabel, type Box, type StillObject, type SummaryEntry } from '../lib/vision';
 
   // The Timeline's large still (spec 2026-09-30-analytics-in-cams-design): for
   // an analysed second, Vision's summary boxes with labels; "Show all objects"
@@ -16,13 +16,20 @@
     showAll && all
       ? all.flatMap((o) => {
           const b = drawn(o.box);
-          return b ? [{ label: `${o.name} ${o.score.toFixed(2)}`, box: b }] : [];
+          return b ? [{ label: boxLabel(o.name, o.score), box: b }] : [];
         })
       : (summary ?? []).flatMap((e) => {
           const b = drawn(e.box);
-          return b ? [{ label: `${e.subtype} ${e.score.toFixed(2)}`, box: b }] : [];
+          return b ? [{ label: boxLabel(e.subtype, e.score), box: b }] : [];
         }),
   );
+
+  // A label sits above its box, from its left edge (issue #109: not clipped):
+  // inside the box when the box touches the top, and ending at the box's right
+  // edge when the box starts in the picture's right part.
+  const TOP = 0.08;
+  const pc = (v: number) => `${Math.round(v * 1000) / 10}%`;
+  const labelAt = (b: Box) => `${b.x0 > 0.6 ? `right:${pc(1 - b.x1)}` : `left:${pc(b.x0)}`};top:${pc(b.y0)}`;
 
   // `gen` counts stills: a loadAll answer that arrives after src changed belongs
   // to the previous still and is dropped. `pending` shares one in-flight request
@@ -42,6 +49,7 @@
 
   async function toggle() {
     showAll = !showAll;
+    if (showAll) failed = false;
     if (!showAll || all || !loadAll) return;
     const mine = gen;
     const request = (pending ??= loadAll());
@@ -64,12 +72,14 @@
       <svg viewBox="0 0 1 1" preserveAspectRatio="none" data-testid="timeline-boxes">
         {#each boxes as b, i (i)}<rect x={b.box.x0} y={b.box.y0} width={b.box.x1 - b.box.x0} height={b.box.y1 - b.box.y0} vector-effect="non-scaling-stroke" />{/each}
       </svg>
-      {#each boxes as b, i (i)}<span class="label" data-testid="timeline-box-label" style={`left:${b.box.x0 * 100}%;top:${b.box.y0 * 100}%`}>{b.label}</span>{/each}
+      {#each boxes as b, i (i)}<span class="label" class:inside={b.box.y0 < TOP} data-testid="timeline-box-label" style={labelAt(b.box)}>{b.label}</span>{/each}
     {/if}
   </div>
   {#if summary && loadAll}
-    <label class="small"><input type="checkbox" checked={showAll} onchange={() => void toggle()} data-testid="timeline-show-all" /> Show all objects</label>
-    {#if failed}<span class="muted small">Could not load all objects.</span>{/if}
+    <div class="small">
+      <label><input type="checkbox" checked={showAll} onchange={() => void toggle()} data-testid="timeline-show-all" /> Show all objects</label>
+      <span class="muted" role="status" data-testid="timeline-show-all-failed">{failed ? 'Could not load all objects.' : ''}</span>
+    </div>
   {/if}
 </figure>
 
@@ -81,8 +91,9 @@
   .frame { position: relative; line-height: 0; width: fit-content; max-width: 100%; }
   img { display: block; max-width: 100%; max-height: 60vh; width: auto; height: auto; background: var(--bg); border-radius: 8px; }
   svg { position: absolute; inset: 0; width: 100%; height: 100%; }
-  rect { fill: none; stroke: #a855f7; stroke-width: 3; }
-  .label { position: absolute; transform: translateY(-100%); background: #a855f7; color: #fff; font-size: 12px; line-height: 1.4; padding: 0 4px; border-radius: 3px; white-space: nowrap; }
-  .small { font-size: 13px; }
+  rect { fill: none; stroke: var(--vision-mark); stroke-width: 3; }
+  .label { position: absolute; transform: translateY(-100%); background: var(--vision-mark); color: var(--on-vision-mark); font-size: 12px; line-height: 1.4; padding: 0 4px; border-radius: 3px; white-space: nowrap; }
+  .label.inside { transform: none; }
+  .small { font-size: 13px; display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
   .muted { color: var(--muted); }
 </style>

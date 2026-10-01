@@ -44,7 +44,7 @@ describe('pending live events', () => {
     const cards = [...target!.querySelectorAll('[data-testid="event-pending"]')] as HTMLElement[];
     expect(cards).toHaveLength(2);
     expect([...cards[0].querySelectorAll('.tag')].map((x) => x.textContent)).toEqual(['Pet']);
-    expect([...cards[1].querySelectorAll('.tag')].map((x) => x.textContent)).toEqual(['Person', 'Motion']);
+    expect([...cards[1].querySelectorAll('.tag')].map((x) => x.textContent)).toEqual(['Motion', 'Person']); // Motion first (Klaus, 2026-10-01)
     expect(cards[1].querySelector('strong')!.textContent).toBe(new Date(T).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }));
   });
 
