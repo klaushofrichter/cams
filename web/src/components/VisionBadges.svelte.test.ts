@@ -90,11 +90,15 @@ describe('VisionBadges', () => {
     ]);
   });
 
-  it('makes each badge a keyboard-reachable button', () => {
+  // Issue #113: real buttons (beside the card's button, not in it), so the
+  // browser's own Enter and Space work and nothing is nested.
+  it('makes each badge a native button', () => {
     render({ triggers: ['person'], analysis });
     for (const b of document.querySelectorAll('[data-testid="vision-badge"]')) {
-      expect(b.getAttribute('role')).toBe('button');
-      expect(b.getAttribute('tabindex')).toBe('0');
+      expect(b.tagName).toBe('BUTTON');
+      expect(b.getAttribute('type')).toBe('button');
+      expect(b.hasAttribute('role')).toBe(false);
+      expect(b.hasAttribute('tabindex')).toBe(false);
     }
   });
 });
@@ -143,24 +147,15 @@ describe('the Vision dialog', () => {
     expect(document.querySelectorAll('[data-testid="timeline-boxes"] rect')).toHaveLength(1);
   });
 
-  it('opens with Enter or Space on a focused badge, and the card does not see the key', async () => {
+  // Enter and Space are the browser's on a native button (e2e: the dialog
+  // opens and stays open); here the badge only reacts to its click.
+  it('handles no keys itself: a key on a badge reaches nothing until the browser clicks', async () => {
     const oncard = inCard();
     const e = key(badge('agree'), 'Enter');
+    key(badge('agree'), ' ', false, 'keyup');
     await tick();
-    expect(e.defaultPrevented).toBe(true);
-    expect(byId('vision-dialog')).not.toBeNull();
-    key(byId('vision-dialog')!, 'Escape');
+    expect(e.defaultPrevented).toBe(false);
     expect(byId('vision-dialog')).toBeNull();
-    // Space opens on keyup (a keydown open would let the keyup click ✕ in
-    // Firefox/WebKit); its keydown is only kept from scrolling the page.
-    const down = key(badge('extra'), ' ');
-    await tick();
-    expect(down.defaultPrevented).toBe(true);
-    expect(byId('vision-dialog')).toBeNull();
-    const up = key(badge('extra'), ' ', false, 'keyup');
-    await tick();
-    expect(up.defaultPrevented).toBe(true);
-    expect(byId('vision-dialog')!.textContent).toContain('✦ Vision · Pet');
     expect(oncard).not.toHaveBeenCalled();
   });
 

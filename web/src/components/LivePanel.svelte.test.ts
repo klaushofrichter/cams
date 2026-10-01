@@ -74,7 +74,7 @@ describe('LivePanel', () => {
 
   it('lists a recent event’s kinds Motion first, as History does (Klaus, 2026-10-01)', () => {
     render({ recent: [{ ...ev, triggers: ['person', 'motion'] }] });
-    expect(target!.querySelector('[data-testid="live-latest"] strong')!.textContent).toBe('Motion, Person');
+    expect(q('live-latest-kinds')!.textContent).toBe('Motion, Person');
   });
 
   it('adds Vision badges to a recent event, and no space when there is no analysis', () => {
@@ -104,8 +104,20 @@ describe('LivePanel', () => {
     expect((document.querySelector('[data-testid="timeline-still"]') as HTMLImageElement).getAttribute('src')).toBe('/api/cameras/cam2/stills/1.jpg');
     (document.querySelector('[data-testid="vision-dialog-close"]') as HTMLElement).click();
     flushSync();
-    (target!.querySelector('[data-testid="live-latest"] strong') as HTMLElement).click();
+    q('live-latest')!.click();
     expect(onplay).toHaveBeenCalledTimes(1);
+  });
+
+  // Issue #113: no button in a button; the row's button names the event.
+  it('puts the badges beside the row’s button, after it in keyboard order', () => {
+    const box = { x0: 0, y0: 0, x1: 1, y1: 1 };
+    const analysis = { best: { pet: { score: 0.7, subtype: 'dog' } }, notConfirmed: [], stills: [{ eventId: 1, stillTs: 1, summary: [{ category: 'pet' as const, subtype: 'dog', score: 0.7, box }] }] };
+    render({ recent: [{ ...ev, triggers: ['person', 'motion'], analysis }] });
+    const row = q('live-latest')!;
+    expect(row.querySelector('button, [role="button"]')).toBeNull();
+    expect(row.textContent!.trim()).toMatch(/^Motion, Person, \d{2}:\d{2}:\d{2}, 12 minutes ago$/);
+    const order = [...q('live-recent')!.querySelectorAll('button, [tabindex]')].map((b) => b.getAttribute('data-testid'));
+    expect(order).toEqual(['live-latest', 'vision-badge']);
   });
 
   it('says so when there are no events', () => {

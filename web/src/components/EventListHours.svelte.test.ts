@@ -41,7 +41,8 @@ describe('EventList: thumbnail tap and hour groups', () => {
     (all('event-card')[0].querySelector('[data-testid="event-thumb"]') as HTMLElement).click();
     expect(onselect).toHaveBeenCalledTimes(1);
     expect(onreveal).toHaveBeenCalledTimes(1);
-    (all('event-card')[1].querySelector('.meta') as HTMLElement).click();
+    // The card's text lets clicks through to its button (pointer-events: none).
+    all('event-card')[1].click();
     expect(onselect).toHaveBeenCalledTimes(2);
     expect(onreveal).toHaveBeenCalledTimes(1);
   });

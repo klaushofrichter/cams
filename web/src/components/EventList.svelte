@@ -199,26 +199,33 @@
         {#if open}
           <ul class="list">
             {#each g.events as e (e.id)}
+              {@const kinds = orderTriggers(e.triggers)}
               <li class="item" class:current={e.id === selectedId}>
-                <button class="card" data-testid="event-card" data-clip-id={e.id} aria-current={e.id === selectedId ? 'true' : undefined} onclick={(ev) => {
-                  select(e);
-                  // The thumbnail also brings the player into view; the rest of the card keeps the list in view.
-                  if ((ev.target as Element | null)?.closest('[data-testid="event-thumb"]')) onreveal?.();
-                }}>
-                  {#if broken.has(brokenKey(e.id))}
-                    <span class="thumb placeholder" data-testid="event-thumb"></span>
-                  {:else}
-                    <img class="thumb" data-testid="event-thumb" loading="lazy" alt="" src={thumbUrl(cameraId, e.id)} data-broken-key={brokenKey(e.id)} onerror={markBroken} />
-                  {/if}
+                <!-- The card's button fills the play area; its text lies over it and lets
+                     clicks through, all but the Vision badges, which are buttons of
+                     their own beside it, not in it (issue #113). -->
+                <div class="play">
+                  <button class="card" data-testid="event-card" data-clip-id={e.id} aria-current={e.id === selectedId ? 'true' : undefined} onclick={(ev) => {
+                    select(e);
+                    // The thumbnail also brings the player into view; the rest of the card keeps the list in view.
+                    if ((ev.target as Element | null)?.closest('[data-testid="event-thumb"]')) onreveal?.();
+                  }}>
+                    {#if broken.has(brokenKey(e.id))}
+                      <span class="thumb placeholder" data-testid="event-thumb"></span>
+                    {:else}
+                      <img class="thumb" data-testid="event-thumb" loading="lazy" alt="" src={thumbUrl(cameraId, e.id)} data-broken-key={brokenKey(e.id)} onerror={markBroken} />
+                    {/if}
+                    <span class="sr-only">{[formatClock(e.start), `${e.durationSec} s`, ...kinds.map((t) => TRIGGER_LABELS[t])].join(', ')}</span>
+                  </button>
                   <span class="meta">
-                    <strong>{formatClock(e.start)}</strong>
-                    <span class="dur">{e.durationSec} s</span>
+                    <strong aria-hidden="true">{formatClock(e.start)}</strong>
+                    <span class="dur" aria-hidden="true">{e.durationSec} s</span>
                     <span class="tags">
-                      {#each orderTriggers(e.triggers) as t (t)}<span class="tag" class:ai={t !== 'motion' && t !== 'timer'}>{TRIGGER_LABELS[t]}</span>{/each}
+                      {#each kinds as t (t)}<span class="tag" class:ai={t !== 'motion' && t !== 'timer'} aria-hidden="true">{TRIGGER_LABELS[t]}</span>{/each}
                       <VisionBadges {cameraId} triggers={e.triggers} analysis={e.analysis} />
                     </span>
                   </span>
-                </button>
+                </div>
                 <button class="dl" data-testid="event-download" aria-label={`Download the clip from ${formatClock(e.start)}`} title="Download…" onclick={() => (saving = e)}>
                   <Icon name="downloads" size={18} />
                 </button>
@@ -254,11 +261,17 @@
     overflow: hidden; transition: border-color 0.15s ease, background-color 0.15s ease;
   }
   .item.current { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 10%, var(--surface)); }
+  /* The play area: the card's button and its text share one grid cell, the
+     text on top. A hover anywhere in it, badges included, is the card's. */
+  .play { flex: 1; min-width: 0; display: grid; grid-template-columns: minmax(0, 1fr); }
   .card {
-    flex: 1; min-width: 0; display: flex; gap: 10px; align-items: center; padding: 6px; text-align: left;
+    grid-area: 1 / 1; min-width: 0; display: flex; align-items: center; padding: 6px; text-align: left;
     border: 0; border-radius: 0; background: transparent; color: inherit; font: inherit; cursor: pointer; transition: background-color 0.15s ease;
   }
-  .card:hover { background: var(--surface-2); }
+  .play:hover .card { background: var(--surface-2); }
+  /* Beside the thumbnail (6 px padding + 96 px + 10 px gap), as when it was inside the button. */
+  .meta { grid-area: 1 / 1; align-self: center; margin: 6px 6px 6px 112px; pointer-events: none; }
+  .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
   .dl {
     flex: none; width: 42px; display: grid; place-items: center; border: 0; border-left: 1px solid var(--border);
     background: transparent; color: var(--muted); cursor: pointer; transition: color 0.15s ease, background-color 0.15s ease;
