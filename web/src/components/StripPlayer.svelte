@@ -32,6 +32,9 @@
     live?: Snippet; // the live stream; kept mounted while unglued so it resumes at once
   } = $props();
 
+  // Live has no "after": forward 10 s and next event are off there (#121).
+  const NOT_LIVE = 'Not available in live view';
+
   // The Timeline needs the camera's cam-proxy (its stills).
   const hasProxy = $derived(!!$cameras.find((c) => c.id === cam)?.proxy);
   const timelineHref = $derived(hasProxy && !glued
@@ -248,6 +251,7 @@
   // Not clamped to now: a clip may lie after it (a camera clock ahead), and
   // past now the panel says so and the ticker doesn't run.
   function skip(ms: number) {
+    if (glued && ms > 0) return; // nothing after live
     at = Math.max(0, at + ms);
   }
   // Space plays or pauses; ←/→ step 10 s (spec: Player / Controls).
@@ -318,8 +322,8 @@
     <button data-testid="play-toggle" class="primary" aria-pressed={playing} title={playing ? 'Pause' : 'Play'} disabled={glued || source.kind === 'future'} onclick={toggle}>
       <Icon name={playing ? 'pause' : 'play'} size={16} />
     </button>
-    <button data-testid="fwd-10" title="Forward 10 seconds" onclick={() => skip(10_000)}><span>10</span><Icon name="fwd10" size={16} /></button>
-    <button data-testid="next-clip" title="Next event" onclick={() => onstep(1)}><Icon name="next" size={16} /></button>
+    <button data-testid="fwd-10" title={glued ? NOT_LIVE : 'Forward 10 seconds'} disabled={glued} onclick={() => skip(10_000)}><span>10</span><Icon name="fwd10" size={16} /></button>
+    <button data-testid="next-clip" title={glued ? NOT_LIVE : 'Next event'} disabled={glued} onclick={() => onstep(1)}><Icon name="next" size={16} /></button>
     <!-- Time, source and why the clip was recorded, in one line (Klaus, 2026-09-28). -->
     <span class="info" data-testid="strip-info">
       {#if glued}
