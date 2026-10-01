@@ -24,7 +24,7 @@
   --warning-ink: #1F1300;
   /* Vision badges by confidence (Klaus, 2026-09-30): ≥ 80 %, 50–79 %, < 50 %. */
   --vision-high: #4ADE80;
-  --vision-mid: #A855F7;
+  --vision-mid: #C084FC;
   --vision-low: #F87171;
   --select-chevron: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%239FB0CC' stroke-width='2'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
   --scroll-track: #0F1829;
@@ -67,9 +67,9 @@
   --danger: #DC2626;
   --warning: #D97706;
   --warning-ink: #FFFFFF;
-  --vision-high: #16A34A;
-  --vision-mid: #A855F7;
-  --vision-low: #DC2626;
+  --vision-high: #166534;
+  --vision-mid: #9333EA;
+  --vision-low: #B91C1C;
   --select-chevron: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%23475569' stroke-width='2'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
   --scroll-track: #EEF3FA;
   --scroll-thumb: #B9C6D9;
@@ -101,9 +101,9 @@
     --danger: #DC2626;
     --warning: #D97706;
     --warning-ink: #FFFFFF;
-    --vision-high: #16A34A;
-    --vision-mid: #A855F7;
-    --vision-low: #DC2626;
+    --vision-high: #166534;
+    --vision-mid: #9333EA;
+    --vision-low: #B91C1C;
     --select-chevron: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%23475569' stroke-width='2'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
     --scroll-track: #EEF3FA;
     --scroll-thumb: #B9C6D9;

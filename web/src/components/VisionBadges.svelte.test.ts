@@ -48,8 +48,8 @@ function inCard(a: CardAnalysis = analysis, triggers = ['person']) {
 
 const byId = (id: string) => document.querySelector(`[data-testid="${id}"]`) as HTMLElement | null;
 const badge = (kind: string) => document.querySelector(`[data-testid="vision-badge"][data-kind="${kind}"]`) as HTMLElement;
-const key = (el: Element, k: string, shiftKey = false) => {
-  const e = new KeyboardEvent('keydown', { key: k, bubbles: true, cancelable: true, shiftKey });
+const key = (el: Element, k: string, shiftKey = false, type: 'keydown' | 'keyup' = 'keydown') => {
+  const e = new KeyboardEvent(type, { key: k, bubbles: true, cancelable: true, shiftKey });
   el.dispatchEvent(e);
   flushSync();
   return e;
@@ -81,6 +81,14 @@ describe('VisionBadges', () => {
     expect(render({ triggers: ['person'] })).toEqual([]);
   });
 
+  it('names each badge for screen readers', () => {
+    render({ triggers: ['person'], analysis });
+    expect([...document.querySelectorAll('[data-testid="vision-badge"]')].map((b) => b.getAttribute('aria-label'))).toEqual([
+      'Vision 84%, high confidence. Show the analysed still',
+      'Vision also found Pet 42%, low confidence. Show the analysed still',
+    ]);
+  });
+
   it('makes each badge a keyboard-reachable button', () => {
     render({ triggers: ['person'], analysis });
     for (const b of document.querySelectorAll('[data-testid="vision-badge"]')) {
@@ -102,7 +110,8 @@ describe('the Vision dialog', () => {
     expect(dialog.textContent).toContain('✦ Vision · Person');
     expect(dialog.textContent).toContain('08:15:14');
     expect(byId('timeline-still')!.getAttribute('src')).toBe(`/api/cameras/cam1/stills/${T2}.jpg`);
-    expect(document.querySelectorAll('[data-testid="timeline-boxes"] rect')).toHaveLength(2); // the person and the dog
+    // The person and the dog.
+    expect(document.querySelectorAll('[data-testid="timeline-boxes"] rect')).toHaveLength(2);
     expect(dialog.textContent).toContain('2 of 2');
     expect(dialog.textContent).toContain('person 0.84');
     expect(dialog.textContent).toContain('dog 0.42');
@@ -141,8 +150,15 @@ describe('the Vision dialog', () => {
     expect(byId('vision-dialog')).not.toBeNull();
     key(byId('vision-dialog')!, 'Escape');
     expect(byId('vision-dialog')).toBeNull();
-    key(badge('extra'), ' ');
+    // Space opens on keyup (a keydown open would let the keyup click ✕ in
+    // Firefox/WebKit); its keydown is only kept from scrolling the page.
+    const down = key(badge('extra'), ' ');
     await tick();
+    expect(down.defaultPrevented).toBe(true);
+    expect(byId('vision-dialog')).toBeNull();
+    const up = key(badge('extra'), ' ', false, 'keyup');
+    await tick();
+    expect(up.defaultPrevented).toBe(true);
     expect(byId('vision-dialog')!.textContent).toContain('✦ Vision · Pet');
     expect(oncard).not.toHaveBeenCalled();
   });
@@ -206,5 +222,40 @@ describe('the Vision dialog', () => {
     flushSync();
     expect(location.pathname + location.search).toBe(href);
     expect(byId('vision-dialog')).toBeNull();
+  });
+
+  it('closes when the analysis goes away or the opened badge disappears, and does not reopen by itself', async () => {
+    const props = $state<{ cameraId: string; triggers: string[]; analysis?: CardAnalysis }>({ cameraId: 'cam1', triggers: ['person'], analysis });
+    target = document.createElement('div');
+    document.body.appendChild(target);
+    component = mount(VisionBadges, { target, props });
+    flushSync();
+    await open('extra');
+    // A live update without the pet: its badge goes, and so does the dialog.
+    props.analysis = { ...analysis, best: { person: analysis.best.person } };
+    flushSync();
+    expect(byId('vision-dialog')).toBeNull();
+    props.analysis = analysis;
+    flushSync();
+    expect(byId('vision-dialog')).toBeNull();
+
+    await open('agree');
+    props.analysis = undefined;
+    flushSync();
+    expect(byId('vision-dialog')).toBeNull();
+    props.analysis = analysis;
+    flushSync();
+    expect(byId('vision-dialog')).toBeNull();
+  });
+
+  it('takes the dialog out of the page when the badges unmount while it is open', async () => {
+    inCard();
+    await open();
+    expect(byId('vision-dialog')).not.toBeNull();
+    unmount(component!);
+    component = undefined;
+    flushSync();
+    expect(byId('vision-dialog')).toBeNull();
+    expect(byId('vision-dialog-backdrop')).toBeNull();
   });
 });

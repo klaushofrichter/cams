@@ -102,7 +102,7 @@
 
 <style>
   .backdrop { position: fixed; inset: 0; background: var(--scrim); z-index: 40; }
-  .dialog { position: fixed; z-index: 41; left: 50%; top: 50%; transform: translate(-50%, -50%); width: min(720px, calc(100vw - 32px)); max-height: calc(100vh - 32px); overflow: auto; display: flex; flex-direction: column; gap: 10px; padding: 18px; border-radius: var(--radius); background: var(--surface); border: 1px solid var(--border); box-shadow: var(--shadow); color: var(--text); font-size: 14px; text-align: left; cursor: auto; }
+  .dialog { position: fixed; z-index: 41; left: 50%; top: 50%; transform: translate(-50%, -50%); width: min(720px, calc(100vw - 32px)); max-height: calc(100vh - 32px); overflow: auto; display: flex; flex-direction: column; gap: 10px; padding: 18px; border-radius: var(--radius); background: var(--surface); border: 1px solid var(--border); box-shadow: var(--shadow); color: var(--text); font-size: 14px; }
   header { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
   h2 { margin: 0; font-size: 17px; }
   .time { margin-left: 10px; font-weight: 400; color: var(--muted); font-variant-numeric: tabular-nums; }

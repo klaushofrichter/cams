@@ -111,3 +111,26 @@ test('a badge is coloured by its confidence and opens the still with its boxes; 
   await expect(page.getByTestId('vision-dialog')).toHaveCount(0);
   await expect(page.getByTestId('timeline-still')).toHaveAttribute('src', new RegExp(`/stills/${stillTs}\\.jpg$`));
 });
+
+test('Space and Enter on a focused badge open the dialog and it stays open', async ({ page }) => {
+  const card = await personCard(page);
+  const { subtype } = await analyse(page, card);
+  await page.goto(`/app/recordings?cam=cam1&panel=history&date=${today()}`);
+  const agree = badge(page, card);
+  await expect(agree).toHaveAttribute('title', new RegExp(subtype));
+  await expect(agree).toHaveAttribute('aria-label', 'Vision 84%, high confidence. Show the analysed still');
+  const dialog = page.getByTestId('vision-dialog');
+  await agree.focus();
+  // Space opens on keyup: its keyup must not reach ✕ and close the dialog.
+  await page.keyboard.press('Space');
+  await expect(dialog).toBeVisible();
+  await expect(page.getByTestId('vision-dialog-close')).toBeFocused();
+  await expect(dialog).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(dialog).toHaveCount(0);
+  await expect(agree).toBeFocused();
+  await page.keyboard.press('Enter');
+  await expect(dialog).toBeVisible();
+  await expect(page.getByTestId('vision-dialog-close')).toBeFocused();
+  await expect(dialog).toBeVisible();
+});
