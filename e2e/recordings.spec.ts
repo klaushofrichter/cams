@@ -142,9 +142,10 @@ test('on a phone, the thumbnail brings the player into view, the rest of the car
   const card = page.locator('[data-testid="event-card"][data-clip-id$="-081510-081535"]');
   await card.scrollIntoViewIfNeeded();
   expect((await video.boundingBox())!.y).toBeLessThan(0); // scrolled away
-  // A tap on the card's text: it lies over the card's button and lets the tap through (issue #113).
+  // A touch on the card's text: it lies over the card's button and lets the touch through (issue #113).
   const meta = (await page.locator('li', { has: card }).locator('.meta strong').boundingBox())!;
-  await page.mouse.click(meta.x + 5, meta.y + meta.height / 2);
+  await page.touchscreen.tap(meta.x + 5, meta.y + meta.height / 2);
+  await expect(card).toHaveAttribute('aria-current', 'true');
   await page.waitForTimeout(600);
   expect((await video.boundingBox())!.y).toBeLessThan(0); // still the list
   await card.locator('[data-testid="event-thumb"]').click();
@@ -460,6 +461,12 @@ test('a new event shows at once: a top-bar notification and a "recording…" ent
   await expect(page.getByTestId('event-pending').first()).toContainText('Person');
   // The events sent 0.25 s apart are one recording: one entry (Klaus, 2026-09-30).
   await expect(page.getByTestId('event-pending')).toHaveCount(1);
+  // Its text sits right beside the red dot, not where a card's text clears the thumbnail (review fix).
+  const pending = page.getByTestId('event-pending').first();
+  await expect(pending.locator('.meta')).toHaveCSS('margin-left', '0px');
+  const dot = (await pending.locator('.dot').boundingBox())!;
+  const meta = (await pending.locator('.meta').boundingBox())!;
+  expect(meta.x - (dot.x + dot.width)).toBeLessThanOrEqual(12);
   // Another preference change (the zoom) keeps it (review #1).
   await page.getByTestId('zoom-3').click();
   await expect(page.getByTestId('event-pending').first()).toContainText('Person');

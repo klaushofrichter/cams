@@ -194,10 +194,11 @@
   .latest { display: flex; align-items: center; gap: 12px; text-align: left; color: var(--text); font: inherit; padding: 6px; margin: -6px; border: 1px solid transparent; border-radius: 8px; background: none; }
   /* A recent event: the button and its text share one grid cell, the text on
      top. A hover anywhere in the row, badges included, is the row's. */
-  .row { display: grid; grid-template-columns: minmax(0, 1fr); padding: 6px; margin: -6px; border: 1px solid transparent; border-radius: 8px; }
+  .row { position: relative; display: grid; grid-template-columns: minmax(0, 1fr); padding: 6px; margin: -6px; border: 1px solid transparent; border-radius: 8px; }
   .row:hover { border-color: var(--accent); }
-  .open { grid-area: 1 / 1; display: flex; align-items: center; padding: 0; border: 0; background: none; color: inherit; font: inherit; text-align: left; cursor: pointer; }
-  /* The ring where the row's border is, as when the row was the button. */
+  .open { grid-area: 1 / 1; display: flex; align-items: center; padding: 0; border: 0; border-radius: 1px; background: none; color: inherit; font: inherit; text-align: left; cursor: pointer; }
+  /* The ring where the row's border is, as when the row was the button. A
+     ring's corners are the button's radius plus its offset: 1 + 7 = the row's 8 px. */
   .open:focus-visible { outline-offset: 7px; }
   .open img { width: 96px; aspect-ratio: 16 / 9; object-fit: cover; border-radius: 6px; background: var(--no-thumb-bg); flex: none; }
   .row .what { grid-area: 1 / 1; align-self: center; margin-left: 108px; pointer-events: none; }

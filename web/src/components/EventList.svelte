@@ -263,14 +263,12 @@
   .item.current { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 10%, var(--surface)); }
   /* The play area: the card's button and its text share one grid cell, the
      text on top. A hover anywhere in it, badges included, is the card's. */
-  .play { flex: 1; min-width: 0; display: grid; grid-template-columns: minmax(0, 1fr); }
+  .play { position: relative; flex: 1; min-width: 0; display: grid; grid-template-columns: minmax(0, 1fr); }
   .card {
     grid-area: 1 / 1; min-width: 0; display: flex; align-items: center; padding: 6px; text-align: left;
     border: 0; border-radius: 0; background: transparent; color: inherit; font: inherit; cursor: pointer; transition: background-color 0.15s ease;
   }
   .play:hover .card { background: var(--surface-2); }
-  /* Beside the thumbnail (6 px padding + 96 px + 10 px gap), as when it was inside the button. */
-  .meta { grid-area: 1 / 1; align-self: center; margin: 6px 6px 6px 112px; pointer-events: none; }
   .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
   .dl {
     flex: none; width: 42px; display: grid; place-items: center; border: 0; border-left: 1px solid var(--border);
@@ -282,6 +280,9 @@
   .thumb.placeholder { background: var(--no-thumb-bg); }
   .placeholder { display: block; }
   .meta { display: flex; flex-direction: column; gap: 2px; min-width: 0; font-size: 13px; }
+  /* A card's text: over its button, beside the thumbnail (6 px padding + 96 px
+     + 10 px gap), as when it was inside the button. Not the "recording…" card. */
+  .play > .meta { grid-area: 1 / 1; align-self: center; margin: 6px 6px 6px 112px; pointer-events: none; }
   .dur { color: var(--muted); font-size: 12px; }
   .tags { display: flex; gap: 4px; flex-wrap: wrap; }
   .tag { font-size: 10px; padding: 1px 7px; border-radius: 999px; background: color-mix(in srgb, var(--accent-2) 22%, transparent); color: var(--text); }
