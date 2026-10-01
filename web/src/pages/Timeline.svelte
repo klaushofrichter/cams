@@ -6,12 +6,12 @@
   import { cameras, selectedCameraId } from '../lib/stores';
   import { eventStream } from '../lib/eventStream';
   import { liveEventsOn } from '../lib/preferences';
-  import { addDays, formatClock, localDate, orderTriggers, saveCursor, TRIGGER_LABELS, type Trigger } from '../lib/recordings';
+  import { addDays, formatClock, localDate, orderTriggers, TRIGGER_LABELS, type Trigger } from '../lib/recordings';
   import { todayDate } from '../lib/refresh';
   import type { StillObject } from '../lib/vision';
   import TimelineStill from '../components/TimelineStill.svelte';
   import {
-    analysedSeconds, cardKind, cardsInMinute, cursorSearch, dayRange, hourGroups, loadViewPoint, minuteKind, minuteMarks, nearestMinute, saveViewPoint,
+    analysedSeconds, cardKind, cardsInMinute, cursorSearch, dayRange, historyHref, hourGroups, loadViewPoint, minuteKind, minuteMarks, nearestMinute, shareViewPoint,
     secondKinds, splitRange, stepMinute, stillIndex, tileStyle, timelineCursor, type PreviewMinute, type SeenStill, type TimelineCard,
   } from '../lib/timeline';
 
@@ -136,8 +136,7 @@
     const cam = camera?.id;
     const ts = still?.ts ?? null;
     if (!cam || ts === null) return;
-    saveViewPoint(cam, ts);
-    saveCursor(cam, { date: localDate(new Date(ts)), clipId: null, offsetSec: 0, at: ts });
+    shareViewPoint(cam, ts);
   });
 
   // The URL follows the view.
@@ -209,7 +208,6 @@
     e.preventDefault();
   }
 
-  const historyHref = (ts: number) => `/app/recordings?cam=${encodeURIComponent(camera!.id)}&panel=history&at=${ts}`;
   const loadAll = (eventId: number) => async (): Promise<StillObject[]> => (await getJson<{ objects: StillObject[] }>(`${base}/analyses/${eventId}`)).objects;
 
   // Sprites load when their tile scrolls into view (a day is up to 1440).
@@ -326,7 +324,7 @@
                   <div class="bar">
                     <span class="mono">{clock(s.ts, true)}</span>
                     <!-- History at this second, paused, without boxes (Klaus, 2026-09-30). -->
-                    <a data-testid="timeline-open-history" href={historyHref(s.ts)}
+                    <a data-testid="timeline-open-history" href={historyHref(camera.id, s.ts)}
                       onclick={(e) => { if (e.button === 0 && !e.metaKey && !e.ctrlKey && !e.shiftKey) { e.preventDefault(); navigate((e.currentTarget as HTMLAnchorElement).getAttribute('href')!); } }}>Open in History</a>
                   </div>
                 </div>

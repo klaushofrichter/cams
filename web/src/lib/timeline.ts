@@ -1,5 +1,6 @@
 // The Timeline page's arithmetic (Plan 6). cam-proxy works in UTC ms; the
 // page shows the browser's local day.
+import { localDate, saveCursor } from './recordings';
 import type { SummaryEntry } from './vision';
 
 export interface PreviewMinute {
@@ -147,6 +148,17 @@ export function saveViewPoint(cam: string, at: number | null): void {
     // not remembered this session
   }
 }
+
+// A second as the shared cursor (Klaus, 2026-09-29): the view point and
+// History's cursor, so History and the Timeline continue from it.
+export function shareViewPoint(cam: string, ts: number): void {
+  saveViewPoint(cam, ts);
+  saveCursor(cam, { date: localDate(new Date(ts)), clipId: null, offsetSec: 0, at: ts });
+}
+
+// History at a second, paused (Klaus, 2026-09-30): "Open in History" on the
+// Timeline's large still and in the Vision dialog.
+export const historyHref = (cam: string, ts: number) => `/app/recordings?cam=${encodeURIComponent(cam)}&panel=history&at=${ts}`;
 
 export function loadViewPoint(cam: string): { at: number | null } | undefined {
   try {

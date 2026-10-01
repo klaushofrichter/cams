@@ -3,7 +3,8 @@ import { flushSync, mount, tick, unmount } from 'svelte';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import VisionBadges from './VisionBadges.svelte';
 import Harness from './testing/VisionBadgesHarness.svelte';
-import { localDate } from '../lib/recordings';
+import { loadCursor, localDate } from '../lib/recordings';
+import { loadViewPoint } from '../lib/timeline';
 import type { CardAnalysis } from '../lib/vision';
 
 let component: Record<string, unknown> | undefined;
@@ -235,6 +236,24 @@ describe('the Vision dialog', () => {
     flushSync();
     expect(location.pathname + location.search).toBe(href);
     expect(byId('vision-dialog')).toBeNull();
+  });
+
+  // Klaus, 2026-10-01: History at the analysed second, paused; the shared
+  // cursor moves there as the Timeline's link does.
+  it('"Open in History" goes to that second in-app, saves the shared view point and closes', async () => {
+    sessionStorage.clear();
+    inCard();
+    await open();
+    const link = byId('vision-dialog-history') as HTMLAnchorElement;
+    const href = `/app/recordings?cam=cam1&panel=history&at=${T2}`;
+    expect(link.textContent).toBe('Open in History');
+    expect(link.getAttribute('href')).toBe(href);
+    link.click();
+    flushSync();
+    expect(location.pathname + location.search).toBe(href);
+    expect(byId('vision-dialog')).toBeNull();
+    expect(loadViewPoint('cam1')).toEqual({ at: T2 });
+    expect(loadCursor()).toEqual({ cam: 'cam1', cursor: { date: localDate(new Date(T2)), clipId: null, offsetSec: 0, at: T2 } });
   });
 
   it('closes when the analysis goes away or the opened badge disappears, and does not reopen by itself', async () => {

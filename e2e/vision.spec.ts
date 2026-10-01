@@ -134,3 +134,28 @@ test('Space and Enter on a focused badge open the dialog and it stays open', asy
   await expect(page.getByTestId('vision-dialog-close')).toBeFocused();
   await expect(dialog).toBeVisible();
 });
+
+// Klaus, 2026-10-01: the dialog's "Open in History" lands on the analysed second, paused.
+test('the dialog’s "Open in History" opens History at the analysed second, paused', async ({ page }) => {
+  const card = await personCard(page);
+  const { stillTs, subtype } = await analyse(page, card);
+  await page.goto('/app/live');
+  await page.getByTestId('camera-picker').selectOption('cam1');
+  const live = page.getByTestId('live-recent').locator(`[data-testid="vision-badge"][data-kind="agree"][title*="${subtype}"]`).first();
+  await live.click();
+  const dialog = page.getByTestId('vision-dialog');
+  await expect(dialog).toBeVisible();
+  await expect(dialog.getByTestId('vision-dialog-history')).toHaveText('Open in History');
+  await dialog.getByTestId('vision-dialog-history').click();
+  await expect(page.getByTestId('vision-dialog')).toHaveCount(0);
+  await expect.poll(() => new URL(page.url()).searchParams.get('at')).toBe(String(stillTs));
+  await expect(page.getByTestId('source-badge')).toBeVisible();
+  await expect(page.getByTestId('play-toggle')).toHaveAttribute('aria-pressed', 'false');
+  // From History's own list too.
+  await badge(page, card).click();
+  await expect(dialog.getByTestId('vision-dialog-history')).toBeVisible();
+  await dialog.getByTestId('vision-dialog-history').click();
+  await expect(page.getByTestId('vision-dialog')).toHaveCount(0);
+  await expect.poll(() => new URL(page.url()).searchParams.get('at')).toBe(String(stillTs));
+  await expect(page.getByTestId('play-toggle')).toHaveAttribute('aria-pressed', 'false');
+});
