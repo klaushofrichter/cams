@@ -87,3 +87,27 @@ test('the Timeline marks the analysed second and shows its boxes; "Open in Histo
   await expect(page.getByTestId('source-badge')).toBeVisible();
   await expect(page.getByTestId('play-toggle')).toHaveAttribute('aria-pressed', 'false');
 });
+
+test('a badge is coloured by its confidence and opens the still with its boxes; "Open in Timeline" lands on it', async ({ page }) => {
+  const card = await personCard(page);
+  const { stillTs, subtype } = await analyse(page, card);
+  await page.goto(`/app/recordings?cam=cam1&panel=history&date=${today()}`);
+  const agree = badge(page, card);
+  await expect(agree).toHaveAttribute('title', new RegExp(subtype));
+  // 0.84 shows 84%: high.
+  await expect(agree).toHaveAttribute('data-level', 'high');
+  const url = page.url();
+  await agree.click();
+  const dialog = page.getByTestId('vision-dialog');
+  await expect(dialog).toBeVisible();
+  // The badge opened the dialog; the card did not select its clip.
+  expect(page.url()).toBe(url);
+  await expect(dialog.getByTestId('timeline-still')).toHaveAttribute('src', `/api/cameras/cam1/stills/${stillTs}.jpg`);
+  await expect(dialog.locator('[data-testid="timeline-boxes"] rect')).toHaveCount(1);
+  await dialog.getByTestId('timeline-show-all').check();
+  await expect(dialog.locator('[data-testid="timeline-boxes"] rect')).toHaveCount(2);
+  await dialog.getByTestId('vision-dialog-timeline').click();
+  await expect(page).toHaveURL(/\/app\/timeline\?/);
+  await expect(page.getByTestId('vision-dialog')).toHaveCount(0);
+  await expect(page.getByTestId('timeline-still')).toHaveAttribute('src', new RegExp(`/stills/${stillTs}\\.jpg$`));
+});

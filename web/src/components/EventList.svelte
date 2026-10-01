@@ -215,7 +215,7 @@
                     <span class="dur">{e.durationSec} s</span>
                     <span class="tags">
                       {#each e.triggers as t (t)}<span class="tag" class:ai={t !== 'motion' && t !== 'timer'}>{TRIGGER_LABELS[t]}</span>{/each}
-                      <VisionBadges triggers={e.triggers} analysis={e.analysis} />
+                      <VisionBadges {cameraId} triggers={e.triggers} analysis={e.analysis} />
                     </span>
                   </span>
                 </button>
