@@ -117,7 +117,7 @@ function proxyFailed(err: unknown, id: string, res: Response): void {
   if (res.destroyed) return;
   if (!(err instanceof ProxyError)) throw err;
   // The proxy keeps no stills (stills.enabled false): say so, not "not reachable" (issue #38).
-  if (err.status === 404 && !res.headersSent) return void res.status(404).json({ error: 'stills_disabled' });
+  if (err.status === 404 && err.upstream === 'stills_disabled' && !res.headersSent) return void res.status(404).json({ error: 'stills_disabled' });
   logger.warn({ cameraId: id, code: err.code, message: err.message }, 'proxy_request_failed');
   if (!res.headersSent) res.status(502).json({ error: 'proxy_unavailable' });
   else res.destroy();

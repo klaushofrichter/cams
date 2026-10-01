@@ -2,7 +2,7 @@
   import { navigate } from '../lib/router';
   import { onMount, tick } from 'svelte';
   import { get } from 'svelte/store';
-  import { getJson } from '../lib/api';
+  import { getJson, HttpError } from '../lib/api';
   import { cameras, selectedCameraId } from '../lib/stores';
   import { eventStream } from '../lib/eventStream';
   import { liveEventsOn } from '../lib/preferences';
@@ -97,7 +97,7 @@
       (err: Error) => {
         if (stale) return;
         // The proxy answers 404 stills_disabled when it keeps no stills (issue #38).
-        message = /HTTP 404/.test(err.message) ? "This camera's cam-proxy keeps no stills." : 'The camera gateway is not reachable right now.';
+        message = err instanceof HttpError && err.code === 'stills_disabled' ? "This camera's cam-proxy keeps no stills." : 'The camera gateway is not reachable right now.';
       },
     );
     return () => (stale = true);

@@ -112,6 +112,19 @@ describe('Timeline', () => {
     expect(target.textContent).toContain("keeps no stills");
   });
 
+  it('calls another 404 "not reachable", not "keeps no stills" (issue #76)', async () => {
+    vi.stubGlobal('IntersectionObserver', class { observe() {} disconnect() {} });
+    vi.stubGlobal('fetch', async (url: string) => (url.includes('/previews?') ? new Response('{"error":"not found"}', { status: 404 }) : json({ events: [] })));
+    cameras.set([{ id: 'den', name: 'Den', webUiUrl: null, proxy: true }]);
+    selectedCameraId.set('den');
+    target = document.createElement('div');
+    document.body.appendChild(target);
+    component = mount(Timeline, { target });
+    for (let i = 0; i < 5; i++) await tick();
+    flushSync();
+    expect(target.textContent).toContain('not reachable');
+  });
+
   // 2026-09-29: sprites refused (429 after a burst) stayed empty for good.
   it('retries a sprite that failed to load, and shows it once it loads', async () => {
     vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
