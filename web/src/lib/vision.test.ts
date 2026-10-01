@@ -21,6 +21,24 @@ describe('badges', () => {
     expect(badges(['motion'], a)).toEqual([{ kind: 'extra', category: 'pet', level: 'mid', text: '+ Pet 70%', title: 'Vision: Dog 70%, Cat 55% · medium confidence', label: 'Vision also found Pet 70%, medium confidence. Show the analysed still' }]);
   });
 
+  it('gives each category its own outcome on one card (issue #109)', () => {
+    const a = an({
+      best: { person: { score: 0.9, subtype: 'person' }, pet: { score: 0.6, subtype: 'dog' } },
+      notConfirmed: ['vehicle'],
+      stills: [{ eventId: 1, stillTs: 1, summary: [{ category: 'person', subtype: 'person', score: 0.9, box }, { category: 'pet', subtype: 'dog', score: 0.6, box }] }],
+    });
+    expect(badges(['person', 'vehicle'], a).map((b) => [b.category, b.kind, b.level])).toEqual([
+      ['person', 'agree', 'high'],
+      ['vehicle', 'not-confirmed', null],
+      ['pet', 'extra', 'mid'],
+    ]);
+  });
+
+  it('names the best subtype in the tooltip when no still carries the category (issue #109)', () => {
+    const a = an({ best: { pet: { score: 0.7, subtype: 'dog' } } });
+    expect(badges(['motion'], a)[0].title).toBe('Vision: Dog 70% · medium confidence');
+  });
+
   it('shows nothing without an analysis, or when nothing was found or missed', () => {
     expect(badges(['person'], undefined)).toEqual([]);
     expect(badges(['motion'], an())).toEqual([]);
