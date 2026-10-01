@@ -10,7 +10,8 @@ export interface StillObject { name: string; score: number; box: Box | null }
 export interface CardAnalysis {
   best: Partial<Record<Category, { score: number; subtype: string }>>;
   notConfirmed: Category[];
-  stills: { eventId: number; stillTs: number; summary: SummaryEntry[] }[];
+  // `kind`: the analysed event's kind (issue #113); older servers don't send it.
+  stills: { eventId: number; kind?: string; stillTs: number; summary: SummaryEntry[] }[];
 }
 export type Level = 'high' | 'mid' | 'low';
 export interface Badge { kind: 'agree' | 'not-confirmed' | 'extra'; category: Category; level: Level | null; text: string; title: string; label: string }

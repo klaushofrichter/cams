@@ -212,6 +212,19 @@ describe('the Vision dialog', () => {
     expect(byId('timeline-show-all')).not.toBeNull();
   });
 
+  // Issue #113: the still of the analysis that covered the category, not a guess.
+  it('opens "not confirmed" on the still whose analysed event was of that kind', async () => {
+    inCard({ best: {}, notConfirmed: ['person'], stills: [{ eventId: 13, kind: 'motion', stillTs: T1, summary: [] }, { eventId: 14, kind: 'person', stillTs: T2, summary: [] }] }, ['person', 'motion']);
+    await open('not-confirmed');
+    expect(byId('timeline-still')!.getAttribute('src')).toBe(`/api/cameras/cam1/stills/${T2}.jpg`);
+  });
+
+  it('falls back to the first still without the category when the server names no kind', async () => {
+    inCard({ best: {}, notConfirmed: ['person'], stills: [{ eventId: 13, stillTs: T1, summary: [] }, { eventId: 14, stillTs: T2, summary: [] }] }, ['person', 'motion']);
+    await open('not-confirmed');
+    expect(byId('timeline-still')!.getAttribute('src')).toBe(`/api/cameras/cam1/stills/${T1}.jpg`);
+  });
+
   it('"Open in Timeline" goes to that still in-app and closes', async () => {
     inCard();
     await open();

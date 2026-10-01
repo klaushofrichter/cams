@@ -13,8 +13,9 @@
   let { cameraId, analysis, category, onclose }: { cameraId: string; analysis: CardAnalysis; category: Category; onclose: () => void } = $props();
 
   const stills = $derived(analysis.stills);
-  // The still where Vision saw the category best; for "not confirmed", one
-  // where it saw none (that analysis covered it), else the first.
+  // The still where Vision saw the category best; for "not confirmed", the
+  // still of an analysis of that kind (issue #113), else (an older server
+  // without `kind`) one where it saw none, else the first.
   function startIndex(): number {
     let best = -1;
     let score = -1;
@@ -22,6 +23,8 @@
       for (const e of s.summary) if (e.category === category && e.score > score) [best, score] = [i, e.score];
     });
     if (best >= 0) return best;
+    const own = analysis.stills.findIndex((s) => s.kind === category);
+    if (own >= 0) return own;
     const none = analysis.stills.findIndex((s) => !s.summary.some((e) => e.category === category));
     return Math.max(0, none);
   }

@@ -46,7 +46,7 @@ describe('analyses on the events', () => {
     expect(r.body.events[0].analysis).toEqual({
       best: { person: { score: 0.84, subtype: 'person' } },
       notConfirmed: [],
-      stills: [{ eventId: 7, stillTs: T + 1000, summary: [{ category: 'person', subtype: 'person', score: 0.84, box }] }],
+      stills: [{ eventId: 7, kind: 'person', stillTs: T + 1000, summary: [{ category: 'person', subtype: 'person', score: 0.84, box }] }],
     });
   });
 

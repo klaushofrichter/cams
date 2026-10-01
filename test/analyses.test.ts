@@ -67,8 +67,8 @@ describe('attachAnalyses', () => {
       best: { person: { score: 0.9, subtype: 'man' } },
       notConfirmed: [],
       stills: [
-        { eventId: 1, stillTs: T + 1000, summary: [person(0.84)] },
-        { eventId: 2, stillTs: T + 11_000, summary: [person(0.9, 'man')] },
+        { eventId: 1, kind: 'person', stillTs: T + 1000, summary: [person(0.84)] },
+        { eventId: 2, kind: 'person', stillTs: T + 11_000, summary: [person(0.9, 'man')] },
       ],
     });
   });
@@ -90,7 +90,14 @@ describe('attachAnalyses', () => {
 
   it('says "not confirmed" when an analysis of the camera’s kind found nothing of it', () => {
     const [c] = attachAnalyses([card(iso(T), iso(T + 30_000), ['person', 'motion'])], [a({ summary: [] })]);
-    expect(c.analysis).toEqual({ best: {}, notConfirmed: ['person'], stills: [{ eventId: 1, stillTs: T + 1000, summary: [] }] });
+    expect(c.analysis).toEqual({ best: {}, notConfirmed: ['person'], stills: [{ eventId: 1, kind: 'person', stillTs: T + 1000, summary: [] }] });
+  });
+
+  // Issue #113: the dialog for "not confirmed" opens on the still of that kind's analysis.
+  it('names the analysed event’s kind on each still', () => {
+    const [c] = attachAnalyses([card(iso(T), iso(T + 30_000), ['person', 'motion'])], [a({ kind: 'motion', summary: [] }), a({ eventId: 2, kind: 'person', start: T + 3000, stillTs: T + 4000, summary: [] })]);
+    expect(c.analysis?.stills.map((s) => [s.eventId, s.kind])).toEqual([[1, 'motion'], [2, 'person']]);
+    expect(c.analysis?.notConfirmed).toEqual(['person']);
   });
 
   it('does not call a person unconfirmed from an analysis of a motion event', () => {
