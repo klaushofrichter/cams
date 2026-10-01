@@ -4,7 +4,7 @@
   import VisionBadges from './VisionBadges.svelte';
   import { badges } from '../lib/vision';
   import { checkLiveStatus, liveFullscreen, liveUi, offlineReason, saveSnapshot, toggleMute, toggleQuality, type StreamInfo } from '../lib/liveUi';
-  import { formatClock, thumbUrl, TRIGGER_LABELS, type EventClip } from '../lib/recordings';
+  import { formatClock, orderTriggers, thumbUrl, TRIGGER_LABELS, type EventClip } from '../lib/recordings';
   import { timeAgo } from '../lib/clock';
   import type { CameraSummary } from '../lib/stores';
   import { groupPending, type Pending } from '../lib/eventStream';
@@ -155,14 +155,14 @@
     {#each pendingShown as p (p.start)}
       <div class="latest pending" data-testid="live-latest-pending">
         <span class="dot"></span>
-        <span>{p.kinds.map(label).join(', ')} · recording…</span>
+        <span>{orderTriggers(p.kinds).map(label).join(', ')} · recording…</span>
       </div>
     {/each}
     {#each recentShown as e (e.id)}
       <button class="latest" data-testid="live-latest" title="Play this event" onclick={() => onplay(e)}>
         <img src={thumbUrl(camera.id, e.id)} alt="" loading="lazy" />
         <span class="what">
-          <strong>{e.triggers.map((t) => TRIGGER_LABELS[t]).join(', ') || 'Recording'}</strong>
+          <strong>{orderTriggers(e.triggers).map((t) => TRIGGER_LABELS[t]).join(', ') || 'Recording'}</strong>
           {#if badges(e.triggers, e.analysis).length}<span class="badges"><VisionBadges cameraId={camera.id} triggers={e.triggers} analysis={e.analysis} /></span>{/if}
           <span>{formatClock(e.start)}</span>
           <span data-testid="live-latest-ago">{timeAgo(Date.parse(e.start), nowMs)}</span>

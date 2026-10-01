@@ -6,7 +6,7 @@
   import { cameras, selectedCameraId } from '../lib/stores';
   import { eventStream } from '../lib/eventStream';
   import { liveEventsOn } from '../lib/preferences';
-  import { addDays, formatClock, localDate, saveCursor, TRIGGER_LABELS, type Trigger } from '../lib/recordings';
+  import { addDays, formatClock, localDate, orderTriggers, saveCursor, TRIGGER_LABELS, type Trigger } from '../lib/recordings';
   import { todayDate } from '../lib/refresh';
   import type { StillObject } from '../lib/vision';
   import TimelineStill from '../components/TimelineStill.svelte';
@@ -47,7 +47,7 @@
   const firstTile = (m: PreviewMinute) => Math.max(0, m.present.indexOf(true));
   const clock = (ts: number, seconds = false) =>
     new Date(ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', ...(seconds ? { second: '2-digit' } : {}) });
-  const labels = (c: TimelineCard) => c.triggers.map((t) => TRIGGER_LABELS[t as Trigger] ?? t).join(', ') || 'Recording';
+  const labels = (c: TimelineCard) => orderTriggers(c.triggers).map((t) => TRIGGER_LABELS[t as Trigger] ?? t).join(', ') || 'Recording';
 
   // The day's previews (in parts: the fall-back day is 25 h) and cards.
   async function fetchDay(b: string, d: string): Promise<{ m: PreviewMinute[]; ev: TimelineCard[] }> {

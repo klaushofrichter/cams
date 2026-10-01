@@ -1,6 +1,6 @@
 <script lang="ts">
   import { tick, untrack } from 'svelte';
-  import { ALL_KINDS, TRIGGER_LABELS, isAllKinds, toggleFilter, defaultGroupOpen, formatClock, groupByHour, thumbUrl, type EventClip, type Filter } from '../lib/recordings';
+  import { ALL_KINDS, orderTriggers, TRIGGER_LABELS, isAllKinds, toggleFilter, defaultGroupOpen, formatClock, groupByHour, thumbUrl, type EventClip, type Filter } from '../lib/recordings';
   import ComposeDialog from './ComposeDialog.svelte';
   import Icon from './Icon.svelte';
   import VisionBadges from './VisionBadges.svelte';
@@ -180,7 +180,7 @@
     <span class="dot" aria-hidden="true"></span>
     <span class="meta">
       <strong>{new Date(p.start).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}</strong>
-      <span class="tags">{#each p.kinds as k (k)}<span class="tag">{TRIGGER_LABELS[k as keyof typeof TRIGGER_LABELS] ?? k}</span>{/each}</span>
+      <span class="tags">{#each orderTriggers(p.kinds) as k (k)}<span class="tag">{TRIGGER_LABELS[k as keyof typeof TRIGGER_LABELS] ?? k}</span>{/each}</span>
       <span class="dur">recording…</span>
     </span>
   </div>
@@ -214,7 +214,7 @@
                     <strong>{formatClock(e.start)}</strong>
                     <span class="dur">{e.durationSec} s</span>
                     <span class="tags">
-                      {#each e.triggers as t (t)}<span class="tag" class:ai={t !== 'motion' && t !== 'timer'}>{TRIGGER_LABELS[t]}</span>{/each}
+                      {#each orderTriggers(e.triggers) as t (t)}<span class="tag" class:ai={t !== 'motion' && t !== 'timer'}>{TRIGGER_LABELS[t]}</span>{/each}
                       <VisionBadges {cameraId} triggers={e.triggers} analysis={e.analysis} />
                     </span>
                   </span>

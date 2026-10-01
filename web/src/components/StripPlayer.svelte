@@ -5,7 +5,7 @@
   import ComposeDialog from './ComposeDialog.svelte';
   import { cameras } from '../lib/stores';
   import { nextChange, sourceAt, type Coverage, type Source } from '../lib/strip';
-  import { localDate, TRIGGER_LABELS, videoUrl, type EventClip } from '../lib/recordings';
+  import { localDate, orderTriggers, TRIGGER_LABELS, videoUrl, type EventClip } from '../lib/recordings';
   import { navigate } from '../lib/router';
   import { timeAgo } from '../lib/clock';
   import { previewAt, tileStyle, type PreviewMinute } from '../lib/timeline';
@@ -261,7 +261,7 @@
       skip(e.key === 'ArrowLeft' ? -10_000 : 10_000);
     }
   }
-  const triggers = $derived(source.kind === 'clip' ? source.clip.triggers.map((t) => TRIGGER_LABELS[t]).join(', ') : '');
+  const triggers = $derived(source.kind === 'clip' ? orderTriggers(source.clip.triggers).map((t) => TRIGGER_LABELS[t]).join(', ') : '');
   // The date too: the strip crosses days (Klaus, 2026-09-28).
   const day = $derived.by(() => {
     const d = new Date(at);

@@ -68,8 +68,13 @@ describe('LivePanel', () => {
     render({ recent: [1, 2, 3, 4, 5].map(evAt), pending: [{ kind: 'motion', ts: now - 8_000 }, { kind: 'person', ts: now - 2_000 }] });
     const rows = all('live-latest-pending');
     expect(rows).toHaveLength(1);
-    expect(rows[0].textContent).toContain('Person, Motion · recording…');
+    expect(rows[0].textContent).toContain('Motion, Person · recording…'); // Motion first (Klaus, 2026-10-01)
     expect(all('live-latest')).toHaveLength(4);
+  });
+
+  it('lists a recent event’s kinds Motion first, as History does (Klaus, 2026-10-01)', () => {
+    render({ recent: [{ ...ev, triggers: ['person', 'motion'] }] });
+    expect(target!.querySelector('[data-testid="live-latest"] strong')!.textContent).toBe('Motion, Person');
   });
 
   it('adds Vision badges to a recent event, and no space when there is no analysis', () => {

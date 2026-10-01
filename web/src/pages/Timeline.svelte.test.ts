@@ -286,13 +286,15 @@ describe('Timeline', () => {
 
     it('an analysed second shows ✦ and opens its still with Vision’s boxes', async () => {
       const box = { x0: 0.1, y0: 0.2, x1: 0.3, y1: 0.9 };
-      const card = { id: 'c1', start: new Date(m0 + 5000).toISOString(), end: new Date(m0 + 40_000).toISOString(), triggers: ['person'], durationSec: 35, sizeSub: 1, sizeMain: 1,
+      const card = { id: 'c1', start: new Date(m0 + 5000).toISOString(), end: new Date(m0 + 40_000).toISOString(), triggers: ['person', 'motion'], durationSec: 35, sizeSub: 1, sizeMain: 1,
         analysis: { best: { person: { score: 0.84, subtype: 'person' } }, notConfirmed: [], stills: [{ eventId: 7, stillTs: m0 + 20_000, summary: [{ category: 'person', subtype: 'person', score: 0.84, box }] }] } };
       await open(undefined, [m0, minute], [card]);
       const tile = qa('[data-testid="timeline-minute"]')[0];
       expect(tile.classList.contains('analysed')).toBe(true);
       tile.click();
       flushSync();
+      // The camera's kinds in the app's order: Motion first (Klaus, 2026-10-01).
+      expect(q('[data-testid="timeline-minute-events"]')?.textContent).toMatch(/^Motion, Person /);
       const second = qa('[data-testid="timeline-second"]')[20];
       expect(second.classList.contains('analysed')).toBe(true);
       expect(second.textContent).toContain('✦');
@@ -300,7 +302,7 @@ describe('Timeline', () => {
       flushSync();
       expect(still()).toBe(`/api/cameras/den/stills/${m0 + 20_000}.jpg`);
       expect(qa('[data-testid="timeline-boxes"] rect')).toHaveLength(1);
-      expect(q('[data-testid="timeline-box-label"]')?.textContent).toBe('person 0.84');
+      expect(q('[data-testid="timeline-box-label"]')?.textContent).toBe('Person 84%');
       expect(q('[data-testid="timeline-open-history"]')?.getAttribute('href')).toBe(`/app/recordings?cam=den&panel=history&at=${m0 + 20_000}`);
     });
 
