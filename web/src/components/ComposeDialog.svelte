@@ -37,9 +37,12 @@
   const sizes = $derived<[SaveSize, string][]>(simple
     ? [['sd', SIZE_LABELS.sd], ['4k', ORIGINAL_4K_LABEL]]
     : [...(Object.entries(SIZE_LABELS) as [SaveSize, string][]), ['4k', ORIGINAL_4K_LABEL]]);
-  // A size the list no longer offers (the proxy answered "no copy") falls back to SD.
+  // A size the list no longer offers (the proxy answered "no copy") falls back
+  // to SD, and a pre-/post-roll typed meanwhile is dropped with its hidden
+  // fields: no Generate for settings that can't be seen (issue #76).
   $effect(() => {
     if (!sizes.some(([k]) => k === size)) size = 'sd';
+    if (simple) preS = postS = 0;
   });
   let dialogEl: HTMLElement | undefined = $state();
   // Focus: into the dialog on open, kept inside by Tab, back to where it was
@@ -50,7 +53,10 @@
     void tick().then(() => focusables()[0]?.focus());
     if (composable) void isAvailable(camera, clip.id).then((a) => (available = a));
     const onVisible = () => {
-      if (document.visibilityState === 'visible' && job) void poll(gen, job.id, true);
+      if (document.visibilityState === 'hidden') {
+        if (job || starting) hiddenAt ??= Date.now(); // only a hide while a job runs counts
+      }
+      else if (job) void poll(gen, job.id);
     };
     document.addEventListener('visibilitychange', onVisible);
     return () => document.removeEventListener('visibilitychange', onVisible);
@@ -81,6 +87,10 @@
   let starting = $state(false);
   let failures = 0;
   const MAX_FAILURES = 5;
+  // When the page went into the background, until a poll after it finds the
+  // job still there: a job gone meanwhile was stopped "in the background",
+  // whichever poll notices first (issue #76).
+  let hiddenAt: number | null = null;
 
   function stop() {
     gen++;
@@ -97,6 +107,7 @@
     error = '';
     const mine = gen;
     starting = true;
+    hiddenAt = document.visibilityState === 'hidden' ? Date.now() : null;
     let started: JobView;
     try {
       started = await startJob(camera, { eventId: clip.id, preS: roll.pre, postS: roll.post, size: size as ComposeSize, badge, timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone });
@@ -113,7 +124,7 @@
     failures = 0;
     timer = setInterval(() => void poll(mine, started.id), 1000);
   }
-  async function poll(mine: number, id: string, fromBackground = false) {
+  async function poll(mine: number, id: string) {
     let v: JobView | null;
     try {
       v = await pollJob(camera, id);
@@ -126,6 +137,8 @@
     }
     if (mine !== gen || job?.id !== id) return; // an answer for a job we left
     failures = 0;
+    const fromBackground = hiddenAt !== null;
+    if (document.visibilityState === 'visible') hiddenAt = null;
     if (!v) {
       clearInterval(timer);
       clearInterval(keep);

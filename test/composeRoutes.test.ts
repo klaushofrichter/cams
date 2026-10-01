@@ -4,7 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import request from 'supertest';
 import { createApp } from '../server/app';
 import { setCameras } from '../server/cameraRegistry';
-import { resetProxyClients } from '../server/proxy/client';
+import { ProxyError, resetProxyClients } from '../server/proxy/client';
 import { getRecordings } from '../server/recordings/service';
 import { SESSION_COOKIE, signSession } from '../server/session';
 import { FAKE_TOKEN, startFakeProxy, type FakeProxy } from './proxy/fakeProxy';
@@ -94,6 +94,19 @@ describe('compositions pass-through', () => {
     expect(fake.requests.length).toBe(before);
   });
 
+  it('keeps a job it is still asked about past 20 minutes from its start (issue #76)', async () => {
+    fake.composeDelayMs = 0;
+    const t0 = Date.now();
+    const now = vi.spyOn(Date, 'now');
+    now.mockReturnValue(t0);
+    const { body } = await post('den', { eventId: EVENT, preS: 0, postS: 5, size: 'sd', badge: false });
+    now.mockReturnValue(t0 + 15 * 60_000); // the dialog's once-a-minute keep-alive
+    expect((await request(createApp()).get(`/api/cameras/den/compositions/${body.id}`).set('Cookie', auth)).status).toBe(200);
+    now.mockReturnValue(t0 + 30 * 60_000);
+    await post('den', { eventId: EVENT, preS: 0, postS: 6, size: 'sd', badge: false }); // prunes the old ones
+    expect((await request(createApp()).get(`/api/cameras/den/compositions/${body.id}`).set('Cookie', auth)).status).toBe(200);
+  });
+
   it('keeps jobs per camera', async () => {
     setCameras([
       { id: 'den', name: 'Den', host: '127.0.0.1:9', protocol: 'http', user: 'u', password: 'p', proxy: { url: fake.url, token: FAKE_TOKEN, camera: 'cam1' } },
@@ -119,5 +132,13 @@ describe('compositions pass-through', () => {
     expect((await request(createApp()).get(`/api/cameras/den/compositions/available?eventId=${EVENT}`).set('Cookie', auth)).body).toEqual({ available: true });
     expect((await request(createApp()).get('/api/cameras/den/compositions/available?eventId=20260928-090000-090010').set('Cookie', auth)).body).toEqual({ available: false });
     expect((await request(createApp()).get(`/api/cameras/shed/compositions/available?eventId=${EVENT}`).set('Cookie', auth)).body).toEqual({ available: false });
+  });
+
+  it('answers 502, not "no copy", when the lookup fails (issue #76)', async () => {
+    vi.spyOn(getRecordings(), 'proxyClipOf').mockRejectedValue(new ProxyError('proxy_unreachable', 'down'));
+    const r = await request(createApp()).get(`/api/cameras/den/compositions/available?eventId=${EVENT}`).set('Cookie', auth);
+    expect(r.status).toBe(502);
+    expect(r.body).toEqual({ error: 'proxy_unavailable' });
+    expect((await post('den', { eventId: EVENT, preS: 0, postS: 5, size: 'sd', badge: false })).status).toBe(502);
   });
 });

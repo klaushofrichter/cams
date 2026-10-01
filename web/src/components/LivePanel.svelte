@@ -2,7 +2,6 @@
   import { openProxyClick } from '../lib/proxyLink';
   import Icon from './Icon.svelte';
   import VisionBadges from './VisionBadges.svelte';
-  import { badges } from '../lib/vision';
   import { checkLiveStatus, liveFullscreen, liveUi, offlineReason, saveSnapshot, toggleMute, toggleQuality, type StreamInfo } from '../lib/liveUi';
   import { formatClock, orderTriggers, thumbUrl, TRIGGER_LABELS, type EventClip } from '../lib/recordings';
   import { timeAgo } from '../lib/clock';
@@ -170,7 +169,7 @@
         </button>
         <span class="what">
           <strong data-testid="live-latest-kinds" aria-hidden="true">{kinds}</strong>
-          {#if badges(e.triggers, e.analysis).length}<span class="badges"><VisionBadges cameraId={camera.id} triggers={e.triggers} analysis={e.analysis} /></span>{/if}
+          <VisionBadges wrap cameraId={camera.id} triggers={e.triggers} analysis={e.analysis} />
           <span data-testid="live-latest-time" aria-hidden="true">{formatClock(e.start)}</span>
           <span data-testid="live-latest-ago" aria-hidden="true">{ago}</span>
         </span>
@@ -182,7 +181,6 @@
 </div>
 
 <style>
-  .badges { display: flex; gap: 4px; flex-wrap: wrap; }
   .panel { display: flex; flex-direction: column; gap: 12px; }
   .tile { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 14px; display: flex; flex-direction: column; gap: 6px; }
   h2 { margin: 0; font-size: 17px; }

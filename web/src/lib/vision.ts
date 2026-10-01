@@ -35,9 +35,12 @@ export function confidenceLevel(score: number): Level {
 const BAND: Record<Level, string> = { high: 'high confidence', mid: 'medium confidence', low: 'low confidence' };
 const SHOW = 'Show the analysed still';
 // `label`: the badge's accessible name, saying what a click does.
-const scored = (a: CardAnalysis, k: Category, score: number, what: string) => {
-  const level = confidenceLevel(score);
-  return { level, title: `Vision: ${subtypes(a, k)} · ${BAND[level]}`, label: `${what} ${pct(score)}, ${BAND[level]}. ${SHOW}` };
+// The tooltip names the stills' subtypes, else (no still carries the
+// category) the best one's.
+const scored = (a: CardAnalysis, k: Category, best: { score: number; subtype: string }, what: string) => {
+  const level = confidenceLevel(best.score);
+  const seen = subtypes(a, k) || boxLabel(best.subtype, best.score);
+  return { level, title: `Vision: ${seen} · ${BAND[level]}`, label: `${what} ${pct(best.score)}, ${BAND[level]}. ${SHOW}` };
 };
 
 // Every subtype Vision saw for a category, each once with its best score,
@@ -56,9 +59,9 @@ export function badges(triggers: readonly string[], a: CardAnalysis | undefined)
   const out: Badge[] = [];
   for (const k of CATEGORIES) {
     const b = a.best[k];
-    if (b && triggers.includes(k)) out.push({ kind: 'agree', category: k, text: `✦ Vision ${pct(b.score)}`, ...scored(a, k, b.score, 'Vision') });
+    if (b && triggers.includes(k)) out.push({ kind: 'agree', category: k, text: `✦ Vision ${pct(b.score)}`, ...scored(a, k, b, 'Vision') });
     else if (a.notConfirmed.includes(k)) out.push({ kind: 'not-confirmed', category: k, level: null, text: '✦ Vision: not confirmed', title: `Vision found no ${k} in the analysed still`, label: `Vision: ${k} not confirmed. ${SHOW}` });
-    else if (b) out.push({ kind: 'extra', category: k, text: `+ ${LABEL[k]} ${pct(b.score)}`, ...scored(a, k, b.score, `Vision also found ${LABEL[k]}`) });
+    else if (b) out.push({ kind: 'extra', category: k, text: `+ ${LABEL[k]} ${pct(b.score)}`, ...scored(a, k, b, `Vision also found ${LABEL[k]}`) });
   }
   return out;
 }

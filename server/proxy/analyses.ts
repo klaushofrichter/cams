@@ -66,7 +66,7 @@ export function parseAnalysis(v: unknown): ProxyAnalysis | null {
 }
 
 const DAY = 86_400_000;
-const SLACK_MS = 5000; // an analysis counts for a card from 5 s before it
+export const SLACK_MS = 5000; // an analysis counts for a card from 5 s before it
 const RECENT_TTL = 60_000;
 const PAST_TTL = 3_600_000;
 const LIVE_KEEP_MS = 2 * DAY;
@@ -85,9 +85,9 @@ export function dayWindow(date: string, sampleIso: string): [number, number] | n
 }
 
 export class AnalysisStore {
-  private live = new Map<string, Map<number, ProxyAnalysis>>(); // cam → eventId → received
+  private live = new Map<string, Map<number, { a: ProxyAnalysis; at: number }>>(); // cam → eventId → received, and when
   private days = new Map<string, { at: number; list: ProxyAnalysis[] }>(); // `${cam}|${date}`
-  private inflight = new Map<string, Promise<ProxyAnalysis[]>>();
+  private inflight = new Map<string, Promise<{ at: number; list: ProxyAnalysis[] }>>();
   private failed = new Map<string, number>(); // `${cam}|${date}` → when the fetch failed
 
   constructor(private readonly o: { timeoutMs?: number } = {}) {}
@@ -95,8 +95,8 @@ export class AnalysisStore {
   ingest(cam: string, a: ProxyAnalysis, now = Date.now()): void {
     let m = this.live.get(cam);
     if (!m) this.live.set(cam, (m = new Map()));
-    m.set(a.eventId, a);
-    for (const [id, x] of m) if (x.start < now - LIVE_KEEP_MS) m.delete(id);
+    m.set(a.eventId, { a, at: now });
+    for (const [id, x] of m) if (x.a.start < now - LIVE_KEEP_MS) m.delete(id);
   }
 
   // The analyses for a camera's day of cards, oldest first: the fetched day
@@ -109,34 +109,53 @@ export class AnalysisStore {
     for (const [k, d] of this.days) if (now - d.at >= PAST_TTL) this.days.delete(k);
     for (const [k, at] of this.failed) if (now - at >= FAIL_TTL) this.failed.delete(k);
     const key = `${cam}|${date}`;
-    const ttl = now <= win[1] ? RECENT_TTL : PAST_TTL;
     const hit = this.days.get(key);
-    const list = hit && now - hit.at < ttl ? hit.list : this.failed.has(key) ? [] : await (this.inflight.get(key) ?? this.fetch(cam, key, win, now));
-    const byId = new Map(list.map((a) => [a.eventId, a]));
-    for (const a of this.live.get(cam)?.values() ?? []) if (a.start >= win[0] && a.start <= win[1]) byId.set(a.eventId, a);
+    // A day fetched while it was still going on is "today" until fetched
+    // again after its end: its last minutes' analyses may have been missing.
+    const ttl = (hit?.at ?? now) <= win[1] ? RECENT_TTL : PAST_TTL;
+    let day: { at: number; list: ProxyAnalysis[] };
+    // While the proxy fails, an expired day is served as it was.
+    if (hit && (now - hit.at < ttl || this.failed.has(key))) day = hit;
+    else if (this.failed.has(key)) day = { at: -Infinity, list: [] };
+    else day = await (this.inflight.get(key) ?? this.fetch(cam, key, win, now));
+    // A received message wins over the fetched record unless the record was
+    // fetched after it arrived (a later fetch knows the event's end).
+    const byId = new Map(day.list.map((a) => [a.eventId, a]));
+    for (const { a, at } of this.live.get(cam)?.values() ?? []) {
+      if (a.start >= win[0] && a.start <= win[1] && (at >= day.at || !byId.has(a.eventId))) byId.set(a.eventId, a);
+    }
     return [...byId.values()].sort((a, b) => a.start - b.start || a.eventId - b.eventId);
   }
 
-  private fetch(cam: string, key: string, win: [number, number], now: number): Promise<ProxyAnalysis[]> {
+  private fetch(cam: string, key: string, win: [number, number], now: number): Promise<{ at: number; list: ProxyAnalysis[] }> {
     const work = (async () => {
+      const stale = this.days.get(key) ?? { at: -Infinity, list: [] };
       const client = getProxyClient(cam);
-      if (!client) return [];
+      if (!client) return stale;
+      const t0 = Date.now();
       try {
         // The whole fetch, body included, is bound by one timer: the events
         // page waits for this.
         const ms = this.o.timeoutMs ?? FETCH_TIMEOUT_MS;
         const body = await client.json<unknown>(`/api/cameras/${encodeURIComponent(proxyCameraId(cam))}/analyses`, { from: win[0], to: win[1] }, { timeoutMs: ms, signal: AbortSignal.timeout(ms) });
         const list = (Array.isArray(body) ? body : []).map(parseAnalysis).filter((a): a is ProxyAnalysis => a !== null);
-        this.days.set(key, { at: now, list });
+        const day = { at: now, list };
+        this.days.set(key, day);
         this.failed.delete(key);
-        return list;
+        return day;
       } catch (err) {
         // An older proxy has no /analyses (404): no badges, remembered like an empty day.
         const status = err instanceof ProxyError ? err.status : undefined;
-        if (status === 404) this.days.set(key, { at: now, list: [] });
-        else this.failed.set(key, now);
         logger.debug({ cameraId: cam, code: err instanceof ProxyError ? err.code : 'error', status }, 'proxy_analyses_unavailable');
-        return [];
+        if (status === 404) {
+          const day = { at: now, list: [] };
+          this.days.set(key, day);
+          return day;
+        }
+        // Remembered from when it failed, not from when it was asked: a
+        // timeout doesn't shorten the 30 s.
+        this.failed.set(key, now + (Date.now() - t0));
+        return stale;
       }
     })().finally(() => this.inflight.delete(key));
     this.inflight.set(key, work);

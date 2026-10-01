@@ -18,7 +18,8 @@ export interface StreamOptions {
 }
 
 // A proxy from before the `analysis` stream type existed (v2026.09.30.3 and
-// older) answers 400 to it, and the stream asks again without it.
+// older) answers 400 to it, and the stream asks again without it (until the
+// next reconnect, which tries it again).
 const TYPES = ['camera-event', 'camera-status', 'clip', 'analysis'];
 
 export class ProxyStream extends EventEmitter {
@@ -95,6 +96,8 @@ export class ProxyStream extends EventEmitter {
       if (code !== this.error) logger.warn({ cameraId: this.cam, code, message: (err as Error).message }, 'proxy_stream_down');
       this.error = code;
       this.setUp(false);
+      // The proxy may come back as a newer version: ask for analyses again.
+      this.types = [...TYPES];
       if (Date.now() - connectedAt >= (this.o.healthyMs ?? 60_000)) this.delay = this.o.backoffMinMs ?? 1000;
       // A refused token won't fix itself soon: retry at the slowest pace.
       const wait = code === 'proxy_unauthorized' ? (this.o.backoffMaxMs ?? 30_000) : this.delay;

@@ -11,6 +11,7 @@ export class ProxyError extends Error {
     readonly code: ProxyErrorCode,
     message: string,
     readonly status?: number,
+    readonly upstream?: string, // the proxy's own `error` code, when it sent one
   ) {
     super(message);
     this.name = 'ProxyError';
@@ -102,14 +103,43 @@ export class ProxyClient {
   async json<T>(path: string, query?: Query, init: { timeoutMs?: number; signal?: AbortSignal } = {}): Promise<T> {
     const res = await this.open(path, query, init);
     if (!res.ok) {
-      await res.body?.cancel();
-      throw new ProxyError('proxy_error', `cam-proxy ${this.host()} answered ${res.status}`, res.status);
+      const upstream = await errorCode(res);
+      throw new ProxyError('proxy_error', `cam-proxy ${this.host()} answered ${res.status}`, res.status, upstream);
     }
     try {
       return (await res.json()) as T;
     } catch {
       throw new ProxyError('proxy_error', `cam-proxy ${this.host()} sent a body that isn't JSON`, res.status);
     }
+  }
+}
+
+// The proxy's `error` code from a refused request's body: its first 4 KB,
+// within a second (a stalled body must not hang the route), then dropped.
+async function errorCode(res: Response): Promise<string | undefined> {
+  if (!res.body) return undefined;
+  const reader = res.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let size = 0;
+  const timer = setTimeout(() => void reader.cancel().catch(() => {}), 1000);
+  try {
+    while (size < 4096) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      chunks.push(value);
+      size += value.length;
+    }
+  } catch {
+    return undefined;
+  } finally {
+    clearTimeout(timer);
+    void reader.cancel().catch(() => {});
+  }
+  try {
+    const body = JSON.parse(Buffer.concat(chunks).toString('utf8')) as { error?: unknown } | null;
+    return typeof body?.error === 'string' ? body.error.slice(0, 64) : undefined;
+  } catch {
+    return undefined;
   }
 }
 

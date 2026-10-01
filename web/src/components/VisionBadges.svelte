@@ -7,7 +7,8 @@
   // 2026-09-30). Each badge is a native button beside the card's button, not
   // in it (issue #113): Enter and Space are the browser's, and Space clicks
   // on keyup, so the dialog's focus (✕) never sees that keyup.
-  let { cameraId, triggers, analysis }: { cameraId: string; triggers: readonly string[]; analysis?: CardAnalysis } = $props();
+  // `wrap`: in a span of their own, and no span when there are none (Live's rows).
+  let { cameraId, triggers, analysis, wrap = false }: { cameraId: string; triggers: readonly string[]; analysis?: CardAnalysis; wrap?: boolean } = $props();
   const list = $derived(badges(triggers, analysis));
 
   let shown = $state<Category | null>(null);
@@ -29,10 +30,12 @@
   }
 </script>
 
-{#each list as b (b.kind + b.category)}<button type="button" class="vision {b.kind}" title={b.title} aria-label={b.label} data-testid="vision-badge" data-kind={b.kind} data-level={b.level} onclick={(e) => show(e, b.category)}>{b.text}</button>{/each}
+{#snippet buttons()}{#each list as b (b.kind + b.category)}<button type="button" class="vision {b.kind}" title={b.title} aria-label={b.label} data-testid="vision-badge" data-kind={b.kind} data-level={b.level} onclick={(e) => show(e, b.category)}>{b.text}</button>{/each}{/snippet}
+{#if !wrap}{@render buttons()}{:else if list.length}<span class="badges">{@render buttons()}</span>{/if}
 {#if shown && analysis}<VisionDialog {cameraId} {analysis} category={shown} onclose={close} />{/if}
 
 <style>
+  .badges { display: flex; gap: 4px; flex-wrap: wrap; }
   /* A button that looks like the card's tags. pointer-events: the card's text
      around it lets clicks through to the card's button underneath. */
   .vision {

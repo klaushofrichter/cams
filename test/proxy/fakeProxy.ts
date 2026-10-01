@@ -46,7 +46,8 @@ export interface FakeProxy {
   composeRequests: unknown[];
   composeDelayMs: number; // a composition goes running → done over this long
   stillDelayMs: number; // tests: each still image answers this late
-  maxStillsInFlight: number; // the most still images served at once
+  maxStillsInFlight: number; // the most still images served at once (with stillDelayMs)
+  maxStillListsInFlight: number; // the most still lists (GET /stills) answered at once (with stillDelayMs)
   streamStatus: number | null; // tests: /api/stream answers this error status
   analyses: Map<string, FakeAnalysis[]>; // proxy camera id → its analyses
   analysesStatus: number | null; // tests: /analyses answers this error (404: an older proxy)
@@ -89,6 +90,7 @@ export async function startFakeProxy(opts: { port?: number; token?: string } = {
     composeDelayMs: 300,
     stillDelayMs: 0,
     maxStillsInFlight: 0,
+    maxStillListsInFlight: 0,
     streamStatus: null,
     analyses: new Map(),
     analysesStatus: null,
@@ -255,12 +257,21 @@ export async function startFakeProxy(opts: { port?: number; token?: string } = {
   });
 
   let inFlight = 0;
+  let listsInFlight = 0;
   const images = (kind: 'stills' | 'previews') => {
     app.get(`/api/cameras/:cam/${kind}`, (req, res) => {
       const r = range(req.query);
       if (!r) return void res.status(400).json({ error: 'invalid' });
       if (r[1] - r[0] > 86_400_000) return void res.status(400).json({ error: 'invalid', detail: 'at most one day per request' });
       const keys = [...(fake[kind].get(req.params.cam)?.keys() ?? [])].filter((k) => k >= r[0] && k <= r[1]).sort((a, b) => a - b);
+      if (kind === 'stills' && fake.stillDelayMs) {
+        listsInFlight++;
+        fake.maxStillListsInFlight = Math.max(fake.maxStillListsInFlight, listsInFlight);
+        return void setTimeout(() => {
+          listsInFlight--;
+          res.json(keys);
+        }, fake.stillDelayMs);
+      }
       if (kind === 'stills') return void res.json(keys);
       res.json(keys.map((minute) => ({ minute, cols: 10, rows: 6, tileW: 160, tileH: 90, intervalS: 1, present: Array(60).fill(true), url: `/api/cameras/${req.params.cam}/previews/${minute}.jpg` })));
     });
@@ -315,7 +326,7 @@ if (require.main === module) {
     hooks.post('/analyses', (req, res) => {
       const b = req.body as { cam?: unknown; analysis?: FakeAnalysis };
       const a = b.analysis;
-      if (typeof b.cam !== 'string' || !a || !Number.isSafeInteger(a.eventId) || !Number.isSafeInteger(a.start)) return void res.status(400).json({ error: 'cam and analysis' });
+      if (typeof b.cam !== 'string' || !a || !Number.isSafeInteger(a.eventId) || !Number.isSafeInteger(a.start) || (a.stillTs !== null && !Number.isSafeInteger(a.stillTs))) return void res.status(400).json({ error: 'cam and analysis (stillTs a number or null)' });
       fake.analyses.set(b.cam, [...(fake.analyses.get(b.cam) ?? []).filter((x) => x.eventId !== a.eventId), a]);
       if (a.stillTs !== null) {
         const minute = Math.floor(a.stillTs / 60_000) * 60_000;

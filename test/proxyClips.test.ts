@@ -158,6 +158,9 @@ describe('recordings from cam-proxy clips', () => {
     expect(evs.length).toBeGreaterThan(3);
     expect(fake.maxStillsInFlight).toBeGreaterThan(0);
     expect(fake.maxStillsInFlight).toBeLessThanOrEqual(3);
+    // The lookups before the image too (issue #76).
+    expect(fake.maxStillListsInFlight).toBeGreaterThan(0);
+    expect(fake.maxStillListsInFlight).toBeLessThanOrEqual(3);
   });
 
   it('answers a thumbnail quickly and cleanly while the proxy is down and the camera refuses', async () => {
