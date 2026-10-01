@@ -8,3 +8,7 @@ published as [GitHub releases](https://github.com/klaushofrichter/cams/releases)
 
 ## [Unreleased]
 
+### Changed
+
+- Live view: the "forward 10 seconds" and "next event" buttons (and the right arrow key) are disabled there, and work again in History (#121).
+

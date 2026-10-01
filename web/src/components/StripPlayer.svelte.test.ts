@@ -193,6 +193,37 @@ describe('StripPlayer', () => {
     expect(onstep).toHaveBeenCalledWith(1);
   });
 
+  it('disables forward 10 s and next event in live view, and the arrow keys do nothing (#121)', () => {
+    const onstep = vi.fn();
+    const p = render({ glued: true, at: T + 1000, onstep });
+    for (const id of ['fwd-10', 'next-clip']) {
+      const b = q(id) as HTMLButtonElement;
+      expect(b.disabled).toBe(true);
+      expect(b.title).toBe('Not available in live view');
+      b.click();
+    }
+    expect(onstep).not.toHaveBeenCalled();
+    q('strip-player')!.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }));
+    expect(p.at).toBe(T + 1000);
+    // backwards is how live goes to History
+    expect((q('back-10') as HTMLButtonElement).disabled).toBe(false);
+    expect((q('prev-clip') as HTMLButtonElement).disabled).toBe(false);
+  });
+
+  it('enables them again once the viewer is in history (#121)', () => {
+    const p = render({ glued: true }) as unknown as { glued: boolean; at: number };
+    expect((q('fwd-10') as HTMLButtonElement).disabled).toBe(true);
+    p.glued = false;
+    flushSync();
+    for (const id of ['fwd-10', 'next-clip']) {
+      const b = q(id) as HTMLButtonElement;
+      expect(b.disabled).toBe(false);
+      expect(b.title).not.toBe('Not available in live view');
+    }
+    q('strip-player')!.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }));
+    expect(p.at).toBe(T + 10_000);
+  });
+
   it('names time, source and the clip’s triggers in one line under the video (Klaus, 2026-09-28)', () => {
     const personClip: EventClip = { ...clip, triggers: ['person', 'motion'] };
     render({ at: T + 12_000, coverage: { clips: clipRuns([personClip]), stills: [], previews: [] } });

@@ -206,3 +206,22 @@ test('the live controls are icons with tooltips, and the light switches', async 
   await page.getByTestId('light-toggle').click();
   await expect(page.getByTestId('light-toggle')).toHaveAttribute('aria-pressed', 'false');
 });
+
+// Issue #121: there is nothing after live, so "advance 10 s" and "next event"
+// are off there and come on once the viewer is in History.
+test('live view disables forward 10 s and next event; history enables them', async ({ page }) => {
+  await page.goto('/app/live');
+  await expect(page.getByTestId('live-badge')).toBeVisible();
+  for (const id of ['fwd-10', 'next-clip']) {
+    await expect(page.getByTestId(id)).toBeDisabled();
+    await expect(page.getByTestId(id)).toHaveAttribute('title', 'Not available in live view');
+  }
+  await page.getByTestId('back-10').click(); // playback: History
+  await expect(page).toHaveURL(/panel=history/);
+  await expect(page.getByTestId('live-badge')).toHaveCount(0);
+  for (const id of ['fwd-10', 'next-clip']) await expect(page.getByTestId(id)).toBeEnabled();
+  await page.getByTestId('play-toggle').click();
+  await page.getByTestId('strip-now').click(); // playing: ⇥ is Live again
+  await expect(page.getByTestId('live-badge')).toBeVisible();
+  for (const id of ['fwd-10', 'next-clip']) await expect(page.getByTestId(id)).toBeDisabled();
+});
