@@ -142,7 +142,9 @@ test('on a phone, the thumbnail brings the player into view, the rest of the car
   const card = page.locator('[data-testid="event-card"][data-clip-id$="-081510-081535"]');
   await card.scrollIntoViewIfNeeded();
   expect((await video.boundingBox())!.y).toBeLessThan(0); // scrolled away
-  await card.locator('.meta').click();
+  // A tap on the card's text: it lies over the card's button and lets the tap through (issue #113).
+  const meta = (await page.locator('li', { has: card }).locator('.meta strong').boundingBox())!;
+  await page.mouse.click(meta.x + 5, meta.y + meta.height / 2);
   await page.waitForTimeout(600);
   expect((await video.boundingBox())!.y).toBeLessThan(0); // still the list
   await card.locator('[data-testid="event-thumb"]').click();
