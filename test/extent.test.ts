@@ -43,8 +43,11 @@ afterEach(async () => {
 const get = (path: string) => request(createApp()).get(path).set('Cookie', auth);
 // The camera's oldest recording, as its own events list gives it.
 async function cameraOldest(): Promise<number> {
-  for (const back of [1, 0]) {
-    const month = new Date(Date.now() - back * 31 * DAY).toISOString().slice(0, 7);
+  // Calendar months, not 31-day steps: on the 1st (UTC) the camera can still be
+  // in the previous month, and Oct 1 − 31 days skips September.
+  const now = new Date();
+  for (const back of [2, 1, 0]) {
+    const month = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - back, 1)).toISOString().slice(0, 7);
     for (const day of ((await get(`/api/cameras/cam1/days?month=${month}`)).body.days as string[]).sort()) {
       const ev = (await get(`/api/cameras/cam1/events?date=${day}`)).body.events as { start: string }[];
       if (ev.length) return Math.min(...ev.map((e) => Date.parse(e.start)));
