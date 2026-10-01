@@ -113,8 +113,8 @@ describe('the Vision dialog', () => {
     // The person and the dog.
     expect(document.querySelectorAll('[data-testid="timeline-boxes"] rect')).toHaveLength(2);
     expect(dialog.textContent).toContain('2 of 2');
-    expect(dialog.textContent).toContain('person 0.84');
-    expect(dialog.textContent).toContain('dog 0.42');
+    // Klaus, 2026-10-01: "Person - 61% Confidence", best first.
+    expect([...dialog.querySelectorAll('.found li')].map((l) => l.textContent)).toEqual(['Person - 84% Confidence', 'Dog - 42% Confidence']);
   });
 
   it('steps between the analysed stills', async () => {

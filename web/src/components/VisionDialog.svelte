@@ -5,7 +5,7 @@
   import { portal } from '../lib/portal';
   import { localDate } from '../lib/recordings';
   import { navigate } from '../lib/router';
-  import { LABEL, type CardAnalysis, type Category, type StillObject } from '../lib/vision';
+  import { findingLine, LABEL, type CardAnalysis, type Category, type StillObject } from '../lib/vision';
 
   // A Vision badge's dialog (Klaus, 2026-09-30): the card's analysed still with
   // Vision's boxes, the best one for the clicked category first; ◀ ▶ step
@@ -88,7 +88,7 @@
       {/if}
       {#if entries.length}
         <ul class="found">
-          {#each entries as e, i (i)}<li>{e.subtype} {e.score.toFixed(2)}</li>{/each}
+          {#each entries as e, i (i)}<li>{findingLine(e.subtype, e.score)}</li>{/each}
         </ul>
       {:else}
         <p class="muted">Vision found nothing relevant in this still.</p>

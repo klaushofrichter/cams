@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { badges, confidenceLevel, subtypes, type CardAnalysis } from './vision';
+import { badges, boxLabel, confidenceLevel, findingLine, subtypes, type CardAnalysis } from './vision';
 
 const box = { x0: 0.1, y0: 0.2, x1: 0.3, y1: 0.9 };
 const an = (o: Partial<CardAnalysis> = {}): CardAnalysis => ({ best: {}, notConfirmed: [], stills: [], ...o });
@@ -66,5 +66,18 @@ describe('subtypes', () => {
     const s = (subtype: string, score: number) => ({ category: 'pet' as const, subtype, score, box });
     const a = an({ stills: [{ eventId: 1, stillTs: 1, summary: [s('cat', 0.5), s('dog', 0.6)] }, { eventId: 2, stillTs: 2, summary: [s('cat', 0.9)] }] });
     expect(subtypes(a, 'pet')).toBe('cat 0.90, dog 0.60');
+  });
+});
+
+describe('labels (Klaus, 2026-10-01)', () => {
+  it('labels a box "Clothing 56%": the first letter capitalised, the rounded percent', () => {
+    expect(boxLabel('clothing', 0.556)).toBe('Clothing 56%');
+    expect(boxLabel('Ceiling fan', 0.904)).toBe('Ceiling fan 90%');
+    expect(boxLabel('ceiling fan', 0.9)).toBe('Ceiling fan 90%');
+  });
+
+  it('writes a finding as "Person - 61% Confidence"', () => {
+    expect(findingLine('person', 0.612)).toBe('Person - 61% Confidence');
+    expect(findingLine('dog', 0.42)).toBe('Dog - 42% Confidence');
   });
 });

@@ -18,6 +18,12 @@ export interface Badge { kind: 'agree' | 'not-confirmed' | 'extra'; category: Ca
 export const LABEL: Record<Category, string> = { person: 'Person', vehicle: 'Vehicle', pet: 'Pet' };
 const percent = (s: number) => Math.round(s * 100);
 const pct = (s: number) => `${percent(s)}%`;
+const capital = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
+// The label next to a box (Klaus, 2026-10-01): "Clothing 56%", only the first
+// letter capitalised ("Ceiling fan 90%").
+export const boxLabel = (name: string, score: number) => `${capital(name)} ${pct(score)}`;
+// A line of the dialog's findings (Klaus, 2026-10-01): "Person - 61% Confidence".
+export const findingLine = (subtype: string, score: number) => `${capital(subtype)} - ${pct(score)} Confidence`;
 
 // The badge's colour (Klaus, 2026-09-30): the percent it shows decides, so
 // 0.795 ("80%") is high and 0.494 ("49%") is low.
