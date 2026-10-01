@@ -1,5 +1,6 @@
 // The Timeline page's arithmetic (Plan 6). cam-proxy works in UTC ms; the
 // page shows the browser's local day.
+import type { SummaryEntry } from './vision';
 
 export interface PreviewMinute {
   minute: number; // UTC ms, a whole minute
@@ -171,4 +172,89 @@ export function nearestMinute(minutes: PreviewMinute[], t: number): PreviewMinut
     }
   }
   return best;
+}
+
+// The minute view (spec 2026-09-30-analytics-in-cams-design, cam-proxy's
+// model): a minute opens under its hour, steps ◀ ▶ within that hour, and
+// marks its seconds by the cards (recordings) and Vision's analysed stills.
+export interface SeenStill { eventId: number; stillTs: number; summary: SummaryEntry[] }
+export interface TimelineCard { id: string; start: string; end: string; triggers: string[]; analysis?: { stills: SeenStill[] } }
+
+const MINUTE = 60_000;
+const spanOf = (c: { start: string; end: string }) => [Date.parse(c.start), Date.parse(c.end)] as const;
+
+// The neighbouring minute of the same hour, or null at the hour's first or
+// last one (no crossing into another hour).
+export function stepMinute(hour: { minute: number }[], current: number, dir: -1 | 1): number | null {
+  const i = hour.findIndex((m) => m.minute === current);
+  if (i < 0) return null;
+  return hour[i + dir]?.minute ?? null;
+}
+
+export function cardsInMinute<T extends { start: string; end: string }>(m: { minute: number }, cards: T[]): T[] {
+  return cards
+    .filter((c) => {
+      const [s, e] = spanOf(c);
+      return s < m.minute + MINUTE && e >= m.minute;
+    })
+    .sort((a, b) => Date.parse(a.start) - Date.parse(b.start));
+}
+
+const PRIORITY = ['person', 'vehicle', 'pet', 'motion', 'timer'];
+const rank = (k: string) => {
+  const i = PRIORITY.indexOf(k);
+  return i < 0 ? PRIORITY.length : i;
+};
+
+// A card's colour: its most specific trigger (person before vehicle, pet, motion).
+export function cardKind(c: { triggers: readonly string[] }): string {
+  return [...c.triggers].sort((a, b) => rank(a) - rank(b))[0] ?? 'motion';
+}
+
+// A minute's colour: the most specific kind among its cards (null: none).
+export function minuteKind(m: { minute: number; intervalS?: number }, cards: { start: string; end: string; triggers: readonly string[] }[]): string | null {
+  let best: string | null = null;
+  for (const c of cardsInMinute(m, cards)) {
+    const k = cardKind(c);
+    if (best === null || rank(k) < rank(best)) best = k;
+  }
+  return best;
+}
+
+export function secondKinds(m: { minute: number; intervalS: number; present: boolean[] }, cards: { start: string; end: string; triggers: readonly string[] }[]): (string | null)[] {
+  const list = cardsInMinute(m, cards);
+  return m.present.map((_, i) => {
+    const from = m.minute + i * m.intervalS * 1000;
+    const to = from + m.intervalS * 1000 - 1;
+    let best: string | null = null;
+    for (const c of list) {
+      const [s, e] = spanOf(c);
+      const k = cardKind(c);
+      if (s <= to && e >= from && (best === null || rank(k) < rank(best))) best = k;
+    }
+    return best;
+  });
+}
+
+// Vision's analysed stills that found something (a non-empty summary).
+export function seenStills(cards: TimelineCard[]): SeenStill[] {
+  return cards.flatMap((c) => c.analysis?.stills.filter((s) => s.summary.length > 0) ?? []);
+}
+
+// The hour grid's marks for a minute: how many cards it has (×2, ×3), and
+// whether a still in it found something (purple).
+export function minuteMarks(m: { minute: number }, cards: TimelineCard[]): { count: number; analysed: boolean } {
+  return {
+    count: cardsInMinute(m, cards).length,
+    analysed: seenStills(cards).some((s) => s.stillTs >= m.minute && s.stillTs < m.minute + MINUTE),
+  };
+}
+
+// Per tile of the minute, the analysed still in that second, or null.
+export function analysedSeconds(m: { minute: number; intervalS: number; present: boolean[] }, cards: TimelineCard[]): (SeenStill | null)[] {
+  const stills = seenStills(cards);
+  return m.present.map((_, i) => {
+    const from = m.minute + i * m.intervalS * 1000;
+    return stills.find((s) => s.stillTs >= from && s.stillTs < from + m.intervalS * 1000) ?? null;
+  });
 }

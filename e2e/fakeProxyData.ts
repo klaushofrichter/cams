@@ -20,7 +20,7 @@ function media(): { jpeg: Buffer; sprite: Buffer; mp4: Buffer } {
   return { jpeg: readFileSync(join(dir, 'still.jpg')), sprite: readFileSync(join(dir, 'sprite.jpg')), mp4: readFileSync(join(dir, 'clip.mp4')) };
 }
 
-export function seed(fake: FakeProxy): void {
+export function seed(fake: FakeProxy): { jpeg: Buffer; sprite: Buffer } {
   const { jpeg, sprite, mp4 } = media();
   const now = Math.floor(Date.now() / 60_000) * 60_000;
   const stills = new Map<number, Buffer>();
@@ -45,4 +45,5 @@ export function seed(fake: FakeProxy): void {
   // midnight on a UTC runner missed Chicago's day between 00:00 and 05:00 UTC.
   const start = Date.now() - 36 * 3_600_000;
   fake.clips.push({ id: 1, cam: 'barn', start, end: Date.now() + 12 * 3_600_000, stream: 'main', events: [], body: mp4, snapshot: jpeg });
+  return { jpeg, sprite };
 }

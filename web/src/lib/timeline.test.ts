@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { dayRange, hourGroups, thumbCoverage, minuteOf, previewAt, splitRange, stillIndex, tileIndex, tileStyle, timelineCursor, cursorSearch, type PreviewMinute } from './timeline';
+import { dayRange, hourGroups, thumbCoverage, minuteOf, previewAt, splitRange, stillIndex, tileIndex, tileStyle, timelineCursor, cursorSearch, stepMinute, cardsInMinute, cardKind, minuteKind, secondKinds, seenStills, minuteMarks, analysedSeconds, type PreviewMinute } from './timeline';
 
 // Tests run with TZ=America/Chicago (vitest.config).
 const m = (minute: number, present = Array(60).fill(true)): PreviewMinute => ({ minute, cols: 10, rows: 6, tileW: 160, tileH: 90, intervalS: 1, present, url: `/x/${minute}.jpg` });
@@ -106,6 +106,63 @@ describe('thumbCoverage with partly filled preview minutes (review M7)', () => {
       { left: 0, width: (10 / 60) * 100 },
       { left: (50 / 60) * 100, width: (10 / 60) * 100 },
     ]);
+  });
+});
+
+describe('the minute view (spec 2026-09-30-analytics-in-cams-design)', () => {
+  const M = Date.UTC(2026, 8, 30, 20, 48); // a minute
+  const iso = (ms: number) => new Date(ms).toISOString();
+  const minute = { minute: M, intervalS: 1, present: Array(60).fill(true) as boolean[] };
+  const box = { x0: 0, y0: 0, x1: 1, y1: 1 };
+  const card = (s: number, e: number, triggers: string[], stills: { eventId: number; stillTs: number; n: number }[] = []) => ({
+    id: String(s), start: iso(s), end: iso(e), triggers,
+    analysis: stills.length ? { stills: stills.map((x) => ({ eventId: x.eventId, stillTs: x.stillTs, summary: Array(x.n).fill({ category: 'person', subtype: 'person', score: 0.8, box }) })) } : undefined,
+  });
+
+  it('steps to the neighbouring minute of the same hour only', () => {
+    const hour = [{ minute: M }, { minute: M + 60_000 }];
+    expect(stepMinute(hour, M, 1)).toBe(M + 60_000);
+    expect(stepMinute(hour, M + 60_000, 1)).toBeNull();
+    expect(stepMinute(hour, M, -1)).toBeNull();
+  });
+
+  it('lists the cards that overlap a minute, by start', () => {
+    const a = card(M + 30_000, M + 90_000, ['motion']);
+    const b = card(M - 30_000, M + 5000, ['person']);
+    const c = card(M + 61_000, M + 70_000, ['pet']);
+    expect(cardsInMinute(minute, [a, b, c])).toEqual([b, a]);
+  });
+
+  it('colours a card by its most specific trigger', () => {
+    expect(cardKind({ triggers: ['motion', 'person'] })).toBe('person');
+    expect(cardKind({ triggers: [] })).toBe('motion');
+  });
+
+  it('colours a minute by the most specific kind among its cards, not the earliest', () => {
+    const cards = [card(M, M + 5000, ['motion']), card(M + 20_000, M + 25_000, ['person'])];
+    expect(minuteKind(minute, cards)).toBe('person');
+    expect(minuteKind(minute, [])).toBeNull();
+  });
+
+  it('colours each second by the most specific card covering it', () => {
+    const k = secondKinds(minute, [card(M, M + 10_000, ['motion']), card(M + 5000, M + 7000, ['vehicle'])]);
+    expect(k[0]).toBe('motion');
+    expect(k[6]).toBe('vehicle');
+    expect(k[20]).toBeNull();
+  });
+
+  it('marks a minute with its card count and with a still that found something', () => {
+    const found = card(M, M + 30_000, ['person'], [{ eventId: 1, stillTs: M + 20_000, n: 1 }]);
+    const nothing = card(M + 40_000, M + 50_000, ['person'], [{ eventId: 2, stillTs: M + 41_000, n: 0 }]);
+    expect(minuteMarks(minute, [found, nothing])).toEqual({ count: 2, analysed: true });
+    expect(minuteMarks(minute, [nothing])).toEqual({ count: 1, analysed: false });
+    expect(minuteMarks({ minute: M + 60_000 }, [found])).toEqual({ count: 0, analysed: false }); // the still's minute only
+  });
+
+  it('finds the analysed still of each second', () => {
+    const s = analysedSeconds(minute, [card(M, M + 30_000, ['person'], [{ eventId: 7, stillTs: M + 20_000, n: 1 }])]);
+    expect(s[20]).toMatchObject({ eventId: 7, stillTs: M + 20_000 });
+    expect(s.filter((x) => x !== null)).toHaveLength(1);
   });
 });
 

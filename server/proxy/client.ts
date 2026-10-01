@@ -99,8 +99,8 @@ export class ProxyClient {
     return new Response(body, { status: res.status, statusText: res.statusText, headers: res.headers });
   }
 
-  async json<T>(path: string, query?: Query): Promise<T> {
-    const res = await this.open(path, query);
+  async json<T>(path: string, query?: Query, init: { timeoutMs?: number; signal?: AbortSignal } = {}): Promise<T> {
+    const res = await this.open(path, query, init);
     if (!res.ok) {
       await res.body?.cancel();
       throw new ProxyError('proxy_error', `cam-proxy ${this.host()} answered ${res.status}`, res.status);

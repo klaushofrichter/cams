@@ -565,9 +565,15 @@ Rules cams follows:
 
 ## Recordings and events (measured on cam1, 2026-09-30)
 
+Settings behind it, in `GetRecV20` → `Rec` (the web UI's Surveillance → Record):
+- `preRec` 1 ("Pre-Motion Record" on): a clip starts about 4 s before its event.
+- `postRec` `"15 Seconds"` ("Post-Motion Record"; also `"30 Seconds"`, `"1 Minute"`): a clip runs on that long after its last event ends.
+
 Over 24 h (96 events, 48 sub-stream clips uploaded to cam-proxy):
-- **An event during a recording extends it** instead of starting a second clip. Clips never run side by side, but a new clip can begin up to about 4 s before the previous one ended (its pre-record repeats the other's tail), and the same event can then be listed in both.
-- **Events of one clip were at most 25 s apart; consecutive events in different clips at least 22 s apart.** The clip runs on about 18–30 s after its last event starts.
+- **An event during a recording extends it** instead of starting a second clip, so one clip often covers several events (23 of 44). Clips never run side by side, but a new clip can begin up to about 4 s before the previous one ended (its pre-record repeats the other's tail; 3 cases), or right at its end (2 cases), and the same event can then be listed in both.
+- **Clips sit on a 4 s grid** (the sub stream's keyframes, measured over 37 back-to-back clips, 2026-09-28 to 30): lengths are multiples of 4 s (24, 28, 32, 76, 108 s), and a clip that follows another starts 4 s before its end, at its end, or 4 s after it, nothing in between. Which one depends only on when the new event comes: 1–3 s after the previous clip's end → 4 s before it (13 cases), 4–6 s → at it (8), 8–11 s → 4 s after (9). So a detection lands on the grid, the clip starts one step (4 s) before it, the picture is taken at the detection (4 s after the clip's start), and the clip ends at the first step after the post-record. The grid's phase shifts now and then (probably when the encoder restarts).
+- **Long recordings are sometimes split** without a new event (7 cases, clips of 63–84 s, the event still going): the next clip starts 4 s before the previous one ends. The rule is unclear.
+- **Events of one clip were at most 25 s apart; consecutive events in different clips at least 22 s apart.** The clip runs on about 18–30 s after its last event starts: the event's own length plus the 15 s post-record.
 - cams groups live events waiting for their recording by these numbers: an event at most 20 s after the previous one joins its "recording…" entry.
 
 ## FTP upload
@@ -588,7 +594,12 @@ fetches them from there (`server/recordings/proxyClips.ts`).
   it can't reach answers `rspCode -454` ("ftp connect failed"). Testing
   changes no settings (measured 2026-09-26).
 - Uploads are named `Den_00_YYYYMMDDHHMMSS.mp4`, where `Den` is the camera
-  name, plus a `.jpg` with the same stem.
+  name and the time is the clip's start (camera-local), plus a `.jpg`. **The
+  `.jpg` is named after the event, not the clip:** 3–5 s later than the clip
+  (the clip starts with the pre-record), never the same name (measured on
+  cam1, 143 pictures, 2026-09-28 to 30). Pair them by time. Since 2026-09-29
+  about 17:00 the camera has sent pictures for few clips (1 for ~8); the cause
+  is open, and cam-proxy now logs each one it receives.
 - With the main stream, one 24 s clip is H.265, about 7 MB, with the `moov`
   atom first, so it can play before it is fully read. `ftpSubStream` selects
   the sub stream instead.

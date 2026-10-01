@@ -13,6 +13,21 @@ import { join } from 'path';
 
 export interface FakeClip { id: number; cam: string; start: number; end: number; stream: string; events: number[]; body: Buffer; snapshot?: Buffer }
 export interface FakeMessage { id: number; ts: number; cam: string; type: string; data: Record<string, unknown> }
+export interface FakeBox { x0: number; y0: number; x1: number; y1: number }
+// An analysis as cam-proxy stores it (spec 2026-09-30-analytics-in-cams-design):
+// the stream message's shape, plus the full object list.
+export interface FakeAnalysis {
+  eventId: number;
+  kind: string;
+  start: number;
+  end: number | null;
+  provider: string;
+  status: string;
+  reason: string | null;
+  stillTs: number | null;
+  summary: { category: string; subtype: string; score: number; box: FakeBox }[];
+  objects: { name: string; score: number; box: FakeBox }[];
+}
 
 export interface FakeProxy {
   url: string;
@@ -23,7 +38,7 @@ export interface FakeProxy {
   messages: FakeMessage[];
   oldestId: number; // resuming from an id before this answers `reset`
   offline: boolean; // every request is answered by closing the connection
-  requests: { path: string; auth: string | undefined }[];
+  requests: { path: string; auth: string | undefined; query: Record<string, unknown> }[];
   publicUrl: string | null; // what /api/cameras reports as the proxy's web address
   camerasBody?: unknown; // tests: answer /api/cameras with this instead
   loginLinks: number; // one-time admin UI links minted (POST /control/login-links)
@@ -33,6 +48,11 @@ export interface FakeProxy {
   stillDelayMs: number; // tests: each still image answers this late
   maxStillsInFlight: number; // the most still images served at once
   streamStatus: number | null; // tests: /api/stream answers this error status
+  analyses: Map<string, FakeAnalysis[]>; // proxy camera id → its analyses
+  analysesStatus: number | null; // tests: /analyses answers this error (404: an older proxy)
+  analysesDelayMs: number; // tests: /analyses answers this late
+  analysesStall: boolean; // tests: /analyses sends its headers and the body's start, then nothing
+  knownTypes: string[] | null; // tests: the stream refuses other types (an older proxy)
   streamConnections(): number;
   push(m: Omit<FakeMessage, 'id' | 'ts'> & { ts?: number }): FakeMessage;
   dropStreams(): void; // ends every open stream (a proxy restart)
@@ -70,6 +90,11 @@ export async function startFakeProxy(opts: { port?: number; token?: string } = {
     stillDelayMs: 0,
     maxStillsInFlight: 0,
     streamStatus: null,
+    analyses: new Map(),
+    analysesStatus: null,
+    analysesDelayMs: 0,
+    analysesStall: false,
+    knownTypes: null,
     streamConnections: () => streams.size,
     push(m) {
       const msg: FakeMessage = { id: nextId++, ts: m.ts ?? Date.now(), cam: m.cam, type: m.type, data: m.data };
@@ -97,7 +122,7 @@ export async function startFakeProxy(opts: { port?: number; token?: string } = {
   app.use(rateLimit({ windowMs: 60_000, limit: 100_000, standardHeaders: false, legacyHeaders: false }));
   app.use((req, res, next) => {
     if (fake.offline) return void req.socket.destroy();
-    fake.requests.push({ path: req.path, auth: req.get('authorization') });
+    fake.requests.push({ path: req.path, auth: req.get('authorization'), query: { ...req.query } });
     if (req.path === '/health') return next();
     // The control API takes the admin token only, like the real one.
     if (req.path.startsWith('/control/')) {
@@ -113,6 +138,9 @@ export async function startFakeProxy(opts: { port?: number; token?: string } = {
   app.get('/api/stream', (req, res) => {
     if (fake.streamStatus) return void res.status(fake.streamStatus).json({ error: 'upstream' });
     const types = typeof req.query.types === 'string' ? req.query.types.split(',') : undefined;
+    // Like the real one: an unknown type is refused (a cam-proxy before `analysis` existed).
+    const unknown = fake.knownTypes && types?.find((t) => !fake.knownTypes!.includes(t));
+    if (unknown) return void res.status(400).json({ error: 'invalid', detail: `unknown type: ${unknown}` });
     const since = req.query.since !== undefined ? Number(req.query.since) : req.get('last-event-id') ? Number(req.get('last-event-id')) : undefined;
     res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-store' });
     res.write('retry: 3000\n\n');
@@ -202,6 +230,30 @@ export async function startFakeProxy(opts: { port?: number; token?: string } = {
     if (!fake.compositions.delete(req.params.id)) return void res.status(404).json({ error: 'not_found' });
     res.status(204).end();
   });
+  // The day's analyses and one analysis in full, like cam-proxy's API.
+  app.get('/api/cameras/:cam/analyses', async (req, res) => {
+    if (fake.analysesDelayMs) await new Promise((r) => setTimeout(r, fake.analysesDelayMs));
+    if (fake.analysesStall) {
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      return void res.write('[');
+    }
+    if (fake.analysesStatus) return void res.status(fake.analysesStatus).json({ error: 'not_found' });
+    const r = range(req.query);
+    if (!r) return void res.status(400).json({ error: 'invalid' });
+    if (r[1] - r[0] > 86_400_000) return void res.status(400).json({ error: 'invalid', detail: 'at most one day per request' });
+    res.json(
+      (fake.analyses.get(req.params.cam) ?? [])
+        .filter((a) => a.start >= r[0] && a.start <= r[1])
+        .sort((a, b) => a.start - b.start)
+        .map(({ objects: _objects, ...a }) => a),
+    );
+  });
+  app.get('/api/cameras/:cam/events/:id/analysis', (req, res) => {
+    const a = (fake.analyses.get(req.params.cam) ?? []).find((x) => x.eventId === Number(req.params.id));
+    if (!a) return void res.status(404).json({ error: 'not_found' });
+    res.json({ eventId: a.eventId, provider: a.provider, status: a.status, reason: a.reason, stillTs: a.stillTs, requestedAt: a.start, tookMs: 300, objects: a.objects, summary: a.summary, raw: { secret: 'raw' } });
+  });
+
   let inFlight = 0;
   const images = (kind: 'stills' | 'previews') => {
     app.get(`/api/cameras/:cam/${kind}`, (req, res) => {
@@ -246,7 +298,7 @@ if (require.main === module) {
   void (async () => {
     const { FAKE_PROXY_PORT, FAKE_PROXY_TOKEN, seed } = await import('../../e2e/fakeProxyData');
     const fake = await startFakeProxy({ port: FAKE_PROXY_PORT, token: FAKE_PROXY_TOKEN });
-    seed(fake);
+    const media = seed(fake);
     // e2e only: POST /push {cam, type, data} makes the fake send a stream
     // message (live events, Klaus 2026-09-28). A separate local port, so the
     // fake's own API keeps its token check.
@@ -256,6 +308,25 @@ if (require.main === module) {
       const b = req.body as { cam?: unknown; type?: unknown; data?: unknown };
       if (typeof b.cam !== 'string' || typeof b.type !== 'string' || typeof b.data !== 'object' || !b.data) return void res.status(400).json({ error: 'cam, type and data' });
       res.json(fake.push({ cam: b.cam, type: b.type, data: b.data as Record<string, unknown> }));
+    });
+    // e2e only: POST /analyses {cam, analysis} stores an analysis (for
+    // /analyses and the full record) and gives its still's minute one still
+    // per second and a sprite, so the Timeline can show it.
+    hooks.post('/analyses', (req, res) => {
+      const b = req.body as { cam?: unknown; analysis?: FakeAnalysis };
+      const a = b.analysis;
+      if (typeof b.cam !== 'string' || !a || !Number.isSafeInteger(a.eventId) || !Number.isSafeInteger(a.start)) return void res.status(400).json({ error: 'cam and analysis' });
+      fake.analyses.set(b.cam, [...(fake.analyses.get(b.cam) ?? []).filter((x) => x.eventId !== a.eventId), a]);
+      if (a.stillTs !== null) {
+        const minute = Math.floor(a.stillTs / 60_000) * 60_000;
+        const stills = fake.stills.get(b.cam) ?? new Map<number, Buffer>();
+        for (let s = 0; s < 60; s++) stills.set(minute + s * 1000, media.jpeg);
+        fake.stills.set(b.cam, stills);
+        const previews = fake.previews.get(b.cam) ?? new Map<number, Buffer>();
+        previews.set(minute, media.sprite);
+        fake.previews.set(b.cam, previews);
+      }
+      res.json({ ok: true });
     });
     hooks.listen(FAKE_PROXY_PORT - 2, '127.0.0.1');
     process.stdout.write(`fake cam-proxy on ${fake.url} (test hooks on ${FAKE_PROXY_PORT - 2})\n`);

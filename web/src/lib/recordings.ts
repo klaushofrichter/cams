@@ -1,3 +1,4 @@
+import type { CardAnalysis } from './vision';
 export type Trigger = 'person' | 'vehicle' | 'pet' | 'motion' | 'timer';
 // The event filter: the kinds shown, several at once (Klaus, 2026-09-28);
 // all four is "All". Always in ALL_KINDS order.
@@ -13,6 +14,7 @@ export interface EventClip {
   triggers: Trigger[];
   sizeSub: number | null;
   sizeMain: number | null;
+  analysis?: CardAnalysis; // cam-proxy's Vision results, when it analysed this recording
 }
 
 export interface Cursor {

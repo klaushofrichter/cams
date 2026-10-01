@@ -1,6 +1,8 @@
 <script lang="ts">
   import { openProxyClick } from '../lib/proxyLink';
   import Icon from './Icon.svelte';
+  import VisionBadges from './VisionBadges.svelte';
+  import { badges } from '../lib/vision';
   import { checkLiveStatus, liveFullscreen, liveUi, offlineReason, saveSnapshot, toggleMute, toggleQuality, type StreamInfo } from '../lib/liveUi';
   import { formatClock, thumbUrl, TRIGGER_LABELS, type EventClip } from '../lib/recordings';
   import { timeAgo } from '../lib/clock';
@@ -161,6 +163,7 @@
         <img src={thumbUrl(camera.id, e.id)} alt="" loading="lazy" />
         <span class="what">
           <strong>{e.triggers.map((t) => TRIGGER_LABELS[t]).join(', ') || 'Recording'}</strong>
+          {#if badges(e.triggers, e.analysis).length}<span class="badges"><VisionBadges triggers={e.triggers} analysis={e.analysis} /></span>{/if}
           <span>{formatClock(e.start)}</span>
           <span data-testid="live-latest-ago">{timeAgo(Date.parse(e.start), nowMs)}</span>
         </span>
@@ -172,6 +175,7 @@
 </div>
 
 <style>
+  .badges { display: flex; gap: 4px; flex-wrap: wrap; }
   .panel { display: flex; flex-direction: column; gap: 12px; }
   .tile { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 14px; display: flex; flex-direction: column; gap: 6px; }
   h2 { margin: 0; font-size: 17px; }

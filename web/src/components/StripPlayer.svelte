@@ -35,7 +35,7 @@
   // The Timeline needs the camera's cam-proxy (its stills).
   const hasProxy = $derived(!!$cameras.find((c) => c.id === cam)?.proxy);
   const timelineHref = $derived(hasProxy && !glued
-    ? `/app/timeline?cam=${encodeURIComponent(cam)}&date=${localDate(new Date(at))}&t=${Math.floor(at / 1000) * 1000}&grid=1`
+    ? `/app/timeline?cam=${encodeURIComponent(cam)}&date=${localDate(new Date(at))}&t=${Math.floor(at / 1000) * 1000}`
     : null);
 
   const TICK_MS = 250;
@@ -331,7 +331,7 @@
         · <span class="src" class:clip={source.kind === 'clip'} data-testid="source-badge">{BADGE[source.kind]}</span>
         {#if triggers}· <span data-testid="clip-triggers">{triggers}</span>{/if}
         {#if timelineHref}
-          <!-- This moment in the Timeline's grid (Klaus, 2026-09-29). -->
+          <!-- This moment in the Timeline: its minute opens with the still (Klaus, 2026-09-30). -->
           · <a data-testid="show-in-timeline" href={timelineHref}
             onclick={(e) => { if (e.button === 0 && !e.metaKey && !e.ctrlKey && !e.shiftKey) { e.preventDefault(); navigate(timelineHref!); } }}>Show in Timeline</a>
         {/if}
