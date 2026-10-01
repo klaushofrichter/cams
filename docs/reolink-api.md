@@ -459,8 +459,12 @@ far is still motion-only.
 >   The camera came back after 36 s. It was still refusing 12 minutes later,
 >   for the same recording that downloaded fine before the reboot.
 >
-> So an API `Reboot` can **cause** the refusal, not only fail to fix it.
-> Don't reboot to cure Download. Live video, Snap, Search and settings still
+> Possible causes, not yet told apart: the `Reboot` itself, or the test that
+> ran just before it. That test opened two Downloads a second apart (HTTPS,
+> then HTTP) and closed each after 16 bytes. The camera allows one download
+> at a time (`CheckDownload` → `downloadTask`), and an aborted transfer may
+> stay a running task. Either way: don't reboot to cure Download, and don't
+> probe Download by closing it early. Live video, Snap, Search and settings still
 > work. cams detects the refusals and stops asking (see the breaker in
 > [Where cams handles each quirk](#where-cams-handles-each-quirk)). The
 > behaviour below was measured while downloads still worked.
