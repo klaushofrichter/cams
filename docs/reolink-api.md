@@ -459,6 +459,12 @@ far is still motion-only.
 >   The camera came back after 36 s. It was still refusing 12 minutes later,
 >   for the same recording that downloaded fine before the reboot.
 >
+> - **2026-10-01, 18:09:** a power cycle did **not** clear it. The camera
+>   was back by 18:10:30; at 18:11:31 `CheckDownload` reported
+>   `downloadTask: 0` (nothing stuck), and the Download was dropped after
+>   0.2 s with no bytes. SD card fine (61 GB, mounted, 58.7 GB free),
+>   recording enabled, Search works.
+>
 > Possible causes, not yet told apart: the `Reboot` itself, or the test that
 > ran just before it. That test opened two Downloads a second apart (HTTPS,
 > then HTTP) and closed each after 16 bytes. The camera allows one download
