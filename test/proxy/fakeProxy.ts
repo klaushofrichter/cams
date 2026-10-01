@@ -315,7 +315,7 @@ if (require.main === module) {
     hooks.post('/analyses', (req, res) => {
       const b = req.body as { cam?: unknown; analysis?: FakeAnalysis };
       const a = b.analysis;
-      if (typeof b.cam !== 'string' || !a || !Number.isSafeInteger(a.eventId) || !Number.isSafeInteger(a.start)) return void res.status(400).json({ error: 'cam and analysis' });
+      if (typeof b.cam !== 'string' || !a || !Number.isSafeInteger(a.eventId) || !Number.isSafeInteger(a.start) || (a.stillTs !== null && !Number.isSafeInteger(a.stillTs))) return void res.status(400).json({ error: 'cam and analysis (stillTs a number or null)' });
       fake.analyses.set(b.cam, [...(fake.analyses.get(b.cam) ?? []).filter((x) => x.eventId !== a.eventId), a]);
       if (a.stillTs !== null) {
         const minute = Math.floor(a.stillTs / 60_000) * 60_000;

@@ -1,7 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { setCameras } from '../server/cameraRegistry';
 import { resetProxyClients } from '../server/proxy/client';
-import { AnalysisStore, dayWindow, parseAnalysis, parseObjects, type ProxyAnalysis } from '../server/proxy/analyses';
+import { AnalysisStore, dayWindow, getAnalysisStore, parseAnalysis, parseObjects, resetAnalysisStore, type ProxyAnalysis } from '../server/proxy/analyses';
+import { proxyHub } from '../server/proxy/stream';
 import { attachAnalyses, cardFor } from '../server/recordings/analysis';
 import { FAKE_TOKEN, startFakeProxy, type FakeProxy } from './proxy/fakeProxy';
 
@@ -154,7 +155,7 @@ describe('AnalysisStore', () => {
     expect(asked()).toBe(4);
   });
 
-  it('overlays received messages on the cached day; the newer record wins', async () => {
+  it('overlays received messages on the cached day; a message wins over a record fetched before it', async () => {
     fake.analyses.set('cam1', [{ ...a({ status: 'skipped', reason: 'limit', stillTs: null, summary: [] }), provider: 'google-vision', objects: [] }]);
     const s = new AnalysisStore();
     await s.forDay('den', '2026-09-30', day, NOW);
@@ -163,6 +164,49 @@ describe('AnalysisStore', () => {
     const got = await s.forDay('den', '2026-09-30', day, NOW + 1000);
     expect(got.map((x) => [x.eventId, x.status])).toEqual([[1, 'ok'], [2, 'ok']]);
     expect(asked()).toBe(1);
+  });
+
+  it('keeps a record fetched after the message arrived: it knows the end (issue #109)', async () => {
+    const s = new AnalysisStore();
+    s.ingest('den', a({ end: null }), NOW);
+    fake.analyses.set('cam1', [{ ...a(), provider: 'google-vision', objects: [] }]);
+    expect((await s.forDay('den', '2026-09-30', day, NOW + 1000)).map((x) => x.end)).toEqual([T + 5000]);
+  });
+
+  it('serves an expired day as it was while the proxy fails (issue #109)', async () => {
+    fake.analyses.set('cam1', [{ ...a(), provider: 'google-vision', objects: [] }]);
+    const s = new AnalysisStore();
+    await s.forDay('den', '2026-09-30', day, NOW);
+    fake.analysesStatus = 500;
+    expect(await s.forDay('den', '2026-09-30', day, NOW + 61_000)).toEqual([a()]);
+    expect(await s.forDay('den', '2026-09-30', day, NOW + 70_000)).toEqual([a()]);
+    expect(asked()).toBe(2);
+  });
+
+  it('asks again after 60 s for a day fetched before its end, even once it is over (issue #109)', async () => {
+    const s = new AnalysisStore();
+    const lateNight = Date.parse('2026-09-30T23:59:30-05:00');
+    await s.forDay('den', '2026-09-30', day, lateNight);
+    await s.forDay('den', '2026-09-30', day, lateNight + 61_000);
+    expect(asked()).toBe(2);
+    await s.forDay('den', '2026-09-30', day, lateNight + 30 * 60_000);
+    expect(asked()).toBe(2);
+  });
+
+  it('forgets received messages two days after their start (issue #109)', async () => {
+    const s = new AnalysisStore();
+    s.ingest('den', a(), NOW);
+    s.ingest('den', a({ eventId: 2, start: T + 2 * 86_400_000 }), T + 2 * 86_400_000 + 1);
+    expect(await s.forDay('den', '2026-09-30', day, NOW)).toEqual([]);
+  });
+
+  it('keeps the analyses from the stream messages, ignoring other types and an older proxy’s shape (issue #109)', async () => {
+    resetAnalysisStore();
+    fake.offline = true;
+    proxyHub.emit('message', { cam: 'den', type: 'analysis', data: a() });
+    proxyHub.emit('message', { cam: 'den', type: 'analysis', data: { eventId: 2, status: 'ok', objects: [] } });
+    proxyHub.emit('message', { cam: 'den', type: 'clip', data: a({ eventId: 3 }) });
+    expect(await getAnalysisStore().forDay('den', '2026-09-30', day, NOW)).toEqual([a()]);
   });
 
   it('answers with the received messages alone while the proxy is away, and asks again next time', async () => {
@@ -194,6 +238,9 @@ describe('AnalysisStore', () => {
     expect(await s.forDay('den', '2026-09-30', day, NOW)).toEqual([]);
     expect(Date.now() - t0).toBeLessThan(1500);
     await s.forDay('den', '2026-09-30', day, NOW + 1000);
+    expect(asked()).toBe(1);
+    // The 30 s count from when it failed, not from when it was asked (issue #109).
+    await s.forDay('den', '2026-09-30', day, NOW + 30_100);
     expect(asked()).toBe(1);
   });
 

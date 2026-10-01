@@ -1,4 +1,4 @@
-import { CATEGORIES, type Category, type ProxyAnalysis, type SummaryEntry } from '../proxy/analyses';
+import { CATEGORIES, SLACK_MS, type Category, type ProxyAnalysis, type SummaryEntry } from '../proxy/analyses';
 
 // Vision's word on a card (spec 2026-09-30-analytics-in-cams-design): the best
 // score per category over the card's ok analyses, the camera's AI labels that
@@ -9,8 +9,6 @@ export interface CardAnalysis {
   notConfirmed: Category[];
   stills: { eventId: number; kind: string; stillTs: number; summary: SummaryEntry[] }[];
 }
-
-const SLACK_MS = 5000;
 
 // The card an analysis belongs to: its event starts in [card start − 5 s,
 // card end]. Where two cards fit (a clip repeats the previous one's last
