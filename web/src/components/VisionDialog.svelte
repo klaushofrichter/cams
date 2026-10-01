@@ -49,13 +49,23 @@
     return getJson<{ objects: StillObject[] }>(`/api/cameras/${enc(cameraId)}/analyses/${id}`).then((r) => r.objects);
   }
 
-  // Focus: into the dialog on open and kept there by Tab; the badge takes it
-  // back on close (VisionBadges).
+  // Focus: into the dialog on open and kept there by Tab, and brought back
+  // when it lands outside while open (issue #113); the badge takes it back on
+  // close (VisionBadges).
   let dialogEl: HTMLElement | undefined = $state();
   const focusables = () => [...(dialogEl?.querySelectorAll<HTMLElement>('button, input, select, a[href]') ?? [])].filter((e) => !e.hasAttribute('disabled'));
   onMount(() => {
     void tick().then(() => (focusables()[0] ?? dialogEl)?.focus());
   });
+  // Closing hands focus back to the badge before the dialog goes: let it.
+  let closing = false;
+  function close() {
+    closing = true;
+    onclose();
+  }
+  function keepFocus(e: FocusEvent) {
+    if (!closing && dialogEl && e.target instanceof Node && !dialogEl.contains(e.target)) (focusables()[0] ?? dialogEl).focus();
+  }
   function trap(e: KeyboardEvent) {
     if (e.key !== 'Tab') return;
     const f = focusables();
@@ -73,18 +83,19 @@
     if (e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey) return;
     e.preventDefault();
     before?.();
-    onclose();
+    close();
     navigate(href);
   }
 </script>
 
-<svelte:window onkeydown={(e) => e.key === 'Escape' && onclose()} />
+<svelte:window onkeydown={(e) => e.key === 'Escape' && close()} />
+<svelte:document onfocusin={keepFocus} />
 <div class="layer" use:portal>
-  <div class="backdrop" role="presentation" data-testid="vision-dialog-backdrop" onclick={onclose}></div>
+  <div class="backdrop" role="presentation" data-testid="vision-dialog-backdrop" onclick={close}></div>
   <div class="dialog" role="dialog" aria-modal="true" aria-label={`Vision: ${LABEL[category]}`} data-testid="vision-dialog" tabindex="-1" bind:this={dialogEl} onkeydown={trap}>
     <header>
       <h2>✦ Vision · {LABEL[category]}{#if still}<span class="time">{clock(still.stillTs)}</span>{/if}</h2>
-      <button class="x" aria-label="Close" data-testid="vision-dialog-close" onclick={onclose}>✕</button>
+      <button class="x" aria-label="Close" data-testid="vision-dialog-close" onclick={close}>✕</button>
     </header>
     {#if still}
       <TimelineStill {src} alt={`The analysed still at ${clock(still.stillTs)}`} summary={still.summary} {loadAll} />

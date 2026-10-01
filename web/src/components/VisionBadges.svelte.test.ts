@@ -195,6 +195,26 @@ describe('the Vision dialog', () => {
     expect(document.activeElement).toBe(focusables[focusables.length - 1]);
   });
 
+  // Issue #113: focus that escapes (a click on the still, a page element)
+  // comes back, so Tab never continues on the page behind.
+  it('brings focus back into the dialog when it lands outside', async () => {
+    const outside = document.createElement('button');
+    document.body.appendChild(outside);
+    try {
+      inCard();
+      const dialog = await open();
+      outside.focus();
+      expect(dialog.contains(document.activeElement)).toBe(true);
+      byId('vision-dialog-close')!.click();
+      flushSync();
+      // Closed: the page has its focus again.
+      outside.focus();
+      expect(document.activeElement).toBe(outside);
+    } finally {
+      outside.remove();
+    }
+  });
+
   it('shows all objects from the full analysis', async () => {
     const fetch = vi.fn(async () => new Response(JSON.stringify({ eventId: 12, status: 'ok', stillTs: T2, summary: [], objects: [{ name: 'Person', score: 0.84, box }, { name: 'Ceiling fan', score: 0.7, box }, { name: 'Lamp', score: 0.5, box: null }] }), { status: 200 }));
     vi.stubGlobal('fetch', fetch);
