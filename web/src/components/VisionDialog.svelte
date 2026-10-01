@@ -5,7 +5,7 @@
   import { portal } from '../lib/portal';
   import { localDate } from '../lib/recordings';
   import { navigate } from '../lib/router';
-  import { historyHref, shareViewPoint } from '../lib/timeline';
+  import { historyHref, openHistory } from '../lib/timeline';
   import { findingLine, LABEL, type CardAnalysis, type Category, type StillObject } from '../lib/vision';
 
   // A Vision badge's dialog (Klaus, 2026-09-30): the card's analysed still with
@@ -79,12 +79,11 @@
   // Timeline's "Open in History" leaves (Klaus, 2026-10-01).
   const historyLink = $derived(still ? historyHref(cameraId, still.stillTs) : '');
   // A plain click closes the dialog and stays in the app; a modified one is the browser's.
-  function go(e: MouseEvent, href: string, before?: () => void) {
+  function go(e: MouseEvent, open: () => void) {
     if (e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey) return;
     e.preventDefault();
-    before?.();
     close();
-    navigate(href);
+    open();
   }
 </script>
 
@@ -114,8 +113,8 @@
         <p class="muted">Vision found nothing relevant in this still.</p>
       {/if}
       <footer>
-        <a href={historyLink} data-testid="vision-dialog-history" onclick={(e) => go(e, historyLink, () => shareViewPoint(cameraId, still!.stillTs))}>Open in History</a>
-        <a href={timelineHref} data-testid="vision-dialog-timeline" onclick={(e) => go(e, timelineHref)}>Open in Timeline</a>
+        <a href={historyLink} data-testid="vision-dialog-history" onclick={(e) => go(e, () => openHistory(cameraId, still!.stillTs))}>Open in History</a>
+        <a href={timelineHref} data-testid="vision-dialog-timeline" onclick={(e) => go(e, () => navigate(timelineHref))}>Open in Timeline</a>
       </footer>
     {:else}
       <p class="muted">No still was kept for this analysis.</p>

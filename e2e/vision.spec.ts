@@ -176,11 +176,22 @@ test('the dialog’s "Open in History" opens History at the analysed second, pau
   await expect.poll(() => new URL(page.url()).searchParams.get('at')).toBe(String(stillTs));
   await expect(page.getByTestId('source-badge')).toBeVisible();
   await expect(page.getByTestId('play-toggle')).toHaveAttribute('aria-pressed', 'false');
-  // From History's own list too.
+  // From History's own list too, while it plays: it lands paused at the second (review fix).
+  await page.getByTestId('play-toggle').click();
+  await expect(page.getByTestId('play-toggle')).toHaveAttribute('aria-pressed', 'true');
   await badge(page, card).click();
   await expect(dialog.getByTestId('vision-dialog-history')).toBeVisible();
   await dialog.getByTestId('vision-dialog-history').click();
   await expect(page.getByTestId('vision-dialog')).toHaveCount(0);
-  await expect.poll(() => new URL(page.url()).searchParams.get('at')).toBe(String(stillTs));
+  await expect(page.getByTestId('play-toggle')).toHaveAttribute('aria-pressed', 'false');
+  // At that second (the player may settle a few ms into it), and it stays there.
+  const second = () => Math.floor(Number(new URL(page.url()).searchParams.get('at')) / 1000) * 1000;
+  await expect.poll(second).toBe(stillTs);
+  // The paused video's frame lands a few ms on and is reported once (reports
+  // come at most every 2 s); after that it doesn't move.
+  await page.waitForTimeout(3000);
+  const settled = new URL(page.url()).searchParams.get('at');
+  await page.waitForTimeout(2500);
+  expect(new URL(page.url()).searchParams.get('at')).toBe(settled);
   await expect(page.getByTestId('play-toggle')).toHaveAttribute('aria-pressed', 'false');
 });
