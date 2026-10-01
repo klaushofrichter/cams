@@ -28,7 +28,7 @@ async function personCard(page: Page): Promise<Card> {
 // Stores an analysis of the card's person event and sends its stream message.
 async function analyse(page: Page, card: Card): Promise<{ eventId: number; stillTs: number; subtype: string }> {
   const eventId = 100_000 + Math.floor(Math.random() * 900_000);
-  const subtype = `e2e-${eventId}`;
+  const subtype = `E2E-${eventId}`; // capitalised already, as the tooltip shows it
   const start = Date.parse(card.start) + 1000;
   const stillTs = start + 1000;
   const msg = { eventId, kind: 'person', start, end: start + 4000, provider: 'google-vision', status: 'ok', reason: null, stillTs, summary: [{ category: 'person', subtype, score: 0.84, box }] };

@@ -67,8 +67,8 @@ describe('VisionBadges', () => {
   it('renders the agreement and the extra finding, coloured by confidence', () => {
     const got = render({ triggers: ['person'], analysis });
     expect(got).toEqual([
-      { kind: 'agree', level: 'high', text: '✦ Vision 84%', title: 'Vision: person 0.84 · high confidence' },
-      { kind: 'extra', level: 'low', text: '+ Pet 42%', title: 'Vision: dog 0.42 · low confidence' },
+      { kind: 'agree', level: 'high', text: '✦ Vision 84%', title: 'Vision: Person 84% · high confidence' },
+      { kind: 'extra', level: 'low', text: '+ Pet 42%', title: 'Vision: Dog 42% · low confidence' },
     ]);
   });
 

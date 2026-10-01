@@ -41,11 +41,11 @@ const scored = (a: CardAnalysis, k: Category, score: number, what: string) => {
 };
 
 // Every subtype Vision saw for a category, each once with its best score,
-// best first: "dog 0.70, cat 0.55".
+// best first, written like a box's label: "Dog 70%, Cat 55%".
 export function subtypes(a: CardAnalysis, k: Category): string {
   const best = new Map<string, number>();
   for (const s of a.stills) for (const e of s.summary) if (e.category === k && e.score > (best.get(e.subtype) ?? -1)) best.set(e.subtype, e.score);
-  return [...best].sort((x, y) => y[1] - x[1]).map(([n, v]) => `${n} ${v.toFixed(2)}`).join(', ');
+  return [...best].sort((x, y) => y[1] - x[1]).map(([n, v]) => boxLabel(n, v)).join(', ');
 }
 
 // Per category: Vision agrees with the camera's label (its score), found none
