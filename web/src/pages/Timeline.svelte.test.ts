@@ -78,6 +78,47 @@ describe('Timeline', () => {
     expect(target.querySelectorAll('[data-testid="timeline-minute"]').length).toBe(1);
   });
 
+  // Review of #109: the refresh no longer re-runs on a day change, so it must
+  // not write its old day into the new one.
+  it('drops a refresh that finishes after the day changed', async () => {
+    let release: (() => void) | undefined;
+    const held = new Promise<void>((r) => (release = r));
+    let todayCalls = 0;
+    const old = Date.UTC(2020, 0, 1, 18); // noon on 2020-01-01 in Chicago
+    vi.stubGlobal('IntersectionObserver', class { observe() {} disconnect() {} });
+    vi.stubGlobal('fetch', async (url: string) => {
+      if (url.includes('/previews?')) {
+        const from = Number(new URL(url, 'http://x').searchParams.get('from'));
+        const at = from < Date.UTC(2021, 0, 1) ? old : minute;
+        if (at === minute && ++todayCalls === 2) await held; // the refresh
+        return json([{ minute: at, cols: 10, rows: 6, tileW: 160, tileH: 90, intervalS: 1, present: Array(60).fill(true), url: `/x/${at}.jpg` }]);
+      }
+      if (url.includes('/stills?')) return json([]);
+      if (url.includes('/events?')) return json({ events: [] });
+      return json({});
+    });
+    cameras.set([{ id: 'den', name: 'Den', webUiUrl: null, proxy: true }]);
+    selectedCameraId.set('den');
+    sessionStorage.clear();
+    history.replaceState(null, '', '/app/timeline');
+    target = document.createElement('div');
+    document.body.appendChild(target);
+    component = mount(Timeline, { target });
+    for (let i = 0; i < 8; i++) await tick();
+    flushSync();
+    fireChange!(); // a refresh of today, held
+    flushSync();
+    const day = target.querySelector('[data-testid="timeline-day"]') as HTMLInputElement;
+    day.value = '2020-01-01';
+    day.dispatchEvent(new Event('input'));
+    for (let i = 0; i < 8; i++) await tick();
+    flushSync();
+    release!();
+    for (let i = 0; i < 8; i++) await tick();
+    flushSync();
+    expect([...target.querySelectorAll('[data-testid="timeline-minute"]')].map((x) => Number(x.getAttribute('data-minute')))).toEqual([old]);
+  });
+
   // Issue #38 items.
   it('marks events from the neighbouring camera days too (another time zone)', async () => {
     const asked: string[] = [];

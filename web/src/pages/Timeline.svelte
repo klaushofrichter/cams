@@ -71,10 +71,14 @@
     return { m: parts.flat(), ev: ev.flatMap((x) => x.events) };
   }
 
+  // Each camera or day load: a refresh started for an earlier one is dropped.
+  let loadSeq = 0;
+
   // A camera or day change: clear, then load.
   $effect(() => {
     const cam = camera;
     const d = date;
+    ++loadSeq;
     minutes = [];
     cards = [];
     open = null;
@@ -121,9 +125,10 @@
     const [cam, d, b] = untrack(() => [camera, date, base] as const);
     if (!cam?.proxy) return;
     let stale = false;
+    const seq = loadSeq;
     fetchDay(b, d).then(
       ({ m, ev }) => {
-        if (stale) return;
+        if (stale || seq !== loadSeq) return; // the day or camera changed meanwhile
         minutes = m;
         cards = ev;
         if (m.length) message = '';
@@ -377,7 +382,7 @@
   .second.missing { opacity: 0.25; }
   .second:disabled { cursor: default; }
   .img { display: block; width: 80px; height: 45px; }
-  .count { position: absolute; right: 2px; bottom: 2px; background: rgb(0 0 0 / 0.7); color: #fff; font-size: 10px; line-height: 1.3; padding: 0 3px; border-radius: 3px; }
+  .count { position: absolute; right: 2px; bottom: 2px; background: var(--tile-count-bg); color: var(--tile-count-ink); font-size: 10px; line-height: 1.3; padding: 0 3px; border-radius: 3px; }
   .spark { position: absolute; top: 1px; left: 3px; color: var(--vision-mark); font-size: 11px; line-height: 1; }
   /* The open minute stands apart from the hour's tiles (cam-proxy, Klaus 2026-09-30). */
   .detail { display: grid; gap: 8px; padding: 10px 12px; border-radius: var(--radius); background: color-mix(in srgb, var(--accent) 10%, var(--surface)); border: 1px solid color-mix(in srgb, var(--accent) 45%, var(--border)); }
@@ -386,7 +391,7 @@
   .spacer { flex: 1; }
   .evtag { display: inline-block; margin-right: 10px; padding-left: 6px; border-left: 4px solid; }
   .large { display: grid; gap: 6px; }
-  .ev-motion { border-color: #f59e0b; } .ev-person { border-color: #ef4444; } .ev-vehicle { border-color: #3b82f6; } .ev-pet { border-color: #22c55e; } .ev-timer { border-color: var(--muted); }
+  .ev-motion { border-color: var(--kind-motion); } .ev-person { border-color: var(--kind-person); } .ev-vehicle { border-color: var(--kind-vehicle); } .ev-pet { border-color: var(--kind-pet); } .ev-timer { border-color: var(--muted); }
   @media (max-width: 600px) {
     .hour { grid-template-columns: 1fr; }
   }

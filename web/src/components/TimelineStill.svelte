@@ -92,7 +92,7 @@
   img { display: block; max-width: 100%; max-height: 60vh; width: auto; height: auto; background: var(--bg); border-radius: 8px; }
   svg { position: absolute; inset: 0; width: 100%; height: 100%; }
   rect { fill: none; stroke: var(--vision-mark); stroke-width: 3; }
-  .label { position: absolute; transform: translateY(-100%); background: var(--vision-mark); color: #fff; font-size: 12px; line-height: 1.4; padding: 0 4px; border-radius: 3px; white-space: nowrap; }
+  .label { position: absolute; transform: translateY(-100%); background: var(--vision-mark); color: var(--on-vision-mark); font-size: 12px; line-height: 1.4; padding: 0 4px; border-radius: 3px; white-space: nowrap; }
   .label.inside { transform: none; }
   .small { font-size: 13px; display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
   .muted { color: var(--muted); }
