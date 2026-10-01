@@ -20,6 +20,12 @@ function render(onclose = vi.fn(), composable = true, c: typeof clip | (Omit<typ
   flushSync();
   return onclose;
 }
+// The page's visibility, with its event; null puts jsdom's own back.
+function visibility(v: 'visible' | 'hidden' | null) {
+  if (v === null) return void delete (document as { visibilityState?: unknown }).visibilityState;
+  Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => v });
+  document.dispatchEvent(new Event('visibilitychange'));
+}
 const q = (id: string) => target!.querySelector(`[data-testid="${id}"]`) as HTMLElement | null;
 const set = (id: string, v: string) => {
   const el = q(id) as HTMLInputElement;
@@ -289,14 +295,39 @@ describe('ComposeDialog', () => {
       set('compose-post', '10');
       q('compose-generate')!.click();
       await vi.advanceTimersByTimeAsync(1000);
+      visibility('hidden');
       gone = true; // the proxy swept it while the phone was elsewhere
-      Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => 'visible' });
-      document.dispatchEvent(new Event('visibilitychange'));
+      visibility('visible');
       await vi.advanceTimersByTimeAsync(10);
       flushSync();
       expect(target!.textContent).toContain('stopped while the page was in the background');
     } finally {
       vi.useRealTimers();
+      visibility(null);
+    }
+  });
+
+  // Issue #76: the interval poll may answer before the visibility poll.
+  it('says "in the background" even when the interval poll finds it gone first', async () => {
+    vi.useFakeTimers();
+    try {
+      let gone = false;
+      server({ poll: async () => (gone ? new Response('{"error":"not_found"}', { status: 404 }) : new Response(JSON.stringify(job('c')), { status: 200 })) });
+      render();
+      set('compose-post', '10');
+      q('compose-generate')!.click();
+      await vi.advanceTimersByTimeAsync(1000);
+      visibility('hidden');
+      gone = true;
+      await vi.advanceTimersByTimeAsync(1000); // the interval poll, still hidden
+      visibility('visible');
+      await vi.advanceTimersByTimeAsync(10);
+      flushSync();
+      expect(target!.textContent).toContain('stopped while the page was in the background');
+      expect(target!.textContent).not.toContain('was lost');
+    } finally {
+      vi.useRealTimers();
+      visibility(null);
     }
   });
 

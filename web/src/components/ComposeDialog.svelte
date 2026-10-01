@@ -53,7 +53,8 @@
     void tick().then(() => focusables()[0]?.focus());
     if (composable) void isAvailable(camera, clip.id).then((a) => (available = a));
     const onVisible = () => {
-      if (document.visibilityState === 'visible' && job) void poll(gen, job.id, true);
+      if (document.visibilityState === 'hidden') hiddenAt ??= Date.now();
+      else if (job) void poll(gen, job.id);
     };
     document.addEventListener('visibilitychange', onVisible);
     return () => document.removeEventListener('visibilitychange', onVisible);
@@ -84,6 +85,10 @@
   let starting = $state(false);
   let failures = 0;
   const MAX_FAILURES = 5;
+  // When the page went into the background, until a poll after it finds the
+  // job still there: a job gone meanwhile was stopped "in the background",
+  // whichever poll notices first (issue #76).
+  let hiddenAt: number | null = null;
 
   function stop() {
     gen++;
@@ -116,7 +121,7 @@
     failures = 0;
     timer = setInterval(() => void poll(mine, started.id), 1000);
   }
-  async function poll(mine: number, id: string, fromBackground = false) {
+  async function poll(mine: number, id: string) {
     let v: JobView | null;
     try {
       v = await pollJob(camera, id);
@@ -129,6 +134,8 @@
     }
     if (mine !== gen || job?.id !== id) return; // an answer for a job we left
     failures = 0;
+    const fromBackground = hiddenAt !== null;
+    if (document.visibilityState === 'visible') hiddenAt = null;
     if (!v) {
       clearInterval(timer);
       clearInterval(keep);
