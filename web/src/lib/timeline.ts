@@ -216,11 +216,14 @@ export function stepMinute(hour: { minute: number }[], current: number, dir: -1 
   return hour[i + dir]?.minute ?? null;
 }
 
+// A card ending exactly where the minute starts is the minute before's (issue #109).
+const inMinute = (s: number, e: number, minute: number) => s < minute + MINUTE && (e > minute || (e === s && s === minute));
+
 export function cardsInMinute<T extends { start: string; end: string }>(m: { minute: number }, cards: T[]): T[] {
   return cards
     .filter((c) => {
       const [s, e] = spanOf(c);
-      return s < m.minute + MINUTE && e >= m.minute;
+      return inMinute(s, e, m.minute);
     })
     .sort((a, b) => Date.parse(a.start) - Date.parse(b.start));
 }
@@ -273,6 +276,30 @@ export function minuteMarks(m: { minute: number }, cards: TimelineCard[]): { cou
     count: cardsInMinute(m, cards).length,
     analysed: seenStills(cards).some((s) => s.stillTs >= m.minute && s.stillTs < m.minute + MINUTE),
   };
+}
+
+// The hour grid's data for every minute of the day at once (issue #109: not
+// per tile): its cards, their count, the minute's colour and Vision's mark.
+export interface MinuteInfo<T> { cards: T[]; kind: string | null; count: number; analysed: boolean }
+export function minuteIndex<T extends TimelineCard>(minutes: { minute: number }[], cards: T[]): Map<number, MinuteInfo<T>> {
+  const out = new Map<number, MinuteInfo<T>>(minutes.map((m) => [m.minute, { cards: [], kind: null, count: 0, analysed: false }]));
+  const sorted = cards.map((c) => ({ c, span: spanOf(c) })).sort((a, b) => a.span[0] - b.span[0]);
+  for (const { c, span: [s, e] } of sorted) {
+    if (!Number.isFinite(s) || !Number.isFinite(e)) continue;
+    for (let m = minuteOf(s); m <= e; m += MINUTE) {
+      const x = out.get(m);
+      if (!x || !inMinute(s, e, m)) continue;
+      x.cards.push(c);
+      x.count++;
+      const k = cardKind(c);
+      if (x.kind === null || rank(k) < rank(x.kind)) x.kind = k;
+    }
+  }
+  for (const st of seenStills(cards)) {
+    const x = out.get(minuteOf(st.stillTs));
+    if (x) x.analysed = true;
+  }
+  return out;
 }
 
 // Per tile of the minute, the analysed still in that second, or null.

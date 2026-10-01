@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { dayRange, hourGroups, thumbCoverage, minuteOf, previewAt, splitRange, stillIndex, tileIndex, tileStyle, timelineCursor, cursorSearch, stepMinute, cardsInMinute, cardKind, minuteKind, secondKinds, seenStills, minuteMarks, analysedSeconds, type PreviewMinute } from './timeline';
+import { dayRange, hourGroups, thumbCoverage, minuteOf, previewAt, splitRange, stillIndex, tileIndex, tileStyle, timelineCursor, cursorSearch, stepMinute, cardsInMinute, cardKind, minuteKind, secondKinds, seenStills, minuteMarks, analysedSeconds, minuteIndex, type PreviewMinute } from './timeline';
 
 // Tests run with TZ=America/Chicago (vitest.config).
 const m = (minute: number, present = Array(60).fill(true)): PreviewMinute => ({ minute, cols: 10, rows: 6, tileW: 160, tileH: 90, intervalS: 1, present, url: `/x/${minute}.jpg` });
@@ -157,6 +157,38 @@ describe('the minute view (spec 2026-09-30-analytics-in-cams-design)', () => {
     expect(minuteMarks(minute, [found, nothing])).toEqual({ count: 2, analysed: true });
     expect(minuteMarks(minute, [nothing])).toEqual({ count: 1, analysed: false });
     expect(minuteMarks({ minute: M + 60_000 }, [found])).toEqual({ count: 0, analysed: false }); // the still's minute only
+  });
+
+  it('does not count a card that ends exactly where the minute starts (issue #109)', () => {
+    const before = card(M - 30_000, M, ['person']);
+    expect(cardsInMinute(minute, [before])).toEqual([]);
+    expect(cardsInMinute({ minute: M - 60_000 }, [before])).toEqual([before]);
+  });
+
+  it('works on seconds of two: one tile per two seconds (issue #109)', () => {
+    const two = { minute: M, intervalS: 2, present: Array(30).fill(true) as boolean[] };
+    const k = secondKinds(two, [card(M + 4000, M + 5000, ['pet'])]);
+    expect(k[1]).toBeNull();
+    expect(k[2]).toBe('pet');
+    expect(k[3]).toBeNull();
+    const s = analysedSeconds(two, [card(M, M + 30_000, ['person'], [{ eventId: 7, stillTs: M + 21_000, n: 1 }])]);
+    expect(s[10]).toMatchObject({ stillTs: M + 21_000 }); // 20-21 s
+    expect(s.filter((x) => x !== null)).toHaveLength(1);
+    expect(tileIndex({ ...m(M), intervalS: 2 }, M + 21_000)).toBe(10);
+  });
+
+  it('indexes the day once: per minute its cards, count, kind and Vision mark (issue #109)', () => {
+    const cards = [
+      card(M - 30_000, M + 5000, ['motion']),
+      card(M + 20_000, M + 70_000, ['person'], [{ eventId: 1, stillTs: M + 65_000, n: 1 }]),
+      card(M + 61_000, M + 62_000, ['pet'], [{ eventId: 2, stillTs: M + 61_500, n: 0 }]),
+    ];
+    const idx = minuteIndex([{ minute: M - 60_000 }, { minute: M }, { minute: M + 60_000 }, { minute: M + 120_000 }], cards);
+    for (const x of [M - 60_000, M, M + 60_000, M + 120_000]) {
+      const one = { minute: x };
+      expect(idx.get(x)).toEqual({ cards: cardsInMinute(one, cards), kind: minuteKind(one, cards), ...minuteMarks(one, cards) });
+    }
+    expect(idx.get(M + 60_000)).toMatchObject({ count: 2, kind: 'person', analysed: true });
   });
 
   it('finds the analysed still of each second', () => {
