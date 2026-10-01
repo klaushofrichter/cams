@@ -331,6 +331,26 @@ describe('ComposeDialog', () => {
     }
   });
 
+  // Review of #76: a hide before the job started does not count.
+  it('calls a job lost on its first poll "lost", even after the page was hidden before Generate', async () => {
+    vi.useFakeTimers();
+    try {
+      server({ poll: async () => new Response('{"error":"not_found"}', { status: 404 }) });
+      render();
+      visibility('hidden');
+      visibility('visible');
+      set('compose-post', '10');
+      q('compose-generate')!.click();
+      await vi.advanceTimersByTimeAsync(1000);
+      flushSync();
+      expect(target!.textContent).toContain('was lost');
+      expect(target!.textContent).not.toContain('in the background');
+    } finally {
+      vi.useRealTimers();
+      visibility(null);
+    }
+  });
+
   // Review: after Generate again, the new result must be kept alive too.
   it('keeps a regenerated result alive as well', async () => {
     vi.useFakeTimers();

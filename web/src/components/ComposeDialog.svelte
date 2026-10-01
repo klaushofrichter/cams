@@ -53,7 +53,9 @@
     void tick().then(() => focusables()[0]?.focus());
     if (composable) void isAvailable(camera, clip.id).then((a) => (available = a));
     const onVisible = () => {
-      if (document.visibilityState === 'hidden') hiddenAt ??= Date.now();
+      if (document.visibilityState === 'hidden') {
+        if (job || starting) hiddenAt ??= Date.now(); // only a hide while a job runs counts
+      }
       else if (job) void poll(gen, job.id);
     };
     document.addEventListener('visibilitychange', onVisible);
@@ -105,6 +107,7 @@
     error = '';
     const mine = gen;
     starting = true;
+    hiddenAt = document.visibilityState === 'hidden' ? Date.now() : null;
     let started: JobView;
     try {
       started = await startJob(camera, { eventId: clip.id, preS: roll.pre, postS: roll.post, size: size as ComposeSize, badge, timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone });
