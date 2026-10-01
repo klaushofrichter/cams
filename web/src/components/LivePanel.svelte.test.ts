@@ -87,6 +87,22 @@ describe('LivePanel', () => {
     expect(target!.querySelector('.badges')!.contains(badge)).toBe(true);
   });
 
+  it('a Vision badge opens its dialog and does not play the event; the rest of the row still plays', () => {
+    const box = { x0: 0, y0: 0, x1: 1, y1: 1 };
+    const analysis = { best: { pet: { score: 0.7, subtype: 'dog' } }, notConfirmed: [], stills: [{ eventId: 1, stillTs: 1, summary: [{ category: 'pet' as const, subtype: 'dog', score: 0.7, box }] }] };
+    const onplay = vi.fn();
+    render({ recent: [{ ...ev, analysis }], onplay });
+    q('vision-badge')!.click();
+    flushSync();
+    expect(onplay).not.toHaveBeenCalled();
+    expect(document.querySelector('[data-testid="vision-dialog"]')).not.toBeNull();
+    expect((document.querySelector('[data-testid="timeline-still"]') as HTMLImageElement).getAttribute('src')).toBe('/api/cameras/cam2/stills/1.jpg');
+    (document.querySelector('[data-testid="vision-dialog-close"]') as HTMLElement).click();
+    flushSync();
+    (target!.querySelector('[data-testid="live-latest"] strong') as HTMLElement).click();
+    expect(onplay).toHaveBeenCalledTimes(1);
+  });
+
   it('says so when there are no events', () => {
     render({ recent: [] });
     expect(q('live-recent')!.textContent).toContain('Most recent events');
