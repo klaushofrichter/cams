@@ -94,6 +94,19 @@ describe('compositions pass-through', () => {
     expect(fake.requests.length).toBe(before);
   });
 
+  it('keeps a job it is still asked about past 20 minutes from its start (issue #76)', async () => {
+    fake.composeDelayMs = 0;
+    const t0 = Date.now();
+    const now = vi.spyOn(Date, 'now');
+    now.mockReturnValue(t0);
+    const { body } = await post('den', { eventId: EVENT, preS: 0, postS: 5, size: 'sd', badge: false });
+    now.mockReturnValue(t0 + 15 * 60_000); // the dialog's once-a-minute keep-alive
+    expect((await request(createApp()).get(`/api/cameras/den/compositions/${body.id}`).set('Cookie', auth)).status).toBe(200);
+    now.mockReturnValue(t0 + 30 * 60_000);
+    await post('den', { eventId: EVENT, preS: 0, postS: 6, size: 'sd', badge: false }); // prunes the old ones
+    expect((await request(createApp()).get(`/api/cameras/den/compositions/${body.id}`).set('Cookie', auth)).status).toBe(200);
+  });
+
   it('keeps jobs per camera', async () => {
     setCameras([
       { id: 'den', name: 'Den', host: '127.0.0.1:9', protocol: 'http', user: 'u', password: 'p', proxy: { url: fake.url, token: FAKE_TOKEN, camera: 'cam1' } },

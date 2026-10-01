@@ -37,7 +37,8 @@ const jobOk = (req: Request, res: Response) => (JOB.test(String(req.params.job))
 
 // The jobs cams started, per camera, with cams's own copy of the proxy's id:
 // only those are asked about, and never by the id from the request (CodeQL
-// js/request-forgery). Kept a little longer than the proxy keeps a result.
+// js/request-forgery). Kept a little longer than the proxy keeps a result,
+// counted from the last question about the job.
 const started = new Map<string, { id: string; at: number }>();
 const KEEP_MS = 20 * 60_000;
 const keyOf = (cam: string, job: string) => `${cam}\u0000${job}`;
@@ -46,10 +47,13 @@ function remember(cam: string, id: string) {
   for (const [k, v] of started) if (t - v.at > KEEP_MS) started.delete(k);
   started.set(keyOf(cam, id), { id, at: t });
 }
+// Each question about a job keeps it (the dialog asks once a minute while a
+// result is open, issue #76).
 function known(cam: string, req: Request, res: Response): string | undefined {
-  const job = started.get(keyOf(cam, String(req.params.job)))?.id;
-  if (!job) res.status(404).json({ error: 'not_found' });
-  return job;
+  const entry = started.get(keyOf(cam, String(req.params.job)));
+  if (!entry) return void res.status(404).json({ error: 'not_found' }), undefined;
+  entry.at = Date.now();
+  return entry.id;
 }
 
 composeRouter.post('/api/cameras/:id/compositions', async (req, res) => {
