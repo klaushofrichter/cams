@@ -375,21 +375,22 @@ export class RecordingsService {
     return ev ? { start: Date.parse(ev.start), end: Date.parse(ev.end) } : null;
   }
 
-  // The proxy's clip for an event (composed clips, cam-proxy spec 2026-09-28).
-  proxyClipOf(cameraId: string, clipId: string): Promise<{ id: number } | null> {
-    return this.proxyClip(cameraId, clipId);
+  // The proxy's clip for an event (composed clips, cam-proxy spec 2026-09-28):
+  // null when it has none; a failed lookup throws (issue #76).
+  async proxyClipOf(cameraId: string, clipId: string): Promise<{ id: number } | null> {
+    if (!proxyActive(cameraId)) return null;
+    const span = await this.eventSpan(cameraId, clipId);
+    if (!span) return null;
+    const clip = await findProxyClip(cameraId, span.start, span.end);
+    if (clip) logger.info({ cameraId, clipId, proxyClip: clip.id }, 'recording_from_proxy');
+    return clip;
   }
 
   // The proxy's clip for the event, for a camera with a cam-proxy (Plan 7:
-  // asked first; Plan 6: when the camera refuses).
+  // asked first; Plan 6: when the camera refuses). A failed lookup: none.
   private async proxyClip(cameraId: string, clipId: string): Promise<{ id: number } | null> {
-    if (!proxyActive(cameraId)) return null;
     try {
-      const span = await this.eventSpan(cameraId, clipId);
-      if (!span) return null;
-      const clip = await findProxyClip(cameraId, span.start, span.end);
-      if (clip) logger.info({ cameraId, clipId, proxyClip: clip.id }, 'recording_from_proxy');
-      return clip;
+      return await this.proxyClipOf(cameraId, clipId);
     } catch (e) {
       logger.warn({ cameraId, clipId, message: (e as Error).message }, 'proxy_clip_lookup_failed');
       return null;

@@ -250,6 +250,20 @@ describe('ComposeDialog', () => {
     expect(q('compose-save')!.getAttribute('href')).toContain('quality=sub');
   });
 
+  it('drops a pre-/post-roll typed before the proxy said it has no copy (issue #76)', async () => {
+    let answer: (r: Response) => void = () => {};
+    vi.stubGlobal('fetch', vi.fn((url: string) => (url.includes('/available') ? new Promise<Response>((r) => (answer = r)) : Promise.resolve(new Response('{}', { status: 200 })))));
+    render();
+    set('compose-post', '30');
+    expect(q('compose-generate')).not.toBeNull();
+    answer(new Response('{"available":false}', { status: 200 }));
+    await settle();
+    expect(q('compose-unavailable')).not.toBeNull();
+    expect(q('compose-generate')).toBeNull();
+    expect(q('compose-save')!.getAttribute('href')).toContain('quality=sub');
+    expect(q('compose-length')!.textContent).toContain('0:20');
+  });
+
   it('keeps a finished result alive while the dialog is open', async () => {
     vi.useFakeTimers();
     try {

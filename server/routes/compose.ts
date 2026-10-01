@@ -58,7 +58,12 @@ composeRouter.post('/api/cameras/:id/compositions', async (req, res) => {
   const b = (req.body ?? {}) as { eventId?: unknown; preS?: unknown; postS?: unknown; size?: unknown; badge?: unknown; timeZone?: unknown };
   if (typeof b.eventId !== 'string' || !EVENT.test(b.eventId)) return void res.status(400).json({ error: 'invalid', detail: 'eventId is required' });
   try {
-    const clip = await getRecordings().proxyClipOf(t.id, b.eventId);
+    let clip: { id: number } | null;
+    try {
+      clip = await getRecordings().proxyClipOf(t.id, b.eventId);
+    } catch (err) {
+      return void lookupFailed(t.id, err, res);
+    }
     if (!clip) return void res.status(404).json({ error: 'no_clip' });
     const up = await t.client.open(t.base, undefined, { method: 'POST', body: JSON.stringify({ clipId: clip.id, preS: b.preS, postS: b.postS, size: b.size, badge: b.badge, ...(typeof b.timeZone === 'string' ? { timeZone: b.timeZone } : {}) }) });
     const text = await up.text();
@@ -74,8 +79,16 @@ composeRouter.post('/api/cameras/:id/compositions', async (req, res) => {
   }
 });
 
+// The event → proxy clip lookup failed (the proxy, or the camera's day list):
+// not "no copy", which the dialog would take as final (issue #76).
+function lookupFailed(id: string, err: unknown, res: Response) {
+  logger.warn({ cameraId: id, message: (err as Error).message }, 'proxy_clip_lookup_failed');
+  res.status(502).json({ error: 'proxy_unavailable' });
+}
+
 // Whether the proxy has a copy of the event at all (issue #72): the dialog
-// offers pre-/post-roll only then. A camera without a proxy: false.
+// offers pre-/post-roll only then. A camera without a proxy: false. A failed
+// lookup: 502, and the dialog stays on the full choice.
 composeRouter.get('/api/cameras/:id/compositions/available', async (req, res) => {
   const id = String(req.params.id);
   if (!getCamera(id)) return void res.status(404).json({ error: 'unknown_camera' });
@@ -84,8 +97,8 @@ composeRouter.get('/api/cameras/:id/compositions/available', async (req, res) =>
   if (!getProxyClient(id)) return void res.json({ available: false });
   try {
     res.json({ available: !!(await getRecordings().proxyClipOf(id, eventId)) });
-  } catch {
-    res.json({ available: false });
+  } catch (err) {
+    lookupFailed(id, err, res);
   }
 });
 

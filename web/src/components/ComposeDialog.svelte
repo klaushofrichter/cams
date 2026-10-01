@@ -37,9 +37,12 @@
   const sizes = $derived<[SaveSize, string][]>(simple
     ? [['sd', SIZE_LABELS.sd], ['4k', ORIGINAL_4K_LABEL]]
     : [...(Object.entries(SIZE_LABELS) as [SaveSize, string][]), ['4k', ORIGINAL_4K_LABEL]]);
-  // A size the list no longer offers (the proxy answered "no copy") falls back to SD.
+  // A size the list no longer offers (the proxy answered "no copy") falls back
+  // to SD, and a pre-/post-roll typed meanwhile is dropped with its hidden
+  // fields: no Generate for settings that can't be seen (issue #76).
   $effect(() => {
     if (!sizes.some(([k]) => k === size)) size = 'sd';
+    if (simple) preS = postS = 0;
   });
   let dialogEl: HTMLElement | undefined = $state();
   // Focus: into the dialog on open, kept inside by Tab, back to where it was
