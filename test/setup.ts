@@ -30,23 +30,32 @@ afterAll(() => rmSync(scratch, { recursive: true, force: true }));
 // 127.0.0.1 on that port: a test's request (supertest connects to 127.0.0.1)
 // or cams' request to the sim camera reached, for example, a cam-sim's
 // mediamtx. A port bound to 127.0.0.1 itself can't be shared that way.
-// listen(port[, backlog][, cb]) without a host binds at once, as before
-// (supertest reads the address right away), through the step Node's own
-// listen() ends in (_listen2); calls that name a host or path are unchanged.
+// listen(port[, backlog][, cb]) without a host binds at once, as before,
+// through the step Node's own listen() ends in (_listen2). A host can't simply
+// be added to each call: with a host, listen() resolves it via dns.lookup and
+// binds a tick later, but supertest's implicit listen(0) reads address() at
+// once. _listen2 was checked on Node 24.21.0 and 26.8.1. Calls that name a host
+// or a path are unchanged. Patched once per worker (the setup file runs per
+// test file).
 import net from 'net';
 type Listen2 = (address: string, port: number, addressType: number, backlog: number) => void;
-const listen = net.Server.prototype.listen;
-const listen2 = (net.Server.prototype as unknown as { _listen2?: Listen2 })._listen2;
-if (typeof listen2 !== 'function') throw new Error('test/setup.ts: net.Server#_listen2 is gone; bind test servers to 127.0.0.1 another way');
-net.Server.prototype.listen = function (this: net.Server, ...args: unknown[]) {
-  const [port, ...rest] = args;
-  if (typeof port !== 'number' || !rest.every((a) => typeof a === 'function' || typeof a === 'number')) return listen.apply(this, args as Parameters<typeof listen>);
-  if (this.listening) throw new Error('already listening');
-  const cb = rest.find((a) => typeof a === 'function') as (() => void) | undefined;
-  if (cb) this.once('listening', cb);
-  listen2.call(this, '127.0.0.1', port, 4, (rest.find((a) => typeof a === 'number') as number | undefined) ?? 511);
-  return this;
-} as typeof listen;
+const PATCHED = Symbol.for('cams.test.listenOnLoopback');
+const proto = net.Server.prototype as net.Server & { [PATCHED]?: true; _listen2?: Listen2 };
+if (!proto[PATCHED]) {
+  const listen = proto.listen;
+  const listen2 = proto._listen2;
+  if (typeof listen2 !== 'function') throw new Error('test/setup.ts: net.Server#_listen2 is gone; bind test servers to 127.0.0.1 another way');
+  proto.listen = function (this: net.Server, ...args: unknown[]) {
+    const [port, ...rest] = args;
+    if (typeof port !== 'number' || !rest.every((a) => typeof a === 'function' || typeof a === 'number')) return listen.apply(this, args as Parameters<typeof listen>);
+    if (this.listening) throw new Error('already listening');
+    const cb = rest.find((a) => typeof a === 'function') as (() => void) | undefined;
+    if (cb) this.once('listening', cb);
+    listen2.call(this, '127.0.0.1', port, 4, (rest.find((a) => typeof a === 'number') as number | undefined) ?? 511);
+    return this;
+  } as typeof listen;
+  proto[PATCHED] = true;
+}
 
 import { resetRateLimits } from '../server/middleware/rateLimit';
 import { resetClients } from '../server/reolink/clients';
