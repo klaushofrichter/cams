@@ -12,10 +12,26 @@ export interface CardAnalysis {
   notConfirmed: Category[];
   stills: { eventId: number; stillTs: number; summary: SummaryEntry[] }[];
 }
-export interface Badge { kind: 'agree' | 'not-confirmed' | 'extra'; category: Category; text: string; title: string }
+export type Level = 'high' | 'mid' | 'low';
+export interface Badge { kind: 'agree' | 'not-confirmed' | 'extra'; category: Category; level: Level | null; text: string; title: string; label: string }
 
-const LABEL: Record<Category, string> = { person: 'Person', vehicle: 'Vehicle', pet: 'Pet' };
-const pct = (s: number) => `${Math.round(s * 100)}%`;
+export const LABEL: Record<Category, string> = { person: 'Person', vehicle: 'Vehicle', pet: 'Pet' };
+const percent = (s: number) => Math.round(s * 100);
+const pct = (s: number) => `${percent(s)}%`;
+
+// The badge's colour (Klaus, 2026-09-30): the percent it shows decides, so
+// 0.795 ("80%") is high and 0.494 ("49%") is low.
+export function confidenceLevel(score: number): Level {
+  const p = percent(score);
+  return p >= 80 ? 'high' : p >= 50 ? 'mid' : 'low';
+}
+const BAND: Record<Level, string> = { high: 'high confidence', mid: 'medium confidence', low: 'low confidence' };
+const SHOW = 'Show the analysed still';
+// `label`: the badge's accessible name, saying what a click does.
+const scored = (a: CardAnalysis, k: Category, score: number, what: string) => {
+  const level = confidenceLevel(score);
+  return { level, title: `Vision: ${subtypes(a, k)} · ${BAND[level]}`, label: `${what} ${pct(score)}, ${BAND[level]}. ${SHOW}` };
+};
 
 // Every subtype Vision saw for a category, each once with its best score,
 // best first: "dog 0.70, cat 0.55".
@@ -33,9 +49,9 @@ export function badges(triggers: readonly string[], a: CardAnalysis | undefined)
   const out: Badge[] = [];
   for (const k of CATEGORIES) {
     const b = a.best[k];
-    if (b && triggers.includes(k)) out.push({ kind: 'agree', category: k, text: `✦ Vision ${pct(b.score)}`, title: `Vision: ${subtypes(a, k)}` });
-    else if (a.notConfirmed.includes(k)) out.push({ kind: 'not-confirmed', category: k, text: '✦ Vision: not confirmed', title: `Vision found no ${k} in the analysed still` });
-    else if (b) out.push({ kind: 'extra', category: k, text: `+ ${LABEL[k]} ${pct(b.score)}`, title: `Vision: ${subtypes(a, k)}` });
+    if (b && triggers.includes(k)) out.push({ kind: 'agree', category: k, text: `✦ Vision ${pct(b.score)}`, ...scored(a, k, b.score, 'Vision') });
+    else if (a.notConfirmed.includes(k)) out.push({ kind: 'not-confirmed', category: k, level: null, text: '✦ Vision: not confirmed', title: `Vision found no ${k} in the analysed still`, label: `Vision: ${k} not confirmed. ${SHOW}` });
+    else if (b) out.push({ kind: 'extra', category: k, text: `+ ${LABEL[k]} ${pct(b.score)}`, ...scored(a, k, b.score, `Vision also found ${LABEL[k]}`) });
   }
   return out;
 }

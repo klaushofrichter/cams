@@ -8,5 +8,6 @@ published as [GitHub releases](https://github.com/klaushofrichter/cams/releases)
 
 ## [Unreleased]
 
-- **Vision on the cards:** with cam-proxy's Google Vision analytics (a cam-proxy release with the analytics summary, after v2026.09.30.4), event cards in History and Live show Vision's confidence next to the camera's label ("✦ Vision 84%"), "not confirmed" when Vision found none, or an extra finding ("+ Pet 70%"). New analyses arrive live.
-- **Timeline on cam-proxy's model:** a minute opens its seconds under its hour, a second opens the large still with Vision's boxes ("Show all objects"), and "Open in History" opens History paused at that second. The top viewer, "Show in timeline grid" and the red frame are gone.
+- **Vision badge colours:** badges are coloured by confidence: green at 80% and above, purple at 50–79%, red below 50%.
+- **Vision badge opens the still:** a badge opens the analysed still with Vision's boxes, with a link to that still in the Timeline.
+

@@ -163,7 +163,7 @@
         <img src={thumbUrl(camera.id, e.id)} alt="" loading="lazy" />
         <span class="what">
           <strong>{e.triggers.map((t) => TRIGGER_LABELS[t]).join(', ') || 'Recording'}</strong>
-          {#if badges(e.triggers, e.analysis).length}<span class="badges"><VisionBadges triggers={e.triggers} analysis={e.analysis} /></span>{/if}
+          {#if badges(e.triggers, e.analysis).length}<span class="badges"><VisionBadges cameraId={camera.id} triggers={e.triggers} analysis={e.analysis} /></span>{/if}
           <span>{formatClock(e.start)}</span>
           <span data-testid="live-latest-ago">{timeAgo(Date.parse(e.start), nowMs)}</span>
         </span>
