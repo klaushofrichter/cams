@@ -10,7 +10,8 @@ export interface StillObject { name: string; score: number; box: Box | null }
 export interface CardAnalysis {
   best: Partial<Record<Category, { score: number; subtype: string }>>;
   notConfirmed: Category[];
-  stills: { eventId: number; stillTs: number; summary: SummaryEntry[] }[];
+  // `kind`: the analysed event's kind (issue #113); older servers don't send it.
+  stills: { eventId: number; kind?: string; stillTs: number; summary: SummaryEntry[] }[];
 }
 export type Level = 'high' | 'mid' | 'low';
 export interface Badge { kind: 'agree' | 'not-confirmed' | 'extra'; category: Category; level: Level | null; text: string; title: string; label: string }
@@ -18,6 +19,12 @@ export interface Badge { kind: 'agree' | 'not-confirmed' | 'extra'; category: Ca
 export const LABEL: Record<Category, string> = { person: 'Person', vehicle: 'Vehicle', pet: 'Pet' };
 const percent = (s: number) => Math.round(s * 100);
 const pct = (s: number) => `${percent(s)}%`;
+const capital = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
+// The label next to a box (Klaus, 2026-10-01): "Clothing 56%", only the first
+// letter capitalised ("Ceiling fan 90%").
+export const boxLabel = (name: string, score: number) => `${capital(name)} ${pct(score)}`;
+// A line of the dialog's findings (Klaus, 2026-10-01): "Person - 61% Confidence".
+export const findingLine = (subtype: string, score: number) => `${capital(subtype)} - ${pct(score)} Confidence`;
 
 // The badge's colour (Klaus, 2026-09-30): the percent it shows decides, so
 // 0.795 ("80%") is high and 0.494 ("49%") is low.
@@ -34,11 +41,11 @@ const scored = (a: CardAnalysis, k: Category, score: number, what: string) => {
 };
 
 // Every subtype Vision saw for a category, each once with its best score,
-// best first: "dog 0.70, cat 0.55".
+// best first, written like a box's label: "Dog 70%, Cat 55%".
 export function subtypes(a: CardAnalysis, k: Category): string {
   const best = new Map<string, number>();
   for (const s of a.stills) for (const e of s.summary) if (e.category === k && e.score > (best.get(e.subtype) ?? -1)) best.set(e.subtype, e.score);
-  return [...best].sort((x, y) => y[1] - x[1]).map(([n, v]) => `${n} ${v.toFixed(2)}`).join(', ');
+  return [...best].sort((x, y) => y[1] - x[1]).map(([n, v]) => boxLabel(n, v)).join(', ');
 }
 
 // Per category: Vision agrees with the camera's label (its score), found none

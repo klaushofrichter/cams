@@ -1,5 +1,5 @@
 <script lang="ts">
-  import type { Box, StillObject, SummaryEntry } from '../lib/vision';
+  import { boxLabel, type Box, type StillObject, type SummaryEntry } from '../lib/vision';
 
   // The Timeline's large still (spec 2026-09-30-analytics-in-cams-design): for
   // an analysed second, Vision's summary boxes with labels; "Show all objects"
@@ -16,11 +16,11 @@
     showAll && all
       ? all.flatMap((o) => {
           const b = drawn(o.box);
-          return b ? [{ label: `${o.name} ${o.score.toFixed(2)}`, box: b }] : [];
+          return b ? [{ label: boxLabel(o.name, o.score), box: b }] : [];
         })
       : (summary ?? []).flatMap((e) => {
           const b = drawn(e.box);
-          return b ? [{ label: `${e.subtype} ${e.score.toFixed(2)}`, box: b }] : [];
+          return b ? [{ label: boxLabel(e.subtype, e.score), box: b }] : [];
         }),
   );
 

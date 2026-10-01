@@ -3,7 +3,7 @@
   import DayPicker from '../components/DayPicker.svelte';
   import HistoryView from '../components/HistoryView.svelte';
   import EventList from '../components/EventList.svelte';
-  import { saveViewPoint } from '../lib/timeline';
+  import { historySeek, saveViewPoint } from '../lib/timeline';
   import LiveBox from '../components/LiveBox.svelte';
   import LivePanel from '../components/LivePanel.svelte';
   import { cameras, selectedCameraId } from '../lib/stores';
@@ -335,6 +335,20 @@
     const t = initialAt;
     untrack(() => {
       if (t !== null && (reportedAt === null || Math.abs(t - reportedAt) >= 1000)) historyView?.jump(t);
+    });
+  });
+
+  // "Open in History" (the Vision dialog): stop at that second, even when
+  // History is already there and playing (the URL can't say so then).
+  $effect(() => {
+    const s = $historySeek;
+    if (!s) return;
+    untrack(() => {
+      if (historyView && s.cam === cam) {
+        reportedAt = s.at;
+        historyView.jump(s.at);
+      }
+      historySeek.set(null);
     });
   });
 

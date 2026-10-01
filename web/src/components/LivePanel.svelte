@@ -4,7 +4,7 @@
   import VisionBadges from './VisionBadges.svelte';
   import { badges } from '../lib/vision';
   import { checkLiveStatus, liveFullscreen, liveUi, offlineReason, saveSnapshot, toggleMute, toggleQuality, type StreamInfo } from '../lib/liveUi';
-  import { formatClock, thumbUrl, TRIGGER_LABELS, type EventClip } from '../lib/recordings';
+  import { formatClock, orderTriggers, thumbUrl, TRIGGER_LABELS, type EventClip } from '../lib/recordings';
   import { timeAgo } from '../lib/clock';
   import type { CameraSummary } from '../lib/stores';
   import { groupPending, type Pending } from '../lib/eventStream';
@@ -155,19 +155,26 @@
     {#each pendingShown as p (p.start)}
       <div class="latest pending" data-testid="live-latest-pending">
         <span class="dot"></span>
-        <span>{p.kinds.map(label).join(', ')} · recording…</span>
+        <span>{orderTriggers(p.kinds).map(label).join(', ')} · recording…</span>
       </div>
     {/each}
     {#each recentShown as e (e.id)}
-      <button class="latest" data-testid="live-latest" title="Play this event" onclick={() => onplay(e)}>
-        <img src={thumbUrl(camera.id, e.id)} alt="" loading="lazy" />
+      {@const kinds = orderTriggers(e.triggers).map((t) => TRIGGER_LABELS[t]).join(', ') || 'Recording'}
+      {@const ago = timeAgo(Date.parse(e.start), nowMs)}
+      <!-- The row's button fills it; its text lies over it and lets clicks
+           through, all but the Vision badges, buttons of their own beside it (issue #113). -->
+      <div class="row">
+        <button class="open" data-testid="live-latest" title="Play this event" onclick={() => onplay(e)}>
+          <img src={thumbUrl(camera.id, e.id)} alt="" loading="lazy" />
+          <span class="sr-only">{kinds}, {formatClock(e.start)}, {ago}</span>
+        </button>
         <span class="what">
-          <strong>{e.triggers.map((t) => TRIGGER_LABELS[t]).join(', ') || 'Recording'}</strong>
+          <strong data-testid="live-latest-kinds" aria-hidden="true">{kinds}</strong>
           {#if badges(e.triggers, e.analysis).length}<span class="badges"><VisionBadges cameraId={camera.id} triggers={e.triggers} analysis={e.analysis} /></span>{/if}
-          <span>{formatClock(e.start)}</span>
-          <span data-testid="live-latest-ago">{timeAgo(Date.parse(e.start), nowMs)}</span>
+          <span data-testid="live-latest-time" aria-hidden="true">{formatClock(e.start)}</span>
+          <span data-testid="live-latest-ago" aria-hidden="true">{ago}</span>
         </span>
-      </button>
+      </div>
     {:else}
       {#if !pendingShown.length}<p class="none" data-testid="live-no-events">No events today</p>{/if}
     {/each}
@@ -184,10 +191,19 @@
   .meta, .state { font-size: 12px; color: var(--muted); }
   .meta a { color: var(--accent); }
   h3 { margin: 0 0 4px; font-size: 13px; font-weight: 600; color: var(--muted); }
-  .latest { display: flex; align-items: center; gap: 12px; text-align: left; color: var(--text); font: inherit; padding: 6px; margin: -6px; border: 1px solid transparent; border-radius: 8px; background: none; cursor: pointer; }
-  button.latest:hover { border-color: var(--accent); }
-  .latest img { width: 96px; aspect-ratio: 16 / 9; object-fit: cover; border-radius: 6px; background: var(--no-thumb-bg); flex: none; }
+  .latest { display: flex; align-items: center; gap: 12px; text-align: left; color: var(--text); font: inherit; padding: 6px; margin: -6px; border: 1px solid transparent; border-radius: 8px; background: none; }
+  /* A recent event: the button and its text share one grid cell, the text on
+     top. A hover anywhere in the row, badges included, is the row's. */
+  .row { position: relative; display: grid; grid-template-columns: minmax(0, 1fr); padding: 6px; margin: -6px; border: 1px solid transparent; border-radius: 8px; }
+  .row:hover { border-color: var(--accent); }
+  .open { grid-area: 1 / 1; display: flex; align-items: center; padding: 0; border: 0; border-radius: 1px; background: none; color: inherit; font: inherit; text-align: left; cursor: pointer; }
+  /* The ring where the row's border is, as when the row was the button. A
+     ring's corners are the button's radius plus its offset: 1 + 7 = the row's 8 px. */
+  .open:focus-visible { outline-offset: 7px; }
+  .open img { width: 96px; aspect-ratio: 16 / 9; object-fit: cover; border-radius: 6px; background: var(--no-thumb-bg); flex: none; }
+  .row .what { grid-area: 1 / 1; align-self: center; margin-left: 108px; pointer-events: none; }
   .what { display: flex; flex-direction: column; gap: 2px; font-size: 13px; }
+  .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
   .what span { color: var(--muted); }
   .pending { cursor: default; }
   .pending .dot { width: 10px; height: 10px; border-radius: 50%; background: var(--danger); animation: pulse 1.2s ease-in-out infinite; flex: none; }

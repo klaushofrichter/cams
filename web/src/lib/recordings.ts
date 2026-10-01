@@ -31,6 +31,17 @@ export const TRIGGER_LABELS: Record<Trigger, string> = {
   motion: 'Motion',
   timer: 'Scheduled',
 };
+// The order a card lists its kinds in (Klaus, 2026-10-01): Motion first,
+// then Person, Vehicle, Pet, Scheduled; the camera's own order varies. Only
+// the display: kinds this list doesn't know follow, in their order.
+const TRIGGER_ORDER: readonly string[] = ['motion', 'person', 'vehicle', 'pet', 'timer'];
+export function orderTriggers<T extends string>(triggers: readonly T[]): T[] {
+  const rank = (t: string) => {
+    const i = TRIGGER_ORDER.indexOf(t);
+    return i < 0 ? TRIGGER_ORDER.length : i;
+  };
+  return [...triggers].sort((a, b) => rank(a) - rank(b));
+}
 export const ALL_KINDS: FilterKind[] = ['person', 'vehicle', 'pet', 'motion'];
 export const isAllKinds = (f: Filter) => ALL_KINDS.every((k) => f.includes(k));
 // A URL value, a stored preference (a list, or an old single value), or junk.

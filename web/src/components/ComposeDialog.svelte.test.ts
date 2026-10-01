@@ -13,10 +13,10 @@ afterEach(() => {
   component = target = undefined;
   vi.unstubAllGlobals();
 });
-function render(onclose = vi.fn(), composable = true) {
+function render(onclose = vi.fn(), composable = true, c: typeof clip | (Omit<typeof clip, 'triggers'> & { triggers: ('person' | 'motion')[] }) = clip) {
   target = document.createElement('div');
   document.body.appendChild(target);
-  component = mount(ComposeDialog, { target, props: { camera: 'den', clip, onclose, composable } });
+  component = mount(ComposeDialog, { target, props: { camera: 'den', clip: c, onclose, composable } });
   flushSync();
   return onclose;
 }
@@ -29,6 +29,11 @@ const set = (id: string, v: string) => {
 };
 
 describe('ComposeDialog', () => {
+  it('names the clip’s kinds Motion first, as the list does (Klaus, 2026-10-01)', () => {
+    render(vi.fn(), true, { ...clip, triggers: ['person', 'motion'] });
+    expect(target!.querySelector('.clip span')!.textContent).toMatch(/· Motion, Person$/);
+  });
+
   it('saves the original clip when nothing changes', () => {
     render();
     expect(q('compose-generate')).toBeNull();

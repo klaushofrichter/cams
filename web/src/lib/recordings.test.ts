@@ -2,7 +2,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   ALL_KINDS, addDays, clipAtSecond, cursorSearch, isAllKinds, parseFilter, toggleFilter, dayLength, dayStartMs, downloadUrl, filterEvents, formatBytes, groupByHour, layoutSegments, legendTicks,
-  loadCursor, neighbour, panWindow, parseCursor, saveCursor, secondsIntoDay, thumbUrl, tickLabel, timelineWindow, videoUrl,
+  loadCursor, neighbour, orderTriggers, panWindow, parseCursor, saveCursor, secondsIntoDay, thumbUrl, tickLabel, timelineWindow, videoUrl,
   type EventClip,
 } from './recordings';
 
@@ -292,5 +292,19 @@ describe('the strip position in the URL', () => {
   it('writes at and the clip under the playhead, no t', () => {
     const s = cursorSearch('den', { date: '2026-09-27', clipId: '20260927-120505-120530', offsetSec: 0, at: 1790552160000 }, 'history', ALL_KINDS);
     expect(s).toBe('?cam=den&date=2026-09-27&at=1790552160000&clip=20260927-120505-120530&panel=history&filter=all');
+  });
+});
+
+describe('orderTriggers', () => {
+  it('shows Motion first, then Person, Vehicle, Pet, Scheduled (Klaus, 2026-10-01)', () => {
+    expect(orderTriggers(['person', 'motion'])).toEqual(['motion', 'person']);
+    expect(orderTriggers(['timer', 'pet', 'vehicle', 'person', 'motion'])).toEqual(['motion', 'person', 'vehicle', 'pet', 'timer']);
+    expect(orderTriggers([])).toEqual([]);
+  });
+
+  it('keeps unknown kinds after the known ones, in their order, and leaves the input alone', () => {
+    const input = ['face', 'person', 'motion', 'doorbell'];
+    expect(orderTriggers(input)).toEqual(['motion', 'person', 'face', 'doorbell']);
+    expect(input).toEqual(['face', 'person', 'motion', 'doorbell']);
   });
 });

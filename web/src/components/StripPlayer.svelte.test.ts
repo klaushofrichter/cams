@@ -198,7 +198,7 @@ describe('StripPlayer', () => {
     render({ at: T + 12_000, coverage: { clips: clipRuns([personClip]), stills: [], previews: [] } });
     const line = q('strip-info')!.textContent!.replace(/\s+/g, ' ').trim();
     // the date too (it can be another day), and roughly how long ago
-    expect(line).toMatch(/^Sun Sep 27, \d{2}:\d{2}:\d{2}( [AP]M)? · 59 minutes ago · SD 10 FPS · Person, Motion$/);
+    expect(line).toMatch(/^Sun Sep 27, \d{2}:\d{2}:\d{2}( [AP]M)? · 59 minutes ago · SD 10 FPS · Motion, Person$/);
     expect(target!.querySelector('.box [data-testid="source-badge"]')).toBeNull(); // no overlay on the video
   });
 

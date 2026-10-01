@@ -76,6 +76,24 @@ describe('HistoryView', () => {
     expect(onposition.mock.calls.length).toBeGreaterThanOrEqual(2);
   });
 
+  // Review fix: a position from outside ("Open in History" while playing) lands paused;
+  // a card's click still plays.
+  it('pauses on a jump from outside, plays on a jump that asks to', async () => {
+    const at = Date.parse('2026-09-27T10:00:00-05:00');
+    await render({ initialAt: at });
+    const toggle = () => target!.querySelector('[data-testid="play-toggle"]') as HTMLElement;
+    toggle().click();
+    flushSync();
+    expect(toggle().getAttribute('aria-pressed')).toBe('true');
+    const view = component as unknown as { jump: (t: number, play?: boolean) => void };
+    view.jump(at + 60_000);
+    flushSync();
+    expect(toggle().getAttribute('aria-pressed')).toBe('false');
+    view.jump(at + 120_000, true);
+    flushSync();
+    expect(toggle().getAttribute('aria-pressed')).toBe('true');
+  });
+
   it('keeps a failed clip on the strip, marked failed (review #7)', async () => {
     await render({ initialAt: Date.parse(E1.start) + 1000 });
     (target!.querySelector('[data-testid="clip-video"]') as HTMLElement).dispatchEvent(new Event('error'));

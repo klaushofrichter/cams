@@ -215,11 +215,13 @@
   export function position(): number {
     return at;
   }
+  // `play`: play from there (a card, prev/next while playing); a position
+  // from outside (a link such as "Open in History", back/forward) lands paused.
   export function jump(t: number, play = false) {
     glued = false;
     at = t;
     placed = true;
-    if (play) playing = true;
+    playing = play;
     report(true);
   }
   // Drag and wheel: many small moves; reported at most every 2 s.

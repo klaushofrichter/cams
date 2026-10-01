@@ -27,7 +27,18 @@ describe('TimelineStill', () => {
   it('draws a box and a label per summary entry, skipping zero-area boxes', () => {
     const t = render({ summary: [{ category: 'person', subtype: 'person', score: 0.84, box }, { category: 'pet', subtype: 'dog', score: 0.5, box: { x0: 0.5, y0: 0.5, x1: 0.5, y1: 0.5 } }] });
     expect(t.querySelectorAll('[data-testid="timeline-boxes"] rect')).toHaveLength(1);
-    expect(labels()).toEqual(['person 0.84']);
+    expect(labels()).toEqual(['Person 84%']);
+  });
+
+  // Klaus, 2026-10-01: "Clothing 56%" -- a capital first letter only, the rounded percent.
+  it('labels a box with the name capitalised and the rounded percent', async () => {
+    const loadAll = vi.fn(async () => [{ name: 'clothing', score: 0.556, box }, { name: 'ceiling fan', score: 0.904, box }, { name: 'Lamp', score: 0.5, box }]);
+    const t = render({ summary: [{ category: 'pet', subtype: 'dog', score: 0.704, box }], loadAll });
+    expect(labels()).toEqual(['Dog 70%']);
+    (t.querySelector('[data-testid="timeline-show-all"]') as HTMLInputElement).click();
+    await tick();
+    flushSync();
+    expect(labels()).toEqual(['Clothing 56%', 'Ceiling fan 90%', 'Lamp 50%']);
   });
 
   it('"Show all objects" loads them once and draws them; off again shows the summary', async () => {
@@ -37,10 +48,10 @@ describe('TimelineStill', () => {
     all.click();
     await tick();
     flushSync();
-    expect(labels()).toEqual(['Person 0.84', 'Ceiling fan 0.70']);
+    expect(labels()).toEqual(['Person 84%', 'Ceiling fan 70%']);
     all.click();
     flushSync();
-    expect(labels()).toEqual(['person 0.84']);
+    expect(labels()).toEqual(['Person 84%']);
     all.click();
     await tick();
     flushSync();
@@ -79,11 +90,11 @@ describe('TimelineStill', () => {
     resolveOld([{ name: 'Stale', score: 0.5, box }]);
     await tick();
     flushSync();
-    expect(labels()).toEqual(['person 0.84']);
+    expect(labels()).toEqual(['Person 84%']);
     all.click();
     await tick();
     flushSync();
     expect(loadNew).toHaveBeenCalledTimes(1);
-    expect(labels()).toEqual(['Fresh 0.90']);
+    expect(labels()).toEqual(['Fresh 90%']);
   });
 });
