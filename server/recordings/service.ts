@@ -35,6 +35,10 @@ interface DayEntry {
   // Per event: the camera's path of each stream's file (camera Search), or the
   // bare file name (the proxy's list).
   names: Map<string, { sub?: string; main?: string }>;
+  // An empty day from the camera's own Search for a camera with a cam-proxy
+  // (a fallback): it may have collided with the proxy's Search, so it's kept
+  // for TODAY_TTL only.
+  doubtful?: boolean;
 }
 
 const TODAY_TTL = 30_000;
@@ -51,6 +55,9 @@ const RECENT_WINDOW_MS = 24 * 60 * 60 * 1000;
 // The camera Search cache behind cameraPath(): this many camera/day/stream
 // entries, least recently used out first.
 export const CAMERA_PATHS_MAX = 64;
+// A camera download this recent says the camera serves downloads: with the
+// proxy failing, 4K is offered only then (mainAvailable).
+const CAMERA_DOWNLOAD_RECENT_MS = 10 * 60_000;
 
 function cameraToday(offsetMinutes: number, now: number): string {
   return new Date(now + offsetMinutes * 60_000).toISOString().slice(0, 10);
@@ -281,7 +288,7 @@ export class RecordingsService {
     const time = await client.timeInfo();
     const ttl = isRecentDay(date, time.stdOffsetMinutes + time.dstOffsetMinutes) ? TODAY_TTL : PAST_TTL;
     const hit = this.dayCache.get(key);
-    if (hit && Date.now() - hit.at < ttl) return hit;
+    if (hit && Date.now() - hit.at < (hit.doubtful ? TODAY_TTL : ttl)) return hit;
     const inflight = this.daysInflight.get(key);
     if (inflight) return inflight;
     const work = (async () => {
@@ -324,7 +331,7 @@ export class RecordingsService {
         }))
         .sort(byStartTime);
       const names = new Map([...byId.entries()].map(([id, e]) => [id, { sub: e.sub?.name, main: e.main?.name }]));
-      const entry = { at: Date.now(), events, names };
+      const entry: DayEntry = { at: Date.now(), events, names, doubtful: !proxied && events.length === 0 && proxyActive(cameraId) };
       this.dayCache.set(key, entry);
       return entry;
     })().finally(() => this.daysInflight.delete(key));
@@ -368,6 +375,7 @@ export class RecordingsService {
         await new Promise((r) => setTimeout(r, DOWNLOAD_RETRY_DELAY_MS));
         res = await this.client(cameraId).download(name, signal);
       }
+      this.cameraDownloadOkAt.set(cameraId, performance.now());
       if (this.health.has(cameraId)) {
         if ((this.health.get(cameraId)?.failures ?? 0) >= BREAKER_FAILURES) logger.info({ cameraId }, 'recordings_breaker_closed');
         this.health.delete(cameraId);
@@ -386,6 +394,8 @@ export class RecordingsService {
   // transfers; one probe per RECORDINGS_PROBE_MS is let through, and a
   // success closes the breaker.
   private readonly health = new Map<string, { failures: number; lastProbeAt: number }>();
+  // When the camera last served a download (performance.now()).
+  private readonly cameraDownloadOkAt = new Map<string, number>();
 
   private noteRefused(cameraId: string): void {
     const h = this.health.get(cameraId) ?? { failures: 0, lastProbeAt: 0 };
@@ -721,8 +731,10 @@ export class RecordingsService {
   }
 
   // Whether a 4K (main) download can be served now, without a transfer: the
-  // proxy knows the main file, or the camera's download breaker is closed (proxied cameras only).
-  // The Save dialog asks before offering 4K's Save (Klaus, 2026-10-02).
+  // proxy knows the main file (a plain 404 HEAD stays optimistic: an older
+  // proxy, or a gone file the download then reports), or the proxy fails and
+  // the camera served a download recently with its breaker closed (proxied
+  // cameras only). The Save dialog asks before offering 4K's Save (Klaus, 2026-10-02).
   // A camera without a proxy (or with it switched off) is always available:
   // the dialog offers 4K as it always did and the download answers as ever.
   async mainAvailable(cameraId: string, clipId: string): Promise<boolean> {
@@ -730,10 +742,17 @@ export class RecordingsService {
     const { main } = await this.names(cameraId, clipId);
     if (!main) return false;
     const known = await this.viaProxy(cameraId, clipId, async () => {
-      await headProxyRecording(cameraId, baseName(main));
+      try {
+        await headProxyRecording(cameraId, baseName(main));
+      } catch (err) {
+        if (!(err instanceof ProxyError && err.status === 404)) throw err;
+      }
       return true;
     }, undefined, false);
-    return known ?? (this.health.get(cameraId)?.failures ?? 0) < BREAKER_FAILURES;
+    if (known) return true;
+    if ((this.health.get(cameraId)?.failures ?? 0) >= BREAKER_FAILURES) return false;
+    const okAt = this.cameraDownloadOkAt.get(cameraId);
+    return okAt !== undefined && performance.now() - okAt < CAMERA_DOWNLOAD_RECENT_MS;
   }
 }
 

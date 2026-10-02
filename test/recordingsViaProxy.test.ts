@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import request from 'supertest';
 import { mkdtempSync, rmSync } from 'fs';
 import { tmpdir } from 'os';
@@ -106,6 +106,26 @@ describe('the day’s list and the month’s days through cam-proxy', () => {
     expect(state.searches).toBe(searches + 2);
     expect(day.downloads).toBe('proxy');
   }, 15_000);
+
+  // Final review, minor 2: a fallback Search can collide with the proxy's own
+  // Search and come back empty, so such an empty day isn't kept for long.
+  it('keeps an empty past day from a fallback Search only briefly; a camera without a proxy keeps it', async () => {
+    const past = '2020-01-01';
+    fake.recordingsOverride = { status: 503, body: { error: 'camera_offline' } };
+    const searches = state.searches;
+    expect((await events('cam1', past)).events).toEqual([]);
+    expect((await events('porch', past)).events).toEqual([]);
+    expect(state.searches).toBe(searches + 4);
+    const now = Date.now();
+    const clock = vi.spyOn(Date, 'now').mockReturnValue(now + 60_000);
+    try {
+      await events('cam1', past);
+      await events('porch', past);
+      expect(state.searches).toBe(searches + 6); // cam1 searched again, porch from the cache
+    } finally {
+      clock.mockRestore();
+    }
+  });
 
   it('says proxy-recordings again once the proxy answers again', async () => {
     await seedRecordings(fake, 'cam1', today());

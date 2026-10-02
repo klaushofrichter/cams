@@ -148,9 +148,10 @@ describe('the clip download through cam-proxy’s recordings', () => {
     expect(await fullQuality(ev.id)).toEqual({ available: true });
     expect(fake.recordingFetches).toEqual([]);
     expect(fake.requests.some((q) => q.path.endsWith(recordingOf(list, ev.id, 'main').id))).toBe(true);
-    // The proxy fails: the camera's breaker decides. Closed: available.
+    // The proxy fails and the camera has no recent successful download (its
+    // breaker never tried): not available (final review, minor 5).
     fake.recordingsOverride = { status: 503, body: { error: 'camera_offline' } };
-    expect(await fullQuality(ev.id)).toEqual({ available: true });
+    expect(await fullQuality(ev.id)).toEqual({ available: false });
     // Three refused 4K downloads open the breaker: not available.
     for (const e of day.events.slice(0, 3)) expect((await download(e.id, 'main')).status).toBe(503);
     expect(await fullQuality(ev.id)).toEqual({ available: false });
@@ -248,8 +249,25 @@ describe('the clip download through cam-proxy’s recordings', () => {
     const { ev } = await seeded();
     expect(getRecordings().downloadsState('cam1')).toBe('proxy-recordings');
     fake.recordingsOverride = { status: 503, body: { error: 'camera_offline' } };
-    expect(await fullQuality(ev.id)).toEqual({ available: true });
+    expect(await fullQuality(ev.id)).toEqual({ available: false });
     expect(getRecordings().downloadsState('cam1')).toBe('proxy-recordings');
+  });
+
+  // Final review, minor 5: with the proxy failing, 4K is offered only when the
+  // camera itself served a download recently; a plain 404 HEAD stays optimistic.
+  it('offers 4K with the proxy failing only after a recent camera download; a 404 HEAD stays optimistic', async () => {
+    const { list, ev } = await seeded();
+    fake.recordingsOverride = { status: 502, body: { error: 'recordings_unavailable', reason: 'timeout' } };
+    expect(await fullQuality(ev.id)).toEqual({ available: false });
+    expect((await binary(download(ev.id, 'main'))).status).toBe(200); // the camera's own file
+    expect(state.downloads).toBe(1);
+    expect(await fullQuality(ev.id)).toEqual({ available: true });
+    fake.recordingsOverride = null;
+    resetRecordings();
+    const mainId = recordingOf(list, ev.id, 'main').id;
+    await events(); // the list still has the main file
+    fake.recordings.set('cam1', list.filter((r) => r.id !== mainId)); // HEAD now answers 404
+    expect(await fullQuality(ev.id)).toEqual({ available: true });
   });
 
   // Task 5 review, item 3: an unreachable proxy, for 4K: the camera's main
