@@ -47,6 +47,9 @@ test('Close during generation cancels the job', async ({ page }) => {
 });
 
 test('4K saves the original main stream; a camera without a proxy offers only SD and 4K', async ({ page }) => {
+  // Barn's fake proxy holds no SD recordings and its camera refuses downloads,
+  // so /full-quality would say no; this test is about the link (see below).
+  await page.route('**/full-quality', (r) => r.fulfill({ json: { available: true } }));
   await page.goto('/app/recordings?panel=history&cam=barn');
   await download(page).click();
   await page.getByTestId('compose-size').selectOption('4k');

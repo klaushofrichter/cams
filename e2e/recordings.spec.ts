@@ -180,6 +180,10 @@ test('previous day shows yesterday\'s recordings; a day without any says so', as
 });
 
 test('downloads return MP4 attachments with readable names', async ({ page }) => {
+  // Den's fake proxy holds no SD recordings (503), so whether the dialog offers
+  // 4K depends on a recent camera download (mainAvailable); this test is about
+  // the file's name, so the dialog is told 4K is there.
+  await page.route('**/full-quality', (r) => r.fulfill({ json: { available: true } }));
   await page.goto('/app/recordings?panel=history');
   await page.getByTestId('event-download').first().click();
   await page.getByTestId('compose-size').selectOption('4k');
