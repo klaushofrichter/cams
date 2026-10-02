@@ -465,6 +465,33 @@ far is still motion-only.
 >   0.2 s with no bytes. SD card fine (61 GB, mounted, 58.7 GB free),
 >   recording enabled, Search works.
 >
+> - **2026-10-01, 19:18:** a PoE power cycle through the switch (port 8 off
+>   for 10 s) did not clear it either.
+>
+> **What others report (web research, 2026-10-01):**
+> - home-assistant/core #147960 describes the same failure on other Reolink
+>   models with v3.2.0 firmware: HTTP Download dropped with no answer, while
+>   live view works. Triggers include Auto Reboot, a manual reboot, and
+>   aborted or overlapping Downloads. Only power cycles helped, and it comes
+>   and goes over days.
+> - One owner there found that after a reboot, a Download that arrives before
+>   any live stream puts the camera back into the dead state. Opening live view
+>   first ("priming") avoids it. Every test here ran a Download within about a
+>   minute of the reboot or power cycle, so each test may have re-wedged it.
+>   Not yet tested on this camera.
+> - `cmd=Download` builds a temporary file on the SD card, which makes it
+>   fragile. reolink_aio PR #186 and HA PR #177436 (both open) fetch
+>   recordings over Baichuan (port 9000) instead, at about 9 MB/s with no
+>   temporary file. Reolink's `reolink-cli` also downloads over Baichuan.
+> - No firmware newer than v3.2.0.6011 exists for the RLC-1224A (hardware
+>   `IPC_NT18NA612MP`).
+> - This camera has **Auto Maintenance on: a reboot every Sunday at 02:00**.
+>   That may be what cleared it after 2026-09-26: a reboot with no Download
+>   right after it.
+>
+> Full report with sources: the cam-proxy session's research notes, summarised
+> in the Obsidian note *Reolink API Behaviour*.
+>
 > Possible causes, not yet told apart: the `Reboot` itself, or the test that
 > ran just before it. That test opened two Downloads a second apart (HTTPS,
 > then HTTP) and closed each after 16 bytes. The camera allows one download
