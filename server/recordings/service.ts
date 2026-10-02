@@ -14,6 +14,8 @@ import { PriorityGate } from './priorityGate';
 import { makeThumbnail } from './thumbnail';
 import { Semaphore } from '../reolink/semaphore';
 import { findProxyClip, findProxyStill, openProxyClip, openProxyStill } from './proxyClips';
+import { RecordingError } from './errors';
+export { RecordingError } from './errors';
 
 export interface EventClip {
   id: string;
@@ -23,13 +25,6 @@ export interface EventClip {
   triggers: Trigger[];
   sizeSub: number | null;
   sizeMain: number | null;
-}
-
-export class RecordingError extends Error {
-  constructor(readonly code: 'unknown_clip' | 'thumbnail_unavailable' | 'recordings_unavailable', message: string) {
-    super(message);
-    this.name = 'RecordingError';
-  }
 }
 
 interface DayEntry {

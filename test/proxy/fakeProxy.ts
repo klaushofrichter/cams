@@ -62,6 +62,7 @@ export interface FakeProxy {
   recordings: Map<string, FakeRecording[]>; // proxy camera id → its SD recordings; a camera without an entry answers 503 camera_offline
   recordingsOverride: { status: number; body: unknown } | null; // tests: every recordings route answers this (after checking its input)
   recordingDropAfter: number | null; // tests: a file sends its headers and this many bytes, then the connection drops
+  recordingDelayMs: number; // tests: a file's headers wait this long (the real proxy queues downloads per camera)
   recordingFetches: string[]; // ids of the files served by GET (not HEAD)
   streamConnections(): number;
   push(m: Omit<FakeMessage, 'id' | 'ts'> & { ts?: number }): FakeMessage;
@@ -109,6 +110,7 @@ export async function startFakeProxy(opts: { port?: number; token?: string } = {
     recordings: new Map(),
     recordingsOverride: null,
     recordingDropAfter: null,
+    recordingDelayMs: 0,
     recordingFetches: [],
     streamConnections: () => streams.size,
     push(m) {
@@ -352,7 +354,7 @@ export async function startFakeProxy(opts: { port?: number; token?: string } = {
   // Not modelled: the real proxy's Range/ETag behaviour (bytes=0- on an uncached
   // file answers 200, a stable ETag, 416 without a download); cams sends no Range.
   // GET and HEAD (Express answers HEAD with the GET route; sendFile honours it).
-  app.get('/api/cameras/:cam/recordings/:id', (req, res) => {
+  app.get('/api/cameras/:cam/recordings/:id', async (req, res) => {
     const id = req.params.id;
     if (id.length > 128 || !REC_ID.test(id)) return void res.status(400).json({ error: 'invalid', detail: 'malformed id' });
     const list = recordingsOf(req.params.cam, res);
@@ -360,6 +362,7 @@ export async function startFakeProxy(opts: { port?: number; token?: string } = {
     const rec = list.find((x) => x.id === id);
     if (!rec) return void res.status(404).json({ error: 'unknown_recording' });
     if (req.method === 'GET') fake.recordingFetches.push(id);
+    if (fake.recordingDelayMs > 0) await new Promise((r) => setTimeout(r, fake.recordingDelayMs));
     if (req.method === 'GET' && fake.recordingDropAfter !== null) {
       res.writeHead(200, { 'Content-Type': 'video/mp4', 'Content-Length': String(rec.body.length) });
       res.write(rec.body.subarray(0, fake.recordingDropAfter));
