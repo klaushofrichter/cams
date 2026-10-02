@@ -25,7 +25,7 @@ fetches SD-card recordings over Baichuan, which works while the camera's HTTP
   `GET /api/cameras/:cam/recordings/:id` (an MP4 with Range), fetched over
   Baichuan into the proxy's cache. Any SD recording of the last 7 days, in
   either stream.
-- Order of work: phase 0 (cam-proxy spec), cam-sim's Baichuan server and
+- Order of work: phase 0 (done), cam-sim's Baichuan server and
   release, cam-proxy's client and API and release, then this.
 
 ## Design
@@ -158,15 +158,21 @@ finds workable, configured against the e2e cam-sim.
 - Changes for cameras without a proxy.
 - UI beyond the source note.
 
-## Open points (phase 0 decides)
+## Phase 0 results that touch cams
 
-None of cams' design depends on phase 0 directly; it follows cam-proxy's API.
-Two outcomes would change it:
+Phase 0 (2026-10-02) is done; none of cams' design changes, because it follows
+cam-proxy's API. For the record:
 
-| Point | Default |
-|---|---|
-| The `proxy` user can't log in over Baichuan and Klaus decides against another user | The proxy answers 502 (`auth`); cams falls back to FTP copies, as today. |
-| The camera allows only one VOD session and something else holds it | The proxy answers 502; cams falls back. |
+- The `proxy` camera user logs in over Baichuan. It stays admin level by
+  Klaus's decision, so no other user is involved.
+- The camera runs Baichuan transfers in parallel, so nothing else holding a
+  "VOD session" blocks the proxy. Its one limit is 12 TCP connections on port
+  9000, shared with other Baichuan clients. If that is ever exhausted, the
+  proxy answers 502 (`refused`) and cams falls back to the FTP copies, as it
+  does for any proxy 502.
+- The proxy closes an idle Baichuan connection after 20 s and reconnects on
+  demand, which cams never sees; a first download after a pause is about a
+  second slower to start.
 
 ## References
 
