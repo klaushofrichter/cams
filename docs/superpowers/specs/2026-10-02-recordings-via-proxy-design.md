@@ -171,8 +171,7 @@ cam-proxy's API. For the record:
   proxy answers 502 (`refused`) and cams falls back to the FTP copies, as it
   does for any proxy 502.
 - The proxy closes an idle Baichuan connection after 20 s and reconnects on
-  demand, which cams never sees; a first download after a pause is about a
-  second slower to start.
+  demand, which cams never sees.
 
 ## References
 
