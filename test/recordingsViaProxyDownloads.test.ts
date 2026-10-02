@@ -210,6 +210,70 @@ describe('the clip download through cam-proxy’s recordings', () => {
     expect(fake.requests).toEqual([]);
   });
 
+  // Task 5 review, item 1: right after an event the main copy may not be
+  // listed yet. A 4K request then never gets the sub file (no silent
+  // downgrade), neither the SD sub file nor the FTP copy.
+  it('answers full_quality_unavailable for a 4K request when the proxy lists no main file', async () => {
+    const list = await seedRecordings(fake, 'cam1', today());
+    fake.recordings.set('cam1', list.filter((r) => r.stream === 'sub'));
+    const ev = (await events()).events[0];
+    ftpCopy(ev.start);
+    const r = await download(ev.id, 'main');
+    expect(r.status).toBe(503);
+    expect(r.body).toEqual({ error: 'full_quality_unavailable' });
+    expect(fake.recordingFetches).toEqual([]);
+    expect(askedFtp()).toBe(false);
+    expect(state.downloads).toBe(0);
+  });
+
+  it('answers full_quality_unavailable for a 4K request with no main file listed when the proxy’s recordings fail', async () => {
+    const list = await seedRecordings(fake, 'cam1', today());
+    fake.recordings.set('cam1', list.filter((r) => r.stream === 'sub'));
+    const ev = (await events()).events[0];
+    ftpCopy(ev.start);
+    fake.recordingsOverride = { status: 503, body: { error: 'camera_offline' } };
+    const r = await download(ev.id, 'main');
+    expect(r.status).toBe(503);
+    expect(r.body).toEqual({ error: 'full_quality_unavailable' });
+    expect(fake.recordingFetches).toEqual([]);
+    expect(askedFtp()).toBe(false);
+    expect(state.downloads).toBe(0);
+  });
+
+  // Task 5 review, item 2: a read-only question leaves the downloads note alone.
+  it('does not change the downloads state when the full-quality question fails at the proxy', async () => {
+    const { ev } = await seeded();
+    expect(getRecordings().downloadsState('cam1')).toBe('proxy-recordings');
+    fake.recordingsOverride = { status: 503, body: { error: 'camera_offline' } };
+    expect(await fullQuality(ev.id)).toEqual({ available: true });
+    expect(getRecordings().downloadsState('cam1')).toBe('proxy-recordings');
+  });
+
+  // Task 5 review, item 3: an unreachable proxy, for 4K: the camera's main
+  // file, else full_quality_unavailable.
+  it('a 4K download with the proxy unreachable takes the camera’s main file, else full_quality_unavailable', async () => {
+    const deadProxy = () => {
+      const host = `127.0.0.1:${(cam.address() as AddressInfo).port}`;
+      setCameras([{ id: 'cam1', name: 'Den', host, protocol: 'http', user: 'u', password: 'p', proxy: { url: 'http://127.0.0.1:9', token: FAKE_TOKEN } }]);
+      resetProxyClients();
+    };
+    let { ev } = await seeded();
+    ftpCopy(ev.start);
+    deadProxy();
+    const r = await binary(download(ev.id, 'main'));
+    expect(r.status).toBe(200);
+    expect(r.headers['content-disposition']).toMatch(/-main\.mp4"$/);
+    expect(state.downloads).toBe(1);
+
+    await new Promise<void>((done) => cam.close(() => done()));
+    await startCamera({ dropFirstDownloads: 1000 });
+    ({ ev } = await seeded());
+    deadProxy();
+    const refused = await download(ev.id, 'main');
+    expect(refused.status).toBe(503);
+    expect(refused.body).toEqual({ error: 'full_quality_unavailable' });
+  });
+
   // Coordinator ruling: full_quality_unavailable is for proxied cameras only;
   // without a cam-proxy a refused 4K download answers what it always did.
   it('leaves a refused 4K download of a camera without a cam-proxy unchanged', async () => {

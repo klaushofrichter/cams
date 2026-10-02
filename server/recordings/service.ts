@@ -152,17 +152,18 @@ export class RecordingsService {
   // the next route" (no proxy in use, or a failure that falls back, logged as
   // proxy_recordings_failed). A recording gone from the SD card
   // (unknown_clip) and an abort are thrown. `what` is the clip id, or the day
-  // or month being listed, for the log.
-  private async viaProxy<T>(cameraId: string, what: string, ask: () => Promise<T>, signal?: AbortSignal): Promise<T | null> {
+  // or month being listed, for the log. `record` false: a read-only question
+  // that leaves the downloads state alone.
+  private async viaProxy<T>(cameraId: string, what: string, ask: () => Promise<T>, signal?: AbortSignal, record = true): Promise<T | null> {
     if (!proxyActive(cameraId)) return null;
     try {
       const value = await ask();
-      this.proxyRecordingsFailed.set(cameraId, false);
+      if (record) this.proxyRecordingsFailed.set(cameraId, false);
       return value;
     } catch (err) {
-      if (err instanceof RecordingError) this.proxyRecordingsFailed.set(cameraId, false); // the proxy answered
+      if (record && err instanceof RecordingError) this.proxyRecordingsFailed.set(cameraId, false); // the proxy answered
       if (!fallsBack(err, signal)) throw err;
-      this.proxyRecordingsFailed.set(cameraId, true);
+      if (record) this.proxyRecordingsFailed.set(cameraId, true);
       logProxyFailure(cameraId, what, err);
       return null;
     }
@@ -644,6 +645,12 @@ export class RecordingsService {
     if (!picked) throw new RecordingError('unknown_clip', 'clip has no file');
     if (signal?.aborted) throw abortError();
     const { name, served } = picked;
+    // No main file listed (it may still be being written): a 4K request never
+    // gets the sub file for a proxied camera (no silent downgrade). Without a
+    // cam-proxy, the other stream is served, labelled by it, as before.
+    if (quality === 'main' && served === 'sub' && proxyActive(cameraId)) {
+      throw new RecordingError('full_quality_unavailable', 'the full-resolution file is not listed yet');
+    }
     const t = clipId.slice(9, 15);
     const filename = `${cameraId}-${dateOf(clipId)}_${t.slice(0, 2)}-${t.slice(2, 4)}-${t.slice(4, 6)}-${served}.mp4`;
 
@@ -722,7 +729,7 @@ export class RecordingsService {
     const known = await this.viaProxy(cameraId, clipId, async () => {
       await headProxyRecording(cameraId, baseName(main));
       return true;
-    });
+    }, undefined, false);
     return known ?? (this.health.get(cameraId)?.failures ?? 0) < BREAKER_FAILURES;
   }
 }
