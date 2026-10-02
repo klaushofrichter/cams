@@ -59,3 +59,15 @@ test('4K saves the original main stream; a camera without a proxy offers only SD
   await expect(page.getByTestId('compose-size').locator('option')).toHaveText([/^SD/, /^4K/]);
   await expect(page.getByTestId('compose-save')).toHaveAttribute('href', /quality=sub/);
 });
+
+test('4K re-checks on Save: a file that went away shows the message instead of a failed download', async ({ page }) => {
+  await page.goto('/app/recordings?panel=history&cam=barn');
+  await download(page).click();
+  await page.getByTestId('compose-size').selectOption('4k');
+  await expect(page.getByTestId('compose-save')).toHaveAttribute('href', /quality=main/);
+  await page.route('**/full-quality', (r) => r.fulfill({ json: { available: false } }));
+  await page.getByTestId('compose-save').click();
+  await expect(page.getByTestId('compose-4k-unavailable')).toBeVisible();
+  await page.getByTestId('compose-use-sd').click();
+  await expect(page.getByTestId('compose-save')).toHaveAttribute('href', /quality=sub/);
+});

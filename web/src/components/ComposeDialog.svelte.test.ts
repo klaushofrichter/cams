@@ -34,6 +34,7 @@ const set = (id: string, v: string) => {
   flushSync();
 };
 
+const fq = (f: { mock: { calls: unknown[][] } }) => f.mock.calls.filter(([u]) => String(u).endsWith('/full-quality')).length;
 const set4k = () => {
   const el = q('compose-size') as HTMLSelectElement;
   el.value = '4k';
@@ -47,7 +48,9 @@ describe('ComposeDialog', () => {
     vi.stubGlobal('fetch', vi.fn(async (url: string) => new Response(JSON.stringify(url.includes('/full-quality') ? { available: false } : { available: true }), { status: 200 })));
     render();
     set4k();
-    await vi.waitFor(() => expect(q('compose-4k-unavailable')?.textContent).toBe("The full-resolution file isn't available right now; download the standard quality instead."));
+    await vi.waitFor(() => expect(q('compose-4k-unavailable')).not.toBeNull());
+    expect(q('compose-use-sd')!.textContent).toBe('Use the standard quality');
+    expect(q('compose-4k-unavailable')!.textContent).toBe("The full-resolution file isn't available right now; download the standard quality instead.");
     expect(q('compose-save')!.getAttribute('aria-disabled')).toBe('true');
     expect(q('compose-save')!.hasAttribute('href')).toBe(false);
     q('compose-use-sd')!.click();
@@ -55,6 +58,56 @@ describe('ComposeDialog', () => {
     expect((q('compose-size') as HTMLSelectElement).value).toBe('sd');
     expect(q('compose-4k-unavailable')).toBeNull();
     expect(q('compose-save')!.getAttribute('href')).toMatch(/download\?quality=sub/);
+  });
+
+  it('re-checks on Save: a file that went away since 4K was chosen shows the message and starts no download', async () => {
+    let avail = true;
+    const fetch = vi.fn(async (_url: string) => new Response(JSON.stringify({ available: avail }), { status: 200 }));
+    vi.stubGlobal('fetch', fetch);
+    const click = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {});
+    render();
+    set4k();
+    await vi.waitFor(() => expect(fq(fetch)).toBe(1));
+    avail = false;
+    const ev = new MouseEvent('click', { bubbles: true, cancelable: true });
+    q('compose-save')!.dispatchEvent(ev);
+    expect(ev.defaultPrevented).toBe(true);
+    await vi.waitFor(() => expect(q('compose-4k-unavailable')).not.toBeNull());
+    expect(fq(fetch)).toBe(2);
+    expect(q('compose-4k-unavailable')!.getAttribute('role')).toBe('alert');
+    expect(click).not.toHaveBeenCalled();
+    click.mockRestore();
+  });
+
+  it('starts the 4K download itself after a Save re-check that says available, without buffering it', async () => {
+    const fetch = vi.fn(async (_url: string) => new Response(JSON.stringify({ available: true }), { status: 200 }));
+    vi.stubGlobal('fetch', fetch);
+    const hrefs: string[] = [];
+    const click = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(function (this: HTMLAnchorElement) { hrefs.push(this.getAttribute('href') ?? ''); });
+    render();
+    set4k();
+    await vi.waitFor(() => expect(fq(fetch)).toBe(1));
+    q('compose-save')!.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+    await vi.waitFor(() => expect(hrefs.length).toBe(1));
+    expect(hrefs[0]).toMatch(/download\?quality=main/);
+    expect(fetch.mock.calls.some(([u]) => String(u).includes('/download'))).toBe(false); // the file itself is never fetched by script
+    click.mockRestore();
+  });
+
+  it('asks again when 4K is chosen again', async () => {
+    let avail = false;
+    const fetch = vi.fn(async (_url: string) => new Response(JSON.stringify({ available: avail }), { status: 200 }));
+    vi.stubGlobal('fetch', fetch);
+    render();
+    set4k();
+    await vi.waitFor(() => expect(q('compose-4k-unavailable')).not.toBeNull());
+    q('compose-use-sd')!.click();
+    flushSync();
+    avail = true;
+    set4k();
+    await vi.waitFor(() => expect(q('compose-4k-unavailable')).toBeNull());
+    expect(fq(fetch)).toBe(2);
+    expect(q('compose-save')!.getAttribute('href')).toMatch(/quality=main/);
   });
 
   it('keeps 4K’s Save when the full-resolution file is available', async () => {

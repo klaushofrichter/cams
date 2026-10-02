@@ -721,9 +721,12 @@ export class RecordingsService {
   }
 
   // Whether a 4K (main) download can be served now, without a transfer: the
-  // proxy knows the main file, or the camera's download breaker is closed.
+  // proxy knows the main file, or the camera's download breaker is closed (proxied cameras only).
   // The Save dialog asks before offering 4K's Save (Klaus, 2026-10-02).
+  // A camera without a proxy (or with it switched off) is always available:
+  // the dialog offers 4K as it always did and the download answers as ever.
   async mainAvailable(cameraId: string, clipId: string): Promise<boolean> {
+    if (!proxyActive(cameraId)) return true;
     const { main } = await this.names(cameraId, clipId);
     if (!main) return false;
     const known = await this.viaProxy(cameraId, clipId, async () => {

@@ -157,6 +157,9 @@ describe('the clip download through cam-proxy’s recordings', () => {
     // A camera without a cam-proxy: its breaker, as before (closed here).
     const porch = await events('porch');
     expect(await fullQuality(porch.events[0].id, 'porch')).toEqual({ available: true });
+    // Klaus' ruling: for such a camera the dialog never blocks 4K (no main
+    // listed, or a breaker open): the answer is always true, as before.
+    expect(await fullQuality('20200101-000000-000010', 'porch')).toEqual({ available: true });
   });
 
   it('answers unknown_clip for a recording gone from the SD card, with no fallback', async () => {
