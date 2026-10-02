@@ -97,14 +97,15 @@ Both suites need **ffmpeg** on the `PATH`, and e2e needs **Google Chrome**. The 
 **The tests use [cam-sim](https://github.com/klaushofrichter/cam-sim) as the camera.** cam-sim simulates the Reolink RLC-1224A's HTTP API, quirks included, and can switch on faults (refused downloads, failing settings writes, offline, and more). cams has no mock camera of its own.
 
 - **Unit tests** start cam-sim in the test process through `test/camera/sim.ts` (`createSimCamera`). `test/camera/warm.ts` builds cam-sim's test-pattern media once, before the tests run.
-- **e2e** starts four cam-sim processes (`e2e/sims.ts`), listed in `e2e/cameras.json`:
+- **e2e** starts five cam-sim processes (`e2e/sims.ts`), listed in `e2e/cameras.json`:
   - "Den", with a cam-proxy;
   - "Porch", which rejects `SetWhiteLed`;
   - "Shed", which refuses downloads like the real camera;
-  - "Barn", which refuses downloads too but has a cam-proxy whose clip plays, and whose live stream always resets, so Live shows the proxy's stills.
+  - "Barn", which refuses downloads too but has a cam-proxy whose clip plays, and whose live stream always resets, so Live shows the proxy's stills;
+  - "Silo", which refuses HTTP downloads like the real camera since 2026-10-01 and has the real cam-proxy (its released container image, pinned in `e2e/env.ts` as `CAM_PROXY_TAG`), which fetches the recordings over Baichuan. It runs in CI only (`e2e/realProxy.ts`: host networking, so it listens on every interface), or with `CAMS_E2E_REAL_PROXY=1` on a Linux machine you control; elsewhere `e2e/realProxy.spec.ts` is skipped.
 
-  A fifth camera, "Garage", points at an unused port and stays offline.
-- **cam-proxy in tests** is a small fake (`test/proxy/fakeProxy.ts`) that follows cam-proxy's `openapi.yaml` for the stream, clips, stills, previews and SD recordings. Unit tests set its data directly (`test/proxy/seedRecordings.ts` gives it cam-sim's recordings); e2e runs it as a process, seeded with ffmpeg test patterns (`e2e/fakeProxyData.ts`), without SD recordings (its recordings routes answer 503). The real round trip is checked against cam-proxy in the cluster.
+  A sixth camera, "Garage", points at an unused port and stays offline.
+- **cam-proxy in tests** is a small fake (`test/proxy/fakeProxy.ts`) that follows cam-proxy's `openapi.yaml` for the stream, clips, stills, previews and SD recordings. Unit tests set its data directly (`test/proxy/seedRecordings.ts` gives it cam-sim's recordings); e2e runs it as a process, seeded with ffmpeg test patterns (`e2e/fakeProxyData.ts`), without SD recordings (its recordings routes answer 503). The real round trip is Silo's, against the released cam-proxy image (needs Docker), in CI.
 - **Version:** cam-sim is a dev dependency pinned to a release tarball in `package.json`. To update it, change the URL to the new release's `cam-sim-<tag>.tgz` asset, run `npm install`, and run both suites.
 - **The other direction:** cam-sim's own CI runs cams' unit and e2e suites against every cam-sim change, so a simulator change that would break cams fails there first.
 

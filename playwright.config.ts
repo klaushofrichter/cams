@@ -1,6 +1,6 @@
 import { SIMS, simEnv } from './e2e/sims';
 import { defineConfig, devices } from '@playwright/test';
-import { E2E_ENV, E2E_PORT } from './e2e/env';
+import { E2E_ENV, E2E_PORT, REAL_PROXY, REAL_PROXY_ON } from './e2e/env';
 
 export default defineConfig({
   testDir: './e2e',
@@ -40,17 +40,23 @@ export default defineConfig({
       use: { ...devices['Desktop Chrome'], channel: 'chrome', viewport: { width: 1440, height: 900 } },
     },
   ],
-  // Requires `npm run build` first. Four cam-sim cameras (e2e/sims.ts) stand
+  // Requires `npm run build` first. Five cam-sim cameras (e2e/sims.ts) stand
   // in for Reolinks: Den, Porch (rejects SetWhiteLed), Shed (refuses
-  // downloads) and Barn (refuses downloads, live always resets);
+  // downloads), Barn (refuses downloads, live always resets) and Silo
+  // (refuses HTTP downloads; the real cam-proxy fetches over Baichuan);
   // e2e/cameras.json points at them, and "Garage" is deliberately
-  // unreachable. Den and Barn have a fake cam-proxy. Playwright merges each
+  // unreachable. Den and Barn have the fake cam-proxy; Silo the real one, in
+  // CI only (e2e/realProxy.ts). Playwright merges each
   // `env` with process.env (see
   // playwright/lib/runner/index.js's WebServerPlugin), so PATH is preserved.
   webServer: [
     ...Object.values(SIMS).map((s) => ({ command: 'npx cam-sim', port: s.http, reuseExistingServer: !process.env.CI, env: simEnv(s) })),
     // A fake cam-proxy (Plan 6) for Den (stills, sprites) and Barn (a clip).
     { command: 'npx tsx test/proxy/fakeProxy.ts', port: 8095, reuseExistingServer: !process.env.CI },
+    // The real cam-proxy for Silo (released image; CI, see e2e/realProxy.ts).
+    // The first run pulls the image. Its log (warn and up) shows in the
+    // output; SIGTERM lets e2e/realProxy.ts stop the container.
+    ...(REAL_PROXY_ON ? [{ command: 'npx tsx e2e/realProxy.ts', url: `http://127.0.0.1:${REAL_PROXY.port}/health`, timeout: 300_000, reuseExistingServer: false, stdout: 'pipe' as const, gracefulShutdown: { signal: 'SIGTERM' as const, timeout: 10_000 } }] : []),
     { command: 'npm start', port: E2E_PORT, reuseExistingServer: !process.env.CI, env: E2E_ENV },
   ],
   globalSetup: require.resolve('./e2e/global-setup'),
