@@ -502,6 +502,13 @@ far is still motion-only.
 >   The camera's own web UI lists the files and can't download them either.
 >   The fault is in the camera, not the SD card or the clients.
 >
+> **Baichuan (port 9000) downloads work** (2026-10-01, night). The same
+> recordings, over Reolink's own protocol (reolink_aio PR #186: search
+> 14/15/16, file info 13, download 8, stop 9), came down complete and playable:
+> sub 1.08 MB in 0.4 s, main 14.9 MB in 1.6 s (about 8.9 MB/s), while HTTP
+> Download stayed refused. Details: `~/Development/reolink/baichuan-download.md`;
+> proposal: issue #128.
+>
 > Full report with sources: the cam-proxy session's research notes, summarised
 > in the Obsidian note *Reolink API Behaviour*.
 >
