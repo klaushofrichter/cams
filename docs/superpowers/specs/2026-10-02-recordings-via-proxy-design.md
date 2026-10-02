@@ -42,8 +42,15 @@ fetches SD-card recordings over Baichuan, which works while the camera's HTTP
 2. On a proxy 502 or 503, or an unreachable proxy: the camera's own
    `searchDay()`, as today.
 
-The month list (`days()`, the camera's `searchMonth()`) and `extent.ts` are
-unchanged; `extent.ts` reads events through `day()`, so it follows.
+**The month list** (`days()`): the proxy's `GET /recordings/days?month=YYYY-MM`
+(the days with recordings in that camera-local month), not the camera's
+`searchMonth()`. The camera fails overlapping Searches by answering an empty
+list without an error, and cams and the proxy are separate processes that
+can't take turns; so for a proxied camera **every** camera Search goes
+through the proxy, which runs one at a time. On a proxy 502 or 503, or an
+unreachable proxy: the camera's own `searchMonth()`, as today (the proxy is
+then not searching either). `extent.ts` reads events through `day()`, so it
+follows.
 
 **Playback and thumbnails from the clip** (`withClip()`, sub stream, cams'
 disk cache as today):
