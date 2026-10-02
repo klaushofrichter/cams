@@ -6,7 +6,7 @@ import express, { type Response } from 'express';
 import rateLimit from 'express-rate-limit';
 import { mkdtempSync, writeFileSync } from 'fs';
 import http from 'http';
-import { randomBytes } from 'crypto';
+import { createHash, randomBytes } from 'crypto';
 import type { AddressInfo } from 'net';
 import { tmpdir } from 'os';
 import { join } from 'path';
@@ -177,7 +177,7 @@ export async function startFakeProxy(opts: { port?: number; token?: string } = {
 
   const range = (q: Record<string, unknown>): [number, number] | undefined => {
     const from = Number(q.from), to = Number(q.to);
-    return /^\d+$/.test(String(q.from)) && /^\d+$/.test(String(q.to)) && to >= from ? [from, to] : undefined;
+    return /^\d{1,15}$/.test(String(q.from)) && /^\d{1,15}$/.test(String(q.to)) && to >= from ? [from, to] : undefined;
   };
   // The camera list, as the real one reports it (only what cams reads).
   app.get('/api/cameras', (_req, res) => {
@@ -353,8 +353,8 @@ export async function startFakeProxy(opts: { port?: number; token?: string } = {
         .map((x) => ({ id: x.id, start: x.start, end: x.end, stream: x.stream, size: x.body.length, kinds: x.kinds ?? [], clipId: x.clipId ?? null })),
     );
   });
-  // Not modelled: the real proxy's Range/ETag behaviour (bytes=0- on an uncached
-  // file answers 200, a stable ETag, 416 without a download); cams sends no Range.
+  // Not modelled: the real proxy's bytes=0- on an uncached file (200) and 416
+  // without a download; cams sends no Range. The ETag is stable per file.
   // GET and HEAD (Express answers HEAD with the GET route; sendFile honours it).
   app.get('/api/cameras/:cam/recordings/:id', async (req, res) => {
     const id = req.params.id;
@@ -365,19 +365,23 @@ export async function startFakeProxy(opts: { port?: number; token?: string } = {
     if (!rec) return void res.status(404).json({ error: 'unknown_recording' });
     if (req.method === 'GET') fake.recordingFetches.push(id);
     if (fake.recordingDelayMs > 0) await new Promise((r) => setTimeout(r, fake.recordingDelayMs));
+    const headers = {
+      'Content-Type': 'video/mp4',
+      'Cache-Control': 'private, max-age=604800, immutable',
+      ETag: `"${createHash('sha1').update(rec.body).digest('hex').slice(0, 16)}"`,
+    };
     if (req.method === 'GET' && fake.recordingDropAfter !== null) {
-      res.writeHead(200, { 'Content-Type': 'video/mp4', 'Content-Length': String(rec.body.length) });
+      res.writeHead(200, { ...headers, 'Accept-Ranges': 'bytes', 'Content-Length': String(rec.body.length) });
       res.write(rec.body.subarray(0, fake.recordingDropAfter));
       return void setTimeout(() => res.socket?.destroy(), 20);
     }
     if (req.method === 'GET' && fake.recordingStallAfter !== null) {
-      res.writeHead(200, { 'Content-Type': 'video/mp4', 'Content-Length': String(rec.body.length) });
+      res.writeHead(200, { ...headers, 'Accept-Ranges': 'bytes', 'Content-Length': String(rec.body.length) });
       return void res.write(rec.body.subarray(0, fake.recordingStallAfter));
     }
     const file = join(dir, `rec-${randomBytes(8).toString('hex')}.mp4`);
     writeFileSync(file, rec.body);
-    res.setHeader('Cache-Control', 'private, max-age=604800, immutable');
-    res.sendFile(file, { headers: { 'Content-Type': 'video/mp4' } });
+    res.sendFile(file, { etag: false, headers });
   });
 
   const server = http.createServer(app);

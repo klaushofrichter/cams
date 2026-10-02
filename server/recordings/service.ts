@@ -35,15 +35,20 @@ interface DayEntry {
   // Per event: the camera's path of each stream's file (camera Search), or the
   // bare file name (the proxy's list).
   names: Map<string, { sub?: string; main?: string }>;
-  // An empty day from the camera's own Search for a camera with a cam-proxy
-  // (a fallback): it may have collided with the proxy's Search, so it's kept
-  // for TODAY_TTL only.
+  // A day from the camera's own Search for a camera with a cam-proxy (a
+  // fallback): it may have collided with the proxy's Search (an empty answer
+  // without an error), and the proxy may be back soon, so it's kept for
+  // TODAY_TTL only.
   doubtful?: boolean;
 }
 
 const TODAY_TTL = 30_000;
 const PAST_TTL = 600_000;
 const MONTH_TTL = 300_000;
+// After a proxy list request failed to connect or time out, the next list
+// requests (the day's other views, the month) go to the camera at once for
+// this long, instead of each waiting out the proxy's 10 s.
+const LIST_SPELL_MS = 15_000;
 // The camera's own web UI allows one download at a time (CheckDownload's
 // downloadTask), and overlapping downloads left it refusing all of them
 // until a power cycle.
@@ -148,7 +153,9 @@ export function dayBounds(date: string, t: TimeInfo): { from: number; to: number
 export type DownloadsState = 'ok' | 'proxy-recordings' | 'proxy' | 'unavailable';
 
 export class RecordingsService {
-  private readonly days_ = new Map<string, { at: number; days: string[] }>();
+  private readonly days_ = new Map<string, { at: number; days: string[]; doubtful?: boolean }>();
+  // Per camera: when a proxy list request last found the proxy unreachable.
+  private readonly listUnreachableAt = new Map<string, number>();
   private readonly daysInflight = new Map<string, Promise<DayEntry>>();
   private readonly dayCache = new Map<string, DayEntry>();
   private readonly transfers = new Map<string, PriorityGate>();
@@ -174,6 +181,25 @@ export class RecordingsService {
       logProxyFailure(cameraId, what, err);
       return null;
     }
+  }
+
+  // viaProxy for the day and month lists: while the proxy was found
+  // unreachable (a hang or a refused connection) a moment ago, null at once.
+  private async listViaProxy<T>(cameraId: string, what: string, ask: () => Promise<T>): Promise<T | null> {
+    const at = this.listUnreachableAt.get(cameraId);
+    if (at !== undefined && Date.now() - at < LIST_SPELL_MS) return null;
+    this.listUnreachableAt.delete(cameraId);
+    let unreachable = false;
+    const value = await this.viaProxy(cameraId, what, async () => {
+      try {
+        return await ask();
+      } catch (err) {
+        unreachable = err instanceof ProxyError && err.code === 'proxy_unreachable';
+        throw err;
+      }
+    });
+    if (unreachable) this.listUnreachableAt.set(cameraId, Date.now());
+    return value;
   }
 
   constructor(private readonly cache: DiskCache) {}
@@ -287,9 +313,10 @@ export class RecordingsService {
   async days(cameraId: string, month: string): Promise<string[]> {
     const key = `${cameraId}|${month}`;
     const hit = this.days_.get(key);
-    if (hit && Date.now() - hit.at < MONTH_TTL) return hit.days;
-    const days = (await this.viaProxy(cameraId, month, () => listProxyDays(cameraId, month))) ?? (await this.client(cameraId).searchMonth(month));
-    this.days_.set(key, { at: Date.now(), days });
+    if (hit && Date.now() - hit.at < (hit.doubtful ? TODAY_TTL : MONTH_TTL)) return hit.days;
+    const proxied = await this.listViaProxy(cameraId, month, () => listProxyDays(cameraId, month));
+    const days = proxied ?? (await this.client(cameraId).searchMonth(month));
+    this.days_.set(key, { at: Date.now(), days, doubtful: !proxied && proxyActive(cameraId) });
     return days;
   }
 
@@ -307,7 +334,7 @@ export class RecordingsService {
       // camera-local day's bounds; its own Search when the proxy can't answer.
       const { from, to } = dayBounds(date, time);
       const files = (list: ProxyRecording[]) => list.map((r) => ({ name: r.id, size: r.size }));
-      const proxied = await this.viaProxy(cameraId, date, async () => {
+      const proxied = await this.listViaProxy(cameraId, date, async () => {
         const subList = files(await listProxyRecordings(cameraId, from, to, 'sub'));
         const mainList = files(await listProxyRecordings(cameraId, from, to, 'main'));
         return [subList, mainList] as const;
@@ -342,7 +369,7 @@ export class RecordingsService {
         }))
         .sort(byStartTime);
       const names = new Map([...byId.entries()].map(([id, e]) => [id, { sub: e.sub?.name, main: e.main?.name }]));
-      const entry: DayEntry = { at: Date.now(), events, names, doubtful: !proxied && events.length === 0 && proxyActive(cameraId) };
+      const entry: DayEntry = { at: Date.now(), events, names, doubtful: !proxied && proxyActive(cameraId) };
       this.dayCache.set(key, entry);
       return entry;
     })().finally(() => this.daysInflight.delete(key));
@@ -683,7 +710,7 @@ export class RecordingsService {
 
     // 1. The proxy's recordings API (the SD file), outside the camera's slot.
     const fromSd = await this.viaProxy(cameraId, clipId, () => openProxyRecording(cameraId, baseName(name), signal), signal);
-    if (fromSd) return this.handOver(fromSd, filename, () => undefined, signal);
+    if (fromSd) return this.handOver(fromSd, filename, () => undefined, signal, { cameraId, clipId });
     if (signal?.aborted) throw abortError();
 
     // 2. Its FTP copy, for the sub stream only.
@@ -692,7 +719,7 @@ export class RecordingsService {
       if (ftp) {
         try {
           const got = await openProxyClip(cameraId, ftp.id, signal);
-          return this.handOver(got, filename.replace(/-sub\.mp4$/, '-proxy.mp4'), () => undefined, signal);
+          return this.handOver(got, filename.replace(/-sub\.mp4$/, '-proxy.mp4'), () => undefined, signal, { cameraId, clipId });
         } catch (err) {
           if (signal?.aborted) throw err;
           logger.warn({ cameraId, clipId, message: (err as Error).message }, 'proxy_clip_fetch_failed');
@@ -731,6 +758,8 @@ export class RecordingsService {
     filename: string,
     release: () => void,
     signal?: AbortSignal,
+    // A stream from a cam-proxy: an error after the headers (a cut) is logged.
+    proxied?: { cameraId: string; clipId: string },
   ): { stream: Readable; filename: string; size: number | null } {
     let released = false;
     const once = () => {
@@ -740,6 +769,12 @@ export class RecordingsService {
     };
     got.stream.once('close', once);
     got.stream.once('error', once);
+    if (proxied) {
+      got.stream.once('error', (err: Error) => {
+        if (signal?.aborted) return;
+        logger.warn({ ...proxied, message: err.message }, 'proxy_recording_cut');
+      });
+    }
     if (signal?.aborted) {
       got.stream.destroy();
       throw abortError();

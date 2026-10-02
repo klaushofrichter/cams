@@ -1,4 +1,6 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { inspect } from 'util';
+import { logger } from '../server/logger';
 import request from 'supertest';
 import { mkdtempSync, rmSync } from 'fs';
 import { tmpdir } from 'os';
@@ -203,6 +205,45 @@ describe('the clip download through cam-proxy’s recordings', () => {
     }
     expect(fetchedFtp()).toBe(false);
     expect(state.downloads).toBe(0);
+  });
+
+  // Issue #132: a cut after the headers was silent.
+  it('logs a proxy cut mid-download, with the clip but no token and no body', async () => {
+    const { ev } = await seeded();
+    const lines: unknown[][] = [];
+    for (const level of ['info', 'warn', 'error', 'debug'] as const) vi.spyOn(logger, level).mockImplementation(((...a: unknown[]) => void lines.push(a)) as never);
+    fake.recordingDropAfter = 100;
+    const server = createApp().listen(0);
+    await new Promise((r) => server.once('listening', r));
+    try {
+      const res = await fetch(`http://127.0.0.1:${(server.address() as AddressInfo).port}/api/cameras/cam1/clips/${ev.id}/download?quality=sub`, { headers: { Cookie: auth } });
+      await expect(res.arrayBuffer()).rejects.toThrow();
+      await vi.waitFor(() => expect(lines.some((l) => l[1] === 'proxy_recording_cut')).toBe(true));
+    } finally {
+      server.closeAllConnections();
+      await new Promise((r) => server.close(r));
+      vi.restoreAllMocks();
+    }
+    const cut = lines.find((l) => l[1] === 'proxy_recording_cut')!;
+    expect(cut[0]).toMatchObject({ cameraId: 'cam1', clipId: ev.id });
+    expect(inspect(lines, { depth: 8 })).not.toContain(FAKE_TOKEN);
+  });
+
+  it('does not log a viewer who left as a proxy cut', async () => {
+    const { ev } = await seeded();
+    const lines: unknown[][] = [];
+    for (const level of ['info', 'warn', 'error', 'debug'] as const) vi.spyOn(logger, level).mockImplementation(((...a: unknown[]) => void lines.push(a)) as never);
+    fake.recordingStallAfter = 50;
+    const ctl = new AbortController();
+    try {
+      const got = await getRecordings().openDownload('cam1', ev.id, 'sub', ctl.signal);
+      ctl.abort();
+      got.stream.destroy();
+      await new Promise((r) => setTimeout(r, 100));
+    } finally {
+      vi.restoreAllMocks();
+    }
+    expect(lines.some((l) => l[1] === 'proxy_recording_cut')).toBe(false);
   });
 
   it('leaves a camera without a cam-proxy unchanged: the camera’s download, named -main', async () => {
