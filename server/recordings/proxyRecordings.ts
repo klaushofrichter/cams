@@ -1,6 +1,6 @@
 import { Readable } from 'stream';
 import { logger } from '../logger';
-import { errorCode, getProxyClient, proxyCameraId, ProxyError, type ProxyClient } from '../proxy/client';
+import { errorBody, getProxyClient, proxyCameraId, ProxyError, type ProxyClient } from '../proxy/client';
 import { RecordingError } from './errors';
 
 // A camera's SD-card recordings through its cam-proxy's recordings API
@@ -90,14 +90,14 @@ export async function openProxyRecording(
   cameraId: string,
   id: string,
   signal?: AbortSignal,
-  opts: { headerTimeoutMs?: number } = {},
+  opts: { headerTimeoutMs?: number; idleMs?: number } = {},
 ): Promise<{ stream: Readable; size: number | null }> {
   const client = clientFor(cameraId);
-  const res = await client.open(`${base(cameraId)}/${encodeURIComponent(id)}`, undefined, { signal, timeoutMs: opts.headerTimeoutMs ?? RECORDING_HEADER_TIMEOUT_MS, idleMs: 30_000 });
+  const res = await client.open(`${base(cameraId)}/${encodeURIComponent(id)}`, undefined, { signal, timeoutMs: opts.headerTimeoutMs ?? RECORDING_HEADER_TIMEOUT_MS, idleMs: opts.idleMs ?? 30_000 });
   if (!res.ok || !res.body) {
-    const upstream = await errorCode(res);
+    const { error: upstream, reason } = await errorBody(res);
     if (res.status === 404 && upstream === 'unknown_recording') throw new RecordingError('unknown_clip', 'the recording is gone from the SD card');
-    throw new ProxyError('proxy_error', `cam-proxy ${client.host()} answered ${res.status} for a recording`, res.status, upstream);
+    throw new ProxyError('proxy_error', `cam-proxy ${client.host()} answered ${res.status} for a recording`, res.status, upstream, reason);
   }
   const cl = res.headers.get('content-length');
   return { stream: Readable.fromWeb(res.body as import('stream/web').ReadableStream), size: cl && /^\d+$/.test(cl) ? Number(cl) : null };
@@ -116,7 +116,7 @@ export function fallsBack(err: unknown, signal?: AbortSignal): boolean {
 // name the proxy's host only, never its token.
 export function logProxyFailure(cameraId: string, what: string, err: unknown): void {
   const e = err instanceof ProxyError ? err : undefined;
-  const fields = { cameraId, what, code: e?.code ?? 'error', status: e?.status, upstream: e?.upstream, message: (err as Error).message };
+  const fields = { cameraId, what, code: e?.code ?? 'error', status: e?.status, upstream: e?.upstream, reason: e?.reason, message: (err as Error).message };
   if (e?.status === 400) logger.error(fields, 'proxy_recordings_failed');
   else logger.warn(fields, 'proxy_recordings_failed');
 }

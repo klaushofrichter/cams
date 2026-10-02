@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { inspect } from 'util';
 import { setCameras } from '../server/cameraRegistry';
 import { logger } from '../server/logger';
-import { resetProxyClients } from '../server/proxy/client';
+import { ProxyError, resetProxyClients } from '../server/proxy/client';
 import { RecordingError } from '../server/recordings/errors';
 import { fallsBack, listProxyDays, listProxyRecordings, logProxyFailure, openProxyRecording } from '../server/recordings/proxyRecordings';
 import { FAKE_TOKEN, startFakeProxy, type FakeProxy } from './proxy/fakeProxy';
@@ -133,6 +133,38 @@ describe('proxy recordings client', () => {
     expect(fallsBack(new Error('aborted'), ctl.signal)).toBe(false);
   });
 
+  it('starts nothing with a signal that is already aborted', async () => {
+    const ctl = new AbortController();
+    ctl.abort();
+    const err = await caught(openProxyRecording('den', SUB, ctl.signal));
+    expect(err).not.toBeInstanceOf(ProxyError);
+    expect((err as Error).name).toBe('AbortError');
+    expect(fallsBack(err, ctl.signal)).toBe(false);
+    expect(fake.recordingFetches).toEqual([]);
+  });
+
+  it('throws the abort, not a ProxyError, when the viewer leaves while the headers wait', async () => {
+    fake.recordingDelayMs = 500;
+    const ctl = new AbortController();
+    const p = caught(openProxyRecording('den', SUB, ctl.signal));
+    setTimeout(() => ctl.abort(), 50);
+    const err = await p;
+    expect(err).not.toBeInstanceOf(ProxyError);
+    expect(fallsBack(err, ctl.signal)).toBe(false);
+  });
+
+  it('rejects the read of a body that is cut short', async () => {
+    fake.recordingDropAfter = 4;
+    const got = await openProxyRecording('den', SUB);
+    await expect(text(got.stream)).rejects.toBeDefined();
+  });
+
+  it('rejects the read of a body that stalls, once the idle time passes', async () => {
+    fake.recordingStallAfter = 4;
+    const got = await openProxyRecording('den', SUB, undefined, { idleMs: 150 });
+    await expect(text(got.stream)).rejects.toThrow(/stalled/);
+  });
+
   it('answers proxy_unreachable for a camera without a cam-proxy', async () => {
     setCameras([{ id: 'den', name: 'Den', host: '127.0.0.1:9', protocol: 'http', user: 'u', password: 'p' }]);
     resetProxyClients();
@@ -148,10 +180,16 @@ describe('proxy recordings client', () => {
     logProxyFailure('den', '20261001-211129-211209', await caught(openProxyRecording('den', SUB)));
     fake.recordingsOverride = { status: 400, body: { error: 'invalid' } };
     logProxyFailure('den', '20261001-211129-211209', await caught(openProxyRecording('den', SUB)));
-    expect(lines.map((l) => l.level)).toEqual(['warn', 'error']);
+    expect(lines.slice(0, 2).map((l) => l.level)).toEqual(['warn', 'error']);
     expect(lines[0].text).toContain('proxy_recordings_failed');
     expect(lines[0].text).toContain('20261001-211129-211209');
     expect(lines[0].text).toContain('camera_offline');
+    fake.recordingsOverride = { status: 502, body: { error: 'recordings_unavailable', reason: 'search_failed' } };
+    logProxyFailure('den', 'x', await caught(openProxyRecording('den', SUB)));
+    fake.recordingsOverride = { status: 502, body: { error: 'recordings_unavailable', reason: 'search_failed' } };
+    logProxyFailure('den', 'x', await caught(listProxyDays('den', '2026-10')));
+    expect(lines[2].text).toContain('search_failed');
+    expect(lines[3].text).toContain('search_failed');
     expect(lines.map((l) => l.text).join('\n')).not.toContain(FAKE_TOKEN);
   });
 });

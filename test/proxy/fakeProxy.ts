@@ -62,6 +62,7 @@ export interface FakeProxy {
   recordings: Map<string, FakeRecording[]>; // proxy camera id → its SD recordings; a camera without an entry answers 503 camera_offline
   recordingsOverride: { status: number; body: unknown } | null; // tests: every recordings route answers this (after checking its input)
   recordingDropAfter: number | null; // tests: a file sends its headers and this many bytes, then the connection drops
+  recordingStallAfter: number | null; // tests: a file sends its headers and this many bytes, then nothing (the connection stays open)
   recordingDelayMs: number; // tests: a file's headers wait this long (the real proxy queues downloads per camera)
   recordingFetches: string[]; // ids of the files served by GET (not HEAD)
   streamConnections(): number;
@@ -110,6 +111,7 @@ export async function startFakeProxy(opts: { port?: number; token?: string } = {
     recordings: new Map(),
     recordingsOverride: null,
     recordingDropAfter: null,
+    recordingStallAfter: null,
     recordingDelayMs: 0,
     recordingFetches: [],
     streamConnections: () => streams.size,
@@ -367,6 +369,10 @@ export async function startFakeProxy(opts: { port?: number; token?: string } = {
       res.writeHead(200, { 'Content-Type': 'video/mp4', 'Content-Length': String(rec.body.length) });
       res.write(rec.body.subarray(0, fake.recordingDropAfter));
       return void setTimeout(() => res.socket?.destroy(), 20);
+    }
+    if (req.method === 'GET' && fake.recordingStallAfter !== null) {
+      res.writeHead(200, { 'Content-Type': 'video/mp4', 'Content-Length': String(rec.body.length) });
+      return void res.write(rec.body.subarray(0, fake.recordingStallAfter));
     }
     const file = join(dir, `rec-${randomBytes(8).toString('hex')}.mp4`);
     writeFileSync(file, rec.body);

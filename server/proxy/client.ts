@@ -12,6 +12,7 @@ export class ProxyError extends Error {
     message: string,
     readonly status?: number,
     readonly upstream?: string, // the proxy's own `error` code, when it sent one
+    readonly reason?: string, // its `reason` (a 502 recordings_unavailable says why), when it sent one
   ) {
     super(message);
     this.name = 'ProxyError';
@@ -52,6 +53,7 @@ export class ProxyClient {
     query?: Query,
     init: { method?: 'GET' | 'POST' | 'DELETE'; body?: string; headers?: Record<string, string>; signal?: AbortSignal; timeoutMs?: number | null; idleMs?: number } = {},
   ): Promise<Response> {
+    init.signal?.throwIfAborted(); // an already-aborted signal never fires its listener
     const ctl = new AbortController();
     const onAbort = () => ctl.abort(init.signal?.reason);
     init.signal?.addEventListener('abort', onAbort, { once: true });
@@ -103,8 +105,8 @@ export class ProxyClient {
   async json<T>(path: string, query?: Query, init: { timeoutMs?: number; signal?: AbortSignal } = {}): Promise<T> {
     const res = await this.open(path, query, init);
     if (!res.ok) {
-      const upstream = await errorCode(res);
-      throw new ProxyError('proxy_error', `cam-proxy ${this.host()} answered ${res.status}`, res.status, upstream);
+      const { error: upstream, reason } = await errorBody(res);
+      throw new ProxyError('proxy_error', `cam-proxy ${this.host()} answered ${res.status}`, res.status, upstream, reason);
     }
     try {
       return (await res.json()) as T;
@@ -117,7 +119,12 @@ export class ProxyClient {
 // The proxy's `error` code from a refused request's body: its first 4 KB,
 // within a second (a stalled body must not hang the route), then dropped.
 export async function errorCode(res: Response): Promise<string | undefined> {
-  if (!res.body) return undefined;
+  return (await errorBody(res)).error;
+}
+
+// The same, with the body's short `reason` too.
+export async function errorBody(res: Response): Promise<{ error?: string; reason?: string }> {
+  if (!res.body) return {};
   const reader = res.body.getReader();
   const chunks: Uint8Array[] = [];
   let size = 0;
@@ -130,16 +137,19 @@ export async function errorCode(res: Response): Promise<string | undefined> {
       size += value.length;
     }
   } catch {
-    return undefined;
+    return {};
   } finally {
     clearTimeout(timer);
     void reader.cancel().catch(() => {});
   }
   try {
-    const body = JSON.parse(Buffer.concat(chunks).toString('utf8')) as { error?: unknown } | null;
-    return typeof body?.error === 'string' ? body.error.slice(0, 64) : undefined;
+    const body = JSON.parse(Buffer.concat(chunks).toString('utf8')) as { error?: unknown; reason?: unknown } | null;
+    return {
+      error: typeof body?.error === 'string' ? body.error.slice(0, 64) : undefined,
+      reason: typeof body?.reason === 'string' ? body.reason.slice(0, 64) : undefined,
+    };
   } catch {
-    return undefined;
+    return {};
   }
 }
 
