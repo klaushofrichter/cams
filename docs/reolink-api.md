@@ -465,6 +465,53 @@ far is still motion-only.
 >   0.2 s with no bytes. SD card fine (61 GB, mounted, 58.7 GB free),
 >   recording enabled, Search works.
 >
+> - **2026-10-01, 19:18:** a PoE power cycle through the switch (port 8 off
+>   for 10 s) did not clear it either.
+>
+> **What others report (web research, 2026-10-01):**
+> - home-assistant/core #147960 describes the same failure on other Reolink
+>   models with v3.2.0 firmware: HTTP Download dropped with no answer, while
+>   live view works. Triggers include Auto Reboot, a manual reboot, and
+>   aborted or overlapping Downloads. Only power cycles helped, and it comes
+>   and goes over days.
+> - One owner there found that after a reboot, a Download that arrives before
+>   any live stream puts the camera back into the dead state. Opening live view
+>   first ("priming") avoids it. Every test here ran a Download within about a
+>   minute of the reboot or power cycle, so each test may have re-wedged it.
+>   Not yet tested on this camera.
+> - `cmd=Download` builds a temporary file on the SD card, which makes it
+>   fragile. reolink_aio PR #186 and HA PR #177436 (both open) fetch
+>   recordings over Baichuan (port 9000) instead, at about 9 MB/s with no
+>   temporary file. Reolink's `reolink-cli` also downloads over Baichuan.
+> - No firmware newer than v3.2.0.6011 exists for the RLC-1224A (hardware
+>   `IPC_NT18NA612MP`).
+> - This camera has **Auto Maintenance on: a reboot every Sunday at 02:00**.
+>   That may be what cleared it after 2026-09-26: a reboot with no Download
+>   right after it.
+> - **Priming test, 2026-10-01 20:42:** a PoE power cycle, then 68 s of FLV
+>   live view (HTTP 200, but only 512 KB), then one Download 15 s later: still
+>   dropped after 0.2 s (`downloadTask: 0`). Priming did not help on this
+>   camera, unless something else asked for a Download in between.
+> - **2026-10-01 evening, none of these helped:**
+>   - the priming test again with cams closed;
+>   - HTTP and RTMP switched off and on (`SetNetPort`, restored identically);
+>   - **a new SD card**, formatted by the camera (`Format` with
+>     `{"HddInfo":{"id":[0]}}`, 30,432 MB). A finished 1 MB person recording,
+>     downloaded 30 s after it ended, was dropped after 0.2 s.
+>
+>   The camera's own web UI lists the files and can't download them either.
+>   The fault is in the camera, not the SD card or the clients.
+>
+> **Baichuan (port 9000) downloads work** (2026-10-01, night). The same
+> recordings, over Reolink's own protocol (reolink_aio PR #186: search
+> 14/15/16, file info 13, download 8, stop 9), came down complete and playable:
+> sub 1.08 MB in 0.4 s, main 14.9 MB in 1.6 s (about 8.9 MB/s), while HTTP
+> Download stayed refused. Details: `~/Development/reolink/baichuan-download.md`;
+> proposal: issue #128.
+>
+> Full report with sources: the cam-proxy session's research notes, summarised
+> in the Obsidian note *Reolink API Behaviour*.
+>
 > Possible causes, not yet told apart: the `Reboot` itself, or the test that
 > ran just before it. That test opened two Downloads a second apart (HTTPS,
 > then HTTP) and closed each after 16 bytes. The camera allows one download
