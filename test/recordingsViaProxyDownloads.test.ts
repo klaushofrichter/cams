@@ -209,4 +209,22 @@ describe('the clip download through cam-proxy’s recordings', () => {
     expect(state.downloads).toBe(1);
     expect(fake.requests).toEqual([]);
   });
+
+  // Coordinator ruling: full_quality_unavailable is for proxied cameras only;
+  // without a cam-proxy a refused 4K download answers what it always did.
+  it('leaves a refused 4K download of a camera without a cam-proxy unchanged', async () => {
+    await new Promise<void>((r) => cam.close(() => r()));
+    await startCamera({ dropFirstDownloads: 1000 });
+    const day = await events('porch');
+    for (const e of day.events.slice(0, 3)) {
+      const r = await download(e.id, 'main', 'porch');
+      expect(r.status).toBe(503);
+      expect(r.body).toEqual({ error: 'camera_offline' });
+    }
+    // The breaker is open now: the old answer.
+    const r = await download(day.events[0].id, 'main', 'porch');
+    expect(r.status).toBe(503);
+    expect(r.body).toEqual({ error: 'recordings_unavailable' });
+    expect(fake.requests).toEqual([]);
+  });
 });

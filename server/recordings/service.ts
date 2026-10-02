@@ -682,8 +682,10 @@ export class RecordingsService {
         throw err;
       }
     } catch (err) {
+      // Only a camera with a cam-proxy in use; without one, the camera's own
+      // answer, as before.
       const final = signal?.aborted || (err instanceof RecordingError && err.code === 'unknown_clip');
-      if (served === 'main' && !final) throw new RecordingError('full_quality_unavailable', 'the full-resolution file is not available right now');
+      if (served === 'main' && !final && proxyActive(cameraId)) throw new RecordingError('full_quality_unavailable', 'the full-resolution file is not available right now');
       throw err;
     }
   }
