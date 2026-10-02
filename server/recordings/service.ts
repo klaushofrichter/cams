@@ -15,7 +15,7 @@ import { makeThumbnail } from './thumbnail';
 import { Semaphore } from '../reolink/semaphore';
 import { findProxyClip, findProxyStill, openProxyClip, openProxyStill } from './proxyClips';
 import { RecordingError } from './errors';
-import { fallsBack, headProxyRecording, listProxyDays, listProxyRecordings, logProxyFailure, openProxyRecording, type ProxyRecording } from './proxyRecordings';
+import { fallsBack, headProxyRecording, listProxyDays, listProxyDay, logProxyFailure, openProxyRecording, type ProxyRecording } from './proxyRecordings';
 import { ProxyError } from '../proxy/client';
 export { RecordingError } from './errors';
 
@@ -134,10 +134,11 @@ function dateOf(clipId: string): string {
   return `${clipId.slice(0, 4)}-${clipId.slice(4, 6)}-${clipId.slice(6, 8)}`;
 }
 
-// A camera-local day's bounds in unix ms, for the proxy's list. TimeInfo
-// doesn't say whether DST is in effect that day, so the window runs from
-// midnight at the DST offset to the next midnight at standard time; the
-// list is filtered by the names' date afterwards. At most 25 hours.
+// A camera-local day's bounds in unix ms, for an older cam-proxy without the
+// `date` parameter (see listProxyDay). TimeInfo doesn't say whether DST is in
+// effect that day, so the window runs from midnight at the DST offset to the
+// next midnight at standard time; the list is filtered by the names' date
+// afterwards. At most 25 hours.
 export function dayBounds(date: string, t: TimeInfo): { from: number; to: number } {
   const midnight = Date.parse(`${date}T00:00:00Z`);
   return {
@@ -331,12 +332,13 @@ export class RecordingsService {
     if (inflight) return inflight;
     const work = (async () => {
       // A camera with a cam-proxy: the proxy's list, sub then main, from the
-      // camera-local day's bounds; its own Search when the proxy can't answer.
-      const { from, to } = dayBounds(date, time);
+      // camera-local `date`; an older proxy gets the day's bounds instead; the
+      // camera's own Search when the proxy can't answer.
+      const bounds = dayBounds(date, time);
       const files = (list: ProxyRecording[]) => list.map((r) => ({ name: r.id, size: r.size }));
       const proxied = await this.listViaProxy(cameraId, date, async () => {
-        const subList = files(await listProxyRecordings(cameraId, from, to, 'sub'));
-        const mainList = files(await listProxyRecordings(cameraId, from, to, 'main'));
+        const subList = files(await listProxyDay(cameraId, date, 'sub', bounds));
+        const mainList = files(await listProxyDay(cameraId, date, 'main', bounds));
         return [subList, mainList] as const;
       });
       const [sub, main] = proxied ?? (await Promise.all([client.searchDay(date, 'sub'), client.searchDay(date, 'main')]));

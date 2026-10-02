@@ -13,6 +13,7 @@ export class ProxyError extends Error {
     readonly status?: number,
     readonly upstream?: string, // the proxy's own `error` code, when it sent one
     readonly reason?: string, // its `reason` (a 502 recordings_unavailable says why), when it sent one
+    readonly retryAfterS?: number, // its Retry-After in seconds (a 503 busy), when it sent one
   ) {
     super(message);
     this.name = 'ProxyError';
@@ -106,7 +107,8 @@ export class ProxyClient {
     const res = await this.open(path, query, init);
     if (!res.ok) {
       const { error: upstream, reason } = await errorBody(res);
-      throw new ProxyError('proxy_error', `cam-proxy ${this.host()} answered ${res.status}`, res.status, upstream, reason);
+      const ra = res.headers.get('retry-after');
+      throw new ProxyError('proxy_error', `cam-proxy ${this.host()} answered ${res.status}`, res.status, upstream, reason, ra && /^\d{1,6}$/.test(ra) ? Number(ra) : undefined);
     }
     try {
       return (await res.json()) as T;

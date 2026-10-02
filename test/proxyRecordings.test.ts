@@ -4,7 +4,7 @@ import { setCameras } from '../server/cameraRegistry';
 import { logger } from '../server/logger';
 import { ProxyError, resetProxyClients } from '../server/proxy/client';
 import { RecordingError } from '../server/recordings/errors';
-import { fallsBack, listProxyDays, listProxyRecordings, logProxyFailure, openProxyRecording } from '../server/recordings/proxyRecordings';
+import { fallsBack, listProxyDay, listProxyDays, listProxyRecordings, logProxyFailure, openProxyRecording } from '../server/recordings/proxyRecordings';
 import { FAKE_TOKEN, startFakeProxy, type FakeProxy } from './proxy/fakeProxy';
 
 // The client for cam-proxy's recordings API (spec 2026-10-02).
@@ -192,4 +192,38 @@ describe('proxy recordings client', () => {
     expect(lines[3].text).toContain('search_failed');
     expect(lines.map((l) => l.text).join('\n')).not.toContain(FAKE_TOKEN);
   });
+});
+
+describe('listProxyDay (cam-proxy date=)', () => {
+  const fb = { from: T0 - 1, to: T0 + 1 };
+  it('asks with date and stream only', async () => {
+    fake.recordings.set('cam1', []);
+    expect(await listProxyDay('den', '2026-10-01', 'sub', fb)).toEqual([]);
+    expect(fake.requests.at(-1)).toMatchObject({ path: '/api/cameras/cam1/recordings', query: { date: '2026-10-01', stream: 'sub' } });
+    expect(fake.requests.at(-1)!.query.from).toBeUndefined();
+  });
+  it('asks once more with from and to when the proxy answers 400 (an older proxy ignores date and wants from/to)', async () => {
+    fake.legacyRecordings = true;
+    const before = fake.requests.length;
+    const list = await listProxyDay('den', '2026-10-01', 'main', fb);
+    expect(list.map((r) => r.id)).toEqual([MAIN]);
+    const asks = fake.requests.slice(before);
+    expect(asks.map((r) => Object.keys(r.query).sort())).toEqual([['date', 'stream'], ['from', 'stream', 'to']]);
+  });
+  it('does not retry other failures with from and to', async () => {
+    fake.recordingsOverride = { status: 502, body: { error: 'recordings_unavailable', reason: 'refused' } };
+    const before = fake.requests.length;
+    await expect(listProxyDay('den', '2026-10-01', 'sub', fb)).rejects.toMatchObject({ status: 502 });
+    expect(fake.requests.length - before).toBe(1);
+  });
+  it('retries once after Retry-After on 503 busy, then gives up', async () => {
+    fake.recordingsBusy = 1;
+    const t = Date.now();
+    expect((await listProxyDay('den', '2026-10-01', 'sub', fb)).length).toBe(1);
+    expect(Date.now() - t).toBeGreaterThanOrEqual(900);
+    fake.recordingsBusy = 5;
+    const before = fake.requests.length;
+    await expect(listProxyDay('den', '2026-10-01', 'sub', fb)).rejects.toMatchObject({ status: 503, reason: 'busy' });
+    expect(fake.requests.length - before).toBe(2);
+  }, 15_000);
 });

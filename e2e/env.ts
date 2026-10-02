@@ -27,8 +27,8 @@ export const E2E_ENV: Record<string, string> = {
 // with the recordings API, or later. Bump both with cam-proxy releases: the
 // digest is the image index's (`docker buildx imagetools inspect <image>:<tag>`),
 // so a moved or replaced tag can't change what the e2e runs.
-export const CAM_PROXY_TAG = 'v2026.10.02.3';
-export const CAM_PROXY_DIGEST = 'sha256:3cbf98d20d4763804cd2d16bad7be6811dd75a49c9c3032f04e1e7ecb537bd69';
+export const CAM_PROXY_TAG = 'v2026.10.02.4';
+export const CAM_PROXY_DIGEST = 'sha256:33f595fe1991d430855d172e9e75e4d79be53e3f1a7cef1f1fa5b04ce8aeb5ec';
 export const CAM_PROXY_IMAGE = `ghcr.io/klaushofrichter/cam-proxy:${CAM_PROXY_TAG}@${CAM_PROXY_DIGEST}`;
 
 // The real cam-proxy for Silo (e2e/realProxy.ts). Test-only tokens. It runs

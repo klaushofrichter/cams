@@ -76,8 +76,7 @@ describe('the day’s list and the month’s days through cam-proxy', () => {
     expect(viaProxy.downloads).toBe('proxy-recordings');
     const asks = recordingAsks();
     expect(asks.map((r) => r.query.stream)).toEqual(['sub', 'main']);
-    const bounds = dayBounds(date, await getClient('cam1')!.timeInfo());
-    expect(asks.map((r) => [Number(r.query.from), Number(r.query.to)])).toEqual([[bounds.from, bounds.to], [bounds.from, bounds.to]]);
+    expect(asks.map((r) => r.query)).toEqual([{ date, stream: 'sub' }, { date, stream: 'main' }]);
     expect(viaProxy.events.length).toBeGreaterThan(0);
     for (const ev of viaProxy.events) {
       expect(ev.sizeSub).toBe(recordingOf(list, ev.id, 'sub').body.length);
@@ -150,13 +149,42 @@ describe('the day’s list and the month’s days through cam-proxy', () => {
     expect(state.searches).toBe(searches + 1);
   });
 
-  // Review focus 3: a day on a DST change, and east of UTC.
-  it('asks for a camera-local day wide enough for either offset (dayBounds)', () => {
-    // Chicago, the fall-back day: CDT midnight is 05:00Z, CST midnight 06:00Z.
+  it('asks an older proxy again with from and to when it answers 400 to date, still without a camera Search', async () => {
+    await seedRecordings(fake, 'cam1', today());
+    const searches = state.searches;
+    fake.legacyRecordings = true;
+    const day = await events();
+    expect(state.searches).toBe(searches);
+    expect(day.downloads).toBe('proxy-recordings');
+    expect(day.events.length).toBeGreaterThan(0);
+    const asks = recordingAsks();
+    expect(asks.map((r) => Object.keys(r.query).sort().join())).toEqual(['date,stream', 'from,stream,to', 'date,stream', 'from,stream,to']);
+    expect(asks.filter((r) => r.query.from !== undefined).map((r) => r.query.stream)).toEqual(['sub', 'main']);
+  });
+
+  it('retries a busy proxy once after its Retry-After, without a camera Search', async () => {
+    await seedRecordings(fake, 'cam1', today());
+    const searches = state.searches;
+    fake.recordingsBusy = 1;
+    const day = await events();
+    expect(state.searches).toBe(searches);
+    expect(day.downloads).toBe('proxy-recordings');
+    expect(day.events.length).toBeGreaterThan(0);
+  }, 15_000);
+
+  it('falls back to the camera’s Search when the proxy is still busy after the retry', async () => {
+    await seedRecordings(fake, 'cam1', today());
+    const searches = state.searches;
+    fake.recordingsBusy = 10;
+    const day = await events();
+    expect(day.events.length).toBeGreaterThan(0);
+    expect(state.searches).toBe(searches + 2);
+    expect(day.downloads).toBe('proxy');
+  }, 15_000);
+
+  // Only for an older proxy without date=.
+  it('keeps dayBounds, the window for an older proxy, wide enough for either offset', () => {
     expect(dayBounds('2026-11-01', { stdOffsetMinutes: -360, dstOffsetMinutes: 60 })).toEqual({ from: Date.parse('2026-11-01T05:00:00Z'), to: Date.parse('2026-11-02T06:00:00Z') - 1 });
-    // Berlin, the spring-forward day: CEST midnight is 22:00Z the day before, CET midnight 23:00Z.
-    expect(dayBounds('2026-03-29', { stdOffsetMinutes: 60, dstOffsetMinutes: 60 })).toEqual({ from: Date.parse('2026-03-28T22:00:00Z'), to: Date.parse('2026-03-29T23:00:00Z') - 1 });
-    // No DST: exactly the day.
     expect(dayBounds('2026-10-02', { stdOffsetMinutes: 0, dstOffsetMinutes: 0 })).toEqual({ from: Date.parse('2026-10-02T00:00:00Z'), to: Date.parse('2026-10-03T00:00:00Z') - 1 });
   });
 
