@@ -1,7 +1,7 @@
 <script lang="ts">
-  import { onDestroy, onMount, tick } from 'svelte';
+  import { onDestroy, onMount, tick, untrack } from 'svelte';
   import { downloadUrl, formatClock, orderTriggers, thumbUrl, TRIGGER_LABELS, type EventClip } from '../lib/recordings';
-  import { cancelJob, composedName, formatLength, isAvailable, ORIGINAL_4K_LABEL, pollJob, resultLength, SIZE_LABELS, startJob, videoUrl, type ComposeSize, type JobView, type SaveSize } from '../lib/compose';
+  import { cancelJob, composedName, formatLength, fullQualityAvailable, isAvailable, ORIGINAL_4K_LABEL, pollJob, resultLength, SIZE_LABELS, startJob, videoUrl, type ComposeSize, type JobView, type SaveSize } from '../lib/compose';
 
   // Every download of a clip goes through this dialog (Klaus, 2026-09-29): SD
   // or 4K as recorded, or, with a cam-proxy, SD sizes with a pre-/post-roll
@@ -19,6 +19,42 @@
 
   // 4K is the camera's original: no pre- or post-roll.
   const is4k = $derived(size === '4k');
+  // Whether the full-resolution file can be served now; asked whenever 4K is
+  // chosen, and again on Save (the download itself can't show a failure). No
+  // silent quality downgrade (Klaus, 2026-10-02): when it can't, 4K's Save is
+  // off and the standard quality is offered instead. A late answer for
+  // another clip or a changed choice is dropped.
+  let fullOk = $state(true);
+  let askSeq = 0;
+  async function askFull(): Promise<boolean> {
+    const seq = ++askSeq;
+    const id = clip.id;
+    const a = await fullQualityAvailable(camera, id);
+    if (seq === askSeq && id === clip.id && is4k) fullOk = a;
+    return a && seq === askSeq && id === clip.id && is4k;
+  }
+  // Only with a cam-proxy: a camera without one saves 4K exactly as before
+  // (no question, the plain <a download>, which keeps the user's tap on iOS).
+  $effect(() => {
+    const on = is4k && composable;
+    untrack(() => (on ? void askFull() : void askSeq++));
+  });
+  // The browser's download can't report a refusal, so 4K's Save asks first
+  // and then starts the download itself (never buffered into a blob).
+  function onSave(e: MouseEvent) {
+    if (!is4k || !composable) return;
+    e.preventDefault();
+    if (fullMissing) return;
+    const href = downloadUrl(camera, clip.id, 'main');
+    void askFull().then((ok) => {
+      if (!ok) return;
+      const a = document.createElement('a');
+      a.href = href;
+      a.download = '';
+      a.click();
+    });
+  }
+  const fullMissing = $derived(is4k && !fullOk);
   // Pre- and post-roll are for SD only (Klaus, 2026-09-29): other sizes save
   // or resize the clip alone.
   const rollOff = $derived(size !== 'sd');
@@ -194,6 +230,10 @@
   {#if is4k}
     <p class="muted" data-testid="compose-4k-note">4K saves the camera's original recording as it is.</p>
   {/if}
+  {#if fullMissing}
+    <p class="err" data-testid="compose-4k-unavailable" role="alert">The full-resolution file isn't available right now; download the standard quality instead.</p>
+    <button class="link" data-testid="compose-use-sd" onclick={() => (size = 'sd')}>Use the standard quality</button>
+  {/if}
   {#if length.ok}
     <p class="muted" data-testid="compose-length" role="status">Result: {formatLength(length.seconds)}</p>
   {:else}
@@ -214,9 +254,9 @@
     {:else if !plain && length.ok}
       <button data-testid="compose-generate" disabled={starting} onclick={generate}>{starting ? 'Starting…' : ready ? 'Generate again' : 'Generate'}</button>
     {/if}
-    <a data-testid="compose-save" class="primary" download
-      href={plain ? downloadUrl(camera, clip.id, is4k ? 'main' : 'sub') : ready && job ? videoUrl(camera, job.id, false, name) : undefined}
-      aria-disabled={plain || ready ? 'false' : 'true'}>Save</a>
+    <a data-testid="compose-save" class="primary" download onclick={onSave}
+      href={fullMissing ? undefined : plain ? downloadUrl(camera, clip.id, is4k ? 'main' : 'sub') : ready && job ? videoUrl(camera, job.id, false, name) : undefined}
+      aria-disabled={!fullMissing && (plain || ready) ? 'false' : 'true'}>Save</a>
   </footer>
 </div>
 
@@ -238,6 +278,7 @@
   progress { width: 100%; }
   video { width: 100%; border-radius: 8px; background: #000; }
   .muted { margin: 0; color: var(--muted); font-size: 13px; }
+  .link { align-self: flex-start; padding: 0; border: 0; background: transparent; color: var(--accent); font: inherit; font-size: 13px; text-decoration: underline; cursor: pointer; }
   .err { margin: 0; color: var(--danger); font-size: 13px; }
   footer { display: flex; justify-content: flex-end; gap: 8px; }
   footer button, footer a { padding: 7px 14px; border-radius: 9px; border: 1px solid var(--border); background: var(--surface-2); color: var(--text); font: inherit; font-size: 13px; text-decoration: none; cursor: pointer; }

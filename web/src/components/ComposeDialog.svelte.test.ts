@@ -34,7 +34,93 @@ const set = (id: string, v: string) => {
   flushSync();
 };
 
+const fq = (f: { mock: { calls: unknown[][] } }) => f.mock.calls.filter(([u]) => String(u).endsWith('/full-quality')).length;
+const set4k = () => {
+  const el = q('compose-size') as HTMLSelectElement;
+  el.value = '4k';
+  el.dispatchEvent(new Event('change', { bubbles: true }));
+  flushSync();
+};
+
 describe('ComposeDialog', () => {
+  // Klaus, 2026-10-02: no silent quality downgrade.
+  it('says when the full-resolution file isn’t available, disables 4K’s Save, and offers the standard quality', async () => {
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => new Response(JSON.stringify(url.includes('/full-quality') ? { available: false } : { available: true }), { status: 200 })));
+    render();
+    set4k();
+    await vi.waitFor(() => expect(q('compose-4k-unavailable')).not.toBeNull());
+    expect(q('compose-use-sd')!.textContent).toBe('Use the standard quality');
+    expect(q('compose-4k-unavailable')!.textContent).toBe("The full-resolution file isn't available right now; download the standard quality instead.");
+    expect(q('compose-save')!.getAttribute('aria-disabled')).toBe('true');
+    expect(q('compose-save')!.hasAttribute('href')).toBe(false);
+    q('compose-use-sd')!.click();
+    flushSync();
+    expect((q('compose-size') as HTMLSelectElement).value).toBe('sd');
+    expect(q('compose-4k-unavailable')).toBeNull();
+    expect(q('compose-save')!.getAttribute('href')).toMatch(/download\?quality=sub/);
+  });
+
+  it('re-checks on Save: a file that went away since 4K was chosen shows the message and starts no download', async () => {
+    let avail = true;
+    const fetch = vi.fn(async (_url: string) => new Response(JSON.stringify({ available: avail }), { status: 200 }));
+    vi.stubGlobal('fetch', fetch);
+    const click = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {});
+    render();
+    set4k();
+    await vi.waitFor(() => expect(fq(fetch)).toBe(1));
+    avail = false;
+    const ev = new MouseEvent('click', { bubbles: true, cancelable: true });
+    q('compose-save')!.dispatchEvent(ev);
+    expect(ev.defaultPrevented).toBe(true);
+    await vi.waitFor(() => expect(q('compose-4k-unavailable')).not.toBeNull());
+    expect(fq(fetch)).toBe(2);
+    expect(q('compose-4k-unavailable')!.getAttribute('role')).toBe('alert');
+    expect(click).not.toHaveBeenCalled();
+    click.mockRestore();
+  });
+
+  it('starts the 4K download itself after a Save re-check that says available, without buffering it', async () => {
+    const fetch = vi.fn(async (_url: string) => new Response(JSON.stringify({ available: true }), { status: 200 }));
+    vi.stubGlobal('fetch', fetch);
+    const hrefs: string[] = [];
+    const click = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(function (this: HTMLAnchorElement) { hrefs.push(this.getAttribute('href') ?? ''); });
+    render();
+    set4k();
+    await vi.waitFor(() => expect(fq(fetch)).toBe(1));
+    q('compose-save')!.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+    await vi.waitFor(() => expect(hrefs.length).toBe(1));
+    expect(hrefs[0]).toMatch(/download\?quality=main/);
+    expect(fetch.mock.calls.some(([u]) => String(u).includes('/download'))).toBe(false); // the file itself is never fetched by script
+    click.mockRestore();
+  });
+
+  it('asks again when 4K is chosen again', async () => {
+    let avail = false;
+    const fetch = vi.fn(async (_url: string) => new Response(JSON.stringify({ available: avail }), { status: 200 }));
+    vi.stubGlobal('fetch', fetch);
+    render();
+    set4k();
+    await vi.waitFor(() => expect(q('compose-4k-unavailable')).not.toBeNull());
+    q('compose-use-sd')!.click();
+    flushSync();
+    avail = true;
+    set4k();
+    await vi.waitFor(() => expect(q('compose-4k-unavailable')).toBeNull());
+    expect(fq(fetch)).toBe(2);
+    expect(q('compose-save')!.getAttribute('href')).toMatch(/quality=main/);
+  });
+
+  it('keeps 4K’s Save when the full-resolution file is available', async () => {
+    const fetch = vi.fn(async (_url: string) => new Response(JSON.stringify({ available: true }), { status: 200 }));
+    vi.stubGlobal('fetch', fetch);
+    render();
+    set4k();
+    await vi.waitFor(() => expect(fetch.mock.calls.some(([u]) => String(u).endsWith('/api/cameras/den/clips/20260928-140000-140020/full-quality'))).toBe(true));
+    flushSync();
+    expect(q('compose-4k-unavailable')).toBeNull();
+    expect(q('compose-save')!.getAttribute('href')).toMatch(/download\?quality=main/);
+  });
+
   it('names the clip’s kinds Motion first, as the list does (Klaus, 2026-10-01)', () => {
     render(vi.fn(), true, { ...clip, triggers: ['person', 'motion'] });
     expect(target!.querySelector('.clip span')!.textContent).toMatch(/· Motion, Person$/);
@@ -434,9 +520,13 @@ describe('ComposeDialog', () => {
       expect(q('compose-length')!.textContent).toContain('0:30'); // the post-roll counts again
     });
 
-    it('without a cam-proxy offers only SD and 4K, saved as they are', () => {
-      const fetchSpy = vi.fn(async () => new Response('{}', { status: 200 }));
+    // Final review, minor 4: a camera without a cam-proxy saves exactly as on
+    // main: no /full-quality question, and Save is the plain <a download>
+    // (no script click after an await, which iOS Safari may not allow).
+    it('without a cam-proxy offers only SD and 4K, saved as they are, with no question asked', async () => {
+      const fetchSpy = vi.fn(async (_url: string) => new Response('{}', { status: 200 }));
       vi.stubGlobal('fetch', fetchSpy);
+      const scripted = vi.spyOn(HTMLAnchorElement.prototype, 'click');
       render(vi.fn(), false);
       expect(q('compose-pre')).toBeNull();
       expect(q('compose-post')).toBeNull();
@@ -444,7 +534,21 @@ describe('ComposeDialog', () => {
       expect(q('compose-save')!.getAttribute('href')).toBe(SUB);
       choose('4k');
       expect(q('compose-save')!.getAttribute('href')).toBe(MAIN);
-      expect(fetchSpy).not.toHaveBeenCalled(); // no proxy to ask about a copy
+      const ev = new MouseEvent('click', { bubbles: true, cancelable: true });
+      // Last in the bubble path (after the dialog's own handler): records
+      // whether the dialog prevented the browser's download, then stops jsdom's navigation.
+      const prevented: boolean[] = [];
+      const last = (e: Event) => {
+        prevented.push(e.defaultPrevented);
+        e.preventDefault();
+      };
+      document.addEventListener('click', last, { once: true });
+      q('compose-save')!.dispatchEvent(ev);
+      await new Promise((r) => setTimeout(r, 20));
+      expect(fetchSpy).not.toHaveBeenCalled();
+      expect(scripted).not.toHaveBeenCalled();
+      expect(prevented).toEqual([false]); // the browser's own download
+      scripted.mockRestore();
     });
 
     it('when the proxy has no copy, still lets you pick SD or 4K', async () => {

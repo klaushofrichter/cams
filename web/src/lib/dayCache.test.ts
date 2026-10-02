@@ -1,7 +1,7 @@
 // web/src/lib/dayCache.test.ts
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { get } from 'svelte/store';
-import { dayStore, loadDay, resetDayCache, type Fetch } from './dayCache';
+import { dayStore, loadDay, resetDayCache, sourceLabel, type Fetch } from './dayCache';
 
 const asFetch = (m: unknown) => m as Fetch;
 
@@ -28,5 +28,11 @@ describe('dayCache', () => {
     await expect(loadDay('den', '2026-09-27', { fetch: asFetch(fetch) })).rejects.toThrow('502');
     await loadDay('den', '2026-09-27', { fetch: asFetch(fetch) });
     expect(fetch).toHaveBeenCalledTimes(2);
+  });
+
+  it('names the source of recordings for the note under the player', () => {
+    expect(sourceLabel('proxy-recordings')).toBe('cam-proxy (SD card)');
+    expect(sourceLabel('proxy')).toBe('cam-proxy (FTP copies)');
+    expect(sourceLabel('ok')).toBe('camera');
   });
 });

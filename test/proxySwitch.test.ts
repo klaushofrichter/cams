@@ -158,7 +158,7 @@ describe('switch edge cases (review)', () => {
   });
 
   it('stops reporting recordings as coming from the proxy when it is off (I3)', async () => {
-    expect(getRecordings().downloadsState('den')).toBe('proxy');
+    expect(getRecordings().downloadsState('den')).toBe('proxy-recordings');
     await put('den', { enabled: false });
     expect(getRecordings().downloadsState('den')).toBe('ok');
   });

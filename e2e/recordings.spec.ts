@@ -180,6 +180,10 @@ test('previous day shows yesterday\'s recordings; a day without any says so', as
 });
 
 test('downloads return MP4 attachments with readable names', async ({ page }) => {
+  // Den's fake proxy holds no SD recordings (503), so whether the dialog offers
+  // 4K depends on a recent camera download (mainAvailable); this test is about
+  // the file's name, so the dialog is told 4K is there.
+  await page.route('**/full-quality', (r) => r.fulfill({ json: { available: true } }));
   await page.goto('/app/recordings?panel=history');
   await page.getByTestId('event-download').first().click();
   await page.getByTestId('compose-size').selectOption('4k');
@@ -188,6 +192,22 @@ test('downloads return MP4 attachments with readable names', async ({ page }) =>
   expect(res.status()).toBe(200);
   expect(res.headers()['content-type']).toBe('video/mp4');
   expect(res.headers()['content-disposition']).toMatch(/^attachment; filename="cam1-\d{4}-\d{2}-\d{2}_17-45-40-main\.mp4"$/); // the newest is first
+});
+
+// Final review, minor 4: a camera without a cam-proxy saves 4K as before: the
+// plain link, no /full-quality question.
+test('a camera without a cam-proxy saves 4K straight from the link, asking nothing', async ({ page }) => {
+  let asked = 0;
+  page.on('request', (req) => {
+    if (req.url().endsWith('/full-quality')) asked++;
+  });
+  await page.goto(`/app/recordings?cam=porch&date=${chicagoToday()}&panel=history`);
+  await page.getByTestId('event-download').first().click();
+  await page.getByTestId('compose-size').selectOption('4k');
+  const download = page.waitForEvent('download');
+  await page.getByTestId('compose-save').click();
+  expect((await download).suggestedFilename()).toMatch(/^porch-\d{4}-\d{2}-\d{2}_17-45-40-main\.mp4$/);
+  expect(asked).toBe(0);
 });
 
 test('the Live panel lists today’s events, newest first, and plays one', async ({ page }) => {
@@ -474,8 +494,10 @@ test('a new event shows at once: a top-bar notification and a "recording…" ent
 
 
 test('names the source of recordings and thumbnails: cam-proxy or camera (Klaus, 2026-09-28)', async ({ page }) => {
+  // Den's fake cam-proxy holds no SD recordings (it answers 503), so cams
+  // falls back, and clips would come from the proxy's FTP copies.
   await page.goto('/app/recordings?panel=history&cam=cam1');
-  await expect(page.getByTestId('recordings-source')).toHaveText('Source of recordings and thumbnails: cam-proxy');
+  await expect(page.getByTestId('recordings-source')).toHaveText('Source of recordings and thumbnails: cam-proxy (FTP copies)');
   await page.goto('/app/recordings?panel=history&cam=porch');
   await expect(page.getByTestId('recordings-source')).toHaveText('Source of recordings and thumbnails: camera');
 });
