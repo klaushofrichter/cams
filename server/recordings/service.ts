@@ -391,6 +391,13 @@ export class RecordingsService {
     if (h.failures === BREAKER_FAILURES) logger.warn({ cameraId }, 'recordings_breaker_opened');
   }
 
+  // The breaker is open and no probe is due: a camera download would be
+  // refused by guard(). A peek; it changes nothing.
+  private refusing(cameraId: string): boolean {
+    const h = this.health.get(cameraId);
+    return !!h && h.failures >= BREAKER_FAILURES && performance.now() - h.lastProbeAt < RECORDINGS_PROBE_MS();
+  }
+
   // Runs inside the transfer slot, right before a camera download, so
   // requests queued before the breaker opened are refused too.
   // Returns true when this call is the probe.
@@ -457,15 +464,35 @@ export class RecordingsService {
     }
   }
 
+  // Per camera, day and stream: the camera's Search, bare name → path, so a
+  // run of fallbacks costs one Search per day (in flight ones are shared).
+  private readonly cameraPaths = new Map<string, Promise<Map<string, string>>>();
+
   // The camera's path of a file from the day's list. A list from the proxy
   // holds bare file names, and the camera's Download needs the folder, so the
-  // camera's own Search finds it. That happens only after the proxy just
-  // failed, so the proxy isn't searching then.
+  // camera's own Search finds it. Called outside the transfer slot (the
+  // client's search gate orders Searches) and after the breaker check.
+  // An empty Search isn't final: the camera answers a Search that overlaps
+  // another (the proxy's) with an empty list, and the proxy did list the file.
   private async cameraPath(cameraId: string, clipId: string, name: string, stream: 'sub' | 'main'): Promise<string> {
     if (name.includes('/')) return name;
-    const hit = (await this.client(cameraId).searchDay(dateOf(clipId), stream)).find((f) => baseName(f.name) === name);
-    if (!hit) throw new RecordingError('unknown_clip', 'no such clip on the camera');
-    return hit.name;
+    const key = `${cameraId}|${dateOf(clipId)}|${stream}`;
+    const known = await this.cameraPaths.get(key)?.catch(() => undefined);
+    const cached = known?.get(name);
+    if (cached) return cached;
+    // Not searched yet, or a file newer than the last Search: ask again.
+    const search = (async () => {
+      const files = await this.client(cameraId).searchDay(dateOf(clipId), stream);
+      if (!files.length) throw new RecordingError('recordings_unavailable', 'the camera’s Search found no recordings for the day');
+      return new Map(files.map((f) => [baseName(f.name), f.name] as const));
+    })();
+    this.cameraPaths.set(key, search);
+    search.catch(() => {
+      if (this.cameraPaths.get(key) === search) this.cameraPaths.delete(key);
+    });
+    const path = (await search).get(name);
+    if (!path) throw new RecordingError('unknown_clip', 'no such clip on the camera');
+    return path;
   }
 
   // `priority` 'high' is for someone waiting to watch the clip; thumbnails
@@ -511,9 +538,13 @@ export class RecordingsService {
         // 3. The camera's own download, in its one transfer slot, behind the
         //    breaker. The proxy was asked above, so a camera refusal is final
         //    here (issue #38: no second lookup); a retry asks the proxy again.
+        //    With the breaker open there's no Search either; the file's path
+        //    is found before the slot is taken.
+        if (this.refusing(cameraId)) throw new RecordingError('recordings_unavailable', 'the camera is refusing recording downloads');
+        const name = await this.cameraPath(cameraId, clipId, sub, 'sub');
         await this.gate(cameraId).run(
           async () => {
-            const res = await this.downloadWithRetry(cameraId, await this.cameraPath(cameraId, clipId, sub, 'sub'));
+            const res = await this.downloadWithRetry(cameraId, name);
             await pipeline(res, createWriteStream(tmp));
           },
           { high: priority === 'high', key },

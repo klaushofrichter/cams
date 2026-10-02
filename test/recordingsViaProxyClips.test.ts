@@ -239,3 +239,70 @@ describe('playback and thumbnails through cam-proxy’s recordings', () => {
     expect(fake.requests).toEqual([]);
   });
 });
+
+// Review of Task 4: the camera Search that finds a bare name's folder runs
+// after the breaker check, outside the transfer slot, once per day, and an
+// empty answer (it may have overlapped the proxy's Search) isn't final.
+describe('finding a bare name’s folder on the camera', () => {
+  const yesterday = () => new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Chicago' }).format(new Date(Date.now() - 86_400_000));
+
+  it('runs no Search while the breaker is open, and answers as before', async () => {
+    await new Promise<void>((r) => cam.close(() => r()));
+    await startCamera({ dropFirstDownloads: 1000 });
+    await seedRecordings(fake, 'cam1', today());
+    // A day from the camera's Search (paths): three refusals open the breaker.
+    fake.recordingsOverride = { status: 503, body: { error: 'camera_offline' } };
+    const ev = (await events()).events[0];
+    for (let i = 0; i < 3; i++) expect((await video(ev.id)).status).toBe(503);
+    // The day again from the proxy (bare names); its file transfer fails.
+    await getRecordings().invalidateAround('cam1', Date.now());
+    fake.recordingsOverride = null;
+    fake.recordingDropAfter = 0;
+    expect((await events()).events[0].id).toBe(ev.id);
+    const searches = state.searches;
+    const downloads = state.downloads;
+    const r = await video(ev.id);
+    expect(r.status).toBe(503);
+    expect(r.body).toEqual({ error: 'recordings_unavailable' });
+    expect(state.searches).toBe(searches);
+    expect(state.downloads).toBe(downloads);
+  });
+
+  it('leaves the transfer slot free while it searches', async () => {
+    await new Promise<void>((r) => cam.close(() => r()));
+    await startCamera({ searchDelayMs: 2000 }); // the demo clips: today and yesterday
+    await seedRecordings(fake, 'cam1', today());
+    const a = (await events()).events[0]; // today: bare names, from the proxy
+    fake.recordingsOverride = { status: 503, body: { error: 'camera_offline' } };
+    const b = ((await request(createApp()).get(`/api/cameras/cam1/events?date=${yesterday()}`).set('Cookie', auth)).body as Day).events[0]; // yesterday: paths, from the camera's Search
+    const slow = video(a.id).then((r) => r);
+    await new Promise((r) => setTimeout(r, 300));
+    const t0 = Date.now();
+    expect((await video(b.id)).status).toBe(200);
+    expect(Date.now() - t0).toBeLessThan(1000);
+    expect((await slow).status).toBe(200);
+  }, 30_000);
+
+  it('searches once for two fallbacks on the same day', async () => {
+    const { day } = await seeded();
+    const [a, b] = day.events;
+    fake.recordingsOverride = { status: 503, body: { error: 'camera_offline' } };
+    const searches = state.searches;
+    expect((await video(a.id)).status).toBe(200);
+    expect((await video(b.id)).status).toBe(200);
+    expect(state.downloads).toBe(2);
+    expect(state.searches).toBe(searches + 1);
+  });
+
+  it('answers recordings_unavailable, not unknown_clip, when the Search comes back empty', async () => {
+    await seedRecordings(fake, 'cam1', today());
+    // The camera now lists nothing (as when its Search overlaps another).
+    await new Promise<void>((r) => cam.close(() => r()));
+    await startCamera({ clips: [] });
+    const ev = (await events()).events[0];
+    fake.recordingDropAfter = 0;
+    const r = await video(ev.id);
+    expect(r.status).toBe(503);
+    expect(r.body).toEqual({ error: 'recordings_unavailable' });
+  });
+});
