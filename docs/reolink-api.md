@@ -488,6 +488,10 @@ far is still motion-only.
 > - This camera has **Auto Maintenance on: a reboot every Sunday at 02:00**.
 >   That may be what cleared it after 2026-09-26: a reboot with no Download
 >   right after it.
+> - **Priming test, 2026-10-01 20:42:** a PoE power cycle, then 68 s of FLV
+>   live view (HTTP 200, but only 512 KB), then one Download 15 s later: still
+>   dropped after 0.2 s (`downloadTask: 0`). Priming did not help on this
+>   camera, unless something else asked for a Download in between.
 >
 > Full report with sources: the cam-proxy session's research notes, summarised
 > in the Obsidian note *Reolink API Behaviour*.
