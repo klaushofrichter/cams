@@ -51,7 +51,39 @@ function isRecording(x: unknown, stream: 'sub' | 'main'): boolean {
 // The recordings of one stream that overlap [from, to] (unix ms). Entries that
 // aren't a well-formed recording of that stream are dropped.
 export async function listProxyRecordings(cameraId: string, from: number, to: number, stream: 'sub' | 'main'): Promise<ProxyRecording[]> {
-  const body = await clientFor(cameraId).json<unknown>(base(cameraId), { from, to, stream });
+  return listWith(cameraId, { from, to, stream }, stream);
+}
+
+// The longest cams waits out a busy proxy's Retry-After.
+const BUSY_WAIT_MAX_MS = 5000;
+
+// 503 recordings_unavailable busy: the proxy's Search queue is full. One retry
+// after its Retry-After (at most 5 s); a second busy answer is the caller's.
+async function listWith(cameraId: string, query: Record<string, string | number>, stream: 'sub' | 'main'): Promise<ProxyRecording[]> {
+  try {
+    return await listOnce(cameraId, query, stream);
+  } catch (err) {
+    if (!(err instanceof ProxyError) || err.status !== 503 || err.reason !== 'busy') throw err;
+    await new Promise((r) => setTimeout(r, Math.min((err.retryAfterS ?? 1) * 1000, BUSY_WAIT_MAX_MS)));
+    return listOnce(cameraId, query, stream);
+  }
+}
+
+// One camera-local day (YYYY-MM-DD) of one stream, with a recording that
+// started the day before and runs past midnight into it: cam-proxy's `date`
+// parameter. An older proxy ignores `date`, finds no from/to and answers 400;
+// then the same day is asked again as the caller's from/to window.
+export async function listProxyDay(cameraId: string, date: string, stream: 'sub' | 'main', fallback: { from: number; to: number }): Promise<ProxyRecording[]> {
+  try {
+    return await listWith(cameraId, { date, stream }, stream);
+  } catch (err) {
+    if (!(err instanceof ProxyError) || err.status !== 400) throw err;
+    return listWith(cameraId, { from: fallback.from, to: fallback.to, stream }, stream);
+  }
+}
+
+async function listOnce(cameraId: string, query: Record<string, string | number>, stream: 'sub' | 'main'): Promise<ProxyRecording[]> {
+  const body = await clientFor(cameraId).json<unknown>(base(cameraId), query);
   if (!Array.isArray(body)) throw new ProxyError('proxy_error', 'cam-proxy sent a recordings list that is not a list');
   return body
     .filter((x) => isRecording(x, stream))

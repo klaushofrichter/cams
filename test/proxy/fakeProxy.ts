@@ -61,6 +61,8 @@ export interface FakeProxy {
   knownTypes: string[] | null; // tests: the stream refuses other types (an older proxy)
   recordings: Map<string, FakeRecording[]>; // proxy camera id → its SD recordings; a camera without an entry answers 503 camera_offline
   recordingsOverride: { status: number; body: unknown } | null; // tests: every recordings route answers this (after checking its input)
+  recordingsBusy: number; // tests: the next this many recordings list requests answer 503 recordings_unavailable busy (Retry-After: 1)
+  legacyRecordings: boolean; // tests: an older proxy: the list ignores date and requires from and to
   recordingDropAfter: number | null; // tests: a file sends its headers and this many bytes, then the connection drops
   recordingStallAfter: number | null; // tests: a file sends its headers and this many bytes, then nothing (the connection stays open)
   recordingDelayMs: number; // tests: a file's headers wait this long (the real proxy queues downloads per camera)
@@ -110,6 +112,8 @@ export async function startFakeProxy(opts: { port?: number; token?: string } = {
     knownTypes: null,
     recordings: new Map(),
     recordingsOverride: null,
+    recordingsBusy: 0,
+    legacyRecordings: false,
     recordingDropAfter: null,
     recordingStallAfter: null,
     recordingDelayMs: 0,
@@ -339,16 +343,39 @@ export async function startFakeProxy(opts: { port?: number; token?: string } = {
     }
     res.json({ month, days: [...days].sort((a, b) => a - b) });
   });
+  // `date=YYYY-MM-DD` (cam-proxy v2026.10.02.4): one camera-local day by the
+  // names' date, plus a recording from the day before that runs past midnight
+  // into it (its end time of day is earlier than its start). Not with from/to.
+  const recordingOnDay = (id: string, date: string): boolean => {
+    const m = /_(?:DST)?(\d{8})_(\d{6})_(\d{6})_/.exec(id);
+    if (!m) return false;
+    const day = `${m[1].slice(0, 4)}-${m[1].slice(4, 6)}-${m[1].slice(6, 8)}`;
+    if (day === date) return true;
+    const prev = new Date(Date.parse(`${date}T00:00:00Z`) - 86_400_000).toISOString().slice(0, 10);
+    return day === prev && m[3] < m[2];
+  };
+  const validDate = (d: unknown): d is string => {
+    if (typeof d !== 'string' || !/^20\d{2}-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$/.test(d)) return false;
+    return new Date(`${d}T00:00:00Z`).toISOString().slice(0, 10) === d;
+  };
   app.get('/api/cameras/:cam/recordings', (req, res) => {
-    const r = range(req.query);
     const stream = req.query.stream;
-    if (!r || (stream !== 'sub' && stream !== 'main')) return void res.status(400).json({ error: 'invalid', detail: 'from, to and stream' });
-    if (r[1] - r[0] > 48 * 3_600_000) return void res.status(400).json({ error: 'invalid', detail: 'at most 48 hours' });
+    const dated = !fake.legacyRecordings && req.query.date !== undefined;
+    const r = dated ? undefined : range(req.query);
+    if (dated && (req.query.from !== undefined || req.query.to !== undefined)) return void res.status(400).json({ error: 'invalid', detail: 'date excludes from and to' });
+    if (dated ? !validDate(req.query.date) || (stream !== 'sub' && stream !== 'main') : !r || (stream !== 'sub' && stream !== 'main')) return void res.status(400).json({ error: 'invalid', detail: 'date or from and to, and stream' });
+    if (r && r[1] - r[0] > 48 * 3_600_000) return void res.status(400).json({ error: 'invalid', detail: 'at most 48 hours' });
+    if (fake.recordingsBusy > 0 && !fake.recordingsOverride) {
+      fake.recordingsBusy--;
+      res.setHeader('Retry-After', '1');
+      return void res.status(503).json({ error: 'recordings_unavailable', reason: 'busy' });
+    }
     const list = recordingsOf(req.params.cam, res);
     if (!list) return;
+    const date = String(req.query.date);
     res.json(
       list
-        .filter((x) => x.stream === stream && x.start <= r[1] && x.end >= r[0])
+        .filter((x) => x.stream === stream && (dated ? recordingOnDay(x.id, date) : x.start <= r![1] && x.end >= r![0]))
         .sort((a, b) => a.start - b.start)
         .map((x) => ({ id: x.id, start: x.start, end: x.end, stream: x.stream, size: x.body.length, kinds: x.kinds ?? [], clipId: x.clipId ?? null })),
     );

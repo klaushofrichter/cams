@@ -8,4 +8,5 @@ published as [GitHub releases](https://github.com/klaushofrichter/cams/releases)
 
 ## [Unreleased]
 
+- A day's recordings are listed by the proxy with its camera-local `date` parameter (cam-proxy v2026.10.02.4), so a cold day view costs 2 camera Searches at the proxy instead of 4, DST days are exact, and a recording that runs past midnight is included. An older proxy that answers 400 to `date` is asked again with the old 25-hour window. A proxy whose Search queue is busy (503 `busy`) is asked once more after its Retry-After (at most 5 s) before the camera's own Search takes over. The e2e's cam-proxy image is v2026.10.02.4.
 - When a camera's cam-proxy fails and cams falls back to the camera's own Search, the day and month lists are kept for 30 seconds only, so they follow the proxy again soon after it recovers. A proxy that is down or hanging is tried once, not once per list, for 15 seconds. A recording cut by the proxy mid-download is logged.
