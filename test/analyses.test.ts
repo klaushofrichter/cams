@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { setCameras } from '../server/cameraRegistry';
 import { resetProxyClients } from '../server/proxy/client';
 import { AnalysisStore, dayWindow, getAnalysisStore, parseAnalysis, parseObjects, resetAnalysisStore, type ProxyAnalysis } from '../server/proxy/analyses';
@@ -201,12 +201,17 @@ describe('AnalysisStore', () => {
   });
 
   it('keeps the analyses from the stream messages, ignoring other types and an older proxy’s shape (issue #109)', async () => {
+    vi.useFakeTimers({ now: NOW, toFake: ['Date'] }); // the listener ingests at the real clock; the store forgets old ones
     resetAnalysisStore();
     fake.offline = true;
     proxyHub.emit('message', { cam: 'den', type: 'analysis', data: a() });
     proxyHub.emit('message', { cam: 'den', type: 'analysis', data: { eventId: 2, status: 'ok', objects: [] } });
     proxyHub.emit('message', { cam: 'den', type: 'clip', data: a({ eventId: 3 }) });
-    expect(await getAnalysisStore().forDay('den', '2026-09-30', day, NOW)).toEqual([a()]);
+    try {
+      expect(await getAnalysisStore().forDay('den', '2026-09-30', day, NOW)).toEqual([a()]);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('answers with the received messages alone while the proxy is away, and asks again next time', async () => {

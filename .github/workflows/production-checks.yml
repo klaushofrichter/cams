@@ -52,8 +52,11 @@ jobs:
       - name: Pull the cam-proxy image
         run: |
           TAG=$(sed -n "s/^export const CAM_PROXY_TAG = '\(.*\)';$/\1/p" e2e/env.ts)
+          DIGEST=$(sed -n "s/^export const CAM_PROXY_DIGEST = '\(.*\)';$/\1/p" e2e/env.ts)
           [ -n "$TAG" ] || { echo "::error::CAM_PROXY_TAG not found in e2e/env.ts"; exit 1; }
-          docker pull "ghcr.io/klaushofrichter/cam-proxy:$TAG"
+          [[ "$DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]] || { echo "::error::CAM_PROXY_DIGEST not found (or malformed) in e2e/env.ts"; exit 1; }
+          # The pulled reference is the tag pinned by digest, as realProxy.ts runs it.
+          docker pull "ghcr.io/klaushofrichter/cam-proxy:$TAG@$DIGEST"
       - run: npm run test:e2e
         env:
           CI: 'true'
