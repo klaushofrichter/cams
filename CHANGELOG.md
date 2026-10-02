@@ -8,3 +8,4 @@ published as [GitHub releases](https://github.com/klaushofrichter/cams/releases)
 
 ## [Unreleased]
 
+- When a camera's cam-proxy fails and cams falls back to the camera's own Search, the day and month lists are kept for 30 seconds only, so they follow the proxy again soon after it recovers. A proxy that is down or hanging is tried once, not once per list, for 15 seconds. A recording cut by the proxy mid-download is logged.

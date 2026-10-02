@@ -96,3 +96,66 @@ describe('fake cam-proxy: recordings', () => {
     expect((await fetch(`${fake.url}/api/cameras/cam1/recordings?from=0&to=1&stream=sub`)).status).toBe(401);
   });
 });
+
+describe('fake cam-proxy: recordings boundaries', () => {
+  const list = async (q: string, cam = 'cam1') => get(`/api/cameras/${cam}/recordings?${q}`);
+
+  it('lists a recording that only touches the window at its edge, not one a millisecond away', async () => {
+    const ids = async (from: number, to: number) => ((await (await list(`from=${from}&to=${to}&stream=sub`)).json()) as { id: string }[]).map((x) => x.id);
+    expect(await ids(T0 + 38_000, T0 + 40_000)).toEqual([SUB]); // starts where the recording ends
+    expect(await ids(T0 - 5_000, T0)).toEqual([SUB]); // ends where the recording starts
+    expect(await ids(T0 + 38_001, T0 + 40_000)).toEqual([]);
+    expect(await ids(T0 - 5_000, T0 - 1)).toEqual([]);
+  });
+
+  it('takes a window of exactly 48 h and refuses one millisecond more', async () => {
+    expect((await list(`from=0&to=${48 * 3_600_000}&stream=sub`)).status).toBe(200);
+    expect((await list(`from=0&to=${48 * 3_600_000 + 1}&stream=sub`)).status).toBe(400);
+  });
+
+  it('takes from and to of up to 15 digits and refuses 16', async () => {
+    expect((await list('from=100000000000000&to=100000000000000&stream=sub')).status).toBe(200);
+    expect((await list('from=1000000000000000&to=1000000000000000&stream=sub')).status).toBe(400);
+    expect((await list('from=0&to=1000000000000000&stream=sub')).status).toBe(400);
+  });
+
+  it('takes an id of 128 characters and refuses 129', async () => {
+    const id = (n: number) => `RecS0A_20261001_211129_211207_${'A'.repeat(n - 'RecS0A_20261001_211129_211207_'.length - '.mp4'.length)}.mp4`;
+    expect(id(128)).toHaveLength(128);
+    expect((await get(`/api/cameras/cam1/recordings/${id(128)}`)).status).toBe(404); // well-formed, unknown
+    const long = await get(`/api/cameras/cam1/recordings/${id(129)}`);
+    expect(long.status).toBe(400);
+    expect((await long.json()).error).toBe('invalid');
+  });
+
+  it('answers HEAD with Accept-Ranges and the length, without a transfer', async () => {
+    const head = await get(`/api/cameras/cam1/recordings/${SUB}`, { method: 'HEAD' });
+    expect(head.headers.get('accept-ranges')).toBe('bytes');
+    expect(head.headers.get('content-length')).toBe('10');
+    expect(fake.recordingFetches).toEqual([]);
+  });
+
+  it('checks the input before the camera and the override, as the real proxy does', async () => {
+    fake.recordingsOverride = { status: 502, body: { error: 'recordings_unavailable' } };
+    expect((await list('from=1&to=0&stream=sub')).status).toBe(400);
+    expect((await get('/api/cameras/cam1/recordings/not-a-name.mp4')).status).toBe(400);
+    expect((await get('/api/cameras/cam1/recordings/days?month=2026-13')).status).toBe(400);
+    fake.recordingsOverride = null;
+    expect((await list('from=1&to=0&stream=sub', 'nope')).status).toBe(400); // bad input beats an unknown camera
+    expect((await get('/api/cameras/nope/recordings/not-a-name.mp4')).status).toBe(400);
+    expect((await list('from=0&to=1&stream=sub', 'nope')).status).toBe(404);
+  });
+
+  it('sends the same Cache-Control and a stable ETag when it drops a file midway', async () => {
+    const whole = await get(`/api/cameras/cam1/recordings/${MAIN}`);
+    const etag = whole.headers.get('etag');
+    expect(etag).toBeTruthy();
+    await whole.arrayBuffer();
+    fake.recordingDropAfter = 4;
+    const r = await get(`/api/cameras/cam1/recordings/${MAIN}`);
+    expect(r.headers.get('cache-control')).toBe('private, max-age=604800, immutable');
+    expect(r.headers.get('etag')).toBe(etag);
+    expect(r.headers.get('accept-ranges')).toBe('bytes');
+    await expect(r.arrayBuffer()).rejects.toThrow();
+  });
+});

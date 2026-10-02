@@ -1,4 +1,4 @@
-// e2e: the real cam-proxy (its released container image, CAM_PROXY_TAG) for
+// e2e: the real cam-proxy (its released container image, CAM_PROXY_IMAGE) for
 // Silo, whose cam-sim refuses HTTP Download: the proxy fetches recordings
 // over Baichuan (spec 2026-10-02-recordings-via-proxy-design). Host
 // networking, because cam-sim listens on 127.0.0.1 only; the proxy then
@@ -9,7 +9,7 @@ import { spawn, spawnSync } from 'child_process';
 import { mkdtempSync, writeFileSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
-import { CAM_PROXY_TAG, REAL_PROXY, REAL_PROXY_ON } from './env';
+import { CAM_PROXY_IMAGE, REAL_PROXY, REAL_PROXY_ON } from './env';
 import { SIMS } from './sims';
 
 if (!REAL_PROXY_ON) {
@@ -21,7 +21,7 @@ if (!REAL_PROXY_ON) {
 }
 
 const NAME = 'cams-e2e-cam-proxy';
-const IMAGE = `ghcr.io/klaushofrichter/cam-proxy:${CAM_PROXY_TAG}`;
+const IMAGE = CAM_PROXY_IMAGE;
 const s = SIMS.silo;
 const dir = mkdtempSync(join(tmpdir(), 'cams-e2e-camproxy-'));
 writeFileSync(
