@@ -62,12 +62,25 @@ disk cache as today):
    `downloadWithRetry()` in the transfer gate).
 
 **The clip download** (`openDownload()`, `quality` sub or main, streamed
-through, not cached, as today):
-1. `GET /recordings/:id` for the chosen stream's file. The served filename
-   keeps its `-sub`/`-main` suffix (it is the camera's file), not `-proxy`.
-2. On a proxy 502 or 503, or an unreachable proxy: the proxy's FTP copy (named
-   `-proxy.mp4`, as today).
-3. Then the camera's HTTP download behind the breaker.
+through, not cached, as today). No silent quality downgrade (Klaus,
+2026-10-02): a main (4K) download never falls back to the FTP copy, which is
+the sub stream.
+- **Sub:**
+  1. `GET /recordings/:id` for the sub file. The served filename keeps its
+     `-sub` suffix (it is the camera's file), not `-proxy`.
+  2. On a proxy 502 or 503, or an unreachable proxy: the proxy's FTP copy
+     (named `-proxy.mp4`, as today).
+  3. Then the camera's HTTP download behind the breaker.
+- **Main (4K):**
+  1. `GET /recordings/:id` for the main file, named `-main.mp4`.
+  2. On a proxy 502 or 503, or an unreachable proxy: the camera's HTTP
+     download of the main file behind the breaker.
+  3. If both fail: `503 {"error":"full_quality_unavailable"}`. The Save
+     dialog asks first whether the full-resolution file can be served (the
+     proxy knows it, or the camera's breaker is closed). When it can't, the
+     dialog says "The full-resolution file isn't available right now;
+     download the standard quality instead", disables 4K's Save and offers
+     the standard-quality (sub) download.
 
 A proxy **404 `unknown_recording`** is final: cams answers `unknown_clip`, with
 no fallback. A client abort is never retried on another route.
@@ -92,6 +105,9 @@ slot.
   `service.ts` treats as "fall back"; a 404 throws `RecordingError('unknown_clip')`.
 - `server/recordings/service.ts`: the route order above in `day()`,
   `withClip()` and `openDownload()`; `downloadsState()`.
+- `server/routes/recordings.ts`: `GET /api/cameras/:id/clips/:clipId/full-quality`
+  (`{"available": true|false}`), which the Save dialog
+  (`web/src/components/ComposeDialog.svelte`) asks when 4K is chosen.
 - `test/proxy/fakeProxy.ts` and `e2e/fakeProxyData.ts`: the two routes, so the
   fake stays in step with cam-proxy's client API (`CLAUDE.md`).
 
@@ -116,8 +132,9 @@ Unchanged: the camera's Search, its HTTP download, the breaker.
 ### Docs
 
 `docs/reolink-api.md` ("Where cams handles each quirk") and the README
-describe the route order: the proxy's recordings, then its FTP copy, then the
-camera's HTTP download behind the breaker. CHANGELOG under `## [Unreleased]`.
+describe the route order: the proxy's recordings, then its FTP copy (sub
+only), then the camera's HTTP download behind the breaker. The month list goes
+through the proxy too, with the camera's month Search only as the fallback. CHANGELOG under `## [Unreleased]`.
 
 ## Error handling
 
@@ -128,6 +145,8 @@ camera's HTTP download behind the breaker. CHANGELOG under `## [Unreleased]`.
 - **Proxy 400**: a bug in cams; logged at error, treated like 502 (falls back).
 - **Every route failed**: the error of the last route, as today
   (`recordings_unavailable` when the breaker is open).
+  A main (4K) download answers `full_quality_unavailable` instead, so the UI
+  can offer the standard quality.
 - **Failure mid-stream** in `openDownload()`: the response ends short, as with
   the camera's download today; no fallback once bytes were sent.
 - **The breaker** counts camera refusals only; proxy failures never open it.
@@ -139,7 +158,9 @@ camera's HTTP download behind the breaker. CHANGELOG under `## [Unreleased]`.
   on 502, 503 and an unreachable proxy;
 - playback: proxy recordings first, then the FTP copy, then the camera, each
   step on 502/503; a 404 ends with `unknown_clip`; an abort doesn't fall back;
-- the clip download for sub and main, and the filenames;
+- the clip download for sub and main, and the filenames; a main download with
+  the proxy failing and an FTP copy present never serves the FTP copy (the
+  camera, else `full_quality_unavailable`);
 - thumbnails: the proxy still first, then the clip from the recordings API;
 - `downloadsState`: `proxy-recordings`, `proxy` after a failure, back to
   `proxy-recordings` after a success; cameras without a proxy unchanged;
@@ -154,9 +175,9 @@ finds workable, configured against the e2e cam-sim.
 ## Out of scope
 
 - Gap-filling (#74 in cam-proxy) and restoring stills (#73).
-- Moving the month list (`searchMonth()`) to the proxy.
 - Changes for cameras without a proxy.
-- UI beyond the source note.
+- UI beyond the source note and the Save dialog's "full-resolution file isn't
+  available" message.
 
 ## Phase 0 results that touch cams
 

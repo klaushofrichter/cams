@@ -14,7 +14,7 @@
 
 - Cameras without a cam-proxy, or with it switched off on Settings (`proxyActive()` false), are unchanged: the camera's Search, its HTTP download, the breaker. Tests prove it (Tasks 3, 4, 5).
 - For a proxied camera, **every** camera Search goes through the proxy: the day list (`GET /recordings?from&to&stream`, sub then main, one after the other) and the month list (`GET /recordings/days?month=YYYY-MM`). cams runs its own Search only when the proxy can't answer.
-- Route order: playback and clip thumbnails (`withClip()`, sub) go to the proxy's recordings, then the proxy's FTP copy (`findProxyClip()`/`openProxyClip()`), then the camera's HTTP download behind the breaker (`downloadWithRetry()` in the transfer gate). The clip download (`openDownload()`, sub or main) uses the same order.
+- Route order: playback and clip thumbnails (`withClip()`, sub) go to the proxy's recordings, then the proxy's FTP copy (`findProxyClip()`/`openProxyClip()`), then the camera's HTTP download behind the breaker (`downloadWithRetry()` in the transfer gate). A sub download (`openDownload()`) uses the same order. A **main (4K) download** never falls back to the FTP copy (it is the sub stream; Klaus, 2026-10-02: no silent quality downgrade). It goes to the proxy's recordings, then the camera; if both fail, `503 full_quality_unavailable`, and the Save dialog says "The full-resolution file isn't available right now; download the standard quality instead" and offers SD.
 - Fallback triggers: proxy 502, 503, unreachable, and 400 (a bug in cams, logged at error). Also, beyond the spec's list, a refused token (401/403) and a plain 404 from an older cam-proxy without the API. **Final:** 404 `{"error":"unknown_recording"}` becomes `RecordingError('unknown_clip')` with no fallback. A client abort is never retried on another route.
 - Filenames: from the recordings API `<cam>-<date>_<HH-MM-SS>-sub.mp4` / `-main.mp4` (the camera's file); from an FTP copy `-proxy.mp4`, as today.
 - A failure mid-stream in `openDownload()` ends the response short, with no fallback once bytes were sent.
@@ -55,10 +55,12 @@
 **Modify**
 - `test/proxy/fakeProxy.ts`: the three recordings routes and their test switches.
 - `e2e/fakeProxyData.ts`: a comment (the e2e fake holds no SD recordings).
-- `server/proxy/client.ts`: export `errorCode()`.
+- `server/proxy/client.ts`: export `errorCode()`; `open()` accepts `HEAD`.
+- `server/routes/recordings.ts`: `GET /api/cameras/:id/clips/:clipId/full-quality`.
+- `web/src/lib/compose.ts`, `web/src/components/ComposeDialog.svelte` (+ test): the 4K-unavailable message.
 - `server/recordings/service.ts`: `RecordingError` re-export, `viaProxy()`, `dayBounds()`, `day()`, `days()`, `downloadsState()`, `cameraPath()`, `withClip()`, `openDownload()` (with `handOver()`); `proxyClipFor()` goes.
 - `test/camera/sim.ts`: `searches` counter.
-- `test/proxySwitch.test.ts`, `test/proxyFirst.test.ts`: two expectations that change by design.
+- `test/proxySwitch.test.ts`, `test/proxyClips.test.ts`: two expectations that change by design.
 - `web/src/lib/dayCache.ts`, `web/src/lib/dayCache.test.ts`, `web/src/pages/Video.svelte`: the new state and the note.
 - `e2e/recordings.spec.ts`: the note's new text for Den.
 - `docs/reolink-api.md`, `README.md`, `CHANGELOG.md`.
@@ -1352,16 +1354,30 @@ git commit -m "feat(recordings): play and thumbnail clips from cam-proxy's recor
 
 ---
 
-### Task 5: The clip download from the proxy's recordings
+### Task 5: The clip download from the proxy's recordings (no silent 4K downgrade)
+
+Klaus's ruling (2026-10-02): no silent quality downgrade. A **main (4K)** download goes to the proxy's recordings (main), then the camera's HTTP download (main, behind the breaker). It never falls back to the FTP copy, which is the sub stream. If both fail, it answers `503 {"error":"full_quality_unavailable"}`. A **sub** download keeps the FTP copy between the two. This task also adds `GET /api/cameras/:id/clips/:clipId/full-quality` (`{"available": boolean}`), which the Save dialog asks in Task 6.
 
 **Files:**
-- Modify: `server/recordings/service.ts`: `openDownload()` (lines 504-579), a new `handOver()`; delete `proxyClipFor()` (lines 363-369)
-- Modify: `test/proxyFirst.test.ts:95-108` (an expectation that changes by design)
+- Modify: `server/recordings/errors.ts` (a new code, `full_quality_unavailable`)
+- Modify: `server/proxy/client.ts:53` (`open()` takes `method: 'HEAD'`)
+- Modify: `server/recordings/proxyRecordings.ts` (adds `headProxyRecording()`)
+- Modify: `server/recordings/service.ts`: `openDownload()` (lines 504-579); new `handOver()` and `mainAvailable()`; delete `proxyClipFor()` (lines 363-369)
+- Modify: `server/routes/recordings.ts` (the `full-quality` route)
+- Modify: `test/proxyClips.test.ts:130-140` (a 4K download no longer takes the FTP copy)
 - Test: `test/recordingsViaProxyDownloads.test.ts` (create)
 
+`test/proxyFirst.test.ts` stays as it is. Its test "downloads full quality from the camera, the sub stream from the proxy" still holds: the fake has no recordings (503), so main goes to the camera and sub to the FTP copy.
+
 **Interfaces:**
-- Consumes: Task 4's `cameraPath()`, `baseName()`, `dateOf()`; Task 3's `viaProxy()`, `seedRecordings()`, `recordingOf()`; Task 2's `openProxyRecording()`.
-- Produces: `openDownload(cameraId: string, clipId: string, quality: 'sub' | 'main', signal?: AbortSignal): Promise<{ stream: Readable; filename: string; size: number | null }>` (same signature, new order). Also `private handOver(got: { stream: Readable; size: number | null }, filename: string, release: () => void, signal?: AbortSignal): { stream: Readable; filename: string; size: number | null }`.
+- Consumes: Task 4's `cameraPath()`, `baseName()`, `dateOf()`; Task 3's `viaProxy()`, `seedRecordings()`, `recordingOf()`; Task 2's `openProxyRecording()`; Task 1's fake `HEAD` support.
+- Produces:
+  - `RecordingError` code `'full_quality_unavailable'` (the route answers 503 with it, through the existing `fail()`).
+  - `server/recordings/proxyRecordings.ts`: `export function headProxyRecording(cameraId: string, id: string): Promise<void>` (throws `ProxyError` on any non-2xx).
+  - `RecordingsService.openDownload(cameraId: string, clipId: string, quality: 'sub' | 'main', signal?: AbortSignal): Promise<{ stream: Readable; filename: string; size: number | null }>` (same signature, new order).
+  - `RecordingsService.mainAvailable(cameraId: string, clipId: string): Promise<boolean>`.
+  - `private handOver(got: { stream: Readable; size: number | null }, filename: string, release: () => void, signal?: AbortSignal): { stream: Readable; filename: string; size: number | null }`.
+  - Route `GET /api/cameras/:id/clips/:clipId/full-quality` → `200 {"available": boolean}` (`false` also for an unknown clip); 400 for a malformed clip id, 404 for an unknown camera, as the other clip routes.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -1381,13 +1397,14 @@ import { resetClients } from '../server/reolink/clients';
 import { resetProxyClients } from '../server/proxy/client';
 import { getRecordings, resetRecordings } from '../server/recordings/service';
 import { SESSION_COOKIE, signSession } from '../server/session';
-import { createSimCamera, type SimState } from './camera/sim';
+import { createSimCamera, type SimCameraOptions, type SimState } from './camera/sim';
 import { FAKE_TOKEN, startFakeProxy, type FakeProxy } from './proxy/fakeProxy';
 import { recordingOf, seedRecordings } from './proxy/seedRecordings';
 
-// Spec 2026-10-02: the clip download of a camera with a cam-proxy comes from
-// the proxy's recordings API (sub or main, named after the camera's file),
-// then its FTP copy (-proxy.mp4), then the camera behind the breaker.
+// Spec 2026-10-02: the clip download of a camera with a cam-proxy. Sub: the
+// proxy's recordings, its FTP copy (-proxy.mp4), the camera. Main (4K): the
+// proxy's recordings, the camera, else full_quality_unavailable; never the
+// FTP copy (Klaus: no silent quality downgrade).
 const auth = `${SESSION_COOKIE}=${signSession('klaus@klaushofrichter.net')}`;
 const today = () => new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Chicago' }).format(new Date());
 const CLIP = Buffer.from('ftp copy bytes '.repeat(100));
@@ -1398,15 +1415,12 @@ let fake: FakeProxy;
 let cacheDir: string;
 const workerCacheDir = process.env.CACHE_DIR;
 
-beforeEach(async () => {
-  cacheDir = mkdtempSync(join(tmpdir(), 'cams-viaproxy-dl-'));
-  process.env.CACHE_DIR = cacheDir;
-  const sim = await createSimCamera({ user: 'u', password: 'p' });
+async function startCamera(opts: Partial<SimCameraOptions> = {}) {
+  const sim = await createSimCamera({ user: 'u', password: 'p', ...opts });
   state = sim.state;
   cam = sim.app.listen(0);
   await new Promise((r) => cam.once('listening', r));
   const host = `127.0.0.1:${(cam.address() as AddressInfo).port}`;
-  fake = await startFakeProxy();
   setCameras([
     { id: 'cam1', name: 'Den', host, protocol: 'http', user: 'u', password: 'p', proxy: { url: fake.url, token: FAKE_TOKEN } },
     { id: 'porch', name: 'Porch', host, protocol: 'http', user: 'u', password: 'p' },
@@ -1414,12 +1428,21 @@ beforeEach(async () => {
   resetClients();
   resetProxyClients();
   resetRecordings();
+}
+
+beforeEach(async () => {
+  cacheDir = mkdtempSync(join(tmpdir(), 'cams-viaproxy-dl-'));
+  process.env.CACHE_DIR = cacheDir;
+  process.env.RECORDINGS_PROBE_MS = '60000';
+  fake = await startFakeProxy();
+  await startCamera();
 });
 afterEach(async () => {
   await new Promise<void>((r) => cam.close(() => r()));
   await fake.stop();
   setCameras([]);
   process.env.CACHE_DIR = workerCacheDir;
+  delete process.env.RECORDINGS_PROBE_MS;
   rmSync(cacheDir, { recursive: true, force: true });
 });
 
@@ -1432,8 +1455,10 @@ const binary = (r: request.Test) =>
 type Day = { events: { id: string; start: string }[] };
 const events = async (id = 'cam1') => (await request(createApp()).get(`/api/cameras/${id}/events?date=${today()}`).set('Cookie', auth)).body as Day;
 const download = (id: string, quality: 'sub' | 'main', camera = 'cam1') => request(createApp()).get(`/api/cameras/${camera}/clips/${id}/download?quality=${quality}`).set('Cookie', auth);
+const fullQuality = async (id: string, camera = 'cam1') => (await request(createApp()).get(`/api/cameras/${camera}/clips/${id}/full-quality`).set('Cookie', auth)).body as { available: boolean };
 const ftpCopy = (start: string) => fake.clips.push({ id: 8, cam: 'cam1', start: Date.parse(start) - 1000, end: Date.parse(start) + 30_000, stream: 'sub', events: [], body: CLIP });
 const askedFtp = () => fake.requests.some((q) => q.path.endsWith('/clips') || /\/clips\/\d+\.mp4$/.test(q.path));
+const fetchedFtp = () => fake.requests.some((q) => /\/clips\/\d+\.mp4$/.test(q.path));
 
 async function seeded() {
   const list = await seedRecordings(fake, 'cam1', today());
@@ -1457,21 +1482,67 @@ describe('the clip download through cam-proxy’s recordings', () => {
     expect(getRecordings().downloadsState('cam1')).toBe('proxy-recordings');
   });
 
-  // Review focus 2: on 503 without an FTP copy, the camera needs the folder of a bare name.
-  it('on 502 takes the FTP copy (-proxy.mp4); on 503 without one, the camera (-main.mp4)', async () => {
+  it('a sub download takes the FTP copy (-proxy.mp4) when the proxy’s recordings answer 502', async () => {
     const { ev } = await seeded();
     ftpCopy(ev.start);
     fake.recordingsOverride = { status: 502, body: { error: 'recordings_unavailable', reason: 'timeout' } };
-    const ftp = await binary(download(ev.id, 'main'));
-    expect(ftp.headers['content-disposition']).toMatch(/-proxy\.mp4"$/);
-    expect(Buffer.compare(ftp.body, CLIP)).toBe(0);
+    const r = await binary(download(ev.id, 'sub'));
+    expect(r.headers['content-disposition']).toMatch(/-proxy\.mp4"$/);
+    expect(Buffer.compare(r.body, CLIP)).toBe(0);
     expect(state.downloads).toBe(0);
-    fake.clips.length = 0;
+  });
+
+  // Klaus, 2026-10-02: no silent quality downgrade. Review focus 2: the
+  // camera needs the folder of a bare name from the proxy's list.
+  it('a 4K download with the proxy failing takes the camera’s main file, never the FTP copy', async () => {
+    const { ev } = await seeded();
+    ftpCopy(ev.start);
     fake.recordingsOverride = { status: 503, body: { error: 'camera_offline' } };
-    const fromCamera = await binary(download(ev.id, 'main'));
-    expect(fromCamera.status).toBe(200);
-    expect(fromCamera.headers['content-disposition']).toMatch(/-main\.mp4"$/);
+    const searches = state.searches;
+    const r = await binary(download(ev.id, 'main'));
+    expect(r.status).toBe(200);
+    expect(r.headers['content-disposition']).toMatch(/-main\.mp4"$/);
+    expect(Buffer.compare(r.body, CLIP)).not.toBe(0);
+    expect(askedFtp()).toBe(false);
     expect(state.downloads).toBe(1);
+    expect(state.searches).toBe(searches + 1);
+  });
+
+  it('a 4K download answers full_quality_unavailable when the proxy and the camera both fail, never the FTP copy', async () => {
+    await new Promise<void>((r) => cam.close(() => r()));
+    await startCamera({ dropFirstDownloads: 1000 }); // the camera refuses every download
+    const { ev } = await seeded();
+    ftpCopy(ev.start);
+    fake.recordingsOverride = { status: 503, body: { error: 'camera_offline' } };
+    const r = await download(ev.id, 'main');
+    expect(r.status).toBe(503);
+    expect(r.body).toEqual({ error: 'full_quality_unavailable' });
+    expect(fetchedFtp()).toBe(false);
+    // The standard quality is still there: the FTP copy.
+    const sub = await binary(download(ev.id, 'sub'));
+    expect(sub.status).toBe(200);
+    expect(sub.headers['content-disposition']).toMatch(/-proxy\.mp4"$/);
+  });
+
+  it('says whether the full-resolution file can be served now, without a transfer', async () => {
+    await new Promise<void>((r) => cam.close(() => r()));
+    await startCamera({ dropFirstDownloads: 1000 });
+    const list = await seedRecordings(fake, 'cam1', today());
+    const day = await events();
+    const ev = day.events[0];
+    // The proxy knows the main file (a HEAD, answered from its list).
+    expect(await fullQuality(ev.id)).toEqual({ available: true });
+    expect(fake.recordingFetches).toEqual([]);
+    expect(fake.requests.some((q) => q.path.endsWith(recordingOf(list, ev.id, 'main').id))).toBe(true);
+    // The proxy fails: the camera's breaker decides. Closed: available.
+    fake.recordingsOverride = { status: 503, body: { error: 'camera_offline' } };
+    expect(await fullQuality(ev.id)).toEqual({ available: true });
+    // Three refused 4K downloads open the breaker: not available.
+    for (const e of day.events.slice(0, 3)) expect((await download(e.id, 'main')).status).toBe(503);
+    expect(await fullQuality(ev.id)).toEqual({ available: false });
+    // A camera without a cam-proxy: its breaker, as before (closed here).
+    const porch = await events('porch');
+    expect(await fullQuality(porch.events[0].id, 'porch')).toEqual({ available: true });
   });
 
   it('answers unknown_clip for a recording gone from the SD card, with no fallback', async () => {
@@ -1492,7 +1563,7 @@ describe('the clip download through cam-proxy’s recordings', () => {
     const before = fake.requests.length;
     const ctl = new AbortController();
     ctl.abort();
-    await expect(getRecordings().openDownload('cam1', ev.id, 'main', ctl.signal)).rejects.toMatchObject({ name: 'AbortError' });
+    await expect(getRecordings().openDownload('cam1', ev.id, 'sub', ctl.signal)).rejects.toMatchObject({ name: 'AbortError' });
     expect(fake.requests.length).toBe(before);
     expect(state.downloads).toBe(0);
   });
@@ -1505,14 +1576,14 @@ describe('the clip download through cam-proxy’s recordings', () => {
     const server = createApp().listen(0);
     await new Promise((r) => server.once('listening', r));
     try {
-      const res = await fetch(`http://127.0.0.1:${(server.address() as AddressInfo).port}/api/cameras/cam1/clips/${ev.id}/download?quality=main`, { headers: { Cookie: auth } });
+      const res = await fetch(`http://127.0.0.1:${(server.address() as AddressInfo).port}/api/cameras/cam1/clips/${ev.id}/download?quality=sub`, { headers: { Cookie: auth } });
       expect(res.status).toBe(200);
       await expect(res.arrayBuffer()).rejects.toThrow();
     } finally {
       server.closeAllConnections();
       await new Promise((r) => server.close(r));
     }
-    expect(fake.requests.some((q) => /\/clips\/\d+\.mp4$/.test(q.path))).toBe(false);
+    expect(fetchedFtp()).toBe(false);
     expect(state.downloads).toBe(0);
   });
 
@@ -1530,23 +1601,59 @@ describe('the clip download through cam-proxy’s recordings', () => {
 - [ ] **Step 2: Run it to make sure it fails**
 
 Run: `npx vitest run --project node test/recordingsViaProxyDownloads.test.ts`
-Expected: FAIL. The sub download comes from the camera, `recordingFetches` is empty, and main from a proxy-listed day fails on the camera's bare file name.
+Expected: FAIL. The sub download comes from the camera, `recordingFetches` is empty, the `full-quality` route answers 404, and the refused 4K download is served from the FTP copy (`-proxy.mp4`).
 
-- [ ] **Step 3: Implement**
+- [ ] **Step 3: The error code, HEAD, and `headProxyRecording()`**
 
-In `server/recordings/service.ts`, delete `proxyClipFor()` and its comment (lines 363-369). Its only caller is the old `openDownload()`.
+In `server/recordings/errors.ts`, widen the code:
+
+```ts
+  constructor(readonly code: 'unknown_clip' | 'thumbnail_unavailable' | 'recordings_unavailable' | 'full_quality_unavailable', message: string) {
+```
+
+In `server/proxy/client.ts`, line 53, let `open()` send a HEAD:
+
+```ts
+    init: { method?: 'GET' | 'HEAD' | 'POST' | 'DELETE'; body?: string; headers?: Record<string, string>; signal?: AbortSignal; timeoutMs?: number | null; idleMs?: number } = {},
+```
+
+Append to `server/recordings/proxyRecordings.ts`:
+
+```ts
+// Whether the proxy knows a recording, without a transfer (its HEAD answers
+// from the list). Any failure throws a ProxyError: a HEAD has no body, so a
+// gone recording and an older proxy's 404 look the same here.
+export async function headProxyRecording(cameraId: string, id: string): Promise<void> {
+  const client = clientFor(cameraId);
+  const res = await client.open(`${base(cameraId)}/${encodeURIComponent(id)}`, undefined, { method: 'HEAD' });
+  await res.body?.cancel();
+  if (!res.ok) throw new ProxyError('proxy_error', `cam-proxy ${client.host()} answered ${res.status} for a recording`, res.status);
+}
+```
+
+- [ ] **Step 4: `openDownload()`, `handOver()`, `mainAvailable()`**
+
+In `server/recordings/service.ts`, extend the `proxyRecordings` import with `headProxyRecording`:
+
+```ts
+import { fallsBack, headProxyRecording, listProxyDays, listProxyRecordings, logProxyFailure, openProxyRecording, type ProxyRecording } from './proxyRecordings';
+```
+
+Delete `proxyClipFor()` and its comment (lines 363-369). Its only caller is the old `openDownload()`.
 
 Replace `openDownload()` and its comment (lines 504-579) with:
 
 ```ts
   // The clip download, streamed through (not cached), in the spec 2026-10-02
-  // order: the proxy's recordings API (the camera's own file, so it keeps its
-  // -sub/-main name), its FTP copy (-proxy.mp4: one stream, whichever its FTP
-  // setting uploads), then the camera in its one transfer slot behind the
-  // breaker. The slot is released once the returned stream closes or fails,
-  // and is never left held if `signal` aborts before or while waiting for it.
-  // A viewer who left is never retried on another route; a failure after
-  // bytes were sent ends the response short.
+  // order. Sub: the proxy's recordings API (the camera's own file, so it
+  // keeps its -sub name), its FTP copy (-proxy.mp4), then the camera. Main
+  // (4K): the proxy's recordings, then the camera; never the FTP copy, which
+  // is the sub stream (Klaus, 2026-10-02: no silent quality downgrade), so
+  // when both fail it answers full_quality_unavailable and the dialog offers
+  // the standard quality. The camera's transfer slot is released once the
+  // returned stream closes or fails, and is never left held if `signal`
+  // aborts. A viewer who left is never retried on another route; a failure
+  // after bytes were sent ends the response short.
   async openDownload(
     cameraId: string,
     clipId: string,
@@ -1565,14 +1672,16 @@ Replace `openDownload()` and its comment (lines 504-579) with:
     if (fromSd) return this.handOver(fromSd, filename, () => undefined, signal);
     if (signal?.aborted) throw abortError();
 
-    const ftp = await this.proxyClip(cameraId, clipId);
-    if (ftp) {
-      try {
-        const got = await openProxyClip(cameraId, ftp.id, signal);
-        return this.handOver(got, filename.replace(/-(sub|main)\.mp4$/, '-proxy.mp4'), () => undefined, signal);
-      } catch (err) {
-        if (signal?.aborted) throw err;
-        logger.warn({ cameraId, clipId, message: (err as Error).message }, 'proxy_clip_fetch_failed');
+    if (served === 'sub') {
+      const ftp = await this.proxyClip(cameraId, clipId);
+      if (ftp) {
+        try {
+          const got = await openProxyClip(cameraId, ftp.id, signal);
+          return this.handOver(got, filename.replace(/-sub\.mp4$/, '-proxy.mp4'), () => undefined, signal);
+        } catch (err) {
+          if (signal?.aborted) throw err;
+          logger.warn({ cameraId, clipId, message: (err as Error).message }, 'proxy_clip_fetch_failed');
+        }
       }
     }
 
@@ -1584,6 +1693,8 @@ Replace `openDownload()` and its comment (lines 504-579) with:
       return this.handOver({ stream: res, size: typeof cl === 'string' && /^\d+$/.test(cl) ? Number(cl) : null }, filename, slot.release, signal);
     } catch (err) {
       slot.release();
+      const final = signal?.aborted || (err instanceof RecordingError && err.code === 'unknown_clip');
+      if (served === 'main' && !final) throw new RecordingError('full_quality_unavailable', 'the full-resolution file is not available right now');
       throw err;
     }
   }
@@ -1610,64 +1721,98 @@ Replace `openDownload()` and its comment (lines 504-579) with:
     }
     return { stream: got.stream, filename, size: got.size };
   }
+
+  // Whether a 4K (main) download can be served now, without a transfer: the
+  // proxy knows the main file, or the camera's download breaker is closed.
+  // The Save dialog asks before offering 4K's Save (Klaus, 2026-10-02).
+  async mainAvailable(cameraId: string, clipId: string): Promise<boolean> {
+    const { main } = await this.names(cameraId, clipId);
+    if (!main) return false;
+    const known = await this.viaProxy(cameraId, clipId, async () => {
+      await headProxyRecording(cameraId, baseName(main));
+      return true;
+    });
+    return known ?? (this.health.get(cameraId)?.failures ?? 0) < BREAKER_FAILURES;
+  }
 ```
 
-- [ ] **Step 4: Update the expectation that changes by design**
+- [ ] **Step 5: The route**
 
-In `test/proxyFirst.test.ts`, replace the test `'downloads full quality from the camera, the sub stream from the proxy'` (lines 95-108) with:
+In `server/routes/recordings.ts`, after the `/download` route, add:
 
 ```ts
-  // Spec 2026-10-02: with the proxy's recordings down (this fake holds none:
-  // 503), both qualities take the FTP copy before the camera.
-  it('downloads either quality from the FTP copy before the camera when the proxy’s recordings are down', async () => {
+// Whether a 4K (main) download can be served now (Klaus, 2026-10-02: no
+// silent quality downgrade). The Save dialog asks when 4K is chosen; an
+// unknown clip is simply not available.
+recordingsRouter.get('/api/cameras/:id/clips/:clipId/full-quality', async (req, res, next) => {
+  const id = camera(req, res);
+  const clipId = id && clip(req, res);
+  if (!id || !clipId) return;
+  try {
+    res.json({ available: await getRecordings().mainAvailable(id, clipId) });
+  } catch (err) {
+    if (err instanceof RecordingError && err.code === 'unknown_clip') return void res.json({ available: false });
+    fail(err, id, res, next);
+  }
+});
+```
+
+- [ ] **Step 6: Update the expectation that changes by design**
+
+In `test/proxyClips.test.ts`, replace the test `'serves the download from the proxy, named as such'` (lines 130-140) with:
+
+```ts
+  // Klaus, 2026-10-02: no silent quality downgrade. The camera refuses and
+  // the proxy has no SD recordings (503): SD takes the FTP copy, 4K doesn't.
+  it('serves the SD download from the proxy’s FTP copy, named as such, but never 4K', async () => {
     const app = createApp();
-    const { ev } = await firstEvent(app);
+    const [ev] = (await events(app)).events;
     const start = Date.parse(ev.start);
-    fake.clips.push({ id: 6, cam: 'cam1', start: start - 4000, end: start + 30_000, stream: 'sub', events: [], body: CLIP });
-    const main = await binary(request(app).get(`/api/cameras/cam1/clips/${ev.id}/download?quality=main`).set('Cookie', auth));
-    expect(main.status).toBe(200);
-    expect(main.headers['content-disposition']).toMatch(/-proxy\.mp4"$/);
-    expect(Buffer.compare(main.body, CLIP)).toBe(0);
-    const sub = await binary(request(app).get(`/api/cameras/cam1/clips/${ev.id}/download?quality=sub`).set('Cookie', auth));
-    expect(sub.headers['content-disposition']).toMatch(/-proxy\.mp4"$/);
-    expect(Buffer.compare(sub.body, CLIP)).toBe(0);
-    expect(state.downloads).toBe(0);
+    fake.clips.push({ id: 7, cam: 'cam1', start: start - 1000, end: start + 30_000, stream: 'main', events: [], body: CLIP });
+    const r = await binary(request(app).get(`/api/cameras/cam1/clips/${ev.id}/download?quality=sub`).set('Cookie', auth));
+    expect(r.status).toBe(200);
+    expect(r.headers['content-disposition']).toMatch(/-proxy\.mp4"$/);
+    expect(Buffer.compare(r.body, CLIP)).toBe(0);
+    const main = await request(app).get(`/api/cameras/cam1/clips/${ev.id}/download?quality=main`).set('Cookie', auth);
+    expect(main.status).toBe(503);
+    expect(main.body).toEqual({ error: 'full_quality_unavailable' });
   });
 ```
 
-- [ ] **Step 5: Run it to make sure it passes**
+- [ ] **Step 7: Run the tests**
 
-Run: `npx vitest run --project node test/recordingsViaProxyDownloads.test.ts test/proxyFirst.test.ts`
-Expected: PASS.
-
-- [ ] **Step 6: Run the whole suite**
+Run: `npx vitest run --project node test/recordingsViaProxyDownloads.test.ts test/proxyClips.test.ts test/proxyFirst.test.ts`
+Expected: PASS. `proxyFirst.test.ts` is unchanged.
 
 Run: `npm run build && npm test`
-Expected: PASS. tsc reports no unused `proxyClipFor`. `test/proxyClips.test.ts` ("serves the download from the proxy, named as such") still gets `-proxy.mp4`.
+Expected: PASS. tsc reports no unused `proxyClipFor`.
 
-- [ ] **Step 7: Commit**
+- [ ] **Step 8: Commit**
 
 ```bash
-git add server/recordings/service.ts test/recordingsViaProxyDownloads.test.ts test/proxyFirst.test.ts
-git commit -m "feat(recordings): clip downloads from cam-proxy's recordings first, sub and main"
+git add server/recordings/errors.ts server/proxy/client.ts server/recordings/proxyRecordings.ts server/recordings/service.ts server/routes/recordings.ts test/recordingsViaProxyDownloads.test.ts test/proxyClips.test.ts
+git commit -m "feat(recordings): clip downloads from cam-proxy's recordings first; 4K never falls back to the FTP copy"
 ```
 
 ---
 
-### Task 6: The source note, and the docs
+### Task 6: The source note, the 4K message, and the docs
 
 **Files:**
 - Modify: `web/src/lib/dayCache.ts:8`
 - Modify: `web/src/lib/dayCache.test.ts`
 - Modify: `web/src/pages/Video.svelte:12, 44, 457`
+- Modify: `web/src/lib/compose.ts` (adds `fullQualityAvailable()`)
+- Modify: `web/src/components/ComposeDialog.svelte` (the 4K message)
+- Modify: `web/src/components/ComposeDialog.svelte.test.ts`
 - Modify: `e2e/recordings.spec.ts:476-481`
 - Modify: `docs/reolink-api.md` ("Where cams handles each quirk" table)
 - Modify: `README.md:24, 107`
 - Modify: `CHANGELOG.md` (`## [Unreleased]`)
 
 **Interfaces:**
-- Consumes: Task 3's server values `'ok' | 'proxy-recordings' | 'proxy' | 'unavailable'` in the `downloads` field of `GET /api/cameras/:id/events`.
-- Produces (in `web/src/lib/dayCache.ts`): `export type Downloads = 'ok' | 'proxy-recordings' | 'proxy' | 'unavailable'`; `DayEvents.downloads: Downloads`; `export function sourceLabel(d: Downloads): string`.
+- Consumes: Task 3's server values `'ok' | 'proxy-recordings' | 'proxy' | 'unavailable'` in the `downloads` field of `GET /api/cameras/:id/events`; Task 5's `GET /api/cameras/:id/clips/:clipId/full-quality` → `{"available": boolean}`.
+- Produces: in `web/src/lib/dayCache.ts`, `export type Downloads = 'ok' | 'proxy-recordings' | 'proxy' | 'unavailable'`, `DayEvents.downloads: Downloads` and `export function sourceLabel(d: Downloads): string`. In `web/src/lib/compose.ts`, `export function fullQualityAvailable(cam: string, clipId: string): Promise<boolean>` (true when unsure). New test ids `compose-4k-unavailable` and `compose-use-sd`.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -1687,10 +1832,51 @@ Add inside `describe('dayCache', () => { … })`:
   });
 ```
 
+In `web/src/components/ComposeDialog.svelte.test.ts`, add inside `describe('ComposeDialog', () => { … })`:
+
+```ts
+  // Klaus, 2026-10-02: no silent quality downgrade.
+  it('says when the full-resolution file isn’t available, disables 4K’s Save, and offers the standard quality', async () => {
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => new Response(JSON.stringify(url.includes('/full-quality') ? { available: false } : { available: true }), { status: 200 })));
+    render();
+    set4k();
+    await vi.waitFor(() => expect(q('compose-4k-unavailable')?.textContent).toBe("The full-resolution file isn't available right now; download the standard quality instead."));
+    expect(q('compose-save')!.getAttribute('aria-disabled')).toBe('true');
+    expect(q('compose-save')!.hasAttribute('href')).toBe(false);
+    q('compose-use-sd')!.click();
+    flushSync();
+    expect((q('compose-size') as HTMLSelectElement).value).toBe('sd');
+    expect(q('compose-4k-unavailable')).toBeNull();
+    expect(q('compose-save')!.getAttribute('href')).toMatch(/download\?quality=sub/);
+  });
+
+  it('keeps 4K’s Save when the full-resolution file is available', async () => {
+    const fetch = vi.fn(async (_url: string) => new Response(JSON.stringify({ available: true }), { status: 200 }));
+    vi.stubGlobal('fetch', fetch);
+    render();
+    set4k();
+    await vi.waitFor(() => expect(fetch.mock.calls.some(([u]) => String(u).endsWith('/api/cameras/den/clips/20260928-140000-140020/full-quality'))).toBe(true));
+    flushSync();
+    expect(q('compose-4k-unavailable')).toBeNull();
+    expect(q('compose-save')!.getAttribute('href')).toMatch(/download\?quality=main/);
+  });
+```
+
+and, next to the file's other helpers (after `const set = …`):
+
+```ts
+const set4k = () => {
+  const el = q('compose-size') as HTMLSelectElement;
+  el.value = '4k';
+  el.dispatchEvent(new Event('change', { bubbles: true }));
+  flushSync();
+};
+```
+
 - [ ] **Step 2: Run it to make sure it fails**
 
-Run: `npx vitest run --project node web/src/lib/dayCache.test.ts`
-Expected: FAIL with `sourceLabel is not a function`.
+Run: `npx vitest run --project node web/src/lib/dayCache.test.ts && npx vitest run --project components web/src/components/ComposeDialog.svelte.test.ts`
+Expected: FAIL. `sourceLabel is not a function`, and `compose-4k-unavailable` is never shown.
 
 - [ ] **Step 3: Implement**
 
@@ -1717,6 +1903,66 @@ In `web/src/pages/Video.svelte`:
 - line 44: `let downloads: Downloads = $state('ok');`
 - line 457: `<p class="note" data-testid="recordings-source" role="status">Source of recordings and thumbnails: {sourceLabel(downloads)}</p>`
 
+In `web/src/lib/compose.ts`, after `isAvailable()`, add:
+
+```ts
+// Whether a 4K (main) download can be served now (Klaus, 2026-10-02: no
+// silent quality downgrade); true when unsure, as the Save itself then tells.
+export async function fullQualityAvailable(cam: string, clipId: string): Promise<boolean> {
+  try {
+    const r = await fetch(`/api/cameras/${encodeURIComponent(cam)}/clips/${encodeURIComponent(clipId)}/full-quality`, { credentials: 'same-origin' });
+    const j = (await r.json()) as { available?: unknown };
+    return j.available !== false;
+  } catch {
+    return true;
+  }
+}
+```
+
+In `web/src/components/ComposeDialog.svelte`:
+- the `compose` import gains `fullQualityAvailable`:
+  `import { cancelJob, composedName, formatLength, fullQualityAvailable, isAvailable, ORIGINAL_4K_LABEL, pollJob, resultLength, SIZE_LABELS, startJob, videoUrl, type ComposeSize, type JobView, type SaveSize } from '../lib/compose';`
+- after `const is4k = $derived(size === '4k');`, add:
+
+```ts
+  // Whether the full-resolution file can be served now; asked once, when 4K
+  // is first chosen. No silent quality downgrade (Klaus, 2026-10-02): when it
+  // can't, 4K's Save is off and the standard quality is offered instead.
+  let fullOk = $state(true);
+  let fullAsked = false;
+  $effect(() => {
+    if (!is4k || fullAsked) return;
+    fullAsked = true;
+    void fullQualityAvailable(camera, clip.id).then((a) => (fullOk = a));
+  });
+  const fullMissing = $derived(is4k && !fullOk);
+```
+
+- after the `{#if is4k} … compose-4k-note … {/if}` block, add:
+
+```svelte
+  {#if fullMissing}
+    <p class="err" data-testid="compose-4k-unavailable" role="status">The full-resolution file isn't available right now; download the standard quality instead.</p>
+    <button class="link" data-testid="compose-use-sd" onclick={() => (size = 'sd')}>Download the standard quality</button>
+  {/if}
+```
+
+- the Save link: no href and `aria-disabled="true"` while the full-resolution file is missing:
+
+```svelte
+    <a data-testid="compose-save" class="primary" download
+      href={fullMissing ? undefined : plain ? downloadUrl(camera, clip.id, is4k ? 'main' : 'sub') : ready && job ? videoUrl(camera, job.id, false, name) : undefined}
+      aria-disabled={!fullMissing && (plain || ready) ? 'false' : 'true'}>Save</a>
+```
+
+- in `<style>`, add (colours from the theme tokens):
+
+```css
+  .link { align-self: flex-start; padding: 0; border: 0; background: transparent; color: var(--accent); font: inherit; font-size: 13px; text-decoration: underline; cursor: pointer; }
+```
+
+Check that `--accent` exists in `web/src/styles/theme.css` (`grep -n -- '--accent' web/src/styles/theme.css`). If it doesn't, use the token the app's other text links use (`grep -rn 'text-decoration: underline' web/src/components | head -3`).
+
 In `e2e/recordings.spec.ts`, replace the test `'names the source of recordings and thumbnails: cam-proxy or camera (Klaus, 2026-09-28)'` (lines 476-481) with:
 
 ```ts
@@ -1732,8 +1978,8 @@ test('names the source of recordings and thumbnails: cam-proxy or camera (Klaus,
 
 - [ ] **Step 4: Run the tests**
 
-Run: `npx vitest run --project node web/src/lib/dayCache.test.ts && npm run check && npm run check:svelte`
-Expected: PASS; no type errors.
+Run: `npx vitest run --project node web/src/lib/dayCache.test.ts && npx vitest run --project components web/src/components/ComposeDialog.svelte.test.ts && npm run check && npm run check:svelte`
+Expected: PASS (the dialog's earlier tests too: their fetch stubs answer `{}` or `available: true`, so 4K stays available); no type errors.
 
 Run: `npm run build && npx playwright test e2e/recordings.spec.ts -g "names the source"`
 Expected: PASS (desktop and phone). This runs on a laptop only, never on the self-hosted runner.
@@ -1751,13 +1997,13 @@ Replace the row starting `| One Search at a time (−54) |` with:
 Replace the row starting `| Camera refuses every Download |` with:
 
 ```markdown
-| Camera refuses every Download | with a cam-proxy, clips come from its recordings API first (the SD file over Baichuan: `viaProxy()` in `server/recordings/service.ts`, `server/recordings/proxyRecordings.ts`), then its FTP copy (`proxyClip`), then the camera; download-health breaker for the camera (`guard`, `noteRefused`, `probeIfDue`): after `BREAKER_FAILURES` (3) refusals, clip requests get `503 recordings_unavailable`; one probe per `RECORDINGS_PROBE_MS` (default 60 s) | fault `downloads.refuse` (e2e cameras Shed, and Barn with a proxy) |
+| Camera refuses every Download | with a cam-proxy, clips come from its recordings API first (the SD file over Baichuan: `viaProxy()` in `server/recordings/service.ts`, `server/recordings/proxyRecordings.ts`), then its FTP copy (`proxyClip`; playback and SD downloads only, never 4K), then the camera; a 4K download that neither can serve answers `503 full_quality_unavailable`; download-health breaker for the camera (`guard`, `noteRefused`, `probeIfDue`): after `BREAKER_FAILURES` (3) refusals, clip requests get `503 recordings_unavailable`; one probe per `RECORDINGS_PROBE_MS` (default 60 s) | fault `downloads.refuse` (e2e cameras Shed, and Barn with a proxy) |
 ```
 
 In `README.md`, replace the bullet that starts `  - **Clips first from the proxy:**` (line 24) with:
 
 ```markdown
-  - **Recordings from the proxy:** History's list, the calendar's days, playback, downloads and the clip-based thumbnails come from the proxy's recordings API: the SD card's files, which the proxy fetches over Baichuan, so any recording of the last 7 days plays and downloads in SD or 4K while the camera refuses HTTP downloads. Every camera Search for such a camera goes through the proxy (the camera answers overlapping Searches with an empty list). When the proxy can't answer (502/503 or unreachable), a clip comes from its FTP copy (`…-proxy.mp4`), then from the camera's own download behind the breaker, and the list and the calendar from the camera's Search. A recording the proxy reports gone from the SD card answers `unknown_clip`. Downloads from the recordings API keep the camera's `-sub`/`-main` names. The line under the player names the source: cam-proxy (SD card), cam-proxy (FTP copies) or camera.
+  - **Recordings from the proxy:** History's list, the calendar's days, playback, downloads and the clip-based thumbnails come from the proxy's recordings API: the SD card's files, which the proxy fetches over Baichuan, so any recording of the last 7 days plays and downloads in SD or 4K while the camera refuses HTTP downloads. Every camera Search for such a camera goes through the proxy (the camera answers overlapping Searches with an empty list). When the proxy can't answer (502/503 or unreachable), playback and SD downloads come from its FTP copy (`…-proxy.mp4`), then from the camera's own download behind the breaker, and the list and the calendar from the camera's Search. A 4K download never falls back to the FTP copy (it is the sub stream): it comes from the proxy or the camera, and when neither can serve it the "Save clip" dialog says "The full-resolution file isn't available right now; download the standard quality instead" and offers SD (`GET /api/cameras/:id/clips/:clipId/full-quality`). A recording the proxy reports gone from the SD card answers `unknown_clip`. Downloads from the recordings API keep the camera's `-sub`/`-main` names. The line under the player names the source: cam-proxy (SD card), cam-proxy (FTP copies) or camera.
 ```
 
 In `README.md`, replace the bullet that starts `- **cam-proxy in tests** is a small fake` (line 107) with:
@@ -1769,14 +2015,14 @@ In `README.md`, replace the bullet that starts `- **cam-proxy in tests** is a sm
 In `CHANGELOG.md`, under `## [Unreleased]`, add:
 
 ```markdown
-- Recordings of a camera with a cam-proxy come from the proxy's recordings API: the SD card's files, fetched over Baichuan, which works while the camera refuses HTTP downloads. Any recording of the last 7 days plays and downloads in SD or 4K again; the proxy's FTP copies and then the camera's own download are the fallbacks. The calendar and the day's list come from the proxy too, so cams no longer searches such a camera itself. The line under the player says "cam-proxy (SD card)" or "cam-proxy (FTP copies)".
+- Recordings of a camera with a cam-proxy come from the proxy's recordings API: the SD card's files, fetched over Baichuan, which works while the camera refuses HTTP downloads. Any recording of the last 7 days plays and downloads in SD or 4K again; the proxy's FTP copies and then the camera's own download are the fallbacks. 4K never falls back to the FTP copy (it is SD): when the full-resolution file can't be served, the Save dialog says so and offers the standard quality. The calendar and the day's list come from the proxy too, so cams no longer searches such a camera itself. The line under the player says "cam-proxy (SD card)" or "cam-proxy (FTP copies)".
 ```
 
 - [ ] **Step 6: Commit**
 
 ```bash
-git add web/src/lib/dayCache.ts web/src/lib/dayCache.test.ts web/src/pages/Video.svelte e2e/recordings.spec.ts docs/reolink-api.md README.md CHANGELOG.md
-git commit -m "feat(web): name the SD card or FTP copies as the source; docs for recordings via cam-proxy"
+git add web/src/lib/dayCache.ts web/src/lib/dayCache.test.ts web/src/pages/Video.svelte web/src/lib/compose.ts web/src/components/ComposeDialog.svelte web/src/components/ComposeDialog.svelte.test.ts e2e/recordings.spec.ts docs/reolink-api.md README.md CHANGELOG.md
+git commit -m "feat(web): source note (SD card or FTP copies), the 4K-unavailable message; docs"
 ```
 
 ---
@@ -2056,8 +2302,8 @@ Expected: in the PR, the `e2e` job (`.github/workflows/production-checks.yml`, G
 
 - **Spec coverage:** day list via the proxy, sub then main, `from`/`to` from `timeInfo()` (Task 3). Month list via the proxy, with `extent.ts` following (Task 3). Playback order and the out-of-slot rule (Task 4). Download order, filenames, mid-stream end (Task 5). Thumbnails: still first, then the clip (Task 4). 404 is final, abort never falls back (Tasks 2, 4, 5). Breaker untouched by proxy failures (`viaProxy` never calls `noteRefused`). `downloadsState` with all three transitions (Tasks 3-5). The web types and the note (Task 6). Docs and CHANGELOG (Task 6). The fake's routes against cam-proxy's shapes (Task 1). The cross-stack e2e (Task 7). Logging at warn/error without a token (Task 2).
 - **Spec points this plan reads in one particular way:**
-  - The spec's "Out of scope" still lists "Moving the month list (`searchMonth()`) to the proxy", but its Design (updated 2026-10-02) moves it, and Klaus confirmed that every Search for a proxied camera goes through the proxy. The plan follows the Design.
-  - `openDownload('main')` used to ask the camera first. In the spec's order it now takes the FTP copy before the camera when the recordings API fails (Task 5 changes that test on purpose).
+  - The month list goes through the proxy, with the camera's month Search only as the fallback (the spec's "Out of scope" line saying otherwise was removed).
+  - Klaus's ruling (2026-10-02): a 4K download never falls back to the sub-stream FTP copy. The order is proxy recordings, then the camera, then `full_quality_unavailable`, with the dialog message and the SD offer (Tasks 5 and 6; the spec was updated to match). `test/proxyClips.test.ts` changes on purpose: its 4K download took the FTP copy.
 - **Placeholders:** none. Task 7's tag comes from a command in its Step 1, because the release doesn't exist yet.
 - **Type consistency:** `listProxyRecordings(cameraId, from, to, stream)`, `listProxyDays(cameraId, month)`, `openProxyRecording(cameraId, id, signal?)`, `fallsBack(err, signal?)`, `logProxyFailure(cameraId, what, err)`, `viaProxy(cameraId, what, ask, signal?)`, `cameraPath(cameraId, clipId, name, stream)`, `handOver(got, filename, release, signal?)`, `seedRecordings(fake, cameraId, date, body?)` and `recordingOf(list, clipId, stream)` are used with these signatures throughout. `DownloadsState` (server) and `Downloads` (web) hold the same four values.
 
