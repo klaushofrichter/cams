@@ -1,0 +1,162 @@
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import request from 'supertest';
+import { mkdtempSync, rmSync } from 'fs';
+import { tmpdir } from 'os';
+import { join } from 'path';
+import type { Server } from 'http';
+import type { AddressInfo } from 'net';
+import { createApp } from '../server/app';
+import { setCameras } from '../server/cameraRegistry';
+import { loadProxyState, setProxyEnabled } from '../server/proxyState';
+import { getClient, resetClients } from '../server/reolink/clients';
+import { resetProxyClients } from '../server/proxy/client';
+import { dayBounds, resetRecordings } from '../server/recordings/service';
+import { SESSION_COOKIE, signSession } from '../server/session';
+import { createSimCamera, type SimState } from './camera/sim';
+import { FAKE_TOKEN, startFakeProxy, type FakeProxy } from './proxy/fakeProxy';
+import { recordingOf, seedRecordings } from './proxy/seedRecordings';
+
+// Spec 2026-10-02 (recordings via cam-proxy): for a camera with a cam-proxy
+// the day's list and the month's days come from the proxy's recordings API,
+// so every camera Search goes through the proxy's one searcher; the camera's
+// own Search only when the proxy can't answer.
+const auth = `${SESSION_COOKIE}=${signSession('klaus@klaushofrichter.net')}`;
+const chicago = (ms: number) => new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Chicago' }).format(new Date(ms));
+const today = () => chicago(Date.now());
+const yesterday = () => chicago(Date.now() - 86_400_000);
+
+let cam: Server;
+let state: SimState;
+let fake: FakeProxy;
+let cacheDir: string;
+const workerCacheDir = process.env.CACHE_DIR;
+
+beforeEach(async () => {
+  cacheDir = mkdtempSync(join(tmpdir(), 'cams-viaproxy-'));
+  process.env.CACHE_DIR = cacheDir;
+  process.env.PROXY_STATE_FILE = join(cacheDir, 'proxy-state.json');
+  loadProxyState();
+  const sim = await createSimCamera({ user: 'u', password: 'p' });
+  state = sim.state;
+  cam = sim.app.listen(0);
+  await new Promise((r) => cam.once('listening', r));
+  const host = `127.0.0.1:${(cam.address() as AddressInfo).port}`;
+  fake = await startFakeProxy();
+  setCameras([
+    { id: 'cam1', name: 'Den', host, protocol: 'http', user: 'u', password: 'p', proxy: { url: fake.url, token: FAKE_TOKEN } },
+    { id: 'porch', name: 'Porch', host, protocol: 'http', user: 'u', password: 'p' },
+  ]);
+  resetClients();
+  resetProxyClients();
+  resetRecordings();
+});
+afterEach(async () => {
+  await new Promise<void>((r) => cam.close(() => r()));
+  await fake.stop();
+  setCameras([]);
+  process.env.CACHE_DIR = workerCacheDir;
+  delete process.env.PROXY_STATE_FILE;
+  loadProxyState();
+  rmSync(cacheDir, { recursive: true, force: true });
+});
+
+type Day = { events: { id: string; start: string; end: string; triggers: string[]; sizeSub: number | null; sizeMain: number | null }[]; downloads: string };
+const events = async (id = 'cam1', date = today()) => (await request(createApp()).get(`/api/cameras/${id}/events?date=${date}`).set('Cookie', auth)).body as Day;
+const daysOf = async (id: string, month: string) => (await request(createApp()).get(`/api/cameras/${id}/days?month=${month}`).set('Cookie', auth)).body as { days: string[] };
+const recordingAsks = () => fake.requests.filter((r) => r.path.startsWith('/api/cameras/cam1/recordings'));
+const shape = (d: Day) => d.events.map((e) => [e.id, e.start, e.end, e.triggers]);
+
+describe('the day’s list and the month’s days through cam-proxy', () => {
+  it('lists the day from the proxy, sub then main, paired like the camera’s Search, without a camera Search', async () => {
+    const date = today();
+    const list = await seedRecordings(fake, 'cam1', date);
+    const searches = state.searches;
+    const viaProxy = await events();
+    expect(state.searches).toBe(searches);
+    expect(viaProxy.downloads).toBe('proxy-recordings');
+    const asks = recordingAsks();
+    expect(asks.map((r) => r.query.stream)).toEqual(['sub', 'main']);
+    const bounds = dayBounds(date, await getClient('cam1')!.timeInfo());
+    expect(asks.map((r) => [Number(r.query.from), Number(r.query.to)])).toEqual([[bounds.from, bounds.to], [bounds.from, bounds.to]]);
+    expect(viaProxy.events.length).toBeGreaterThan(0);
+    for (const ev of viaProxy.events) {
+      expect(ev.sizeSub).toBe(recordingOf(list, ev.id, 'sub').body.length);
+      expect(ev.sizeMain).toBe(recordingOf(list, ev.id, 'main').body.length);
+    }
+    // The same events as the camera's own Search gives.
+    resetRecordings();
+    fake.recordingsOverride = { status: 503, body: { error: 'camera_offline' } };
+    expect(shape(viaProxy)).toEqual(shape(await events()));
+  });
+
+  // Review focus 1: an older cam-proxy answers a plain 404.
+  it.each([
+    ['502', () => void (fake.recordingsOverride = { status: 502, body: { error: 'recordings_unavailable', reason: 'refused' } })],
+    ['503', () => void (fake.recordingsOverride = { status: 503, body: { error: 'camera_offline' } })],
+    ['400', () => void (fake.recordingsOverride = { status: 400, body: { error: 'invalid' } })],
+    ['an older cam-proxy (plain 404)', () => void (fake.recordingsOverride = { status: 404, body: { error: 'not_found' } })],
+    ['a refused token', () => void (fake.token = 'another-token-'.padEnd(48, 'x'))],
+    ['an unreachable proxy', () => void (fake.offline = true)],
+  ])('falls back to the camera’s Search on %s', async (_name, breakIt) => {
+    await seedRecordings(fake, 'cam1', today());
+    const searches = state.searches;
+    breakIt();
+    const day = await events();
+    expect(day.events.length).toBeGreaterThan(0);
+    expect(state.searches).toBe(searches + 2);
+    expect(day.downloads).toBe('proxy');
+  }, 15_000);
+
+  it('says proxy-recordings again once the proxy answers again', async () => {
+    await seedRecordings(fake, 'cam1', today());
+    await seedRecordings(fake, 'cam1', yesterday());
+    fake.recordingsOverride = { status: 503, body: { error: 'camera_offline' } };
+    expect((await events()).downloads).toBe('proxy');
+    fake.recordingsOverride = null;
+    expect((await events('cam1', yesterday())).downloads).toBe('proxy-recordings');
+  });
+
+  it('reads the month’s days from the proxy; the camera’s month Search only when the proxy fails', async () => {
+    const date = today();
+    const month = date.slice(0, 7);
+    await seedRecordings(fake, 'cam1', date);
+    const searches = state.searches;
+    expect((await daysOf('cam1', month)).days).toEqual([date]);
+    expect(state.searches).toBe(searches);
+    expect(recordingAsks().at(-1)).toMatchObject({ path: '/api/cameras/cam1/recordings/days', query: { month } });
+    resetRecordings();
+    fake.recordingsOverride = { status: 502, body: { error: 'recordings_unavailable', reason: 'search_failed' } };
+    expect((await daysOf('cam1', month)).days).toContain(date);
+    expect(state.searches).toBe(searches + 1);
+  });
+
+  // Review focus 3: a day on a DST change, and east of UTC.
+  it('asks for a camera-local day wide enough for either offset (dayBounds)', () => {
+    // Chicago, the fall-back day: CDT midnight is 05:00Z, CST midnight 06:00Z.
+    expect(dayBounds('2026-11-01', { stdOffsetMinutes: -360, dstOffsetMinutes: 60 })).toEqual({ from: Date.parse('2026-11-01T05:00:00Z'), to: Date.parse('2026-11-02T06:00:00Z') - 1 });
+    // Berlin, the spring-forward day: CEST midnight is 22:00Z the day before, CET midnight 23:00Z.
+    expect(dayBounds('2026-03-29', { stdOffsetMinutes: 60, dstOffsetMinutes: 60 })).toEqual({ from: Date.parse('2026-03-28T22:00:00Z'), to: Date.parse('2026-03-29T23:00:00Z') - 1 });
+    // No DST: exactly the day.
+    expect(dayBounds('2026-10-02', { stdOffsetMinutes: 0, dstOffsetMinutes: 0 })).toEqual({ from: Date.parse('2026-10-02T00:00:00Z'), to: Date.parse('2026-10-03T00:00:00Z') - 1 });
+  });
+
+  it('leaves a camera without a cam-proxy unchanged: the camera’s Search, no proxy request, downloads ok', async () => {
+    const searches = state.searches;
+    const day = await events('porch');
+    expect(day.events.length).toBeGreaterThan(0);
+    expect(state.searches).toBe(searches + 2);
+    expect(day.downloads).toBe('ok');
+    await daysOf('porch', today().slice(0, 7));
+    expect(state.searches).toBe(searches + 3);
+    expect(fake.requests.some((r) => r.path.includes('/recordings'))).toBe(false);
+  });
+
+  it('asks the camera, not the proxy, while the cam-proxy is switched off', async () => {
+    await setProxyEnabled('cam1', false);
+    const searches = state.searches;
+    const day = await events();
+    expect(state.searches).toBe(searches + 2);
+    expect(day.downloads).toBe('ok');
+    expect(fake.requests.some((r) => r.path.includes('/recordings'))).toBe(false);
+  });
+});

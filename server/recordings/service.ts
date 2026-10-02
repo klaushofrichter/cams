@@ -8,13 +8,14 @@ import { proxyActive } from '../cameraRegistry';
 import { getClient } from '../reolink/clients';
 import { logger } from '../logger';
 import { CameraError } from '../reolink/client';
-import { clipIdOf, clipTimes, CLIP_ID, parseClipName, ParsedClip, Trigger } from './clipNames';
+import { clipIdOf, clipTimes, CLIP_ID, parseClipName, ParsedClip, TimeInfo, Trigger } from './clipNames';
 import { DiskCache } from './cache';
 import { PriorityGate } from './priorityGate';
 import { makeThumbnail } from './thumbnail';
 import { Semaphore } from '../reolink/semaphore';
 import { findProxyClip, findProxyStill, openProxyClip, openProxyStill } from './proxyClips';
 import { RecordingError } from './errors';
+import { fallsBack, listProxyDays, listProxyRecordings, logProxyFailure, type ProxyRecording } from './proxyRecordings';
 export { RecordingError } from './errors';
 
 export interface EventClip {
@@ -30,6 +31,8 @@ export interface EventClip {
 interface DayEntry {
   at: number;
   events: EventClip[];
+  // Per event: the camera's path of each stream's file (camera Search), or the
+  // bare file name (the proxy's list).
   names: Map<string, { sub?: string; main?: string }>;
 }
 
@@ -104,11 +107,51 @@ function clipSpanEnd(p: ParsedClip): number {
   return end < secs(p.start) ? end + 86400 : end;
 }
 
+// A camera-local day's bounds in unix ms, for the proxy's list. TimeInfo
+// doesn't say whether DST is in effect that day, so the window runs from
+// midnight at the DST offset to the next midnight at standard time; the
+// list is filtered by the names' date afterwards. At most 25 hours.
+export function dayBounds(date: string, t: TimeInfo): { from: number; to: number } {
+  const midnight = Date.parse(`${date}T00:00:00Z`);
+  return {
+    from: midnight - (t.stdOffsetMinutes + t.dstOffsetMinutes) * 60_000,
+    to: midnight + 86_400_000 - t.stdOffsetMinutes * 60_000 - 1,
+  };
+}
+
+// 'proxy-recordings': from the cam-proxy's recordings API (the SD card).
+// 'proxy': the camera has a cam-proxy, but its last recordings request
+// failed, so recordings come from its FTP copies. 'ok' and 'unavailable':
+// cameras without a proxy (the camera's breaker).
+export type DownloadsState = 'ok' | 'proxy-recordings' | 'proxy' | 'unavailable';
+
 export class RecordingsService {
   private readonly days_ = new Map<string, { at: number; days: string[] }>();
   private readonly daysInflight = new Map<string, Promise<DayEntry>>();
   private readonly dayCache = new Map<string, DayEntry>();
   private readonly transfers = new Map<string, PriorityGate>();
+  // Per camera with a cam-proxy: whether its last recordings request failed.
+  private readonly proxyRecordingsFailed = new Map<string, boolean>();
+
+  // Runs `ask` against the camera's cam-proxy (spec 2026-10-02). null: "use
+  // the next route" (no proxy in use, or a failure that falls back, logged as
+  // proxy_recordings_failed). A recording gone from the SD card
+  // (unknown_clip) and an abort are thrown. `what` is the clip id, or the day
+  // or month being listed, for the log.
+  private async viaProxy<T>(cameraId: string, what: string, ask: () => Promise<T>, signal?: AbortSignal): Promise<T | null> {
+    if (!proxyActive(cameraId)) return null;
+    try {
+      const value = await ask();
+      this.proxyRecordingsFailed.set(cameraId, false);
+      return value;
+    } catch (err) {
+      if (err instanceof RecordingError) this.proxyRecordingsFailed.set(cameraId, false); // the proxy answered
+      if (!fallsBack(err, signal)) throw err;
+      this.proxyRecordingsFailed.set(cameraId, true);
+      logProxyFailure(cameraId, what, err);
+      return null;
+    }
+  }
 
   constructor(private readonly cache: DiskCache) {}
 
@@ -204,11 +247,14 @@ export class RecordingsService {
     };
   }
 
+  // A camera with a cam-proxy: the proxy's month list, so the camera is
+  // searched by the proxy's one searcher only (an overlapping Search comes
+  // back empty without an error); its own month Search when the proxy can't.
   async days(cameraId: string, month: string): Promise<string[]> {
     const key = `${cameraId}|${month}`;
     const hit = this.days_.get(key);
     if (hit && Date.now() - hit.at < MONTH_TTL) return hit.days;
-    const days = await this.client(cameraId).searchMonth(month);
+    const days = (await this.viaProxy(cameraId, month, () => listProxyDays(cameraId, month))) ?? (await this.client(cameraId).searchMonth(month));
     this.days_.set(key, { at: Date.now(), days });
     return days;
   }
@@ -223,7 +269,16 @@ export class RecordingsService {
     const inflight = this.daysInflight.get(key);
     if (inflight) return inflight;
     const work = (async () => {
-      const [sub, main] = await Promise.all([client.searchDay(date, 'sub'), client.searchDay(date, 'main')]);
+      // A camera with a cam-proxy: the proxy's list, sub then main, from the
+      // camera-local day's bounds; its own Search when the proxy can't answer.
+      const { from, to } = dayBounds(date, time);
+      const files = (list: ProxyRecording[]) => list.map((r) => ({ name: r.id, size: r.size }));
+      const proxied = await this.viaProxy(cameraId, date, async () => {
+        const subList = files(await listProxyRecordings(cameraId, from, to, 'sub'));
+        const mainList = files(await listProxyRecordings(cameraId, from, to, 'main'));
+        return [subList, mainList] as const;
+      });
+      const [sub, main] = proxied ?? (await Promise.all([client.searchDay(date, 'sub'), client.searchDay(date, 'main')]));
       // Keyed by start time: the firmware can end an event's main-stream copy
       // a few seconds after its sub-stream copy (065221_065224 vs
       // 065221_065226), so both halves of one event share only the start.
@@ -348,10 +403,8 @@ export class RecordingsService {
     void this.withClip(cameraId, clipId, async () => undefined, 'low').catch(() => undefined);
   }
 
-  // 'proxy': the camera refuses downloads, and recordings come from its
-  // cam-proxy instead (per clip, when the proxy has one).
-  downloadsState(cameraId: string): 'ok' | 'proxy' | 'unavailable' {
-    if (proxyActive(cameraId)) return 'proxy';
+  downloadsState(cameraId: string): DownloadsState {
+    if (proxyActive(cameraId)) return this.proxyRecordingsFailed.get(cameraId) ? 'proxy' : 'proxy-recordings';
     return (this.health.get(cameraId)?.failures ?? 0) >= BREAKER_FAILURES ? 'unavailable' : 'ok';
   }
 

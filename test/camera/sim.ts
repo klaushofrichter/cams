@@ -30,6 +30,7 @@ export interface SimState {
   readonly activeDownloads: number;
   readonly droppedDownloads: number;
   readonly downloadOrder: string[];
+  readonly searches: number; // camera Searches (day and month) answered
   readonly settings: CamSim['engine']['settings']['running'];
   readonly setCalls: string[];
   readonly reboots: number;
@@ -79,6 +80,7 @@ export async function createSimCamera(opts: SimCameraOptions): Promise<{ app: Ca
     get activeDownloads() { return c.activeDownloads; },
     get droppedDownloads() { return c.droppedDownloads; },
     get downloadOrder() { return c.downloadOrder; },
+    get searches() { return c.searches; },
     get settings() { return e.settings.running; },
     get setCalls() { return c.setCalls; },
     get reboots() { return c.reboots; },
