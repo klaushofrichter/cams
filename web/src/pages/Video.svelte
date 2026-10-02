@@ -9,7 +9,7 @@
   import { cameras, selectedCameraId } from '../lib/stores';
   import { navigate, replaceRoute, route, type Panel } from '../lib/router';
   import { getJson } from '../lib/api';
-  import { loadDay } from '../lib/dayCache';
+  import { loadDay, sourceLabel, type Downloads } from '../lib/dayCache';
   import { clipStartFromId } from '../lib/strip';
   import {
     addDays, cursorSearch, daysUrl, filterEvents, loadCursor, localDate,
@@ -41,7 +41,7 @@
   // Whether the camera serves recording downloads (server-side breaker, see
   // server/recordings/service.ts). Comes with every events load, and is
   // re-checked shortly after a thumbnail or clip fails to load.
-  let downloads: 'ok' | 'proxy' | 'unavailable' = $state('ok');
+  let downloads: Downloads = $state('ok');
   let recheckTimer: ReturnType<typeof setTimeout> | null = null;
   function recheckDownloads() {
     if (recheckTimer) return;
@@ -454,7 +454,7 @@
             live={panel === 'live'} bind:glued onlive={panel === 'history' && pageVisible ? toLive : undefined} liveBox={liveWanted ? liveBoxSnippet : undefined} />
         {/key}
         {#if downloads !== 'unavailable' && !loading && !failed}
-          <p class="note" data-testid="recordings-source" role="status">Source of recordings and thumbnails: {downloads === 'proxy' ? 'cam-proxy' : 'camera'}</p>
+          <p class="note" data-testid="recordings-source" role="status">Source of recordings and thumbnails: {sourceLabel(downloads)}</p>
         {/if}
         {#if downloads === 'unavailable'}
           <p class="banner" data-testid="recordings-unavailable" role="status">

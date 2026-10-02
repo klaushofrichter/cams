@@ -47,6 +47,13 @@ jobs:
       # playwright.config.ts starts the built server with e2e/env.ts values.
       # Which browser `channel: 'chrome'` actually launches on this runner.
       - run: google-chrome --version || echo "no google-chrome on PATH"
+      # Silo's real cam-proxy (e2e/realProxy.ts): the released image pinned in
+      # e2e/env.ts, pulled here so a pull failure shows as its own step.
+      - name: Pull the cam-proxy image
+        run: |
+          TAG=$(sed -n "s/^export const CAM_PROXY_TAG = '\(.*\)';$/\1/p" e2e/env.ts)
+          [ -n "$TAG" ] || { echo "::error::CAM_PROXY_TAG not found in e2e/env.ts"; exit 1; }
+          docker pull "ghcr.io/klaushofrichter/cam-proxy:$TAG"
       - run: npm run test:e2e
         env:
           CI: 'true'

@@ -127,15 +127,20 @@ describe('recordings from cam-proxy clips', () => {
     expect((await events(app)).downloads).toBe('proxy');
   });
 
-  it('serves the download from the proxy, named as such', async () => {
+  // Klaus, 2026-10-02: no silent quality downgrade. The camera refuses and
+  // the proxy has no SD recordings (503): SD takes the FTP copy, 4K doesn't.
+  it('serves the SD download from the proxy’s FTP copy, named as such, but never 4K', async () => {
     const app = createApp();
     const [ev] = (await events(app)).events;
     const start = Date.parse(ev.start);
     fake.clips.push({ id: 7, cam: 'cam1', start: start - 1000, end: start + 30_000, stream: 'main', events: [], body: CLIP });
-    const r = await binary(request(app).get(`/api/cameras/cam1/clips/${ev.id}/download?quality=main`).set('Cookie', auth));
+    const r = await binary(request(app).get(`/api/cameras/cam1/clips/${ev.id}/download?quality=sub`).set('Cookie', auth));
     expect(r.status).toBe(200);
     expect(r.headers['content-disposition']).toMatch(/-proxy\.mp4"$/);
     expect(Buffer.compare(r.body, CLIP)).toBe(0);
+    const main = await request(app).get(`/api/cameras/cam1/clips/${ev.id}/download?quality=main`).set('Cookie', auth);
+    expect(main.status).toBe(503);
+    expect(main.body).toEqual({ error: 'full_quality_unavailable' });
   });
 
   // Issue #38 items.

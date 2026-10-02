@@ -1,6 +1,10 @@
-// What the e2e fake cam-proxy (test/proxy/fakeProxy.ts) holds: the last ten
-// minutes of stills and sprites for Den, and one clip covering today for
-// Barn, whose camera refuses downloads like the real one. The media are
+// What the e2e fake cam-proxy (test/proxy/fakeProxy.ts) holds: stills and
+// sprites for Den from ten minutes before start-up to the current minute, and one clip covering today for
+// Barn, whose camera refuses downloads like the real one. It holds no SD
+// recordings: its recordings routes answer 503 camera_offline (404 not_found
+// for an id /api/cameras doesn't list), so cams lists Den's and Barn's days
+// with the camera's own Search and plays FTP copies, as with a proxy that
+// can't reach its camera. The media are
 // ffmpeg test patterns made at start-up (nothing committed).
 import { execFileSync } from 'child_process';
 import { mkdtempSync, readFileSync } from 'fs';
@@ -25,10 +29,15 @@ export function seed(fake: FakeProxy): { jpeg: Buffer; sprite: Buffer } {
   const now = Math.floor(Date.now() / 60_000) * 60_000;
   const stills = new Map<number, Buffer>();
   const previews = new Map<number, Buffer>();
-  for (let m = now - 10 * 60_000; m <= now; m += 60_000) {
+  const minute = (m: number) => {
     previews.set(m, sprite);
     for (let s = 0; s < 60; s += 10) stills.set(m + s * 1000, jpeg);
-  }
+  };
+  for (let m = now - 10 * 60_000; m <= now; m += 60_000) minute(m);
+  // Den's newest minute stays the current one, as with the real proxy: the
+  // Timeline specs ask for "the newest minute" and the last few minutes'
+  // sprites whenever they run, which on CI is several minutes after start-up.
+  setInterval(() => minute(Math.floor(Date.now() / 60_000) * 60_000), 5_000).unref();
   fake.stills.set('cam1', stills);
   // Barn: a still every 5 s from ten minutes before start-up to an hour after,
   // so the Live fallback always finds a recent one.

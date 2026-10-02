@@ -1,7 +1,7 @@
 // A small stand-in for cam-proxy (github.com/klaushofrichter/cam-proxy),
 // following its openapi.yaml for the routes cams uses: the event stream,
-// clips, stills and previews. Tests set its data and switches directly; e2e
-// runs it as a process (bottom of the file).
+// clips, stills, previews and SD recordings. Tests set its data and switches
+// directly; e2e runs it as a process (bottom of the file).
 import express, { type Response } from 'express';
 import rateLimit from 'express-rate-limit';
 import { mkdtempSync, writeFileSync } from 'fs';
@@ -29,6 +29,11 @@ export interface FakeAnalysis {
   objects: { name: string; score: number; box: FakeBox }[];
 }
 
+// An SD-card recording as cam-proxy's recordings API lists it (cam-proxy spec
+// 2026-10-02-baichuan-recordings-design, section 2). `id` is the camera's file
+// name without the folder; the listed `size` is the body's length.
+export interface FakeRecording { id: string; start: number; end: number; stream: 'sub' | 'main'; body: Buffer; kinds?: string[]; clipId?: number | null }
+
 export interface FakeProxy {
   url: string;
   token: string;
@@ -54,6 +59,12 @@ export interface FakeProxy {
   analysesDelayMs: number; // tests: /analyses answers this late
   analysesStall: boolean; // tests: /analyses sends its headers and the body's start, then nothing
   knownTypes: string[] | null; // tests: the stream refuses other types (an older proxy)
+  recordings: Map<string, FakeRecording[]>; // proxy camera id → its SD recordings; a camera without an entry answers 503 camera_offline
+  recordingsOverride: { status: number; body: unknown } | null; // tests: every recordings route answers this (after checking its input)
+  recordingDropAfter: number | null; // tests: a file sends its headers and this many bytes, then the connection drops
+  recordingStallAfter: number | null; // tests: a file sends its headers and this many bytes, then nothing (the connection stays open)
+  recordingDelayMs: number; // tests: a file's headers wait this long (the real proxy queues downloads per camera)
+  recordingFetches: string[]; // ids of the files served by GET (not HEAD)
   streamConnections(): number;
   push(m: Omit<FakeMessage, 'id' | 'ts'> & { ts?: number }): FakeMessage;
   dropStreams(): void; // ends every open stream (a proxy restart)
@@ -97,6 +108,12 @@ export async function startFakeProxy(opts: { port?: number; token?: string } = {
     analysesDelayMs: 0,
     analysesStall: false,
     knownTypes: null,
+    recordings: new Map(),
+    recordingsOverride: null,
+    recordingDropAfter: null,
+    recordingStallAfter: null,
+    recordingDelayMs: 0,
+    recordingFetches: [],
     streamConnections: () => streams.size,
     push(m) {
       const msg: FakeMessage = { id: nextId++, ts: m.ts ?? Date.now(), cam: m.cam, type: m.type, data: m.data };
@@ -292,6 +309,76 @@ export async function startFakeProxy(opts: { port?: number; token?: string } = {
   };
   images('stills');
   images('previews');
+
+  // SD recordings (cam-proxy spec 2026-10-02-baichuan-recordings-design,
+  // section 2). Input is checked first, as the real one does; then the
+  // override; then a camera without recordings answers like an offline one.
+  const REC_ID = /^Rec[MS][0-9A-Za-z]{2}_(DST)?\d{8}_\d{6}_\d{6}_[0-9A-Za-z_]+\.mp4$/;
+  // Known = listed by /api/cameras, as the real proxy knows its configured cameras.
+  const knownCam = (cam: string): boolean => {
+    const body = fake.camerasBody !== undefined ? fake.camerasBody : [{ id: 'cam1' }];
+    return Array.isArray(body) && body.some((c) => (c as { id?: unknown } | null)?.id === cam);
+  };
+  const recordingsOf = (cam: string, res: Response): FakeRecording[] | undefined => {
+    if (fake.recordingsOverride) return void res.status(fake.recordingsOverride.status).json(fake.recordingsOverride.body);
+    const list = fake.recordings.get(cam);
+    if (!list && !knownCam(cam)) return void res.status(404).json({ error: 'not_found' });
+    if (!list) return void res.status(503).json({ error: 'camera_offline' });
+    return list;
+  };
+  app.get('/api/cameras/:cam/recordings/days', (req, res) => {
+    const month = String(req.query.month ?? '');
+    if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(month)) return void res.status(400).json({ error: 'invalid', detail: 'month must be YYYY-MM' });
+    const list = recordingsOf(req.params.cam, res);
+    if (!list) return;
+    const ymd = month.replace('-', '');
+    const days = new Set<number>();
+    for (const r of list) {
+      const d = /_(?:DST)?(\d{8})_/.exec(r.id)?.[1];
+      if (d?.startsWith(ymd)) days.add(Number(d.slice(6, 8)));
+    }
+    res.json({ month, days: [...days].sort((a, b) => a - b) });
+  });
+  app.get('/api/cameras/:cam/recordings', (req, res) => {
+    const r = range(req.query);
+    const stream = req.query.stream;
+    if (!r || (stream !== 'sub' && stream !== 'main')) return void res.status(400).json({ error: 'invalid', detail: 'from, to and stream' });
+    if (r[1] - r[0] > 48 * 3_600_000) return void res.status(400).json({ error: 'invalid', detail: 'at most 48 hours' });
+    const list = recordingsOf(req.params.cam, res);
+    if (!list) return;
+    res.json(
+      list
+        .filter((x) => x.stream === stream && x.start <= r[1] && x.end >= r[0])
+        .sort((a, b) => a.start - b.start)
+        .map((x) => ({ id: x.id, start: x.start, end: x.end, stream: x.stream, size: x.body.length, kinds: x.kinds ?? [], clipId: x.clipId ?? null })),
+    );
+  });
+  // Not modelled: the real proxy's Range/ETag behaviour (bytes=0- on an uncached
+  // file answers 200, a stable ETag, 416 without a download); cams sends no Range.
+  // GET and HEAD (Express answers HEAD with the GET route; sendFile honours it).
+  app.get('/api/cameras/:cam/recordings/:id', async (req, res) => {
+    const id = req.params.id;
+    if (id.length > 128 || !REC_ID.test(id)) return void res.status(400).json({ error: 'invalid', detail: 'malformed id' });
+    const list = recordingsOf(req.params.cam, res);
+    if (!list) return;
+    const rec = list.find((x) => x.id === id);
+    if (!rec) return void res.status(404).json({ error: 'unknown_recording' });
+    if (req.method === 'GET') fake.recordingFetches.push(id);
+    if (fake.recordingDelayMs > 0) await new Promise((r) => setTimeout(r, fake.recordingDelayMs));
+    if (req.method === 'GET' && fake.recordingDropAfter !== null) {
+      res.writeHead(200, { 'Content-Type': 'video/mp4', 'Content-Length': String(rec.body.length) });
+      res.write(rec.body.subarray(0, fake.recordingDropAfter));
+      return void setTimeout(() => res.socket?.destroy(), 20);
+    }
+    if (req.method === 'GET' && fake.recordingStallAfter !== null) {
+      res.writeHead(200, { 'Content-Type': 'video/mp4', 'Content-Length': String(rec.body.length) });
+      return void res.write(rec.body.subarray(0, fake.recordingStallAfter));
+    }
+    const file = join(dir, `rec-${randomBytes(8).toString('hex')}.mp4`);
+    writeFileSync(file, rec.body);
+    res.setHeader('Cache-Control', 'private, max-age=604800, immutable');
+    res.sendFile(file, { headers: { 'Content-Type': 'video/mp4' } });
+  });
 
   const server = http.createServer(app);
   server.on('connection', (s) => {
