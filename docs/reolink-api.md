@@ -691,7 +691,7 @@ fetches them from there (`server/recordings/proxyClips.ts`).
 | Quirk | Code | cam-sim |
 |---|---|---|
 | Token rejection shapes (−6, Snap 200/html, FLV reset, Download 401) | `isAuthRejection`, `getWithToken`, `revalidateAfterReset` in `server/reolink/client.ts` | each shape reproduced |
-| One Search at a time (−54); an overlapping Search can also come back empty without an error | `searchGate` in `server/reolink/client.ts`; a camera with a cam-proxy is searched only through the proxy (`day()`, `days()` in `server/recordings/service.ts`), whose one searcher keeps cams' and the proxy's Searches apart | a concurrent Search gets −54 |
+| One Search at a time (−54); an overlapping Search can also come back empty without an error | `searchGate` in `server/reolink/client.ts`; a camera with a cam-proxy is searched through the proxy while it answers (`day()`, `days()` in `server/recordings/service.ts`), whose one searcher keeps cams' and the proxy's Searches apart; cams runs the camera's own Search only on a fallback (proxy down) and to find a file's folder (`cameraPath()`), so an empty fallback day isn't cached for long | a concurrent Search gets −54 |
 | Unencoded Download `source` | `download()` in `server/reolink/client.ts` | an encoded `source` resets the connection |
 | One transfer at a time, playback ahead of thumbnails | `PriorityGate` (`server/recordings/priorityGate.ts`), `TRANSFERS_PER_CAMERA` in `server/recordings/service.ts` | download order in the `downloadOrder` counter |
 | Occasional Download reset | `downloadWithRetry` in `server/recordings/service.ts` | fault `downloads.dropFirst` |
