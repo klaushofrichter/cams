@@ -51,7 +51,7 @@ export class ProxyClient {
   async open(
     path: string,
     query?: Query,
-    init: { method?: 'GET' | 'POST' | 'DELETE'; body?: string; headers?: Record<string, string>; signal?: AbortSignal; timeoutMs?: number | null; idleMs?: number } = {},
+    init: { method?: 'GET' | 'HEAD' | 'POST' | 'DELETE'; body?: string; headers?: Record<string, string>; signal?: AbortSignal; timeoutMs?: number | null; idleMs?: number } = {},
   ): Promise<Response> {
     init.signal?.throwIfAborted(); // an already-aborted signal never fires its listener
     const ctl = new AbortController();

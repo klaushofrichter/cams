@@ -15,7 +15,7 @@ import { makeThumbnail } from './thumbnail';
 import { Semaphore } from '../reolink/semaphore';
 import { findProxyClip, findProxyStill, openProxyClip, openProxyStill } from './proxyClips';
 import { RecordingError } from './errors';
-import { fallsBack, listProxyDays, listProxyRecordings, logProxyFailure, openProxyRecording, type ProxyRecording } from './proxyRecordings';
+import { fallsBack, headProxyRecording, listProxyDays, listProxyRecordings, logProxyFailure, openProxyRecording, type ProxyRecording } from './proxyRecordings';
 import { ProxyError } from '../proxy/client';
 export { RecordingError } from './errors';
 
@@ -48,6 +48,9 @@ const BREAKER_FAILURES = 3;
 const RECORDINGS_PROBE_MS = () => Number(process.env.RECORDINGS_PROBE_MS) || 60_000;
 const DOWNLOAD_RETRY_DELAY_MS = Number(process.env.DOWNLOAD_RETRY_DELAY_MS) || 1000;
 const RECENT_WINDOW_MS = 24 * 60 * 60 * 1000;
+// The camera Search cache behind cameraPath(): this many camera/day/stream
+// entries, least recently used out first.
+export const CAMERA_PATHS_MAX = 64;
 
 function cameraToday(offsetMinutes: number, now: number): string {
   return new Date(now + offsetMinutes * 60_000).toISOString().slice(0, 10);
@@ -427,14 +430,6 @@ export class RecordingsService {
     return (this.health.get(cameraId)?.failures ?? 0) >= BREAKER_FAILURES ? 'unavailable' : 'ok';
   }
 
-  // The proxy clip for an event when the camera's transfer failed with
-  // `err`: only for a refusal or an open breaker, never for an abort.
-  private async proxyClipFor(cameraId: string, clipId: string, err: unknown): Promise<{ id: number } | null> {
-    const refused = (err instanceof CameraError && err.code === 'camera_offline') || (err instanceof RecordingError && err.code === 'recordings_unavailable');
-    if (!refused) return null;
-    return this.proxyClip(cameraId, clipId);
-  }
-
   // The event's start and end, from the day's list.
   private async eventSpan(cameraId: string, clipId: string): Promise<{ start: number; end: number } | null> {
     const date = `${clipId.slice(0, 4)}-${clipId.slice(4, 6)}-${clipId.slice(6, 8)}`;
@@ -466,6 +461,7 @@ export class RecordingsService {
 
   // Per camera, day and stream: the camera's Search, bare name → path, so a
   // run of fallbacks costs one Search per day (in flight ones are shared).
+  // At most CAMERA_PATHS_MAX entries; Map order is the recency order.
   private readonly cameraPaths = new Map<string, Promise<Map<string, string>>>();
 
   // The camera's path of a file from the day's list. A list from the proxy
@@ -477,7 +473,12 @@ export class RecordingsService {
   private async cameraPath(cameraId: string, clipId: string, name: string, stream: 'sub' | 'main'): Promise<string> {
     if (name.includes('/')) return name;
     const key = `${cameraId}|${dateOf(clipId)}|${stream}`;
-    const known = await this.cameraPaths.get(key)?.catch(() => undefined);
+    const hit = this.cameraPaths.get(key);
+    if (hit) {
+      this.cameraPaths.delete(key); // now the most recently used
+      this.cameraPaths.set(key, hit);
+    }
+    const known = await hit?.catch(() => undefined);
     const cached = known?.get(name);
     if (cached) return cached;
     // Not searched yet, or a file newer than the last Search: ask again.
@@ -486,7 +487,12 @@ export class RecordingsService {
       if (!files.length) throw new RecordingError('recordings_unavailable', 'the camera’s Search found no recordings for the day');
       return new Map(files.map((f) => [baseName(f.name), f.name] as const));
     })();
+    this.cameraPaths.delete(key);
     this.cameraPaths.set(key, search);
+    for (const old of this.cameraPaths.keys()) {
+      if (this.cameraPaths.size <= CAMERA_PATHS_MAX) break;
+      this.cameraPaths.delete(old);
+    }
     search.catch(() => {
       if (this.cameraPaths.get(key) === search) this.cameraPaths.delete(key);
     });
@@ -617,10 +623,16 @@ export class RecordingsService {
     }
   }
 
-  // Full-quality downloads stream straight through (not cached). The
-  // transfer slot is released automatically once the returned stream closes
-  // or errors, and is never left held if `signal` aborts before or while
-  // waiting for a slot.
+  // The clip download, streamed through (not cached), in the spec 2026-10-02
+  // order. Sub: the proxy's recordings API (the camera's own file, so it
+  // keeps its -sub name), its FTP copy (-proxy.mp4), then the camera. Main
+  // (4K): the proxy's recordings, then the camera; never the FTP copy, which
+  // is the sub stream (Klaus, 2026-10-02: no silent quality downgrade), so
+  // when both fail it answers full_quality_unavailable and the dialog offers
+  // the standard quality. The camera's transfer slot is released once the
+  // returned stream closes or fails, and is never left held if `signal`
+  // aborts. A viewer who left is never retried on another route; a failure
+  // after bytes were sent ends the response short.
   async openDownload(
     cameraId: string,
     clipId: string,
@@ -630,68 +642,86 @@ export class RecordingsService {
     const names = await this.names(cameraId, clipId);
     const picked = pickStream(quality, names);
     if (!picked) throw new RecordingError('unknown_clip', 'clip has no file');
+    if (signal?.aborted) throw abortError();
     const { name, served } = picked;
-    const date = `${clipId.slice(0, 4)}-${clipId.slice(4, 6)}-${clipId.slice(6, 8)}`;
     const t = clipId.slice(9, 15);
-    const filename = `${cameraId}-${date}_${t.slice(0, 2)}-${t.slice(2, 4)}-${t.slice(4, 6)}-${served}.mp4`;
+    const filename = `${cameraId}-${dateOf(clipId)}_${t.slice(0, 2)}-${t.slice(2, 4)}-${t.slice(4, 6)}-${served}.mp4`;
 
-    let stream!: Readable; // set by the proxy or the camera below
-    let size: number | null = null;
-    let fromProxy = false;
-    // The sub stream from the camera's cam-proxy first (Plan 7); full quality
-    // only the camera has. The camera's one transfer slot is taken only when
-    // the camera is asked.
-    const first = quality === 'sub' ? await this.proxyClip(cameraId, clipId) : null;
-    if (first) {
-      try {
-        ({ stream, size } = await openProxyClip(cameraId, first.id, signal));
-        fromProxy = true;
-      } catch {
-        // the camera below
+    // 1. The proxy's recordings API (the SD file), outside the camera's slot.
+    const fromSd = await this.viaProxy(cameraId, clipId, () => openProxyRecording(cameraId, baseName(name), signal), signal);
+    if (fromSd) return this.handOver(fromSd, filename, () => undefined, signal);
+    if (signal?.aborted) throw abortError();
+
+    // 2. Its FTP copy, for the sub stream only.
+    if (served === 'sub') {
+      const ftp = await this.proxyClip(cameraId, clipId);
+      if (ftp) {
+        try {
+          const got = await openProxyClip(cameraId, ftp.id, signal);
+          return this.handOver(got, filename.replace(/-sub\.mp4$/, '-proxy.mp4'), () => undefined, signal);
+        } catch (err) {
+          if (signal?.aborted) throw err;
+          logger.warn({ cameraId, clipId, message: (err as Error).message }, 'proxy_clip_fetch_failed');
+        }
       }
     }
-    let release = () => undefined as void;
-    if (!fromProxy) {
+
+    // 3. The camera's own download, behind the breaker (no Search while it's
+    //    open), the file's path found before its one transfer slot is taken.
+    try {
+      if (this.refusing(cameraId)) throw new RecordingError('recordings_unavailable', 'the camera is refusing recording downloads');
+      const path = await this.cameraPath(cameraId, clipId, name, served);
       const slot = this.acquireTransfer(cameraId, signal);
       await slot.ready;
-      release = slot.release;
-    }
-    if (!fromProxy) {
       try {
-        const res = await this.downloadWithRetry(cameraId, name, signal);
-        stream = res;
+        const res = await this.downloadWithRetry(cameraId, path, signal);
         const cl = res.headers['content-length'];
-        size = typeof cl === 'string' && /^\d+$/.test(cl) ? Number(cl) : null;
+        return this.handOver({ stream: res, size: typeof cl === 'string' && /^\d+$/.test(cl) ? Number(cl) : null }, filename, slot.release, signal);
       } catch (err) {
-        // The sub stream was already asked of the proxy above (issue #38).
-        const proxied = signal?.aborted || quality === 'sub' ? null : await this.proxyClipFor(cameraId, clipId, err);
-        if (!proxied) {
-          release();
-          throw err;
-        }
-        try {
-          ({ stream, size } = await openProxyClip(cameraId, proxied.id, signal));
-          fromProxy = true;
-        } catch {
-          release();
-          throw err;
-        }
+        slot.release();
+        throw err;
       }
+    } catch (err) {
+      const final = signal?.aborted || (err instanceof RecordingError && err.code === 'unknown_clip');
+      if (served === 'main' && !final) throw new RecordingError('full_quality_unavailable', 'the full-resolution file is not available right now');
+      throw err;
     }
+  }
+
+  // Calls `release` once the stream closes or fails; an abort that came while
+  // the stream was opening destroys it.
+  private handOver(
+    got: { stream: Readable; size: number | null },
+    filename: string,
+    release: () => void,
+    signal?: AbortSignal,
+  ): { stream: Readable; filename: string; size: number | null } {
     let released = false;
-    const releaseOnce = () => {
+    const once = () => {
       if (released) return;
       released = true;
       release();
     };
-    stream.once('close', releaseOnce);
-    stream.once('error', releaseOnce);
+    got.stream.once('close', once);
+    got.stream.once('error', once);
     if (signal?.aborted) {
-      stream.destroy();
+      got.stream.destroy();
       throw abortError();
     }
-    // The proxy keeps one stream (whichever its FTP setting uploads).
-    return { stream, filename: fromProxy ? filename.replace(/-(sub|main)\.mp4$/, '-proxy.mp4') : filename, size };
+    return { stream: got.stream, filename, size: got.size };
+  }
+
+  // Whether a 4K (main) download can be served now, without a transfer: the
+  // proxy knows the main file, or the camera's download breaker is closed.
+  // The Save dialog asks before offering 4K's Save (Klaus, 2026-10-02).
+  async mainAvailable(cameraId: string, clipId: string): Promise<boolean> {
+    const { main } = await this.names(cameraId, clipId);
+    if (!main) return false;
+    const known = await this.viaProxy(cameraId, clipId, async () => {
+      await headProxyRecording(cameraId, baseName(main));
+      return true;
+    });
+    return known ?? (this.health.get(cameraId)?.failures ?? 0) < BREAKER_FAILURES;
   }
 }
 

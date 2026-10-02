@@ -183,3 +183,18 @@ recordingsRouter.get('/api/cameras/:id/clips/:clipId/download', async (req, res,
     res.off('close', onClose);
   }
 });
+
+// Whether a 4K (main) download can be served now (Klaus, 2026-10-02: no
+// silent quality downgrade). The Save dialog asks when 4K is chosen; an
+// unknown clip is simply not available.
+recordingsRouter.get('/api/cameras/:id/clips/:clipId/full-quality', async (req, res, next) => {
+  const id = camera(req, res);
+  const clipId = id && clip(req, res);
+  if (!id || !clipId) return;
+  try {
+    res.json({ available: await getRecordings().mainAvailable(id, clipId) });
+  } catch (err) {
+    if (err instanceof RecordingError && err.code === 'unknown_clip') return void res.json({ available: false });
+    fail(err, id, res, next);
+  }
+});

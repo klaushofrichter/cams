@@ -120,3 +120,13 @@ export function logProxyFailure(cameraId: string, what: string, err: unknown): v
   if (e?.status === 400) logger.error(fields, 'proxy_recordings_failed');
   else logger.warn(fields, 'proxy_recordings_failed');
 }
+
+// Whether the proxy knows a recording, without a transfer (its HEAD answers
+// from the list). Any failure throws a ProxyError: a HEAD has no body, so a
+// gone recording and an older proxy's 404 look the same here.
+export async function headProxyRecording(cameraId: string, id: string): Promise<void> {
+  const client = clientFor(cameraId);
+  const res = await client.open(`${base(cameraId)}/${encodeURIComponent(id)}`, undefined, { method: 'HEAD' });
+  await res.body?.cancel();
+  if (!res.ok) throw new ProxyError('proxy_error', `cam-proxy ${client.host()} answered ${res.status} for a recording`, res.status);
+}
