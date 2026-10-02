@@ -6,7 +6,7 @@ import { signIn } from './session';
 // Across the stack (spec 2026-10-02-recordings-via-proxy-design): Silo's
 // cam-sim refuses HTTP Download, the real cam-proxy fetches the SD recording
 // over Baichuan, and cams plays it and saves it in 4K (the main stream).
-test.skip(!REAL_PROXY_ON, 'needs the real cam-proxy: CI, or CAMS_E2E_REAL_PROXY=1 on Linux (e2e/env.ts)');
+test.skip(!REAL_PROXY_ON, 'needs the real cam-proxy: GitHub Actions or CAMS_E2E_REAL_PROXY=1, on Linux (e2e/env.ts)');
 
 test.beforeEach(async ({ context, baseURL }) => {
   await signIn(context, baseURL!);

@@ -2,14 +2,23 @@
 // Silo, whose cam-sim refuses HTTP Download: the proxy fetches recordings
 // over Baichuan (spec 2026-10-02-recordings-via-proxy-design). Host
 // networking, because cam-sim listens on 127.0.0.1 only; the proxy then
-// listens on every interface, so this runs in CI or on a Linux machine you
-// control (REAL_PROXY_ON in e2e/env.ts), never on the home LAN.
+// listens on every interface, so this runs on GitHub Actions or with
+// CAMS_E2E_REAL_PROXY=1, on Linux only (REAL_PROXY_ON in e2e/env.ts), never on
+// the home LAN. It refuses to start otherwise.
 import { spawn, spawnSync } from 'child_process';
 import { mkdtempSync, writeFileSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
-import { CAM_PROXY_TAG, REAL_PROXY } from './env';
+import { CAM_PROXY_TAG, REAL_PROXY, REAL_PROXY_ON } from './env';
 import { SIMS } from './sims';
+
+if (!REAL_PROXY_ON) {
+  console.error(
+    'e2e/realProxy.ts: refusing to start the real cam-proxy. It uses host networking and listens on every ' +
+      'interface, so it runs only on Linux with GITHUB_ACTIONS=true or CAMS_E2E_REAL_PROXY=1 (e2e/env.ts).',
+  );
+  process.exit(1);
+}
 
 const NAME = 'cams-e2e-cam-proxy';
 const IMAGE = `ghcr.io/klaushofrichter/cam-proxy:${CAM_PROXY_TAG}`;

@@ -46,14 +46,14 @@ export default defineConfig({
   // (refuses HTTP downloads; the real cam-proxy fetches over Baichuan);
   // e2e/cameras.json points at them, and "Garage" is deliberately
   // unreachable. Den and Barn have the fake cam-proxy; Silo the real one, in
-  // CI only (e2e/realProxy.ts). Playwright merges each
+  // GitHub Actions only (e2e/realProxy.ts). Playwright merges each
   // `env` with process.env (see
   // playwright/lib/runner/index.js's WebServerPlugin), so PATH is preserved.
   webServer: [
     ...Object.values(SIMS).map((s) => ({ command: 'npx cam-sim', port: s.http, reuseExistingServer: !process.env.CI, env: simEnv(s) })),
     // A fake cam-proxy (Plan 6) for Den (stills, sprites) and Barn (a clip).
     { command: 'npx tsx test/proxy/fakeProxy.ts', port: 8095, reuseExistingServer: !process.env.CI },
-    // The real cam-proxy for Silo (released image; CI, see e2e/realProxy.ts).
+    // The real cam-proxy for Silo (released image; GitHub Actions or an opt-in, Linux only: e2e/env.ts).
     // The first run pulls the image. Its log (warn and up) shows in the
     // output; SIGTERM lets e2e/realProxy.ts stop the container.
     ...(REAL_PROXY_ON ? [{ command: 'npx tsx e2e/realProxy.ts', url: `http://127.0.0.1:${REAL_PROXY.port}/health`, timeout: 300_000, reuseExistingServer: false, stdout: 'pipe' as const, gracefulShutdown: { signal: 'SIGTERM' as const, timeout: 10_000 } }] : []),
