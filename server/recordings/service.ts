@@ -204,6 +204,17 @@ export class RecordingsService {
     return g;
   }
 
+  // Per camera: thumbnails' recording requests to the cam-proxy, one at a
+  // time. The proxy fetches one file per camera, first come first served, so
+  // at most one thumbnail's file sits there ahead of a playback. A playback of
+  // a clip whose thumbnail waits here promotes it (same key).
+  private readonly proxyThumbGates = new Map<string, PriorityGate>();
+  private proxyThumbGate(cameraId: string): PriorityGate {
+    let g = this.proxyThumbGates.get(cameraId);
+    if (!g) this.proxyThumbGates.set(cameraId, (g = new PriorityGate(1)));
+    return g;
+  }
+
   private gate(cameraId: string): PriorityGate {
     let g = this.transfers.get(cameraId);
     if (!g) this.transfers.set(cameraId, (g = new PriorityGate(TRANSFERS_PER_CAMERA)));
@@ -526,21 +537,27 @@ export class RecordingsService {
     const key = this.key(cameraId, clipId, 'mp4');
     this.cache.pin(key);
     try {
-      if (priority === 'high') this.gate(cameraId).promote(key);
+      if (priority === 'high') {
+        this.gate(cameraId).promote(key);
+        this.proxyThumbGates.get(cameraId)?.promote(key);
+      }
       const path = await this.cache.fill(key, async (tmp) => {
         // 1. The proxy's recordings API: the SD file, fetched over Baichuan
         //    (spec 2026-10-02), outside the camera's transfer slot (the proxy
         //    queues its own transfers). A gone recording ends here. No outer
         //    timeout: the proxy may hold the headers up to 120 s while a
         //    queued download finishes (openProxyRecording's own limit).
-        const fromSd = await this.viaProxy(cameraId, clipId, async () => {
-          const { stream, size } = await openProxyRecording(cameraId, baseName(sub));
-          const out = createWriteStream(tmp);
-          await pipeline(stream, out);
-          // A body that ends cleanly but short is a failed transfer too.
-          if (size !== null && out.bytesWritten !== size) throw new ProxyError('proxy_error', 'short recording');
-          return true;
-        });
+        //    Thumbnails go one at a time (proxyThumbGate).
+        const fromProxy = () =>
+          this.viaProxy(cameraId, clipId, async () => {
+            const { stream, size } = await openProxyRecording(cameraId, baseName(sub));
+            const out = createWriteStream(tmp);
+            await pipeline(stream, out);
+            // A body that ends cleanly but short is a failed transfer too.
+            if (size !== null && out.bytesWritten !== size) throw new ProxyError('proxy_error', 'short recording');
+            return true;
+          });
+        const fromSd = priority === 'low' && proxyActive(cameraId) ? await this.proxyThumbGate(cameraId).run(fromProxy, { key }) : await fromProxy();
         if (fromSd) return;
         // 2. Its FTP copy (Plan 7), also outside the slot.
         const first = await this.proxyClip(cameraId, clipId);

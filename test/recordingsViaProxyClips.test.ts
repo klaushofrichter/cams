@@ -178,6 +178,43 @@ describe('playback and thumbnails through cam-proxy’s recordings', () => {
     expect(state.downloads).toBe(0);
   }, 20_000);
 
+  // Final review, minor 1: the proxy runs one transfer per camera, FIFO, so
+  // cams lets at most one thumbnail's recording wait there ahead of a playback.
+  it('sends the proxy one thumbnail recording at a time, and a playback goes ahead of the rest', async () => {
+    const { list, day } = await seeded();
+    expect(day.events.length).toBeGreaterThanOrEqual(4);
+    const [play, ...rest] = day.events;
+    const thumbs = rest.slice(0, 3);
+    const thumbIds = new Set(thumbs.map((e) => recordingOf(list, e.id, 'sub').id));
+    const playId = recordingOf(list, play.id, 'sub').id;
+    let lowInFlight = 0;
+    let maxLowInFlight = 0;
+    const real = vi.mocked(proxyRecordings.openProxyRecording).getMockImplementation()!;
+    vi.mocked(proxyRecordings.openProxyRecording).mockImplementation(async (cameraId, id, ...more) => {
+      const low = thumbIds.has(id);
+      if (low) maxLowInFlight = Math.max(maxLowInFlight, ++lowInFlight);
+      try {
+        return await real(cameraId, id, ...more);
+      } finally {
+        if (low) lowInFlight--;
+      }
+    });
+    fake.recordingDelayMs = 300;
+    try {
+      const pending = thumbs.map((e) => thumb(e.id).then((r) => r.status));
+      await new Promise((r) => setTimeout(r, 100));
+      const r = await binary(video(play.id));
+      expect(r.status).toBe(200);
+      // The playback reached the proxy behind at most the one thumbnail in flight.
+      expect(fake.recordingFetches.indexOf(playId)).toBeLessThanOrEqual(1);
+      await Promise.all(pending);
+      expect(maxLowInFlight).toBe(1);
+      expect(fake.recordingFetches.filter((id) => thumbIds.has(id)).length).toBe(3);
+    } finally {
+      vi.mocked(proxyRecordings.openProxyRecording).mockImplementation(real);
+    }
+  }, 20_000);
+
   it('serves a proxy recording while the camera’s transfer slot is busy', async () => {
     await new Promise<void>((r) => cam.close(() => r()));
     await startCamera({ downloadDelayMs: 3000 });
