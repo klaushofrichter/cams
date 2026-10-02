@@ -445,12 +445,33 @@ far is still motion-only.
 
 ## Recordings: Download
 
-> **Status (2026-09-26): this camera refuses every Download.** Since about
-> 12:45 every Download fails (connection reset), over HTTPS and HTTP, from
-> cams, curl and the camera's own web UI. Two power cycles, an SD card
-> reformat and `CheckDownload` did not help, and `CheckFirmware` offers no
-> update. Live video, Snap, Search and settings still work. cams detects the
-> refusals and stops asking (see the breaker in
+> **Status (2026-10-01): this camera refuses every Download again, after an
+> API `Reboot`.** History:
+> - **2026-09-26, about 12:45:** every Download starts failing (connection
+>   reset), over HTTPS and HTTP, from cams, curl and the camera's own web UI.
+>   Two power cycles, an SD card reformat and `CheckDownload` did not help,
+>   and `CheckFirmware` offers no update.
+> - **Cleared by 2026-10-01 at the latest** (no known cause): a Download of
+>   that morning's sub recording answered `200 video/mp4` (`ftyp`) over HTTPS
+>   and HTTP.
+> - **2026-10-01, right after an API `Reboot`:** every Download is dropped
+>   again (no response, then the connection closes), over HTTPS and HTTP.
+>   The camera came back after 36 s. It was still refusing 12 minutes later,
+>   for the same recording that downloaded fine before the reboot.
+>
+> - **2026-10-01, 18:09:** a power cycle did **not** clear it. The camera
+>   was back by 18:10:30; at 18:11:31 `CheckDownload` reported
+>   `downloadTask: 0` (nothing stuck), and the Download was dropped after
+>   0.2 s with no bytes. SD card fine (61 GB, mounted, 58.7 GB free),
+>   recording enabled, Search works.
+>
+> Possible causes, not yet told apart: the `Reboot` itself, or the test that
+> ran just before it. That test opened two Downloads a second apart (HTTPS,
+> then HTTP) and closed each after 16 bytes. The camera allows one download
+> at a time (`CheckDownload` → `downloadTask`), and an aborted transfer may
+> stay a running task. Either way: don't reboot to cure Download, and don't
+> probe Download by closing it early. Live video, Snap, Search and settings still
+> work. cams detects the refusals and stops asking (see the breaker in
 > [Where cams handles each quirk](#where-cams-handles-each-quirk)). The
 > behaviour below was measured while downloads still worked.
 
@@ -500,9 +521,11 @@ More quirks:
   - Every Download resets, over HTTPS and HTTP alike, even with the admin
     account.
   - The web UI's Playback page shows only a spinner.
-  - An API `Reboot` does **not** fix it. A **power cycle** fixed it once, in
+  - An API `Reboot` does **not** fix it, and on 2026-10-01 a `Reboot` started
+    it (downloads worked just before). A **power cycle** fixed it once, in
     the morning of 2026-09-26. The refusal that began at 12:45 the same day
-    survived two power cycles and an SD card reformat; there is no known fix.
+    survived two power cycles and an SD card reformat, then cleared on its
+    own by 2026-10-01; there is no known fix.
 - **Other forms fail differently**, which is useful when debugging:
 
   | Request | Result |
