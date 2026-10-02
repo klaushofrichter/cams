@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import http from 'http';
 import type { AddressInfo } from 'net';
 import { createApp } from '../server/app';
@@ -188,6 +188,8 @@ describe('GET /api/events/stream (to browsers)', () => {
   const auth = `${SESSION_COOKIE}=${signSession('klaus@klaushofrichter.net')}`;
 
   it('tells browsers about a new analysis, and keeps it for the day’s cards', async () => {
+    vi.useFakeTimers({ now: Date.parse('2026-09-30T16:00:00-05:00'), toFake: ['Date'] }); // the store forgets analyses two days after their start
+    cleanup.push(() => vi.useRealTimers());
     resetAnalysisStore();
     const fake = await fakeProxy();
     const base = await app(fake);
