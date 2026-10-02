@@ -492,6 +492,15 @@ far is still motion-only.
 >   live view (HTTP 200, but only 512 KB), then one Download 15 s later: still
 >   dropped after 0.2 s (`downloadTask: 0`). Priming did not help on this
 >   camera, unless something else asked for a Download in between.
+> - **2026-10-01 evening, none of these helped:**
+>   - the priming test again with cams closed;
+>   - HTTP and RTMP switched off and on (`SetNetPort`, restored identically);
+>   - **a new SD card**, formatted by the camera (`Format` with
+>     `{"HddInfo":{"id":[0]}}`, 30,432 MB). A finished 1 MB person recording,
+>     downloaded 30 s after it ended, was dropped after 0.2 s.
+>
+>   The camera's own web UI lists the files and can't download them either.
+>   The fault is in the camera, not the SD card or the clients.
 >
 > Full report with sources: the cam-proxy session's research notes, summarised
 > in the Obsidian note *Reolink API Behaviour*.
