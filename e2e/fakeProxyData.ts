@@ -1,6 +1,10 @@
 // What the e2e fake cam-proxy (test/proxy/fakeProxy.ts) holds: the last ten
 // minutes of stills and sprites for Den, and one clip covering today for
-// Barn, whose camera refuses downloads like the real one. The media are
+// Barn, whose camera refuses downloads like the real one. It holds no SD
+// recordings: its recordings routes answer 503 camera_offline (404 not_found
+// for an id /api/cameras doesn't list), so cams lists Den's and Barn's days
+// with the camera's own Search and plays FTP copies, as with a proxy that
+// can't reach its camera. The media are
 // ffmpeg test patterns made at start-up (nothing committed).
 import { execFileSync } from 'child_process';
 import { mkdtempSync, readFileSync } from 'fs';
