@@ -116,13 +116,9 @@ export class ProxyClient {
   }
 }
 
-// The proxy's `error` code from a refused request's body: its first 4 KB,
-// within a second (a stalled body must not hang the route), then dropped.
-export async function errorCode(res: Response): Promise<string | undefined> {
-  return (await errorBody(res)).error;
-}
-
-// The same, with the body's short `reason` too.
+// The proxy's `error` code and short `reason` from a refused request's body:
+// its first 4 KB, within a second (a stalled body must not hang the route),
+// then dropped.
 export async function errorBody(res: Response): Promise<{ error?: string; reason?: string }> {
   if (!res.body) return {};
   const reader = res.body.getReader();
