@@ -190,6 +190,22 @@ test('downloads return MP4 attachments with readable names', async ({ page }) =>
   expect(res.headers()['content-disposition']).toMatch(/^attachment; filename="cam1-\d{4}-\d{2}-\d{2}_17-45-40-main\.mp4"$/); // the newest is first
 });
 
+// Final review, minor 4: a camera without a cam-proxy saves 4K as before: the
+// plain link, no /full-quality question.
+test('a camera without a cam-proxy saves 4K straight from the link, asking nothing', async ({ page }) => {
+  let asked = 0;
+  page.on('request', (req) => {
+    if (req.url().endsWith('/full-quality')) asked++;
+  });
+  await page.goto(`/app/recordings?cam=porch&date=${chicagoToday()}&panel=history`);
+  await page.getByTestId('event-download').first().click();
+  await page.getByTestId('compose-size').selectOption('4k');
+  const download = page.waitForEvent('download');
+  await page.getByTestId('compose-save').click();
+  expect((await download).suggestedFilename()).toMatch(/^porch-\d{4}-\d{2}-\d{2}_17-45-40-main\.mp4$/);
+  expect(asked).toBe(0);
+});
+
 test('the Live panel lists today’s events, newest first, and plays one', async ({ page }) => {
   await page.goto('/app/live');
   const rows = page.getByTestId('live-latest');

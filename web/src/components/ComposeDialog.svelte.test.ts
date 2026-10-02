@@ -520,9 +520,13 @@ describe('ComposeDialog', () => {
       expect(q('compose-length')!.textContent).toContain('0:30'); // the post-roll counts again
     });
 
-    it('without a cam-proxy offers only SD and 4K, saved as they are', () => {
+    // Final review, minor 4: a camera without a cam-proxy saves exactly as on
+    // main: no /full-quality question, and Save is the plain <a download>
+    // (no script click after an await, which iOS Safari may not allow).
+    it('without a cam-proxy offers only SD and 4K, saved as they are, with no question asked', async () => {
       const fetchSpy = vi.fn(async (_url: string) => new Response('{}', { status: 200 }));
       vi.stubGlobal('fetch', fetchSpy);
+      const scripted = vi.spyOn(HTMLAnchorElement.prototype, 'click');
       render(vi.fn(), false);
       expect(q('compose-pre')).toBeNull();
       expect(q('compose-post')).toBeNull();
@@ -530,8 +534,21 @@ describe('ComposeDialog', () => {
       expect(q('compose-save')!.getAttribute('href')).toBe(SUB);
       choose('4k');
       expect(q('compose-save')!.getAttribute('href')).toBe(MAIN);
-      // No proxy to ask about a copy; choosing 4K asks only whether the full-resolution file can be served.
-      expect(fetchSpy.mock.calls.map(([u]) => String(u)).filter((u) => !u.endsWith('/full-quality'))).toEqual([]);
+      const ev = new MouseEvent('click', { bubbles: true, cancelable: true });
+      // Last in the bubble path (after the dialog's own handler): records
+      // whether the dialog prevented the browser's download, then stops jsdom's navigation.
+      const prevented: boolean[] = [];
+      const last = (e: Event) => {
+        prevented.push(e.defaultPrevented);
+        e.preventDefault();
+      };
+      document.addEventListener('click', last, { once: true });
+      q('compose-save')!.dispatchEvent(ev);
+      await new Promise((r) => setTimeout(r, 20));
+      expect(fetchSpy).not.toHaveBeenCalled();
+      expect(scripted).not.toHaveBeenCalled();
+      expect(prevented).toEqual([false]); // the browser's own download
+      scripted.mockRestore();
     });
 
     it('when the proxy has no copy, still lets you pick SD or 4K', async () => {

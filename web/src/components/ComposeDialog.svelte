@@ -33,14 +33,16 @@
     if (seq === askSeq && id === clip.id && is4k) fullOk = a;
     return a && seq === askSeq && id === clip.id && is4k;
   }
+  // Only with a cam-proxy: a camera without one saves 4K exactly as before
+  // (no question, the plain <a download>, which keeps the user's tap on iOS).
   $effect(() => {
-    const on = is4k;
+    const on = is4k && composable;
     untrack(() => (on ? void askFull() : void askSeq++));
   });
   // The browser's download can't report a refusal, so 4K's Save asks first
   // and then starts the download itself (never buffered into a blob).
   function onSave(e: MouseEvent) {
-    if (!is4k) return;
+    if (!is4k || !composable) return;
     e.preventDefault();
     if (fullMissing) return;
     const href = downloadUrl(camera, clip.id, 'main');
