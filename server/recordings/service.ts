@@ -15,7 +15,8 @@ import { makeThumbnail } from './thumbnail';
 import { Semaphore } from '../reolink/semaphore';
 import { findProxyClip, findProxyStill, openProxyClip, openProxyStill } from './proxyClips';
 import { RecordingError } from './errors';
-import { fallsBack, listProxyDays, listProxyRecordings, logProxyFailure, type ProxyRecording } from './proxyRecordings';
+import { fallsBack, listProxyDays, listProxyRecordings, logProxyFailure, openProxyRecording, type ProxyRecording } from './proxyRecordings';
+import { ProxyError } from '../proxy/client';
 export { RecordingError } from './errors';
 
 export interface EventClip {
@@ -105,6 +106,17 @@ function clipSpanEnd(p: ParsedClip): number {
   const secs = (t: string) => Number(t.slice(0, 2)) * 3600 + Number(t.slice(2, 4)) * 60 + Number(t.slice(4, 6));
   const end = secs(p.end);
   return end < secs(p.start) ? end + 86400 : end;
+}
+
+// A file name without its folder: the proxy's id for a camera path. A day
+// list holds either form (bare from the proxy, a path from the camera's Search).
+function baseName(name: string): string {
+  return name.slice(name.lastIndexOf('/') + 1);
+}
+
+// YYYYMMDD-HHMMSS-HHMMSS → YYYY-MM-DD.
+function dateOf(clipId: string): string {
+  return `${clipId.slice(0, 4)}-${clipId.slice(4, 6)}-${clipId.slice(6, 8)}`;
 }
 
 // A camera-local day's bounds in unix ms, for the proxy's list. TimeInfo
@@ -445,6 +457,17 @@ export class RecordingsService {
     }
   }
 
+  // The camera's path of a file from the day's list. A list from the proxy
+  // holds bare file names, and the camera's Download needs the folder, so the
+  // camera's own Search finds it. That happens only after the proxy just
+  // failed, so the proxy isn't searching then.
+  private async cameraPath(cameraId: string, clipId: string, name: string, stream: 'sub' | 'main'): Promise<string> {
+    if (name.includes('/')) return name;
+    const hit = (await this.client(cameraId).searchDay(dateOf(clipId), stream)).find((f) => baseName(f.name) === name);
+    if (!hit) throw new RecordingError('unknown_clip', 'no such clip on the camera');
+    return hit.name;
+  }
+
   // `priority` 'high' is for someone waiting to watch the clip; thumbnails
   // pass 'low'. If a low-priority fetch of this clip is already queued, a
   // high-priority caller promotes it rather than waiting behind other clips.
@@ -461,8 +484,21 @@ export class RecordingsService {
     try {
       if (priority === 'high') this.gate(cameraId).promote(key);
       const path = await this.cache.fill(key, async (tmp) => {
-        // A camera with a cam-proxy: its FTP clip first (Plan 7), outside the
-        // camera's one transfer slot (a camera download doesn't hold it up).
+        // 1. The proxy's recordings API: the SD file, fetched over Baichuan
+        //    (spec 2026-10-02), outside the camera's transfer slot (the proxy
+        //    queues its own transfers). A gone recording ends here. No outer
+        //    timeout: the proxy may hold the headers up to 120 s while a
+        //    queued download finishes (openProxyRecording's own limit).
+        const fromSd = await this.viaProxy(cameraId, clipId, async () => {
+          const { stream, size } = await openProxyRecording(cameraId, baseName(sub));
+          const out = createWriteStream(tmp);
+          await pipeline(stream, out);
+          // A body that ends cleanly but short is a failed transfer too.
+          if (size !== null && out.bytesWritten !== size) throw new ProxyError('proxy_error', 'short recording');
+          return true;
+        });
+        if (fromSd) return;
+        // 2. Its FTP copy (Plan 7), also outside the slot.
         const first = await this.proxyClip(cameraId, clipId);
         if (first) {
           try {
@@ -472,11 +508,12 @@ export class RecordingsService {
             logger.warn({ cameraId, clipId, message: (e as Error).message }, 'proxy_clip_fetch_failed');
           }
         }
-        // The proxy was asked above, so a camera refusal is final here (issue
-        // #38: no second lookup); a retry asks the proxy again.
+        // 3. The camera's own download, in its one transfer slot, behind the
+        //    breaker. The proxy was asked above, so a camera refusal is final
+        //    here (issue #38: no second lookup); a retry asks the proxy again.
         await this.gate(cameraId).run(
           async () => {
-            const res = await this.downloadWithRetry(cameraId, sub);
+            const res = await this.downloadWithRetry(cameraId, await this.cameraPath(cameraId, clipId, sub, 'sub'));
             await pipeline(res, createWriteStream(tmp));
           },
           { high: priority === 'high', key },
