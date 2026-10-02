@@ -5,7 +5,19 @@ import { eventsUrl, type EventClip } from './recordings';
 
 // One `events` request per (camera, day), shared by the Recordings list and
 // the History strip, so both never ask for the same day twice.
-export interface DayEvents { events: EventClip[]; downloads: 'ok' | 'proxy' | 'unavailable' }
+// Where a day's recordings come from (server/recordings/service.ts,
+// downloadsState): the cam-proxy's recordings API (the SD card), its FTP
+// copies when that failed, or the camera; 'unavailable' when a camera without
+// a proxy refuses downloads.
+export type Downloads = 'ok' | 'proxy-recordings' | 'proxy' | 'unavailable';
+export interface DayEvents { events: EventClip[]; downloads: Downloads }
+
+// The note under the player.
+export function sourceLabel(d: Downloads): string {
+  if (d === 'proxy-recordings') return 'cam-proxy (SD card)';
+  if (d === 'proxy') return 'cam-proxy (FTP copies)';
+  return 'camera';
+}
 export type Fetch = <T>(url: string) => Promise<T>;
 
 const store = writable<Map<string, DayEvents>>(new Map());

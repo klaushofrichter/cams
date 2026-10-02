@@ -34,7 +34,40 @@ const set = (id: string, v: string) => {
   flushSync();
 };
 
+const set4k = () => {
+  const el = q('compose-size') as HTMLSelectElement;
+  el.value = '4k';
+  el.dispatchEvent(new Event('change', { bubbles: true }));
+  flushSync();
+};
+
 describe('ComposeDialog', () => {
+  // Klaus, 2026-10-02: no silent quality downgrade.
+  it('says when the full-resolution file isn’t available, disables 4K’s Save, and offers the standard quality', async () => {
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => new Response(JSON.stringify(url.includes('/full-quality') ? { available: false } : { available: true }), { status: 200 })));
+    render();
+    set4k();
+    await vi.waitFor(() => expect(q('compose-4k-unavailable')?.textContent).toBe("The full-resolution file isn't available right now; download the standard quality instead."));
+    expect(q('compose-save')!.getAttribute('aria-disabled')).toBe('true');
+    expect(q('compose-save')!.hasAttribute('href')).toBe(false);
+    q('compose-use-sd')!.click();
+    flushSync();
+    expect((q('compose-size') as HTMLSelectElement).value).toBe('sd');
+    expect(q('compose-4k-unavailable')).toBeNull();
+    expect(q('compose-save')!.getAttribute('href')).toMatch(/download\?quality=sub/);
+  });
+
+  it('keeps 4K’s Save when the full-resolution file is available', async () => {
+    const fetch = vi.fn(async (_url: string) => new Response(JSON.stringify({ available: true }), { status: 200 }));
+    vi.stubGlobal('fetch', fetch);
+    render();
+    set4k();
+    await vi.waitFor(() => expect(fetch.mock.calls.some(([u]) => String(u).endsWith('/api/cameras/den/clips/20260928-140000-140020/full-quality'))).toBe(true));
+    flushSync();
+    expect(q('compose-4k-unavailable')).toBeNull();
+    expect(q('compose-save')!.getAttribute('href')).toMatch(/download\?quality=main/);
+  });
+
   it('names the clip’s kinds Motion first, as the list does (Klaus, 2026-10-01)', () => {
     render(vi.fn(), true, { ...clip, triggers: ['person', 'motion'] });
     expect(target!.querySelector('.clip span')!.textContent).toMatch(/· Motion, Person$/);
@@ -435,7 +468,7 @@ describe('ComposeDialog', () => {
     });
 
     it('without a cam-proxy offers only SD and 4K, saved as they are', () => {
-      const fetchSpy = vi.fn(async () => new Response('{}', { status: 200 }));
+      const fetchSpy = vi.fn(async (_url: string) => new Response('{}', { status: 200 }));
       vi.stubGlobal('fetch', fetchSpy);
       render(vi.fn(), false);
       expect(q('compose-pre')).toBeNull();
@@ -444,7 +477,8 @@ describe('ComposeDialog', () => {
       expect(q('compose-save')!.getAttribute('href')).toBe(SUB);
       choose('4k');
       expect(q('compose-save')!.getAttribute('href')).toBe(MAIN);
-      expect(fetchSpy).not.toHaveBeenCalled(); // no proxy to ask about a copy
+      // No proxy to ask about a copy; choosing 4K asks only whether the full-resolution file can be served.
+      expect(fetchSpy.mock.calls.map(([u]) => String(u)).filter((u) => !u.endsWith('/full-quality'))).toEqual([]);
     });
 
     it('when the proxy has no copy, still lets you pick SD or 4K', async () => {

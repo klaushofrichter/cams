@@ -36,6 +36,18 @@ export async function isAvailable(cam: string, eventId: string): Promise<boolean
     return true;
   }
 }
+
+// Whether a 4K (main) download can be served now (Klaus, 2026-10-02: no
+// silent quality downgrade); true when unsure, as the Save itself then tells.
+export async function fullQualityAvailable(cam: string, clipId: string): Promise<boolean> {
+  try {
+    const r = await fetch(`/api/cameras/${encodeURIComponent(cam)}/clips/${encodeURIComponent(clipId)}/full-quality`, { credentials: 'same-origin' });
+    const j = (await r.json()) as { available?: unknown };
+    return j.available !== false;
+  } catch {
+    return true;
+  }
+}
 const base = (cam: string) => `/api/cameras/${encodeURIComponent(cam)}/compositions`;
 export async function startJob(cam: string, body: { eventId: string; preS: number; postS: number; size: ComposeSize; badge: boolean; timeZone?: string }): Promise<JobView> {
   const r = await fetch(base(cam), { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });

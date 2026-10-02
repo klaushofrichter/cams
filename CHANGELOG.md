@@ -8,3 +8,4 @@ published as [GitHub releases](https://github.com/klaushofrichter/cams/releases)
 
 ## [Unreleased]
 
+- Recordings of a camera with a cam-proxy come from the proxy's recordings API: the SD card's files, fetched over Baichuan, which works while the camera refuses HTTP downloads. Any recording of the last 7 days plays and downloads in SD or 4K again; the proxy's FTP copies and then the camera's own download are the fallbacks. 4K never falls back to the FTP copy (it is SD): when the full-resolution file can't be served, the Save dialog says so and offers the standard quality. The calendar and the day's list come from the proxy too, so cams no longer searches such a camera itself. The line under the player says "cam-proxy (SD card)" or "cam-proxy (FTP copies)".

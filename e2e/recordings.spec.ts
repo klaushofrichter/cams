@@ -474,8 +474,10 @@ test('a new event shows at once: a top-bar notification and a "recording…" ent
 
 
 test('names the source of recordings and thumbnails: cam-proxy or camera (Klaus, 2026-09-28)', async ({ page }) => {
+  // Den's fake cam-proxy holds no SD recordings (it answers 503), so cams
+  // falls back, and clips would come from the proxy's FTP copies.
   await page.goto('/app/recordings?panel=history&cam=cam1');
-  await expect(page.getByTestId('recordings-source')).toHaveText('Source of recordings and thumbnails: cam-proxy');
+  await expect(page.getByTestId('recordings-source')).toHaveText('Source of recordings and thumbnails: cam-proxy (FTP copies)');
   await page.goto('/app/recordings?panel=history&cam=porch');
   await expect(page.getByTestId('recordings-source')).toHaveText('Source of recordings and thumbnails: camera');
 });
