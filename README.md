@@ -106,7 +106,7 @@ npm test                 # vitest: server + web libraries (node) and Svelte comp
 npm run build && npm run test:e2e   # Playwright, desktop and phone viewports
 ```
 
-Both suites need **ffmpeg** on the `PATH`, and e2e needs **Google Chrome**. The e2e suite signs its own session cookie with a test secret (`e2e/session.ts`), so it never talks to Google.
+Both suites need **ffmpeg** on the `PATH`, and e2e needs **Google Chrome**. The e2e suite signs its own session cookie with a test secret (`e2e/session.ts`), so it never talks to Google; the expired-session spec answers the redirect to Google itself (`fakeGoogle`).
 
 **The tests use [cam-sim](https://github.com/klaushofrichter/cam-sim) as the camera.** cam-sim simulates the Reolink RLC-1224A's HTTP API, quirks included, and can switch on faults (refused downloads, failing settings writes, offline, and more). cams has no mock camera of its own.
 
@@ -131,6 +131,7 @@ Both suites need **ffmpeg** on the `PATH`, and e2e needs **Google Chrome**. The 
 ## Security
 
 - **Sign-in:** Google OAuth with an email allow-list re-checked on every request.
-- **Session:** an httpOnly, Secure, SameSite=Lax cookie.
+- **Session:** an httpOnly, Secure, SameSite=Lax cookie (7 days).
+- **Expired session:** any API 401 `{"error":"unauthorized"}` (cams's own "not signed in", never a camera's or cam-proxy's refusal) sends the page, once, to `/auth/google/login?silent=1&returnTo=<this page>`: Google's `prompt=none` for the account of the last sign-in (the `login_hint` cookie, httpOnly, 30 days, cleared by Logout), back to the same page without any Google screen. When Google needs the user (`login_required` and the like), there is no remembered account, or a silent attempt was already made in the last 5 minutes (sessionStorage), the start page instead, whose sign-in also returns to that page. `returnTo` is only ever a relative `/app` path (no `//`, `\`, scheme, dot segments or control characters); anything else is ignored. **Privacy:** the `login_hint` cookie holds only the email address; for up to 30 days after the 7-day session ends, while the browser is still signed in to Google, it lets a silent sign-in renew the session without any screen. Logout deletes it and ends that. Failed `/api` images and videos and a refused event stream check `/api/me` (at most every 30 s) to find out. cams keeps no Google refresh token.
 - **Other protections:** a same-origin check on state-changing API calls, and rate limits on sign-in and the API.
 - **Container:** runs as uid 1000 with all capabilities dropped.

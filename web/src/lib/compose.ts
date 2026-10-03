@@ -1,4 +1,5 @@
 // Composed SD clips (cam-proxy spec 2026-09-28): the save dialog's API.
+import { apiFetch } from './api';
 import { pad2 } from './recordings';
 export type ComposeSize = 'sd' | '360p' | '720p' | '1080p';
 export const SIZE_LABELS: Record<ComposeSize, string> = {
@@ -30,7 +31,7 @@ export function composedName(cam: string, eventId: string, size: ComposeSize): s
 // Whether the proxy has a copy of the event (issue #72); true when unsure.
 export async function isAvailable(cam: string, eventId: string): Promise<boolean> {
   try {
-    const r = await fetch(`${base(cam)}/available?eventId=${encodeURIComponent(eventId)}`, { credentials: 'same-origin' });
+    const r = await apiFetch(`${base(cam)}/available?eventId=${encodeURIComponent(eventId)}`);
     const j = (await r.json()) as { available?: unknown };
     return j.available !== false;
   } catch {
@@ -42,7 +43,7 @@ export async function isAvailable(cam: string, eventId: string): Promise<boolean
 // silent quality downgrade); true when unsure, as the Save itself then tells.
 export async function fullQualityAvailable(cam: string, clipId: string): Promise<boolean> {
   try {
-    const r = await fetch(`/api/cameras/${encodeURIComponent(cam)}/clips/${encodeURIComponent(clipId)}/full-quality`, { credentials: 'same-origin' });
+    const r = await apiFetch(`/api/cameras/${encodeURIComponent(cam)}/clips/${encodeURIComponent(clipId)}/full-quality`);
     const j = (await r.json()) as { available?: unknown };
     return j.available !== false;
   } catch {
@@ -51,7 +52,7 @@ export async function fullQualityAvailable(cam: string, clipId: string): Promise
 }
 const base = (cam: string) => `/api/cameras/${encodeURIComponent(cam)}/compositions`;
 export async function startJob(cam: string, body: { eventId: string; preS: number; postS: number; size: ComposeSize; badge: boolean; timeZone?: string }): Promise<JobView> {
-  const r = await fetch(base(cam), { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+  const r = await apiFetch(base(cam), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
   const j = (await r.json().catch(() => ({}))) as JobView & { error?: string; detail?: string };
   if (!r.ok) {
     // The proxy's own reason when it gives one (its clip may differ from the event).
@@ -62,13 +63,13 @@ export async function startJob(cam: string, body: { eventId: string; preS: numbe
 }
 // null: the job is gone (404). Other failures throw, so the caller can retry.
 export async function pollJob(cam: string, id: string): Promise<JobView | null> {
-  const r = await fetch(`${base(cam)}/${id}`, { credentials: 'same-origin' });
+  const r = await apiFetch(`${base(cam)}/${id}`);
   if (r.status === 404) return null;
   if (!r.ok) throw new Error(`poll answered ${r.status}`);
   return (await r.json()) as JobView;
 }
 export function cancelJob(cam: string, id: string): void {
-  void fetch(`${base(cam)}/${id}`, { method: 'DELETE', credentials: 'same-origin', keepalive: true }).catch(() => {});
+  void apiFetch(`${base(cam)}/${id}`, { method: 'DELETE', keepalive: true }).catch(() => {});
 }
 export const videoUrl = (cam: string, id: string, inline: boolean, name?: string) =>
   `${base(cam)}/${id}/video${inline ? '?inline=1' : name ? `?name=${encodeURIComponent(name)}` : ''}`;

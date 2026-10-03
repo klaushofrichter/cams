@@ -10,7 +10,7 @@
   import About from './pages/About.svelte';
   import { initRouter, route } from './lib/router';
   import { cameras, drawerOpen, me, selectedCameraId, sidebarCollapsed, theme, type CameraSummary, type Me } from './lib/stores';
-  import { getJson, UnauthorizedError } from './lib/api';
+  import { getJson, UnauthorizedError, watchMediaErrors } from './lib/api';
   import { loadPreferences, preferences, rememberCamera, startCamera } from './lib/preferences';
   import { liveStreamHeld } from './lib/liveUi';
   import { duration } from './lib/motion';
@@ -73,10 +73,12 @@
   onMount(() => {
     theme.set(currentTheme());
     const stop = initRouter();
+    // A failed /api image or video may be an expired session (see lib/api.ts).
+    const unwatch = watchMediaErrors();
     void load();
     const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') drawerOpen.set(false); };
     addEventListener('keydown', onKey);
-    return () => { stop(); removeEventListener('keydown', onKey); };
+    return () => { stop(); unwatch(); removeEventListener('keydown', onKey); };
   });
 
   // Move focus into the drawer when it opens, and back to the hamburger

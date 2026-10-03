@@ -1,4 +1,4 @@
-import { UnauthorizedError } from './api';
+import { apiFetch } from './api';
 
 export type Schedule = 'on' | 'off' | 'custom';
 export type AiKind = 'person' | 'vehicle' | 'pet';
@@ -59,19 +59,14 @@ export function diffPatch<T extends object>(original: T, edited: T): Partial<T> 
   return out as Partial<T>;
 }
 
-// Matches getJson's credentials/headers/401 handling (see api.ts) so PUT and
-// POST behave the same way under the same-origin session middleware.
+// Through apiFetch like getJson (see api.ts), so an expired session is
+// handled the same way for PUT and POST.
 async function bodyJson<T>(method: 'PUT' | 'POST', url: string, body: unknown): Promise<{ status: number; body: T }> {
-  const res = await fetch(url, {
+  const res = await apiFetch(url, {
     method,
-    credentials: 'same-origin',
     headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
   });
-  if (res.status === 401) {
-    location.assign('/');
-    throw new UnauthorizedError(url);
-  }
   return { status: res.status, body: (await res.json().catch(() => ({}))) as T };
 }
 

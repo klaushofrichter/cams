@@ -1,6 +1,6 @@
 import { get, writable, type Readable } from 'svelte/store';
 import { cameras, type CameraSummary } from './stores';
-import { getJson } from './api';
+import { checkSession, getJson } from './api';
 import { preferences } from './preferences';
 
 // cams' relay of the cameras' cam-proxy events (GET /api/events/stream,
@@ -87,6 +87,7 @@ export function createEventStream(opts: { url?: string; factory?: (url: string) 
       // A non-200 answer (session expired, rate limit, too many streams, a
       // rollout) closes an EventSource for good: open a new one later.
       if (source.readyState === 2 && !closed) {
+        checkSession();
         source.close();
         reopenTimer = setTimeout(open, reopenMs);
         reopenMs = Math.min(reopenMs * 2, REOPEN_MAX_MS);

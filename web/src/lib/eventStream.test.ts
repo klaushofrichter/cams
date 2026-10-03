@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { resetSessionState } from './api';
 import { createEventStream, groupPending, prunePending, type EventSourceLike } from './eventStream';
 
 afterEach(() => vi.useRealTimers());
@@ -107,6 +108,22 @@ describe('createEventStream', () => {
 
   // Final review (Minor 9, re-graded): a recording still being written when
   // its event ends isn't listed yet; a second reload a minute later finds it.
+  // Issue #153, R2: a refused stream may be an expired session, which the
+  // stream itself can't tell; /api/me can.
+  it('asks whether the session is still there when the stream is refused', async () => {
+    resetSessionState();
+    const fetch = vi.fn(async () => new Response(JSON.stringify({ email: 'a@b.c' }), { status: 200 }));
+    vi.stubGlobal('fetch', fetch);
+    try {
+      const s = make();
+      FakeSource.last.refuse();
+      expect(fetch).toHaveBeenCalledWith('/api/me', expect.anything());
+      s.close();
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
   it('reloads again a minute after an event ends', () => {
     vi.useFakeTimers();
     const s = make();

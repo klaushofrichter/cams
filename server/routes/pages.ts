@@ -1,6 +1,6 @@
 import express, { Router, Request, Response } from 'express';
 import { join, resolve } from 'path';
-import { currentUser, noStore, requireAuthPage } from '../middleware/requireAuth';
+import { currentUser, noStore, rememberReturn, requireAuthPage, RETURN_COOKIE, safeReturnPath } from '../middleware/requireAuth';
 import { createApiRateLimit } from '../middleware/rateLimit';
 
 // dist/server/routes -> dist/web in the image; tests point WEB_DIST at fixtures.
@@ -14,11 +14,19 @@ export function pagesRouter(dir: string): Router {
   // requires a limiter in front of them, and it is sensible anyway.
   router.use(createApiRateLimit());
 
+  // ?returnTo=/app/... (the web app's fallback when an expired session
+  // can't be renewed silently): remembered for a signed-out visitor, so the
+  // sign-in from here comes back to that page. A signed-in visitor (another
+  // tab signed in again) goes to the remembered page or Live; ?returnTo= is
+  // ignored then, so a third-party link can't open a chosen /app page.
   router.get('/', (req: Request, res: Response) => {
     if (currentUser(req)) {
-      res.redirect(302, '/app/live');
+      const back = safeReturnPath(req.cookies?.[RETURN_COOKIE]);
+      if (req.cookies?.[RETURN_COOKIE] !== undefined) res.clearCookie(RETURN_COOKIE, { httpOnly: true, secure: true, sameSite: 'lax' });
+      res.redirect(302, back ?? '/app/live');
       return;
     }
+    rememberReturn(res, req.query.returnTo);
     res.sendFile(join(dir, 'index.html'));
   });
 

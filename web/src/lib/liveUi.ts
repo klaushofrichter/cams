@@ -1,7 +1,7 @@
 import { triggerDownload } from './download';
 import { writable } from 'svelte/store';
 import { get } from 'svelte/store';
-import { getJson } from './api';
+import { apiFetch, getJson } from './api';
 import { QUALITY_KEY, snapshotUrl, supportsHevc, type Quality } from './live';
 import type { PlayerState } from './liveSession';
 import { pref } from './preferences';
@@ -125,7 +125,7 @@ export async function saveSnapshot(id: string): Promise<void> {
   if (get(liveUi).snapshotBusy) return;
   liveUi.update((u) => ({ ...u, snapshotBusy: true, snapshotError: '' }));
   try {
-    const res = await fetch(snapshotUrl(id), { credentials: 'same-origin' });
+    const res = await apiFetch(snapshotUrl(id));
     if (!res.ok || !(res.headers.get('content-type') ?? '').startsWith('image/')) throw new Error(String(res.status));
     const url = URL.createObjectURL(await res.blob());
     triggerDownload(url, `${id}-${stamp()}.jpg`);

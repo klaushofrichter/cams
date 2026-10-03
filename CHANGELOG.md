@@ -8,4 +8,7 @@ published as [GitHub releases](https://github.com/klaushofrichter/cams/releases)
 
 ## [Unreleased]
 
-- Fewer background requests: concurrent History strip edge requests share one server-side lookup, the edge is not polled while the tab is hidden, and the once-a-minute today refresh no longer re-reads the neighbouring months' day lists. Otherwise an internal cleanup with no visible change (and cams now requires a cam-proxy with the day list's `date=`, v2026.10.02.4 or later).
+### Changed
+
+- An expired session no longer drops you on the start page: cams renews it silently with Google when it can and brings you back to the page you were on; when Google needs you to sign in, the start page's sign-in returns you to that page too. This covers every request the app makes, including images, videos and the event stream.
+
