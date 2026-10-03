@@ -77,6 +77,7 @@ test('coming back within the keep-alive shows the live picture without reconnect
   // immediately playing, the same element, and no new stream was opened
   await expect.poll(() => video.evaluate((v: HTMLVideoElement) => v.readyState >= 2 && !v.paused), { timeout: 1_000 }).toBe(true);
   expect(await video.evaluate((v) => v.dataset.keepaliveMark)).toBe('same');
+  await expect(page.getByTestId('live-connecting')).toHaveCount(0); // no connecting indicator: it never stopped
   expect(streams.opened.length).toBe(before);
   expect(streams.open()).toBe(1);
 });
