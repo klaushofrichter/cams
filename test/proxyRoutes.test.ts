@@ -43,6 +43,31 @@ describe('proxy media routes', () => {
     expect(fake.requests.at(-1)?.path).toBe('/api/cameras/cam1/stills'); // the proxy's name for it
   });
 
+  // The minute being collected: cam-proxy composes its sprite on demand (the
+  // tiles so far) under the minute's one URL. A browser keeps an image URL
+  // for the whole page, no-store or not, so a sprite loaded early (the
+  // player's tile, a film frame) stayed blank for the tiles that came later
+  // (Klaus, 2026-10-03). Each state of the minute gets its own URL.
+  it('give a minute still being collected a new URL each time it has more tiles', async () => {
+    const list = async () => (await get(`/api/cameras/den/previews?from=${M}&to=${M + 59_999}`)).body[0].url as string;
+    fake.previewCurrent = M;
+    fake.previewPresent.set(M, Array.from({ length: 60 }, (_, i) => i < 10));
+    const early = await list();
+    fake.previewPresent.set(M, Array.from({ length: 60 }, (_, i) => i < 40));
+    const later = await list();
+    expect(later).not.toBe(early);
+    fake.previewPresent.set(M, Array(60).fill(true));
+    fake.previewCurrent = null;
+    const done = await list();
+    expect(done).toBe(`/api/cameras/den/previews/${M}.jpg`); // a whole minute keeps its plain (cached) URL
+    expect(new Set([early, later, done]).size).toBe(3);
+    // The versioned URL is the same image.
+    fake.previewCurrent = M;
+    const r = await get(later);
+    expect(r.status).toBe(200);
+    expect(r.headers['cache-control']).toBe('no-store');
+  });
+
   it('stream the images', async () => {
     for (const path of [`/api/cameras/den/previews/${M}.jpg`, `/api/cameras/den/stills/${M + 1000}.jpg`]) {
       const r = await get(path).buffer(true).parse((res, cb) => {
