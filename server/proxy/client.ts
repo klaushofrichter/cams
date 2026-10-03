@@ -174,6 +174,19 @@ export function proxyCameraId(id: string): string {
   return camera.proxy?.camera ?? camera.id;
 }
 
+// The client for a camera whose cam-proxy is in use. The proxy can be
+// switched off between two calls: then proxy_unreachable.
+export function requireProxyClient(id: string): ProxyClient {
+  const client = getProxyClient(id);
+  if (!client) throw new ProxyError('proxy_unreachable', 'the camera has no cam-proxy in use');
+  return client;
+}
+
+// A path of the proxy's API for one of its cameras (`rest` starts with "/").
+export function proxyPath(id: string, rest: string): string {
+  return `/api/cameras/${encodeURIComponent(proxyCameraId(id))}${rest}`;
+}
+
 export function resetProxyClients(): void {
   clients.clear();
 }

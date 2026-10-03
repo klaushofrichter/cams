@@ -3,7 +3,7 @@
   import LivePlayer from './LivePlayer.svelte';
   import LiveStill from './LiveStill.svelte';
   import LiveConnecting from './LiveConnecting.svelte';
-  import { cameras } from '../lib/stores';
+  import { cameraById } from '../lib/stores';
   import type { PlayerState } from '../lib/liveSession';
   import { enterFullscreen } from '../lib/fullscreen';
   import { deriveStatus, liveStatus } from '../lib/liveStatus';
@@ -20,7 +20,7 @@
   let { cameraId, visible, audible, proxy }: { cameraId: string; visible: boolean; audible: boolean; proxy: boolean } = $props();
 
   let box: HTMLDivElement | undefined = $state();
-  const camera = $derived($cameras.find((c) => c.id === cameraId) ?? null);
+  const camera = $derived($cameraById(cameraId) ?? null);
   // Narrowed: LivePlayer restarts its stream when these change, and reading
   // the whole store in its props would restart it on every state report.
   const quality = $derived($liveUi.quality);

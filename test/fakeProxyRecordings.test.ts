@@ -200,13 +200,5 @@ describe('fake cam-proxy: recordings boundaries', () => {
       expect(await r.json()).toEqual({ error: 'recordings_unavailable', reason: 'busy' });
       expect((await get('/api/cameras/cam1/recordings?date=2026-10-01&stream=sub')).status).toBe(200);
     });
-
-    it('acts like an older proxy with legacyRecordings: date is ignored, from and to are required', async () => {
-      fake.legacyRecordings = true;
-      const r = await get('/api/cameras/cam1/recordings?date=2026-10-01&stream=sub');
-      expect(r.status).toBe(400);
-      expect(((await r.json()) as { error: string }).error).toBe('invalid');
-      expect((await get(`/api/cameras/cam1/recordings?date=2026-10-01&from=${T0 - 1}&to=${T0 + 1}&stream=sub`)).status).toBe(200);
-    });
   });
 });

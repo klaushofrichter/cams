@@ -1,4 +1,5 @@
 // Composed SD clips (cam-proxy spec 2026-09-28): the save dialog's API.
+import { pad2 } from './recordings';
 export type ComposeSize = 'sd' | '360p' | '720p' | '1080p';
 export const SIZE_LABELS: Record<ComposeSize, string> = {
   sd: 'SD 896×512 (original)', '360p': '640×360', '720p': '1280×720 (upscaled)', '1080p': '1920×1080 (upscaled)',
@@ -17,7 +18,7 @@ export function resultLength(clipS: number, preS: number, postS: number): { ok: 
   const seconds = end - start;
   return seconds > 60 ? { ok: false, error: 'At most 1:00' } : { ok: true, seconds };
 }
-export const formatLength = (s: number) => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
+export const formatLength = (s: number) => `${Math.floor(s / 60)}:${pad2(s % 60)}`;
 // The camera's local time, from the event id (YYYYMMDD-HHMMSS-…), like the
 // original download's name (issue #72), not the browser's zone.
 export function composedName(cam: string, eventId: string, size: ComposeSize): string {

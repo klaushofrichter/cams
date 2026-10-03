@@ -1,4 +1,4 @@
-import { writable, type Writable } from 'svelte/store';
+import { derived, writable, type Writable } from 'svelte/store';
 import type { Theme } from './theme';
 
 export interface Me {
@@ -41,5 +41,7 @@ export const sidebarCollapsed = persistedBoolean('cams-sidebar-collapsed', false
 export const drawerOpen = writable(false);
 export const me = writable<Me | null>(null);
 export const cameras = writable<CameraSummary[]>([]);
+// A camera of the list by id (undefined: none).
+export const cameraById = derived(cameras, (list) => (id: string | null | undefined) => list.find((c) => c.id === id));
 export const selectedCameraId = writable<string | null>(null);
 export const theme = writable<Theme>('dark');

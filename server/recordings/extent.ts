@@ -1,5 +1,4 @@
-import { proxyActive } from '../cameraRegistry';
-import { getProxyClient, proxyCameraId } from '../proxy/client';
+import { getProxyClient, proxyPath } from '../proxy/client';
 import { logger } from '../logger';
 import { getRecordings } from './service';
 
@@ -7,13 +6,16 @@ import { getRecordings } from './service';
 // (Klaus, 2026-09-28): the oldest recording on its SD card (the first event of
 // the oldest day with recordings, looking back four months) or the oldest
 // clip, still or preview at its cam-proxy, whichever is older. Cached for a
-// minute; a side that fails counts as having nothing.
+// minute, and shared by everyone asking while it is worked out; a side that
+// fails counts as having nothing.
 const TTL_MS = 60_000;
 const MONTHS_BACK = 4;
 const cache = new Map<string, { at: number; oldest: number | null }>();
+const inflight = new Map<string, Promise<{ oldest: number | null }>>();
 
 export function resetExtentCache(): void {
   cache.clear();
+  inflight.clear();
 }
 
 function monthsBack(n: number): string[] {
@@ -39,10 +41,9 @@ async function cameraOldest(cameraId: string): Promise<number | null> {
 }
 
 async function proxyOldest(cameraId: string): Promise<number | null> {
-  if (!proxyActive(cameraId)) return null;
   const client = getProxyClient(cameraId);
   if (!client) return null;
-  const e = await client.json<{ clips: number | null; stills: number | null; previews: number | null }>(`/api/cameras/${encodeURIComponent(proxyCameraId(cameraId))}/extent`);
+  const e = await client.json<{ clips: number | null; stills: number | null; previews: number | null }>(proxyPath(cameraId, '/extent'));
   const all = [e.clips, e.stills, e.previews].filter((v): v is number => typeof v === 'number' && Number.isFinite(v));
   return all.length ? Math.min(...all) : null;
 }
@@ -50,6 +51,15 @@ async function proxyOldest(cameraId: string): Promise<number | null> {
 export async function extent(cameraId: string): Promise<{ oldest: number | null }> {
   const hit = cache.get(cameraId);
   if (hit && Date.now() - hit.at < TTL_MS) return { oldest: hit.oldest };
+  let work = inflight.get(cameraId);
+  if (!work) {
+    work = compute(cameraId).finally(() => inflight.delete(cameraId));
+    inflight.set(cameraId, work);
+  }
+  return work;
+}
+
+async function compute(cameraId: string): Promise<{ oldest: number | null }> {
   const settle = (p: Promise<number | null>, side: string) =>
     p.catch((err: unknown) => {
       logger.warn({ cameraId, side, message: (err as Error).message }, 'extent_side_failed');

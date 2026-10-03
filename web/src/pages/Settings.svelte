@@ -5,7 +5,7 @@
   import SaveState from '../components/SaveState.svelte';
   import ProxySwitch from '../components/ProxySwitch.svelte';
   import Icon from '../components/Icon.svelte';
-  import { cameras, selectedCameraId } from '../lib/stores';
+  import { cameras, cameraById, selectedCameraId } from '../lib/stores';
   import { getJson } from '../lib/api';
   import {
     diffPatch, FIELD_LABELS, OSD_NAME_MAX_BYTES, OSD_POSITIONS, osdNameProblem, postJson, putJson, utf8Bytes,
@@ -230,7 +230,7 @@
   }
 
   const gb = (mb: number) => `${(mb / 1024).toFixed(1)} GB`;
-  const cameraName = $derived($cameras.find((c) => c.id === $selectedCameraId)?.name ?? '');
+  const cameraName = $derived($cameraById($selectedCameraId)?.name ?? '');
 </script>
 
 <section class="page">
@@ -422,7 +422,7 @@
       {/snippet}
     </SettingsCard>
 
-    {#if $selectedCameraId && $cameras.find((c) => c.id === $selectedCameraId)?.proxyConfigured}
+    {#if $selectedCameraId && $cameraById($selectedCameraId)?.proxyConfigured}
       <SettingsCard id="proxy" title="cam-proxy" description="The camera gateway that keeps this camera's clips, stills and events.">
         <ProxySwitch cameraId={$selectedCameraId} />
       </SettingsCard>

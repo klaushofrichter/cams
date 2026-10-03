@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { localClock as clock } from '../lib/clock';
   // Plan 7: the camera gateway's newest still for Live while its video isn't
   // playing, marked as stills with the still's time and age. One request at a
   // time (a slow link still shows stills), drawn only once loaded; after a
@@ -59,7 +60,6 @@
     };
   });
 
-  const clock = (ts: number) => new Date(ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
   const age = $derived(shown?.at ? Math.max(0, Math.round((now - shown.at) / 1000)) : null);
 </script>
 

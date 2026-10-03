@@ -1,24 +1,21 @@
 import { Router, type Request, type Response } from 'express';
 import { Readable } from 'stream';
 import { pipeline } from 'stream/promises';
-import { getCamera } from '../cameraRegistry';
 import { logger } from '../logger';
-import { getProxyClient, proxyCameraId, ProxyError } from '../proxy/client';
+import { getProxyClient, proxyPath, ProxyError } from '../proxy/client';
+import { CLIP_ID as EVENT } from '../recordings/clipNames';
 import { getRecordings } from '../recordings/service';
+import { knownCamera, proxyTarget } from './common';
 
 // Composed clips (cam-proxy spec 2026-09-28): the Downloads modal's calls,
 // passed to the camera's cam-proxy with its token.
 export const composeRouter = Router();
 const JOB = /^[A-Za-z0-9_-]{22}$/;
-const EVENT = /^\d{8}-\d{6}-\d{6}$/;
 const NAME = /^[A-Za-z0-9_.-]{1,120}\.mp4$/;
 
 function target(req: Request, res: Response) {
-  const id = String(req.params.id);
-  if (!getCamera(id)) return void res.status(404).json({ error: 'unknown_camera' }), undefined;
-  const client = getProxyClient(id);
-  if (!client) return void res.status(404).json({ error: 'no_proxy' }), undefined;
-  return { id, client, base: `/api/cameras/${encodeURIComponent(proxyCameraId(id))}/compositions` };
+  const t = proxyTarget(req, res);
+  return t && { ...t, base: proxyPath(t.id, '/compositions') };
 }
 function failed(err: unknown, res: Response) {
   if (!(err instanceof ProxyError)) throw err;
@@ -94,8 +91,8 @@ function lookupFailed(id: string, err: unknown, res: Response) {
 // offers pre-/post-roll only then. A camera without a proxy: false. A failed
 // lookup: 502, and the dialog stays on the full choice.
 composeRouter.get('/api/cameras/:id/compositions/available', async (req, res) => {
-  const id = String(req.params.id);
-  if (!getCamera(id)) return void res.status(404).json({ error: 'unknown_camera' });
+  const id = knownCamera(req, res);
+  if (!id) return;
   const eventId = typeof req.query.eventId === 'string' ? req.query.eventId : '';
   if (!EVENT.test(eventId)) return void res.status(400).json({ error: 'invalid', detail: 'eventId is required' });
   if (!getProxyClient(id)) return void res.json({ available: false });

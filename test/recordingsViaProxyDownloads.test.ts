@@ -1,3 +1,4 @@
+import { setTimeout as sleep } from 'timers/promises';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { inspect } from 'util';
 import { logger } from '../server/logger';
@@ -239,7 +240,7 @@ describe('the clip download through cam-proxy’s recordings', () => {
       const got = await getRecordings().openDownload('cam1', ev.id, 'sub', ctl.signal);
       ctl.abort();
       got.stream.destroy();
-      await new Promise((r) => setTimeout(r, 100));
+      await sleep(100);
     } finally {
       vi.restoreAllMocks();
     }

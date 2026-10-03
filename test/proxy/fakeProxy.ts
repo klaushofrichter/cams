@@ -64,7 +64,6 @@ export interface FakeProxy {
   recordings: Map<string, FakeRecording[]>; // proxy camera id → its SD recordings; a camera without an entry answers 503 camera_offline
   recordingsOverride: { status: number; body: unknown } | null; // tests: every recordings route answers this (after checking its input)
   recordingsBusy: number; // tests: the next this many recordings list requests answer 503 recordings_unavailable busy (Retry-After: 1)
-  legacyRecordings: boolean; // tests: an older proxy: the list ignores date and requires from and to
   recordingDropAfter: number | null; // tests: a file sends its headers and this many bytes, then the connection drops
   recordingStallAfter: number | null; // tests: a file sends its headers and this many bytes, then nothing (the connection stays open)
   recordingDelayMs: number; // tests: a file's headers wait this long (the real proxy queues downloads per camera)
@@ -117,7 +116,6 @@ export async function startFakeProxy(opts: { port?: number; token?: string } = {
     recordings: new Map(),
     recordingsOverride: null,
     recordingsBusy: 0,
-    legacyRecordings: false,
     recordingDropAfter: null,
     recordingStallAfter: null,
     recordingDelayMs: 0,
@@ -365,7 +363,7 @@ export async function startFakeProxy(opts: { port?: number; token?: string } = {
   };
   app.get('/api/cameras/:cam/recordings', (req, res) => {
     const stream = req.query.stream;
-    const dated = !fake.legacyRecordings && req.query.date !== undefined;
+    const dated = req.query.date !== undefined;
     const r = dated ? undefined : range(req.query);
     if (dated && (req.query.from !== undefined || req.query.to !== undefined)) return void res.status(400).json({ error: 'invalid', detail: 'date excludes from and to' });
     if (dated ? !validDate(req.query.date) || (stream !== 'sub' && stream !== 'main') : !r || (stream !== 'sub' && stream !== 'main')) return void res.status(400).json({ error: 'invalid', detail: 'date or from and to, and stream' });

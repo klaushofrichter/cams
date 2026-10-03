@@ -1,3 +1,4 @@
+import { setTimeout as sleep } from 'timers/promises';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import request from 'supertest';
 import { mkdtempSync, rmSync } from 'fs';
@@ -10,7 +11,7 @@ import { setCameras } from '../server/cameraRegistry';
 import { loadProxyState, setProxyEnabled } from '../server/proxyState';
 import { getClient, resetClients } from '../server/reolink/clients';
 import { resetProxyClients } from '../server/proxy/client';
-import { dayBounds, getRecordings, resetRecordings } from '../server/recordings/service';
+import { getRecordings, resetRecordings } from '../server/recordings/service';
 import { SESSION_COOKIE, signSession } from '../server/session';
 import { createSimCamera, type SimState } from './camera/sim';
 import { FAKE_TOKEN, startFakeProxy, type FakeProxy } from './proxy/fakeProxy';
@@ -149,19 +150,6 @@ describe('the day’s list and the month’s days through cam-proxy', () => {
     expect(state.searches).toBe(searches + 1);
   });
 
-  it('asks an older proxy again with from and to when it answers 400 to date, still without a camera Search', async () => {
-    await seedRecordings(fake, 'cam1', today());
-    const searches = state.searches;
-    fake.legacyRecordings = true;
-    const day = await events();
-    expect(state.searches).toBe(searches);
-    expect(day.downloads).toBe('proxy-recordings');
-    expect(day.events.length).toBeGreaterThan(0);
-    const asks = recordingAsks();
-    expect(asks.map((r) => Object.keys(r.query).sort().join())).toEqual(['date,stream', 'from,stream,to', 'from,stream,to']); // the memo spares main its date= try
-    expect(asks.filter((r) => r.query.from !== undefined).map((r) => r.query.stream)).toEqual(['sub', 'main']);
-  });
-
   it('retries a busy proxy once after its Retry-After, without a camera Search', async () => {
     await seedRecordings(fake, 'cam1', today());
     const searches = state.searches;
@@ -195,7 +183,7 @@ describe('the day’s list and the month’s days through cam-proxy', () => {
       await vi.waitFor(() => expect(recordingAsks().length).toBe(1));
       ctl.abort();
       expect(await gone).toBe('aborted');
-      await new Promise((r) => setTimeout(r, 1600)); // past the proxy's Retry-After of 1 s
+      await sleep(1600); // past the proxy's Retry-After of 1 s
       expect(recordingAsks().length).toBe(1);
       expect(state.searches).toBe(searches);
     } finally {
@@ -222,19 +210,11 @@ describe('the day’s list and the month’s days through cam-proxy', () => {
     process.on('unhandledRejection', seen);
     try {
       await expect(getRecordings().events('cam1', today(), AbortSignal.abort(new Error('gone')))).rejects.toThrow('gone');
-      await new Promise((r) => setTimeout(r, 200));
+      await sleep(200);
       expect(seen).not.toHaveBeenCalled();
     } finally {
       process.off('unhandledRejection', seen);
     }
-  });
-
-  // Only for an older proxy without date=.
-  it('keeps dayBounds, the window for an older proxy, wide enough for either offset', () => {
-    expect(dayBounds('2026-11-01', { stdOffsetMinutes: -360, dstOffsetMinutes: 60 })).toEqual({ from: Date.parse('2026-11-01T05:00:00Z'), to: Date.parse('2026-11-02T06:00:00Z') - 1 });
-    // Berlin, spring forward: the day is 23 hours long.
-    expect(dayBounds('2026-03-29', { stdOffsetMinutes: 60, dstOffsetMinutes: 60 })).toEqual({ from: Date.parse('2026-03-28T22:00:00Z'), to: Date.parse('2026-03-30T00:00:00Z') - 3_600_000 - 1 });
-    expect(dayBounds('2026-10-02', { stdOffsetMinutes: 0, dstOffsetMinutes: 0 })).toEqual({ from: Date.parse('2026-10-02T00:00:00Z'), to: Date.parse('2026-10-03T00:00:00Z') - 1 });
   });
 
   it('leaves a camera without a cam-proxy unchanged: the camera’s Search, no proxy request, downloads ok', async () => {

@@ -4,7 +4,7 @@ import { setCameras } from '../server/cameraRegistry';
 import { logger } from '../server/logger';
 import { ProxyError, resetProxyClients } from '../server/proxy/client';
 import { RecordingError } from '../server/recordings/errors';
-import { fallsBack, listProxyDay, listProxyDays, listProxyRecordings, logProxyFailure, openProxyRecording, resetLegacyProxies } from '../server/recordings/proxyRecordings';
+import { fallsBack, listProxyDay, listProxyDays, logProxyFailure, openProxyRecording } from '../server/recordings/proxyRecordings';
 import { FAKE_TOKEN, startFakeProxy, type FakeProxy } from './proxy/fakeProxy';
 
 // The client for cam-proxy's recordings API (spec 2026-10-02).
@@ -25,7 +25,6 @@ beforeEach(async () => {
   ]);
 });
 afterEach(async () => {
-  resetLegacyProxies();
   await fake.stop();
   setCameras([]);
   resetProxyClients();
@@ -47,16 +46,16 @@ const caught = (p: Promise<unknown>) =>
 
 describe('proxy recordings client', () => {
   it('lists one stream under the proxy’s camera id', async () => {
-    expect(await listProxyRecordings('den', T0 - 1, T0 + 1, 'main')).toEqual([{ id: MAIN, start: T0, end: T0 + 40_000, stream: 'main', size: 10, kinds: ['person'], clipId: 1312 }]);
-    expect(fake.requests.at(-1)).toMatchObject({ path: '/api/cameras/cam1/recordings', query: { from: String(T0 - 1), to: String(T0 + 1), stream: 'main' } });
+    expect(await listProxyDay('den', '2026-10-01', 'main')).toEqual([{ id: MAIN, start: T0, end: T0 + 40_000, stream: 'main', size: 10, kinds: ['person'], clipId: 1312 }]);
+    expect(fake.requests.at(-1)).toMatchObject({ path: '/api/cameras/cam1/recordings', query: { date: '2026-10-01', stream: 'main' } });
   });
 
   // Review focus 4: an id is later used in a URL; only well-formed names pass.
   it('drops entries that are not a well-formed recording, and refuses a list that is not a list', async () => {
-    fake.recordings.get('cam1')!.push({ id: '../../etc/passwd.mp4', start: T0, end: T0, stream: 'sub', body: Buffer.from('x') });
-    expect((await listProxyRecordings('den', T0 - 1, T0 + 1, 'sub')).map((r) => r.id)).toEqual([SUB]);
+    fake.recordings.get('cam1')!.push({ id: '../../etc/Rec_20261001_000001_000002_x.mp4', start: T0, end: T0, stream: 'sub', body: Buffer.from('x') });
+    expect((await listProxyDay('den', '2026-10-01', 'sub')).map((r) => r.id)).toEqual([SUB]);
     fake.recordingsOverride = { status: 200, body: { not: 'a list' } };
-    const err = await caught(listProxyRecordings('den', T0 - 1, T0 + 1, 'sub'));
+    const err = await caught(listProxyDay('den', '2026-10-01', 'sub'));
     expect(err).toMatchObject({ name: 'ProxyError', code: 'proxy_error' });
     expect(fallsBack(err)).toBe(true);
   });
@@ -91,7 +90,7 @@ describe('proxy recordings client', () => {
     ['an older cam-proxy without the API (plain 404)', { status: 404, body: { error: 'not_found' } }],
   ])('falls back on %s, for the list, the days and a file', async (_name, answer) => {
     fake.recordingsOverride = answer;
-    for (const p of [listProxyRecordings('den', 0, 1, 'sub'), listProxyDays('den', '2026-10'), openProxyRecording('den', SUB)]) {
+    for (const p of [listProxyDay('den', '2026-10-01', 'sub'), listProxyDays('den', '2026-10'), openProxyRecording('den', SUB)]) {
       const err = await caught(p);
       expect(err).toMatchObject({ name: 'ProxyError', status: answer.status });
       expect(fallsBack(err)).toBe(true);
@@ -118,7 +117,7 @@ describe('proxy recordings client', () => {
 
   it('falls back when the proxy is unreachable or refuses the token', async () => {
     fake.offline = true;
-    let err = await caught(listProxyRecordings('den', 0, 1, 'sub'));
+    let err = await caught(listProxyDay('den', '2026-10-01', 'sub'));
     expect(err).toMatchObject({ name: 'ProxyError', code: 'proxy_unreachable' });
     expect(fallsBack(err)).toBe(true);
     fake.offline = false;
@@ -169,7 +168,7 @@ describe('proxy recordings client', () => {
   it('answers proxy_unreachable for a camera without a cam-proxy', async () => {
     setCameras([{ id: 'den', name: 'Den', host: '127.0.0.1:9', protocol: 'http', user: 'u', password: 'p' }]);
     resetProxyClients();
-    expect(await caught(listProxyRecordings('den', 0, 1, 'sub'))).toMatchObject({ name: 'ProxyError', code: 'proxy_unreachable' });
+    expect(await caught(listProxyDay('den', '2026-10-01', 'sub'))).toMatchObject({ name: 'ProxyError', code: 'proxy_unreachable' });
   });
 
   it('logs a failure at warn, a 400 at error, never with the token', async () => {
@@ -196,35 +195,26 @@ describe('proxy recordings client', () => {
 });
 
 describe('listProxyDay (cam-proxy date=)', () => {
-  const fb = { from: T0 - 1, to: T0 + 1 };
   it('asks with date and stream only', async () => {
     fake.recordings.set('cam1', []);
-    expect(await listProxyDay('den', '2026-10-01', 'sub', fb)).toEqual([]);
+    expect(await listProxyDay('den', '2026-10-01', 'sub')).toEqual([]);
     expect(fake.requests.at(-1)).toMatchObject({ path: '/api/cameras/cam1/recordings', query: { date: '2026-10-01', stream: 'sub' } });
     expect(fake.requests.at(-1)!.query.from).toBeUndefined();
   });
-  it('asks once more with from and to when the proxy answers 400 (an older proxy ignores date and wants from/to)', async () => {
-    fake.legacyRecordings = true;
-    const before = fake.requests.length;
-    const list = await listProxyDay('den', '2026-10-01', 'main', fb);
-    expect(list.map((r) => r.id)).toEqual([MAIN]);
-    const asks = fake.requests.slice(before);
-    expect(asks.map((r) => Object.keys(r.query).sort())).toEqual([['date', 'stream'], ['from', 'stream', 'to']]);
-  });
-  it('does not retry other failures with from and to', async () => {
+  it('does not retry other failures', async () => {
     fake.recordingsOverride = { status: 502, body: { error: 'recordings_unavailable', reason: 'refused' } };
     const before = fake.requests.length;
-    await expect(listProxyDay('den', '2026-10-01', 'sub', fb)).rejects.toMatchObject({ status: 502 });
+    await expect(listProxyDay('den', '2026-10-01', 'sub')).rejects.toMatchObject({ status: 502 });
     expect(fake.requests.length - before).toBe(1);
   });
   it('retries once after Retry-After on 503 busy, then gives up', async () => {
     fake.recordingsBusy = 1;
     const t = Date.now();
-    expect((await listProxyDay('den', '2026-10-01', 'sub', fb)).length).toBe(1);
+    expect((await listProxyDay('den', '2026-10-01', 'sub')).length).toBe(1);
     expect(Date.now() - t).toBeGreaterThanOrEqual(900);
     fake.recordingsBusy = 5;
     const before = fake.requests.length;
-    await expect(listProxyDay('den', '2026-10-01', 'sub', fb)).rejects.toMatchObject({ status: 503, reason: 'busy' });
+    await expect(listProxyDay('den', '2026-10-01', 'sub')).rejects.toMatchObject({ status: 503, reason: 'busy' });
     expect(fake.requests.length - before).toBe(2);
   }, 15_000);
 
@@ -233,28 +223,10 @@ describe('listProxyDay (cam-proxy date=)', () => {
     const ctl = new AbortController();
     setTimeout(() => ctl.abort(new Error('viewer left')), 200);
     const t = Date.now();
-    await expect(listProxyDay('den', '2026-10-01', 'sub', fb, ctl.signal)).rejects.toThrow('viewer left');
+    await expect(listProxyDay('den', '2026-10-01', 'sub', ctl.signal)).rejects.toThrow('viewer left');
     expect(Date.now() - t).toBeLessThan(800);
     const before = fake.requests.length;
-    await expect(listProxyDay('den', '2026-10-01', 'sub', fb, AbortSignal.abort(new Error('gone')))).rejects.toThrow('gone');
+    await expect(listProxyDay('den', '2026-10-01', 'sub', AbortSignal.abort(new Error('gone')))).rejects.toThrow('gone');
     expect(fake.requests.length).toBe(before);
   }, 15_000);
-  it('remembers an older proxy for ten minutes: from/to at once, then date= again', async () => {
-    fake.legacyRecordings = true;
-    const now = vi.spyOn(Date, 'now');
-    const t0 = 1_800_000_000_000;
-    now.mockReturnValue(t0);
-    let before = fake.requests.length;
-    await listProxyDay('den', '2026-10-01', 'sub', fb);
-    await listProxyDay('den', '2026-10-01', 'main', fb);
-    expect(fake.requests.slice(before).map((r) => Object.keys(r.query).sort())).toEqual([['date', 'stream'], ['from', 'stream', 'to'], ['from', 'stream', 'to']]);
-    now.mockReturnValue(t0 + 9 * 60_000);
-    before = fake.requests.length;
-    await listProxyDay('den', '2026-10-02', 'sub', fb);
-    expect(fake.requests.length - before).toBe(1);
-    now.mockReturnValue(t0 + 11 * 60_000);
-    before = fake.requests.length;
-    await listProxyDay('den', '2026-10-02', 'sub', fb);
-    expect(fake.requests.slice(before).map((r) => Object.keys(r.query).sort())).toEqual([['date', 'stream'], ['from', 'stream', 'to']]);
-  });
 });

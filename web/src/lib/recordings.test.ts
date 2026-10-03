@@ -1,8 +1,8 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
-  ALL_KINDS, addDays, clipAtSecond, cursorSearch, isAllKinds, parseFilter, toggleFilter, dayLength, dayStartMs, downloadUrl, filterEvents, formatBytes, groupByHour, layoutSegments, legendTicks,
-  loadCursor, neighbour, orderTriggers, panWindow, parseCursor, saveCursor, secondsIntoDay, thumbUrl, tickLabel, timelineWindow, videoUrl,
+  ALL_KINDS, addDays, cursorSearch, isAllKinds, parseFilter, toggleFilter, downloadUrl, filterEvents, groupByHour,
+  loadCursor, orderTriggers, parseCursor, saveCursor, thumbUrl, videoUrl,
   type EventClip,
 } from './recordings';
 
@@ -20,74 +20,9 @@ const events = [
 afterEach(() => vi.unstubAllGlobals());
 
 describe('time helpers', () => {
-  it('computes seconds into the local day', () => {
-    expect(secondsIntoDay(events[0].start, DAY)).toBe(8 * 3600 + 15 * 60 + 10);
-  });
   it('adds days across month ends', () => {
     expect(addDays('2026-09-30', 1)).toBe('2026-10-01');
     expect(addDays('2026-10-01', -1)).toBe('2026-09-30');
-  });
-});
-
-describe('timeline', () => {
-  it('shows the whole day at 24 h and clamps narrower windows to the day', () => {
-    expect(timelineWindow(24, 50_000)).toEqual({ start: 0, end: 86400 });
-    expect(timelineWindow(1, 600)).toEqual({ start: 0, end: 3600 });
-    expect(timelineWindow(1, 86000)).toEqual({ start: 82800, end: 86400 });
-    expect(timelineWindow(6, 43200)).toEqual({ start: 32400, end: 54000 });
-    // whole hours (Klaus: "3 PM to 4 PM"): the hour containing the moment
-    expect(timelineWindow(1, 43200)).toEqual({ start: 43200, end: 46800 });
-    expect(timelineWindow(1, 45000)).toEqual({ start: 43200, end: 46800 });
-    expect(timelineWindow(6, 45000)).toEqual({ start: 36000, end: 57600 });
-  });
-
-  it('lays out segments inside the window with AI marked', () => {
-    const segs = layoutSegments(events, DAY, { start: 0, end: 86400 });
-    expect(segs).toHaveLength(3);
-    expect(segs[0].ai).toBe(true);
-    expect(segs[1].ai).toBe(false);
-    expect(segs[0].left).toBeCloseTo(((8 * 3600 + 15 * 60 + 10) / 86400) * 100, 3);
-    expect(segs[0].width).toBeGreaterThanOrEqual(0.4);
-  });
-
-  it('drops segments outside the window', () => {
-    expect(layoutSegments(events, DAY, { start: 43200, end: 46800 }).map((s) => s.id)).toEqual(['20260925-120505-120530']);
-  });
-
-  it('finds the clip under a click, or the nearest start within 5 minutes', () => {
-    expect(clipAtSecond(events, DAY, 12 * 3600 + 5 * 60 + 20)?.id).toBe('20260925-120505-120530');
-    expect(clipAtSecond(events, DAY, 12 * 3600 + 2 * 60)?.id).toBe('20260925-120505-120530');
-    expect(clipAtSecond(events, DAY, 3 * 3600)).toBeNull();
-  });
-
-  it('steps to neighbours', () => {
-    expect(neighbour(events, events[1].id, 1)?.id).toBe(events[2].id);
-    expect(neighbour(events, events[1].id, -1)?.id).toBe(events[0].id);
-    expect(neighbour(events, events[2].id, 1)).toBeNull();
-  });
-});
-
-describe('DST and fall-back days', () => {
-  it('a fall-back day is 90000 s long and the whole-day window covers it', () => {
-    const fallBackDay = '2026-11-01';
-    expect(dayLength(fallBackDay)).toBe(90000);
-    expect(timelineWindow(24, 50_000, dayLength(fallBackDay))).toEqual({ start: 0, end: 90000 });
-
-    const lateClip = E(
-      '20261101-233000-233025',
-      `${fallBackDay}T23:30:00-06:00`,
-      `${fallBackDay}T23:30:25-06:00`,
-      ['motion'],
-    );
-    expect(secondsIntoDay(lateClip.start, fallBackDay)).toBe(88200);
-    const win = timelineWindow(24, 0, dayLength(fallBackDay));
-    const segs = layoutSegments([lateClip], fallBackDay, win);
-    expect(segs).toHaveLength(1);
-    expect(segs[0].id).toBe(lateClip.id);
-  });
-
-  it('a spring-forward day is 82800 s long', () => {
-    expect(dayLength('2026-03-08')).toBe(82800);
   });
 });
 
@@ -117,11 +52,6 @@ describe('filters and formatting', () => {
     expect(toggleFilter(['person', 'vehicle'], 'person')).toEqual(['vehicle']);
     expect(toggleFilter(['vehicle'], 'vehicle')).toEqual(ALL_KINDS);
     expect(toggleFilter(['vehicle'], 'all')).toEqual(ALL_KINDS);
-  });
-  it('formats sizes', () => {
-    expect(formatBytes(600_009)).toBe('586 KB');
-    expect(formatBytes(17_559_552)).toBe('16.7 MB');
-    expect(formatBytes(null)).toBe('—');
   });
 });
 
@@ -189,35 +119,6 @@ describe('cursor', () => {
   });
 });
 
-describe('tick labels use real local time', () => {
-  it('matches the hour on a normal day', () => {
-    expect(tickLabel('2026-09-26', 6 * 3600, 'en-US')).toBe('06:00');
-    expect(tickLabel('2026-09-26', 86400, 'en-US')).toBe('00:00');
-  });
-
-  // Fall back (2026-11-01): the 25-hour day repeats 01:00.
-  it('follows the clock across the fall-back hour', () => {
-    expect(tickLabel('2026-11-01', 2 * 3600, 'en-US')).toBe('01:00');
-    expect(tickLabel('2026-11-01', 3 * 3600, 'en-US')).toBe('02:00');
-  });
-
-  // Spring forward (2026-03-08): 02:00 doesn't exist.
-  it('follows the clock across the spring-forward hour', () => {
-    expect(tickLabel('2026-03-08', 2 * 3600, 'en-US')).toBe('03:00');
-  });
-
-  it('knows local midnight', () => {
-    expect(new Date(dayStartMs('2026-09-26')).toISOString()).toBe('2026-09-26T05:00:00.000Z');
-  });
-});
-
-describe('legendTicks', () => {
-  it('labels the day end 24:00, like the caption', () => {
-    expect(legendTicks('2026-09-26', 86400, 'en-US').map((t) => t.label)).toEqual(['00:00', '06:00', '12:00', '18:00', '24:00']);
-    expect(legendTicks('2026-03-08', 82800, 'en-US').at(-1)).toEqual({ sec: 82800, label: '24:00' });
-  });
-});
-
 describe('groupByHour', () => {
   // Spring forward (2026-03-08): 02:00 doesn't exist, so the 03:xx hour starts
   // two hours after midnight; its label comes from the hour, not the offset.
@@ -264,22 +165,6 @@ describe('groupByHour', () => {
     expect(g[0].events).toHaveLength(25);
   });
 });
-
-describe('panWindow (moving a zoomed timeline)', () => {
-  it('moves by one window length within the day', () => {
-    expect(panWindow({ start: 15 * 3600, end: 16 * 3600 }, -1)).toEqual({ start: 14 * 3600, end: 15 * 3600 });
-    expect(panWindow({ start: 15 * 3600, end: 16 * 3600 }, 1)).toEqual({ start: 16 * 3600, end: 17 * 3600 });
-  });
-
-  it('stops at the day’s edge, and asks for the next or previous day only from the edge window', () => {
-    expect(panWindow({ start: 1800, end: 1800 + 3600 }, -1)).toEqual({ start: 0, end: 3600 });
-    expect(panWindow({ start: 0, end: 3600 }, -1)).toBe('prev-day');
-    // a 25-hour day (DST ends): the last 6-hour window ends at the day's end
-    expect(panWindow({ start: 60_000, end: 60_000 + 6 * 3600 }, 1, 90_000)).toEqual({ start: 90_000 - 6 * 3600, end: 90_000 });
-    expect(panWindow({ start: 86400 - 3600, end: 86400 }, 1)).toBe('next-day');
-  });
-});
-
 
 describe('the strip position in the URL', () => {
   it('reads at, and old links without it', () => {

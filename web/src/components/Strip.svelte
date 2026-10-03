@@ -3,8 +3,9 @@
   import { stripSpans, windowAround, STRIP_ZOOMS, type Coverage } from '../lib/strip';
   import { zoom, pickZoom } from '../lib/zoomPref';
   import { previewAt, tileStyle, type PreviewMinute } from '../lib/timeline';
-  import { addDays, localDate, type EventClip } from '../lib/recordings';
+  import { addDays, localDate, pad2, type EventClip } from '../lib/recordings';
   import { filmFrames, FILM_H, FILM_W } from '../lib/film';
+  import { localClock } from '../lib/clock';
 
   // History's strip (spec 2026-09-27): the playhead stays in the centre and
   // time moves under it. Drag, sideways wheel, click and ←/→ move it.
@@ -34,7 +35,11 @@
   // now (2 s back, so a still shows) or the end of the latest known clip (a
   // camera clock ahead of the browser's).
   const lo = $derived(oldest ?? -Infinity);
-  const hi = $derived(Math.max(now - 2000, ...events.map((e) => Date.parse(e.end))));
+  // Each event's start and end in ms, parsed once per event list (not per
+  // scroll step, tick or pointer move).
+  const spansOf = $derived(events.map((e) => ({ e, s: Date.parse(e.start), t: Date.parse(e.end) })));
+  const lastEnd = $derived(spansOf.reduce((m, x) => Math.max(m, x.t), -Infinity));
+  const hi = $derived(Math.max(now - 2000, lastEnd));
   const clampT = (t: number) => Math.min(hi, Math.max(lo, t));
   const seekTo = (t: number) => onseek(clampT(t));
   const span = $derived(win.end - win.start);
@@ -44,8 +49,7 @@
   const pct = (t: number) => ((t - win.start) / span) * 100;
   const spans = $derived(stripSpans(coverage, win, now, oldest));
   const segs = $derived(
-    events
-      .map((e) => ({ e, s: Date.parse(e.start), t: Date.parse(e.end) }))
+    spansOf
       .filter(({ s, t }) => t > win.start && s < win.end)
       .map(({ e, s, t }) => ({ id: e.id, start: s, end: t, left: pct(Math.max(s, win.start)), width: Math.max(0.3, pct(Math.min(t, win.end)) - pct(Math.max(s, win.start))), ai: e.triggers.some((x) => x !== 'motion') })),
   );
@@ -71,7 +75,7 @@
       const midnight = d.getHours() === 0 && d.getMinutes() === 0;
       const label = midnight
         ? `${d.toLocaleDateString(undefined, { weekday: 'short' })} ${d.getDate()}`
-        : `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+        : `${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
       out.push({ left: pct(t), label });
     }
     return out;
@@ -151,10 +155,10 @@
   function hoverAt(t: number, e: PointerEvent, el: HTMLElement) {
     const r = el.getBoundingClientRect();
     const left = ((e.clientX - r.left) / r.width) * 100;
-    const label = new Date(t).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+    const label = localClock(t);
     cursor = { left, label };
     const p = previewAt(previews, t);
-    const ev = !p && thumbFor ? events.find((x) => t >= Date.parse(x.start) && t < Date.parse(x.end)) : undefined;
+    const ev = !p && thumbFor ? spansOf.find((x) => t >= x.s && t < x.t)?.e : undefined;
     if (!p && !ev) return hidePicture();
     const style = p ? tileStyle(p.minute, p.index, 1) : null;
     const img = ev && thumbFor ? thumbFor(ev.id) : undefined;

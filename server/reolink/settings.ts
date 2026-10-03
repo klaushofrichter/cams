@@ -222,7 +222,7 @@ export function validateImagePatch(body: unknown): { ok: true; patch: ImagePatch
 // right after the write does not show this, so it can't be caught by
 // re-reading: the only safe write is a whole object.
 function clone<T>(v: T): T {
-  return JSON.parse(JSON.stringify(v ?? {})) as T;
+  return structuredClone(v ?? {}) as T;
 }
 
 class Writes {

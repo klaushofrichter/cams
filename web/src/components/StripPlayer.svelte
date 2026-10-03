@@ -3,11 +3,11 @@
   import { untrack, type Snippet } from 'svelte';
   import Icon from './Icon.svelte';
   import ComposeDialog from './ComposeDialog.svelte';
-  import { cameras } from '../lib/stores';
+  import { cameraById } from '../lib/stores';
   import { nextChange, sourceAt, type Coverage, type Source } from '../lib/strip';
   import { localDate, orderTriggers, TRIGGER_LABELS, videoUrl, type EventClip } from '../lib/recordings';
   import { navigate } from '../lib/router';
-  import { timeAgo } from '../lib/clock';
+  import { localClock, timeAgo } from '../lib/clock';
   import { previewAt, tileStyle, type PreviewMinute } from '../lib/timeline';
   import { liveUi } from '../lib/liveUi';
 
@@ -35,8 +35,9 @@
   // Live has no "after": forward 10 s and next event are off there (#121).
   const NOT_LIVE = 'Not available in live view';
 
-  // The Timeline needs the camera's cam-proxy (its stills).
-  const hasProxy = $derived(!!$cameras.find((c) => c.id === cam)?.proxy);
+  // The Timeline needs the camera's cam-proxy (its stills), as does the save
+  // dialog's composing.
+  const hasProxy = $derived(!!$cameraById(cam)?.proxy);
   const timelineHref = $derived(hasProxy && !glued
     ? `/app/timeline?cam=${encodeURIComponent(cam)}&date=${localDate(new Date(at))}&t=${Math.floor(at / 1000) * 1000}`
     : null);
@@ -58,7 +59,6 @@
   const source = $derived(sourceAt(coverage, at, now));
   // Downloads go through the save dialog, as on the History cards (Klaus, 2026-09-29).
   let saving: EventClip | null = $state(null);
-  const composable = $derived(!!$cameras.find((c) => c.id === cam)?.proxy);
 
   // --- video A/B ---
   let vids: (HTMLVideoElement | undefined)[] = $state([undefined, undefined]);
@@ -272,7 +272,7 @@
     return `${d.toLocaleDateString(undefined, { weekday: 'short' })} ${d.toLocaleDateString(undefined, { month: 'short' })} ${d.getDate()}`;
   });
   const ago = $derived(timeAgo(at, now));
-  const clock = $derived(new Date(at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }));
+  const clock = $derived(localClock(at));
 </script>
 
 <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
@@ -348,7 +348,7 @@
   </div>
 </div>
 {#if saving}
-  <ComposeDialog camera={cam} clip={saving} {composable} onclose={() => (saving = null)} />
+  <ComposeDialog camera={cam} clip={saving} composable={hasProxy} onclose={() => (saving = null)} />
 {/if}
 
 <style>

@@ -3,6 +3,12 @@
 // page's worth of thumbnail fetches (the camera sends ~150 KB/s, one transfer
 // at a time). A queued entry can be promoted by key when someone starts
 // waiting on it directly.
+function abortError(): Error {
+  const err = new Error('aborted');
+  err.name = 'AbortError';
+  return err;
+}
+
 interface Waiter {
   start: () => void;
   high: boolean;
@@ -36,6 +42,40 @@ export class PriorityGate {
       } else {
         this.queue.push({ start, high: !!opts.high, key: opts.key });
       }
+    });
+  }
+
+  // A slot held until the returned release() is called (calling it again is
+  // harmless). A `signal` that aborts while the call is queued takes it out
+  // of the queue at once and rejects with an AbortError.
+  acquire(opts: { high?: boolean; key?: string; signal?: AbortSignal } = {}): Promise<() => void> {
+    const { signal } = opts;
+    if (signal?.aborted) return Promise.reject(abortError());
+    return new Promise((resolve, reject) => {
+      let held = false;
+      const release = () => {
+        if (!held) return;
+        held = false;
+        this.handOff();
+      };
+      const grant = () => {
+        signal?.removeEventListener('abort', onAbort);
+        held = true;
+        resolve(release);
+      };
+      const waiter: Waiter = { start: grant, high: !!opts.high, key: opts.key };
+      const onAbort = () => {
+        const i = this.queue.indexOf(waiter);
+        if (i >= 0) this.queue.splice(i, 1);
+        reject(abortError());
+      };
+      if (this.active < this.max) {
+        this.active++;
+        grant();
+        return;
+      }
+      this.queue.push(waiter);
+      signal?.addEventListener('abort', onAbort, { once: true });
     });
   }
 

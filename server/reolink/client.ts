@@ -72,6 +72,13 @@ export function classifyNetworkError(err: unknown, requestSent = requestWasWritt
 
 const SAFE_RECORDING_NAME = /^[A-Za-z0-9_./-]+\.mp4$/;
 
+// A 503: the camera is busy or starting, reported as offline.
+function offlineOn503(res: IncomingMessage, prefix = ''): void {
+  if (res.statusCode !== 503) return;
+  res.resume();
+  throw new CameraError('camera_offline', `${prefix}camera unavailable (HTTP 503)`);
+}
+
 export class ReolinkClient {
   private token: { value: string; expiresAt: number } | null = null;
   private time: { value: TimeInfo; at: number } | null = null;
@@ -111,10 +118,7 @@ export class ReolinkClient {
       } catch (err) {
         throw classifyNetworkError(err);
       }
-      if (res.statusCode === 503) {
-        res.resume();
-        throw new CameraError('camera_offline', `${cmd}: camera unavailable (HTTP 503)`);
-      }
+      offlineOn503(res, `${cmd}: `);
       if (res.statusCode !== 200) {
         res.resume();
         throw new CameraError('camera_error', `${cmd}: HTTP ${res.statusCode}`);
@@ -165,16 +169,20 @@ export class ReolinkClient {
     return this.loginInFlight;
   }
 
+  // getToken() for a request: a failed login never sent the request,
+  // whatever happened to the Login.
+  private async requestToken(): Promise<string> {
+    try {
+      return await this.getToken();
+    } catch (err) {
+      if (err instanceof CameraError && err.requestSent) throw new CameraError(err.code, err.message);
+      throw err;
+    }
+  }
+
   async command<T>(cmd: string, param: object = {}): Promise<T> {
     for (let attempt = 0; attempt < 2; attempt++) {
-      let token: string;
-      try {
-        token = await this.getToken();
-      } catch (err) {
-        // A failed login never sent `cmd`, whatever happened to the Login.
-        if (err instanceof CameraError && err.requestSent) throw new CameraError(err.code, err.message);
-        throw err;
-      }
+      const token = await this.requestToken();
       const reply = await this.post(cmd, param, token);
       if (reply.code === 0) return reply.value as T;
       if (attempt === 0 && AUTH_RSP_CODES.has(reply.error?.rspCode ?? 0)) {
@@ -314,14 +322,7 @@ export class ReolinkClient {
   // the connection without a response (see isResetBeforeHeaders).
   private async getWithToken(buildPath: (token: string) => string, accept: RegExp, signal?: AbortSignal): Promise<IncomingMessage> {
     for (let attempt = 0; attempt < 2; attempt++) {
-      let token: string;
-      try {
-        token = await this.getToken();
-      } catch (err) {
-        // A failed login never sent `cmd`, whatever happened to the Login.
-        if (err instanceof CameraError && err.requestSent) throw new CameraError(err.code, err.message);
-        throw err;
-      }
+      const token = await this.requestToken();
       let res: IncomingMessage;
       try {
         res = await openRequest(this.target, buildPath(encodeURIComponent(token)), { timeoutMs: this.timeoutMs, signal });
@@ -336,10 +337,7 @@ export class ReolinkClient {
       }
       const contentType = String(res.headers['content-type'] ?? '');
       if (res.statusCode === 200 && accept.test(contentType)) return res;
-      if (res.statusCode === 503) {
-        res.resume();
-        throw new CameraError('camera_offline', 'camera unavailable (HTTP 503)');
-      }
+      offlineOn503(res);
       if (await this.isAuthRejection(res)) {
         this.clearTokenIfCurrent(token);
         if (attempt === 0) continue;
@@ -374,10 +372,7 @@ export class ReolinkClient {
           throw classifyNetworkError(err);
         }
       }
-      if (res.statusCode === 503) {
-        res.resume();
-        throw new CameraError('camera_offline', 'camera unavailable (HTTP 503)');
-      }
+      offlineOn503(res);
       if (await this.isAuthRejection(res)) return { ok: false };
       throw new CameraError('camera_error', `unexpected response (HTTP ${res.statusCode})`);
     });
@@ -385,14 +380,7 @@ export class ReolinkClient {
 
   async snapshot(): Promise<Buffer> {
     for (let attempt = 0; attempt < 2; attempt++) {
-      let token: string;
-      try {
-        token = await this.getToken();
-      } catch (err) {
-        // A failed login never sent `cmd`, whatever happened to the Login.
-        if (err instanceof CameraError && err.requestSent) throw new CameraError(err.code, err.message);
-        throw err;
-      }
+      const token = await this.requestToken();
       const outcome = await this.snapshotAttempt(token);
       if (outcome.ok) return outcome.body;
       this.clearTokenIfCurrent(token);

@@ -1,6 +1,6 @@
 import { Readable } from 'stream';
 import { logger } from '../logger';
-import { errorBody, getProxyClient, proxyCameraId, ProxyError, type ProxyClient } from '../proxy/client';
+import { errorBody, proxyPath, ProxyError, requireProxyClient } from '../proxy/client';
 import { RecordingError } from './errors';
 
 // A camera's SD-card recordings through its cam-proxy's recordings API
@@ -22,15 +22,8 @@ export interface ProxyRecording {
 // used in a URL later, so nothing else passes.
 const REC_ID = /^Rec[MS][0-9A-Za-z]{2}_(DST)?\d{8}_\d{6}_\d{6}_[0-9A-Za-z_]+\.mp4$/;
 
-// The proxy can be switched off between two calls.
-function clientFor(cameraId: string): ProxyClient {
-  const client = getProxyClient(cameraId);
-  if (!client) throw new ProxyError('proxy_unreachable', 'the camera has no cam-proxy in use');
-  return client;
-}
-
 function base(cameraId: string): string {
-  return `/api/cameras/${encodeURIComponent(proxyCameraId(cameraId))}/recordings`;
+  return proxyPath(cameraId, '/recordings');
 }
 
 function isRecording(x: unknown, stream: 'sub' | 'main'): boolean {
@@ -46,12 +39,6 @@ function isRecording(x: unknown, stream: 'sub' | 'main'): boolean {
     Number.isSafeInteger(r.size) &&
     (r.size as number) >= 0
   );
-}
-
-// The recordings of one stream that overlap [from, to] (unix ms). Entries that
-// aren't a well-formed recording of that stream are dropped.
-export async function listProxyRecordings(cameraId: string, from: number, to: number, stream: 'sub' | 'main', signal?: AbortSignal): Promise<ProxyRecording[]> {
-  return listWith(cameraId, { from, to, stream }, stream, signal);
 }
 
 // The longest cams waits out a busy proxy's Retry-After.
@@ -73,48 +60,24 @@ function pause(ms: number, signal?: AbortSignal): Promise<void> {
   });
 }
 
-// 503 recordings_unavailable busy: the proxy's Search queue is full. One retry
-// after its Retry-After (at most 5 s, cut short by `signal`); a second busy
-// answer is the caller's.
-async function listWith(cameraId: string, query: Record<string, string | number>, stream: 'sub' | 'main', signal?: AbortSignal): Promise<ProxyRecording[]> {
+// One camera-local day (YYYY-MM-DD) of one stream, with a recording that
+// started the day before and runs past midnight into it: cam-proxy's `date`
+// parameter (since v2026.10.02.4). 503 recordings_unavailable busy (the
+// proxy's Search queue is full): one retry after its Retry-After (at most 5 s,
+// cut short by `signal`); a second busy answer is the caller's.
+export async function listProxyDay(cameraId: string, date: string, stream: 'sub' | 'main', signal?: AbortSignal): Promise<ProxyRecording[]> {
   try {
-    return await listOnce(cameraId, query, stream, signal);
+    return await listOnce(cameraId, date, stream, signal);
   } catch (err) {
     if (!(err instanceof ProxyError) || err.status !== 503 || err.reason !== 'busy') throw err;
     await pause(Math.min((err.retryAfterS ?? 1) * 1000, BUSY_WAIT_MAX_MS), signal);
-    return listOnce(cameraId, query, stream, signal);
+    return listOnce(cameraId, date, stream, signal);
   }
 }
 
-// Per camera: until when its proxy is taken for an older one (it answered 400
-// to `date=`), so a cold day costs 2 requests, not 4.
-const LEGACY_PROXY_MS = 10 * 60_000;
-const legacyUntil = new Map<string, number>();
-
-export function resetLegacyProxies(): void {
-  legacyUntil.clear();
-}
-
-// One camera-local day (YYYY-MM-DD) of one stream, with a recording that
-// started the day before and runs past midnight into it: cam-proxy's `date`
-// parameter. An older proxy ignores `date`, finds no from/to and answers 400;
-// then the same day is asked again as the caller's from/to window, and for ten
-// minutes that proxy gets from/to directly.
-export async function listProxyDay(cameraId: string, date: string, stream: 'sub' | 'main', fallback: { from: number; to: number }, signal?: AbortSignal): Promise<ProxyRecording[]> {
-  const legacy = () => listWith(cameraId, { from: fallback.from, to: fallback.to, stream }, stream, signal);
-  if (Date.now() < (legacyUntil.get(cameraId) ?? 0)) return legacy();
-  try {
-    return await listWith(cameraId, { date, stream }, stream, signal);
-  } catch (err) {
-    if (!(err instanceof ProxyError) || err.status !== 400) throw err;
-    const list = await legacy();
-    legacyUntil.set(cameraId, Date.now() + LEGACY_PROXY_MS); // only once from/to worked
-    return list;
-  }
-}
-
-async function listOnce(cameraId: string, query: Record<string, string | number>, stream: 'sub' | 'main', signal?: AbortSignal): Promise<ProxyRecording[]> {
-  const body = await clientFor(cameraId).json<unknown>(base(cameraId), query, { signal });
+// Entries that aren't a well-formed recording of that stream are dropped.
+async function listOnce(cameraId: string, date: string, stream: 'sub' | 'main', signal?: AbortSignal): Promise<ProxyRecording[]> {
+  const body = await requireProxyClient(cameraId).json<unknown>(base(cameraId), { date, stream }, { signal });
   if (!Array.isArray(body)) throw new ProxyError('proxy_error', 'cam-proxy sent a recordings list that is not a list');
   return body
     .filter((x) => isRecording(x, stream))
@@ -134,7 +97,7 @@ async function listOnce(cameraId: string, query: Record<string, string | number>
 
 // The days (YYYY-MM-DD) of a camera-local month (YYYY-MM) with recordings.
 export async function listProxyDays(cameraId: string, month: string): Promise<string[]> {
-  const body = await clientFor(cameraId).json<{ days?: unknown } | null>(`${base(cameraId)}/days`, { month });
+  const body = await requireProxyClient(cameraId).json<{ days?: unknown } | null>(`${base(cameraId)}/days`, { month });
   if (!body || !Array.isArray(body.days)) throw new ProxyError('proxy_error', 'cam-proxy sent a day list without days');
   const last = new Date(Date.UTC(Number(month.slice(0, 4)), Number(month.slice(5, 7)), 0)).getUTCDate();
   const days = new Set(body.days.filter((d): d is number => Number.isInteger(d) && d >= 1 && d <= last));
@@ -155,7 +118,7 @@ export async function openProxyRecording(
   signal?: AbortSignal,
   opts: { headerTimeoutMs?: number; idleMs?: number } = {},
 ): Promise<{ stream: Readable; size: number | null }> {
-  const client = clientFor(cameraId);
+  const client = requireProxyClient(cameraId);
   const res = await client.open(`${base(cameraId)}/${encodeURIComponent(id)}`, undefined, { signal, timeoutMs: opts.headerTimeoutMs ?? RECORDING_HEADER_TIMEOUT_MS, idleMs: opts.idleMs ?? 30_000 });
   if (!res.ok || !res.body) {
     const { error: upstream, reason } = await errorBody(res);
@@ -188,7 +151,7 @@ export function logProxyFailure(cameraId: string, what: string, err: unknown): v
 // from the list). Any failure throws a ProxyError: a HEAD has no body, so a
 // gone recording and an older proxy's 404 look the same here.
 export async function headProxyRecording(cameraId: string, id: string): Promise<void> {
-  const client = clientFor(cameraId);
+  const client = requireProxyClient(cameraId);
   const res = await client.open(`${base(cameraId)}/${encodeURIComponent(id)}`, undefined, { method: 'HEAD' });
   await res.body?.cancel();
   if (!res.ok) throw new ProxyError('proxy_error', `cam-proxy ${client.host()} answered ${res.status} for a recording`, res.status);

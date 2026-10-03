@@ -1,3 +1,4 @@
+import { setTimeout as sleep } from 'timers/promises';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import request from 'supertest';
 import http from 'http';
@@ -195,7 +196,7 @@ describe('recordings API', () => {
       expect((await request(app).get(`/api/cameras/cam1/events?date=${today()}`).set('Cookie', auth)).body.downloads).toBe('unavailable');
       // After the probe interval the next request goes through; the camera
       // (no drops left) answers, and the breaker closes.
-      await new Promise((r) => setTimeout(r, 250));
+      await sleep(250);
       expect((await request(app).get(`/api/cameras/cam1/clips/${ids[3]}/video`).set('Cookie', auth)).status).toBe(200);
       expect((await request(app).get(`/api/cameras/cam1/events?date=${today()}`).set('Cookie', auth)).body.downloads).toBe('ok');
     } finally {
@@ -217,7 +218,7 @@ describe('recordings API', () => {
       expect(state.downloads + state.droppedDownloads).toBe(before);
       // Due: one refresh starts one background probe; the camera answers, and
       // the next refresh reports ok with nobody opening a clip.
-      await new Promise((r) => setTimeout(r, 250));
+      await sleep(250);
       await Promise.all([1, 2, 3].map(() => request(app).get(`/api/cameras/cam1/events?date=${today()}`).set('Cookie', auth)));
       await vi.waitFor(() => expect(state.downloads).toBe(1));
       await vi.waitFor(async () =>
@@ -353,7 +354,7 @@ describe('recordings API', () => {
       req.on('error', () => resolve());
       setTimeout(() => reject(new Error('response never arrived')), 5000);
     });
-    await new Promise((r) => setTimeout(r, 50));
+    await sleep(50);
     await new Promise<void>((r) => server.close(() => r()));
     // The server (and this app instance) must still be healthy afterwards.
     const ok = await request(createApp()).get('/api/me').set('Cookie', auth);
@@ -373,7 +374,7 @@ describe('recordings API', () => {
       const first = request(app).get(`/api/cameras/cam1/clips/${events[0].id}/video`).set('Cookie', auth);
       // Give the first request a moment to start (and pin its file) before
       // a second clip's fetch would otherwise be tempted to evict it.
-      await new Promise((r) => setTimeout(r, 5));
+      await sleep(5);
       const second = request(app).get(`/api/cameras/cam1/clips/${events[1].id}/video`).set('Cookie', auth);
       const [r1, r2] = await Promise.all([first, second]);
       expect(r1.status).toBe(200);
@@ -531,9 +532,9 @@ describe('recordings API', () => {
     try {
       const pending = request(app).get(`/api/cameras/cam1/clips/${e.id}/download?quality=main`).set('Cookie', auth);
       const settled = pending.then((r) => r).catch((err) => err);
-      await new Promise((r) => setTimeout(r, 20));
+      await sleep(20);
       upstream.write(Buffer.alloc(1000, 1));
-      await new Promise((r) => setTimeout(r, 10));
+      await sleep(10);
       // The camera drops the connection mid-transfer.
       upstream.destroy(new Error('camera dropped'));
       const result = await settled;

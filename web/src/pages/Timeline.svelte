@@ -3,15 +3,16 @@
   import { onMount, tick, untrack } from 'svelte';
   import { get } from 'svelte/store';
   import { getJson, HttpError } from '../lib/api';
-  import { cameras, selectedCameraId } from '../lib/stores';
+  import { cameras, cameraById, selectedCameraId } from '../lib/stores';
   import { eventStream } from '../lib/eventStream';
   import { liveEventsOn } from '../lib/preferences';
-  import { addDays, formatClock, localDate, orderTriggers, TRIGGER_LABELS, type Trigger } from '../lib/recordings';
+  import { addDays, DATE, formatClock, localDate, orderTriggers, pad2, TRIGGER_LABELS, type Trigger } from '../lib/recordings';
   import { todayDate } from '../lib/refresh';
+  import { localClock } from '../lib/clock';
   import type { StillObject } from '../lib/vision';
   import TimelineStill from '../components/TimelineStill.svelte';
   import {
-    analysedSeconds, cardKind, cardsInMinute, cursorSearch, dayRange, historyHref, hourGroups, loadViewPoint, minuteIndex, nearestMinute, seenStills, shareViewPoint,
+    analysedSeconds, cardKind, cardsInMinute, timelineSearch, dayRange, historyHref, hourGroups, loadViewPoint, minuteIndex, nearestMinute, seenStills, shareViewPoint,
     secondKinds, splitRange, stepMinute, stillIndex, tileStyle, timelineCursor, type PreviewMinute, type SeenStill, type TimelineCard,
   } from '../lib/timeline';
 
@@ -49,14 +50,13 @@
     if (initial.cam && $cameras.some((c) => c.id === initial.cam)) selectedCameraId.set(initial.cam);
   });
 
-  const camera = $derived($cameras.find((c) => c.id === $selectedCameraId) ?? null);
+  const camera = $derived($cameraById($selectedCameraId) ?? null);
   const base = $derived(camera ? `/api/cameras/${encodeURIComponent(camera.id)}` : '');
   const hours = $derived(hourGroups(minutes));
   // Per minute of the day: its cards, count, colour and Vision mark, once (issue #109).
   const index = $derived(minuteIndex(minutes, cards));
   const firstTile = (m: PreviewMinute) => Math.max(0, m.present.indexOf(true));
-  const clock = (ts: number, seconds = false) =>
-    new Date(ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', ...(seconds ? { second: '2-digit' } : {}) });
+  const clock = (ts: number, seconds = false) => localClock(ts, seconds);
   const labels = (c: TimelineCard) => orderTriggers(c.triggers).map((t) => TRIGGER_LABELS[t as Trigger] ?? t).join(', ') || 'Recording';
 
   // The day's previews (in parts: the fall-back day is 25 h) and cards.
@@ -85,7 +85,7 @@
     still = null;
     ++pickSeq; // a still still loading for the day before is dropped
     message = '';
-    if (!cam?.proxy || !/^\d{4}-\d{2}-\d{2}$/.test(d)) return;
+    if (!cam?.proxy || !DATE.test(d)) return;
     message = 'Loading…';
     let stale = false;
     const b = base;
@@ -157,7 +157,7 @@
 
   // The URL follows the view.
   $effect(() => {
-    const search = cursorSearch({ cam: camera?.id ?? null, date, t: still?.ts ?? open?.minute ?? wantT });
+    const search = timelineSearch({ cam: camera?.id ?? null, date, t: still?.ts ?? open?.minute ?? wantT });
     if (search !== location.search) history.replaceState(history.state, '', `${location.pathname}${search}`);
   });
 
@@ -298,7 +298,7 @@
     <p class="muted small">One tile per minute; a coloured edge marks a recording, a purple one what Vision found. Click a minute for its seconds, then a second for its still.</p>
     {#each hours as h (h.minutes[0].minute)}
       <div class="hour" data-testid="timeline-hour">
-        <div class="label mono">{String(h.hour).padStart(2, '0')}:00</div>
+        <div class="label mono">{pad2(h.hour)}:00</div>
         <div class="body">
           <div class="tiles">
             {#each h.minutes as m (m.minute)}
