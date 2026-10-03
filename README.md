@@ -108,6 +108,7 @@ Both suites need **ffmpeg** on the `PATH`, and e2e needs **Google Chrome**. The 
 - **cam-proxy in tests** is a small fake (`test/proxy/fakeProxy.ts`) that follows cam-proxy's `openapi.yaml` for the stream, clips, stills, previews and SD recordings. Unit tests set its data directly (`test/proxy/seedRecordings.ts` gives it cam-sim's recordings); e2e runs it as a process, seeded with ffmpeg test patterns (`e2e/fakeProxyData.ts`), without SD recordings (its recordings routes answer 503). The real round trip is Silo's, against the released cam-proxy image (needs Docker), in CI.
 - **Version:** cam-sim is a dev dependency pinned to a release tarball in `package.json`. To update it, change the URL to the new release's `cam-sim-<tag>.tgz` asset, run `npm install`, and run both suites.
 - **The other direction:** cam-sim's own CI runs cams' unit and e2e suites against every cam-sim change, so a simulator change that would break cams fails there first.
+- **The live stack, by hand:** `scripts/livestack/` runs cams → cam-proxy → cam-sim (or the real camera) locally from the three repos' `origin/main` and checks it end to end; see [docs/livestack.md](docs/livestack.md).
 
 ## Deployment and releases
 
