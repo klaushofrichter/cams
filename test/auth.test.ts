@@ -18,6 +18,7 @@ vi.mock('google-auth-library', () => ({
 import { createApp } from '../server/app';
 import { safeReturnPath } from '../server/routes/auth';
 import { requireAuthApi } from '../server/middleware/requireAuth';
+import { signSession } from '../server/session';
 
 const NONCE = '0123456789abcdef0123456789abcdef';
 const stateCookie = `oauth_state=${NONCE}`;
@@ -147,7 +148,8 @@ describe('safeReturnPath', () => {
   ])('accepts %s', (input, expected) => expect(safeReturnPath(input)).toBe(expected));
 
   it.each(['//evil.example', '/\\evil.example', 'https://evil.example/app', '/application', '/apps', '/app//evil', '', undefined, 42,
-    '/app/../x', '/app/./live', '/app/..', '/app/%2e%2e/x', '/app/%2E%2e/x', '/app/.%2e/x', '/app/live/../../x'])(
+    '/app/../x', '/app/./live', '/app/..', '/app/%2e%2e/x', '/app/%2E%2e/x', '/app/.%2e/x', '/app/live/../../x',
+    'javascript:alert(1)', '/app/\t/evil.example', '/app\n', '/app/\r\nSet-Cookie: x=1', ' /app', 'app/live', ['/app'], '/app/' + 'x'.repeat(3000)])(
     'rejects %s',
     (input) => expect(safeReturnPath(input)).toBeNull()
   );
@@ -164,6 +166,8 @@ describe('GET /auth/logout', () => {
     expect(cookies).toMatch(/session=;.*Expires=Thu, 01 Jan 1970/);
     expect(cookies).toMatch(/oauth_state=;/);
     expect(cookies).toMatch(/return_to=;/);
+    // No silent renewal after Logout: the hint is gone too.
+    expect(cookies).toMatch(/login_hint=;/);
     // Clear-Site-Data applies to the whole registrable domain, which would
     // sign the user out of every *.skylar.technology service. Not used.
     expect(res.headers['clear-site-data']).toBeUndefined();
@@ -177,5 +181,125 @@ describe('GET /auth/logout', () => {
     app.get('/api/me', requireAuthApi, (_req, res) => res.json({ ok: true }));
     await request(app).get('/auth/logout');
     expect((await request(app).get('/api/me')).status).toBe(401);
+  });
+});
+
+// Issue #153, R2: an expired session renewed without the user (prompt=none),
+// back to the same page; else the start page, whose sign-in comes back too.
+describe('silent renewal and returnTo', () => {
+  const HINT = 'login_hint=klaus%40klaushofrichter.net';
+  const cookiesOf = (res: request.Response) => (res.get('Set-Cookie') ?? []).join(';');
+
+  it('remembers a safe returnTo on the normal sign-in', async () => {
+    const res = await request(createApp()).get(`/auth/google/login?returnTo=${encodeURIComponent('/app/settings?cam=cam1')}`);
+    expect(res.status).toBe(302);
+    expect(new URL(res.headers.location).searchParams.get('prompt')).toBe('select_account');
+    expect(cookiesOf(res)).toContain(`return_to=${encodeURIComponent('/app/settings?cam=cam1')}`);
+  });
+
+  it.each(['//evil.example', 'https://evil.example/app', '/\\evil.example', '/app/../x', 'javascript:alert(1)', '/app/%2e%2e/admin'])(
+    'ignores the open-redirect attempt returnTo=%s',
+    async (bad) => {
+      const res = await request(createApp()).get(`/auth/google/login?silent=1&returnTo=${encodeURIComponent(bad)}`).set('Cookie', HINT);
+      expect(res.status).toBe(302);
+      expect(res.headers.location).toMatch(/^https:\/\/accounts\.google\.com\//);
+      expect(cookiesOf(res)).not.toContain('return_to=');
+    },
+  );
+
+  it('ignores a repeated returnTo (not a string)', async () => {
+    const res = await request(createApp()).get('/auth/google/login?returnTo=/app/live&returnTo=/app/about');
+    expect(cookiesOf(res)).not.toContain('return_to=');
+  });
+
+  it('silent=1 asks Google with prompt=none for the account of the last sign-in', async () => {
+    const res = await request(createApp()).get('/auth/google/login?silent=1&returnTo=%2Fapp%2Fabout').set('Cookie', HINT);
+    expect(res.status).toBe(302);
+    const url = new URL(res.headers.location);
+    expect(url.searchParams.get('prompt')).toBe('none');
+    expect(url.searchParams.get('login_hint')).toBe('klaus@klaushofrichter.net');
+    expect(url.searchParams.get('state')).toMatch(/^[0-9a-f]{32}\.silent$/);
+    expect(cookiesOf(res)).toMatch(/oauth_state=[0-9a-f]{32}/);
+    expect(cookiesOf(res)).toContain('return_to=%2Fapp%2Fabout');
+  });
+
+  it('silent=1 without a hint (never signed in here, or logged out) goes to the start page, keeping returnTo', async () => {
+    const res = await request(createApp()).get('/auth/google/login?silent=1&returnTo=%2Fapp%2Fabout');
+    expect(res.status).toBe(302);
+    expect(res.headers.location).toBe('/');
+    expect(cookiesOf(res)).toContain('return_to=%2Fapp%2Fabout');
+  });
+
+  it('ignores a malformed hint', async () => {
+    const res = await request(createApp()).get('/auth/google/login?silent=1').set('Cookie', 'login_hint=not-an-email');
+    expect(res.headers.location).toBe('/');
+  });
+
+  it('a successful sign-in remembers the account as the hint (httpOnly, 30 days)', async () => {
+    const res = await request(createApp()).get(`/auth/google/callback?code=c&state=${NONCE}.first`).set('Cookie', stateCookie);
+    expect(cookiesOf(res)).toMatch(/login_hint=klaus%40klaushofrichter\.net; Max-Age=2592000;[^;]*;[^;]*; HttpOnly; Secure; SameSite=Lax/);
+  });
+
+  it('a successful silent renewal signs in and returns to the remembered page', async () => {
+    const res = await request(createApp())
+      .get(`/auth/google/callback?code=c&state=${NONCE}.silent`)
+      .set('Cookie', `${stateCookie}; ${HINT}; return_to=%2Fapp%2Fabout`);
+    expect(res.status).toBe(302);
+    expect(res.headers.location).toBe('/app/about');
+    expect(cookiesOf(res)).toMatch(/session=[^;]+; Max-Age=604800/);
+  });
+
+  it.each(['login_required', 'interaction_required', 'consent_required', 'account_selection_required'])(
+    'a silent renewal Google answers with %s lands on the start page, still remembering the page',
+    async (error) => {
+      const res = await request(createApp())
+        .get(`/auth/google/callback?error=${error}&state=${NONCE}.silent`)
+        .set('Cookie', `${stateCookie}; ${HINT}; return_to=%2Fapp%2Fabout`);
+      expect(res.status).toBe(302);
+      expect(res.headers.location).toBe('/');
+      expect(cookiesOf(res)).not.toMatch(/session=/);
+      expect(cookiesOf(res)).not.toMatch(/return_to=;/);
+    },
+  );
+
+  it('a silent renewal is as strict about state as a normal sign-in', async () => {
+    const res = await request(createApp())
+      .get('/auth/google/callback?code=c&state=ffffffffffffffffffffffffffffffff.silent')
+      .set('Cookie', `${stateCookie}; ${HINT}`);
+    expect(res.status).toBe(401);
+    expect(res.body).toEqual({ error: 'invalid state' });
+    const unknown = await request(createApp()).get(`/auth/google/callback?code=c&state=${NONCE}.other`).set('Cookie', stateCookie);
+    expect(unknown.status).toBe(401);
+  });
+
+  it('a silent renewal for an account no longer allowed signs nobody in and forgets the hint', async () => {
+    google.payload = { email: 'intruder@example.com', email_verified: true };
+    const res = await request(createApp())
+      .get(`/auth/google/callback?code=c&state=${NONCE}.silent`)
+      .set('Cookie', `${stateCookie}; login_hint=intruder%40example.com`);
+    expect(res.status).toBe(302);
+    expect(res.headers.location).toBe('/');
+    expect(cookiesOf(res)).not.toMatch(/session=/);
+    expect(cookiesOf(res)).toMatch(/login_hint=;/);
+  });
+
+  it('the start page remembers a safe returnTo, and ignores an unsafe one', async () => {
+    const good = await request(createApp()).get('/?returnTo=%2Fapp%2Ftimeline');
+    expect(good.status).toBe(200);
+    expect(cookiesOf(good)).toContain('return_to=%2Fapp%2Ftimeline');
+    const bad = await request(createApp()).get(`/?returnTo=${encodeURIComponent('//evil.example')}`);
+    expect(bad.status).toBe(200);
+    expect(cookiesOf(bad)).not.toContain('return_to=');
+  });
+
+  it('the start page sends a visitor already signed in (another tab) to returnTo', async () => {
+    const session = `session=${signSession('klaus@klaushofrichter.net')}`;
+    const res = await request(createApp()).get('/?returnTo=%2Fapp%2Ftimeline').set('Cookie', session);
+    expect(res.headers.location).toBe('/app/timeline');
+    const viaCookie = await request(createApp()).get('/').set('Cookie', `${session}; return_to=%2Fapp%2Fabout`);
+    expect(viaCookie.headers.location).toBe('/app/about');
+    expect(cookiesOf(viaCookie)).toMatch(/return_to=;/);
+    const unsafe = await request(createApp()).get(`/?returnTo=${encodeURIComponent('https://evil.example')}`).set('Cookie', session);
+    expect(unsafe.headers.location).toBe('/app/live');
   });
 });

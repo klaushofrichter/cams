@@ -16,18 +16,34 @@ export function currentUser(req: Request): SessionPayload | null {
   return getAllowedEmails().includes(session.email) ? session : null;
 }
 
+// Only same-site /app paths: "/app", "/app/...", "/app?...". Anything that a
+// browser could read as another origin ("//x", "/\x", absolute URLs) or that
+// merely starts with the letters ("/apps") is refused. The web app has its
+// own copy (web/src/lib/api.ts), so it never sends one the server drops.
+export function safeReturnPath(value: unknown): string | null {
+  if (typeof value !== 'string') return null;
+  if (!/^\/app(?:[/?#]|$)/.test(value)) return null;
+  if (value.includes('//') || value.includes('\\')) return null;
+  // Browsers drop tabs and newlines from URLs, which could rebuild a "//".
+  if (/[\u0000-\u001f\u007f]/.test(value) || value.length > 2048) return null;
+  // No "." or ".." segments, raw or percent-encoded: /app/../x would leave /app.
+  const path = value.split(/[?#]/)[0];
+  if (path.split('/').some((seg) => /^(\.|%2e){1,2}$/i.test(seg))) return null;
+  return value;
+}
+
+// Where sign-in brings the visitor back to (the callback validates again
+// before use). An unsafe path is ignored, never stored.
+export function rememberReturn(res: Response, value: unknown): void {
+  const path = safeReturnPath(value);
+  if (!path) return;
+  res.cookie(RETURN_COOKIE, path, { httpOnly: true, secure: true, sameSite: 'lax', maxAge: RETURN_MAX_AGE_MS });
+}
+
 export function requireAuthPage(req: Request, res: Response, next: NextFunction): void {
   if (!currentUser(req)) {
     // Remember where the visitor was going, so sign-in can bring them back.
-    // Only /app paths are stored; the callback validates again before use.
-    if (req.originalUrl.startsWith('/app')) {
-      res.cookie(RETURN_COOKIE, req.originalUrl, {
-        httpOnly: true,
-        secure: true,
-        sameSite: 'lax',
-        maxAge: RETURN_MAX_AGE_MS,
-      });
-    }
+    rememberReturn(res, req.originalUrl);
     res.redirect(302, '/');
     return;
   }
