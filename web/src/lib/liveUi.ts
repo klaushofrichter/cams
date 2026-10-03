@@ -156,3 +156,11 @@ export function registerLiveFullscreen(fn: () => void): () => void {
 // True while the video page holds the live stream open (on screen, or kept
 // alive after leaving it): App keeps the page mounted meanwhile.
 export const liveStreamHeld = writable(false);
+
+// The line under Live's connecting indicator: how long the stream stays
+// connected after leaving the page (the liveKeepAlive preference).
+export function keepAliveNote(seconds: number): string {
+  if (seconds <= 0) return 'The stream disconnects when you leave this page.';
+  const time = seconds < 60 ? `${seconds} s` : `${Math.round(seconds / 60)} min`;
+  return `The stream stays connected for ${time} after you leave this page.`;
+}

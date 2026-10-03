@@ -2,6 +2,7 @@
   import { onDestroy, onMount } from 'svelte';
   import LivePlayer from './LivePlayer.svelte';
   import LiveStill from './LiveStill.svelte';
+  import LiveConnecting from './LiveConnecting.svelte';
   import { cameras } from '../lib/stores';
   import type { PlayerState } from '../lib/liveSession';
   import { enterFullscreen } from '../lib/fullscreen';
@@ -41,6 +42,12 @@
     const t = setTimeout(() => (stuck = true), 5000);
     return () => clearTimeout(t);
   });
+
+  // The connecting indicator: until the stream plays, unless the camera is
+  // known offline (that has its own message). A stream kept alive is already
+  // playing when Live comes back, so it shows nothing then. LiveSession has
+  // no give-up state: it retries with backoff for as long as Live is open.
+  const connecting = $derived($liveUi.status?.online !== false && playerState !== 'playing');
 
   function fullscreen() {
     const video = box?.querySelector<HTMLVideoElement>('[data-testid="live-video"]') ?? null;
@@ -84,6 +91,9 @@
     {#if proxy && stuck}<LiveStill {cameraId} active={visible} overlay onactive={(on) => setStills(on)} />{/if}
   {:else if $liveUi.status && !$liveUi.status.online && proxy}
     <LiveStill {cameraId} active={visible} onactive={(on) => setStills(on)} />
+  {/if}
+  {#if connecting}
+    <LiveConnecting reconnecting={playerState === 'reconnecting'} stills={$liveUi.stillsShowing} />
   {/if}
 </div>
 
