@@ -18,6 +18,11 @@ export interface TimeInfo {
 export const CLIP_ID = /^\d{8}-\d{6}-\d{6}$/;
 export const DATE = /^\d{4}-\d{2}-\d{2}$/;
 
+// YYYYMMDD… (a clip id, or a file name's date) → YYYY-MM-DD.
+export function clipDate(ymd: string): string {
+  return `${ymd.slice(0, 4)}-${ymd.slice(4, 6)}-${ymd.slice(6, 8)}`;
+}
+
 // The regex lets through calendar nonsense like 2026-13-40 or 2026-02-30;
 // this rejects that by round-tripping through UTC Date and checking the
 // components survived unchanged.
@@ -64,7 +69,7 @@ export function parseClipName(fullName: string): ParsedClip | null {
   return {
     name: fullName,
     stream: stream.toUpperCase() === 'M' ? 'main' : 'sub',
-    date: `${ymd.slice(0, 4)}-${ymd.slice(4, 6)}-${ymd.slice(6, 8)}`,
+    date: clipDate(ymd),
     start,
     end,
     dst: Boolean(dst),

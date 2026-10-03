@@ -1,3 +1,4 @@
+import { setTimeout as sleep } from 'timers/promises';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import request from 'supertest';
 import { mkdtempSync, rmSync } from 'fs';
@@ -124,7 +125,7 @@ describe('proxy first (Plan 7)', () => {
     fake.clips.push({ id: 9, cam: 'cam1', start: Date.parse(b.start) - 1000, end: Date.parse(b.start) + 20_000, stream: 'sub', events: [], body: CLIP });
     // a: no proxy clip, so the camera (3 s per download) holds the slot.
     const slow = request(app).get(`/api/cameras/cam1/clips/${a.id}/video`).set('Cookie', auth).then((r) => r);
-    await new Promise((r) => setTimeout(r, 200));
+    await sleep(200);
     const t0 = Date.now();
     const fast = await binary(request(app).get(`/api/cameras/cam1/clips/${b.id}/video`).set('Cookie', auth));
     expect(Buffer.compare(fast.body, CLIP)).toBe(0);

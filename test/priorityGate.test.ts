@@ -1,3 +1,4 @@
+import { setTimeout as sleep } from 'timers/promises';
 import { describe, expect, it } from 'vitest';
 import { PriorityGate } from '../server/recordings/priorityGate';
 
@@ -39,7 +40,7 @@ describe('PriorityGate', () => {
     const job = async () => {
       active++;
       peak = Math.max(peak, active);
-      await new Promise((r) => setTimeout(r, 5));
+      await sleep(5);
       active--;
     };
     await Promise.allSettled([gate.run(job), gate.run(async () => { throw new Error('x'); }), gate.run(job), gate.run(job, { high: true }), gate.run(job)]);

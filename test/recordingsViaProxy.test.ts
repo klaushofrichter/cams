@@ -1,3 +1,4 @@
+import { setTimeout as sleep } from 'timers/promises';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import request from 'supertest';
 import { mkdtempSync, rmSync } from 'fs';
@@ -195,7 +196,7 @@ describe('the day’s list and the month’s days through cam-proxy', () => {
       await vi.waitFor(() => expect(recordingAsks().length).toBe(1));
       ctl.abort();
       expect(await gone).toBe('aborted');
-      await new Promise((r) => setTimeout(r, 1600)); // past the proxy's Retry-After of 1 s
+      await sleep(1600); // past the proxy's Retry-After of 1 s
       expect(recordingAsks().length).toBe(1);
       expect(state.searches).toBe(searches);
     } finally {
@@ -222,7 +223,7 @@ describe('the day’s list and the month’s days through cam-proxy', () => {
     process.on('unhandledRejection', seen);
     try {
       await expect(getRecordings().events('cam1', today(), AbortSignal.abort(new Error('gone')))).rejects.toThrow('gone');
-      await new Promise((r) => setTimeout(r, 200));
+      await sleep(200);
       expect(seen).not.toHaveBeenCalled();
     } finally {
       process.off('unhandledRejection', seen);

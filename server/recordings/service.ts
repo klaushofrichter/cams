@@ -4,11 +4,12 @@ import { tmpdir } from 'os';
 import { join } from 'path';
 import { Readable } from 'stream';
 import { pipeline } from 'stream/promises';
+import { setTimeout as sleep } from 'timers/promises';
 import { proxyActive } from '../cameraRegistry';
 import { getClient } from '../reolink/clients';
 import { logger } from '../logger';
 import { CameraError } from '../reolink/client';
-import { clipIdOf, clipTimes, CLIP_ID, parseClipName, ParsedClip, TimeInfo, Trigger } from './clipNames';
+import { clipDate, clipIdOf, clipTimes, CLIP_ID, parseClipName, ParsedClip, TimeInfo, Trigger } from './clipNames';
 import { DiskCache } from './cache';
 import { PriorityGate } from './priorityGate';
 import { makeThumbnail } from './thumbnail';
@@ -126,11 +127,6 @@ function clipSpanEnd(p: ParsedClip): number {
 // list holds either form (bare from the proxy, a path from the camera's Search).
 function baseName(name: string): string {
   return name.slice(name.lastIndexOf('/') + 1);
-}
-
-// YYYYMMDD-HHMMSS-HHMMSS → YYYY-MM-DD.
-function dateOf(clipId: string): string {
-  return `${clipId.slice(0, 4)}-${clipId.slice(4, 6)}-${clipId.slice(6, 8)}`;
 }
 
 // A camera-local day's bounds in unix ms, for an older cam-proxy without the
@@ -445,7 +441,7 @@ export class RecordingsService {
   // camera's own Search results; a camera path never comes from the client.
   private async names(cameraId: string, clipId: string): Promise<{ sub?: string; main?: string }> {
     if (!CLIP_ID.test(clipId)) throw new RecordingError('unknown_clip', 'malformed clip id');
-    const date = `${clipId.slice(0, 4)}-${clipId.slice(4, 6)}-${clipId.slice(6, 8)}`;
+    const date = clipDate(clipId);
     const names = (await this.day(cameraId, date)).names.get(clipId);
     if (!names) throw new RecordingError('unknown_clip', 'no such clip');
     return names;
@@ -470,7 +466,7 @@ export class RecordingsService {
       } catch (err) {
         // A probe is a single try: it only asks whether downloads work again.
         if (probe || !(err instanceof CameraError) || err.code !== 'camera_offline' || signal?.aborted) throw err;
-        await new Promise((r) => setTimeout(r, DOWNLOAD_RETRY_DELAY_MS));
+        await sleep(DOWNLOAD_RETRY_DELAY_MS);
         res = await this.client(cameraId).download(name, signal);
       }
       this.cameraDownloadOkAt.set(cameraId, performance.now());
@@ -541,7 +537,7 @@ export class RecordingsService {
 
   // The event's start and end, from the day's list.
   private async eventSpan(cameraId: string, clipId: string): Promise<{ start: number; end: number } | null> {
-    const date = `${clipId.slice(0, 4)}-${clipId.slice(4, 6)}-${clipId.slice(6, 8)}`;
+    const date = clipDate(clipId);
     const ev = (await this.day(cameraId, date)).events.find((e) => e.id === clipId);
     return ev ? { start: Date.parse(ev.start), end: Date.parse(ev.end) } : null;
   }
@@ -581,7 +577,7 @@ export class RecordingsService {
   // another (the proxy's) with an empty list, and the proxy did list the file.
   private async cameraPath(cameraId: string, clipId: string, name: string, stream: 'sub' | 'main'): Promise<string> {
     if (name.includes('/')) return name;
-    const key = `${cameraId}|${dateOf(clipId)}|${stream}`;
+    const key = `${cameraId}|${clipDate(clipId)}|${stream}`;
     const hit = this.cameraPaths.get(key);
     if (hit) {
       this.cameraPaths.delete(key); // now the most recently used
@@ -592,7 +588,7 @@ export class RecordingsService {
     if (cached) return cached;
     // Not searched yet, or a file newer than the last Search: ask again.
     const search = (async () => {
-      const files = await this.client(cameraId).searchDay(dateOf(clipId), stream);
+      const files = await this.client(cameraId).searchDay(clipDate(clipId), stream);
       if (!files.length) throw new RecordingError('recordings_unavailable', 'the camera’s Search found no recordings for the day');
       return new Map(files.map((f) => [baseName(f.name), f.name] as const));
     })();
@@ -766,7 +762,7 @@ export class RecordingsService {
       throw new RecordingError('full_quality_unavailable', 'the full-resolution file is not listed yet');
     }
     const t = clipId.slice(9, 15);
-    const filename = `${cameraId}-${dateOf(clipId)}_${t.slice(0, 2)}-${t.slice(2, 4)}-${t.slice(4, 6)}-${served}.mp4`;
+    const filename = `${cameraId}-${clipDate(clipId)}_${t.slice(0, 2)}-${t.slice(2, 4)}-${t.slice(4, 6)}-${served}.mp4`;
 
     // 1. The proxy's recordings API (the SD file), outside the camera's slot.
     const fromSd = await this.viaProxy(cameraId, clipId, () => openProxyRecording(cameraId, baseName(name), signal), signal);

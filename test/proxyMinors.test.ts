@@ -1,4 +1,5 @@
 // Issue #38: deferred minors from the cam-proxy integration reviews.
+import { setTimeout as sleep } from 'timers/promises';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import express from 'express';
 import { inspect } from 'util';
@@ -110,7 +111,7 @@ describe('cam-proxy minors (#38)', () => {
     expect(statuses.filter((s) => s === 503)).toHaveLength(1);
     expect(eventStreamCount()).toBe(20);
     closeEventStreams();
-    await new Promise((r) => setTimeout(r, 50));
+    await sleep(50);
     expect(eventStreamCount()).toBe(0);
     for (const r of open) r.destroy();
     await new Promise<void>((r) => http.close(() => r()));
@@ -133,7 +134,7 @@ describe('cam-proxy minors (#38)', () => {
         req.on('error', () => resolve());
         setTimeout(() => (req.destroy(), resolve()), 100);
       });
-      await new Promise((r) => setTimeout(r, 600));
+      await sleep(600);
       expect(errors.map((e) => inspect(e))).not.toEqual(expect.arrayContaining([expect.stringMatching(/unhandled_error|Cannot pipe/)]));
     } finally {
       cams.closeAllConnections();

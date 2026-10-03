@@ -1,14 +1,16 @@
 import { Router, Request, Response, NextFunction } from 'express';
+import { setTimeout as sleep } from 'timers/promises';
 import { getCamera } from '../cameraRegistry';
 import { CameraError } from '../reolink/client';
 import { getClient } from '../reolink/clients';
 import { readDetectionRaw, readDevice, readImageRaw } from '../reolink/device';
 import {
-  AI_TYPE, AiKind, changedKeys, detectionCommands, DetectionPatch, imageCommands, ImagePatch, patchApplied,
-  SettingsCommand, validateDetectionPatch, validateImagePatch,
+  AI_TYPE, AiKind, changedKeys, detectionCommands, DetectionPatch, DetectionSettings, imageCommands, ImagePatch, ImageSettings, patchApplied,
+  RawDetection, RawImage, SettingsCommand, validateDetectionPatch, validateImagePatch,
 } from '../reolink/settings';
 import { logger } from '../logger';
 import { currentUser } from '../middleware/requireAuth';
+import { sendCameraError as fail } from './common';
 
 export const settingsRouter = Router();
 
@@ -46,21 +48,11 @@ function cameraOr404(req: Request, res: Response) {
   return { cam, client };
 }
 
-function fail(err: unknown, cameraId: string, res: Response, next: NextFunction) {
-  if (err instanceof CameraError) {
-    logger.warn({ cameraId, code: err.code, message: err.message }, 'camera_request_failed');
-    res.status(err.code === 'camera_error' ? 502 : 503).json({ error: err.code });
-    return;
-  }
-  next(err);
-}
+type Client = NonNullable<ReturnType<typeof getClient>>;
 
 // One command at a time; a failing command doesn't stop the rest (review
 // focus 3). Every field is then judged against a fresh re-read.
-async function apply(
-  client: NonNullable<ReturnType<typeof getClient>>,
-  commands: SettingsCommand[],
-): Promise<Record<string, { ok: boolean; error?: string }>> {
+async function apply(client: Client, commands: SettingsCommand[]): Promise<Record<string, { ok: boolean; error?: string }>> {
   const fields: Record<string, { ok: boolean; error?: string }> = {};
   for (const c of commands) {
     try {
@@ -84,27 +76,35 @@ settingsRouter.get('/api/cameras/:id/settings', async (req, res, next) => {
   }
 });
 
-settingsRouter.put('/api/cameras/:id/settings/:section', async (req, res, next) => {
+// The two writable sections of the Settings page.
+interface Section<P, R> {
+  validate(body: unknown): { ok: true; patch: P } | { ok: false; details: string[] };
+  read(client: Client): Promise<{ raw: R; settings: DetectionSettings | ImageSettings }>;
+  commands(patch: P, raw: R): SettingsCommand[];
+}
+const DETECTION: Section<DetectionPatch, RawDetection> = { validate: validateDetectionPatch, read: readDetectionRaw, commands: detectionCommands };
+const IMAGE: Section<ImagePatch, RawImage> = { validate: validateImagePatch, read: readImageRaw, commands: imageCommands };
+
+settingsRouter.put('/api/cameras/:id/settings/:section', (req, res, next) => {
   const section = String(req.params.section);
-  if (section !== 'detection' && section !== 'image') {
-    res.status(404).json({ error: 'not found' });
-    return;
-  }
+  if (section === 'detection') return writeSection(DETECTION, section, req, res, next);
+  if (section === 'image') return writeSection(IMAGE, section, req, res, next);
+  res.status(404).json({ error: 'not found' });
+});
+
+async function writeSection<P extends DetectionPatch | ImagePatch, R>(s: Section<P, R>, section: string, req: Request, res: Response, next: NextFunction): Promise<void> {
   const c = cameraOr404(req, res);
   if (!c) return;
-  const v = section === 'detection' ? validateDetectionPatch(req.body) : validateImagePatch(req.body);
+  const v = s.validate(req.body);
   if (!v.ok) {
     res.status(400).json({ error: 'bad_request', details: v.details });
     return;
   }
   try {
-    const before = section === 'detection' ? await readDetectionRaw(c.client) : await readImageRaw(c.client);
-    const commands =
-      section === 'detection'
-        ? detectionCommands(v.patch as DetectionPatch, (before as Awaited<ReturnType<typeof readDetectionRaw>>).raw)
-        : imageCommands(v.patch as ImagePatch, (before as Awaited<ReturnType<typeof readImageRaw>>).raw);
+    const before = await s.read(c.client);
+    const commands = s.commands(v.patch, before.raw);
     const fields = await apply(c.client, commands);
-    const after = section === 'detection' ? await readDetectionRaw(c.client) : await readImageRaw(c.client);
+    const after = await s.read(c.client);
     const settings = after.settings;
     for (const [field, r] of Object.entries(fields)) {
       if (r.ok && !patchApplied(field, v.patch, settings)) fields[field] = { ok: false, error: 'not_applied' };
@@ -119,7 +119,7 @@ settingsRouter.put('/api/cameras/:id/settings/:section', async (req, res, next) 
   } catch (err) {
     fail(err, c.cam.id, res, next);
   }
-});
+}
 
 settingsRouter.get('/api/cameras/:id/device', async (req, res, next) => {
   const c = cameraOr404(req, res);
@@ -139,7 +139,7 @@ settingsRouter.get('/api/cameras/:id/device', async (req, res, next) => {
 // 5 s before the switch counts as not applied.
 const LIGHT_WAIT_MS = 5000;
 const LIGHT_POLL_MS = 250;
-async function readWhiteLed(client: NonNullable<ReturnType<typeof getClient>>): Promise<Record<string, unknown>> {
+async function readWhiteLed(client: Client): Promise<Record<string, unknown>> {
   const r = await client.command<{ WhiteLed?: Record<string, unknown> }>('GetWhiteLed', { channel: 0 });
   return r.WhiteLed ?? {};
 }
@@ -170,7 +170,7 @@ settingsRouter.put('/api/cameras/:id/light', async (req, res, next) => {
       const until = Date.now() + LIGHT_WAIT_MS;
       let on = (await readWhiteLed(c.client)).state === 1;
       while (on !== want && Date.now() < until) {
-        await new Promise((r) => setTimeout(r, LIGHT_POLL_MS));
+        await sleep(LIGHT_POLL_MS);
         on = (await readWhiteLed(c.client)).state === 1;
       }
       logger.info({ cameraId: c.cam.id, on, by: currentUser(req)?.email }, 'camera_light_switched');

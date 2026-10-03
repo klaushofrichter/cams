@@ -116,13 +116,18 @@ function proxyOf(v: unknown, i: number): { url: string; token: string; adminToke
   }
   if (!url || (url.protocol !== 'http:' && url.protocol !== 'https:')) fail('url must be an http(s) URL');
   if (url!.username || url!.password || url!.search || url!.hash) fail('url must have no credentials, query or hash');
-  if (typeof p.token !== 'string' || p.token.length < 32 || /\s/.test(p.token)) fail('token must be a string of 32 or more characters without spaces');
-  if (p.adminToken !== undefined && (typeof p.adminToken !== 'string' || p.adminToken.length < 32 || /\s/.test(p.adminToken))) fail('adminToken must be a string of 32 or more characters without spaces');
+  const secret = (v: unknown, name: string) => {
+    if (typeof v !== 'string' || v.length < 32 || /\s/.test(v)) fail(`${name} must be a string of 32 or more characters without spaces`);
+  };
+  secret(p.token, 'token');
+  if (p.adminToken !== undefined) secret(p.adminToken, 'adminToken');
   if (p.camera !== undefined && !(typeof p.camera === 'string' && ID_PATTERN.test(p.camera))) fail(`camera must match ${ID_PATTERN}`);
-  const out: { url: string; token: string; adminToken?: string; camera?: string } = { url: String(p.url).replace(/\/+$/, ''), token: p.token as string };
-  if (p.adminToken !== undefined) out.adminToken = p.adminToken as string;
-  if (p.camera !== undefined) out.camera = p.camera as string;
-  return out;
+  return {
+    url: String(p.url).replace(/\/+$/, ''),
+    token: p.token as string,
+    ...(p.adminToken !== undefined && { adminToken: p.adminToken as string }),
+    ...(p.camera !== undefined && { camera: p.camera as string }),
+  };
 }
 
 export function setCameras(list: CameraConfig[]): void {
