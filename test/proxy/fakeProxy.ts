@@ -443,14 +443,17 @@ if (require.main === module) {
       if (typeof b.cam !== 'string' || typeof b.type !== 'string' || typeof b.data !== 'object' || !b.data) return void res.status(400).json({ error: 'cam, type and data' });
       res.json(fake.push({ cam: b.cam, type: b.type, data: b.data as Record<string, unknown> }));
     });
-    // e2e only: POST /preview-minute {minute, tiles, current} makes a minute
-    // list its first `tiles` tiles as present, and (current) answer its
+    // e2e only: POST /preview-minute {minute, tiles, current} gives Den's
+    // minute a sprite (if it has none) and lists its first `tiles` tiles as present, and (current) answer its
     // sprite no-store, like cam-proxy's minute being collected. tiles 60 and
     // current false put it back.
     hooks.post('/preview-minute', (req, res) => {
       const b = req.body as { minute?: unknown; tiles?: unknown; current?: unknown };
       if (!Number.isSafeInteger(b.minute) || !Number.isSafeInteger(b.tiles) || typeof b.current !== 'boolean') return void res.status(400).json({ error: 'minute, tiles and current' });
       const minute = b.minute as number, tiles = b.tiles as number;
+      const sprites = fake.previews.get('cam1') ?? new Map<number, Buffer>();
+      if (!sprites.has(minute)) sprites.set(minute, media.sprite); // Den's minute, as /analyses gives one
+      fake.previews.set('cam1', sprites);
       if (tiles >= 60) fake.previewPresent.delete(minute);
       else fake.previewPresent.set(minute, Array.from({ length: 60 }, (_, i) => i < tiles));
       fake.previewCurrent = b.current ? minute : fake.previewCurrent === minute ? null : fake.previewCurrent;

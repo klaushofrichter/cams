@@ -28,18 +28,19 @@ test('a film frame of a minute being collected is fetched again as it grows', as
 });
 
 async function film(page: Page, info: TestInfo) {
-  // A frame a little before now: its minute has a sprite in the fake. The
-  // projects run at once and share the fake: desktop takes an even minute,
-  // phone an odd one.
+  // A frame before now (the hook gives its minute a sprite). The projects
+  // run at once and share the fake, so they take different minutes: the
+  // phone's film has 4 frames (7.5 min apart at this zoom), and it takes its
+  // newest past one, at most 8.5 min back; desktop takes one older than 9 min.
+  // (Minute parity didn't work: the phone's few frames can all share one.)
   const frames = page.getByTestId('strip-film-frame');
   await expect(frames.first()).toBeVisible();
   const now = await page.evaluate(() => Date.now());
-  const ts = (await frames.evaluateAll((els) => els.map((e) => Number(e.getAttribute('data-t'))))).filter((t) => t < now - 60_000 && Math.floor(t / 60_000) % 2 === (info.project.name === 'phone' ? 1 : 0));
+  const ts = (await frames.evaluateAll((els) => els.map((e) => Number(e.getAttribute('data-t'))))).filter((t) => t < now - (info.project.name === 'phone' ? 60_000 : 9 * 60_000));
   expect(ts.length).toBeGreaterThan(0);
   const t = ts.at(-1)!;
   const minute = Math.floor(t / 60_000) * 60_000;
   const frame = page.locator(`[data-testid="strip-film-frame"][data-t="${t}"] .tile`);
-  await expect(frame).toHaveAttribute('style', new RegExp(`/previews/${minute}\\.jpg["']`));
   try {
     // The minute is being collected: 59 tiles so far.
     expect((await page.request.post(`${HOOKS}/preview-minute`, { data: { minute, tiles: 59, current: true } })).ok()).toBe(true);
