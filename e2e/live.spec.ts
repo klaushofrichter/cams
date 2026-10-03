@@ -210,6 +210,24 @@ test('a camera with a gateway falls back to stills, clearly marked, when live vi
   await expect(page.getByTestId('live-connecting')).toHaveClass(/stills/);
 });
 
+// Klaus, 2026-10-03: no spinner forever. After 30 s without playing the
+// indicator turns calm while the retries go on. The page's clock is faked
+// (as in recordings.spec.ts) so this doesn't wait out 30 real seconds.
+test('a stream that never plays turns the indicator calm after 30 s', async ({ page }) => {
+  await page.clock.install();
+  await page.goto('/app/live');
+  await page.getByTestId('camera-picker').selectOption('barn');
+  const indicator = page.getByTestId('live-connecting');
+  await expect(indicator).toHaveAttribute('data-state', 'connecting');
+  await page.clock.runFor(6_000); // stills after 5 s
+  await expect(page.getByTestId('live-still')).toBeVisible({ timeout: 10_000 });
+  await expect(indicator).toHaveAttribute('data-state', 'connecting');
+  await page.clock.runFor(25_000);
+  await expect(indicator).toHaveAttribute('data-state', 'unavailable');
+  await expect(indicator).toHaveText("The live stream isn't available right now. Still trying… Showing stills meanwhile.");
+  await expect(page.getByTestId('live-connecting-note')).toHaveCount(0);
+});
+
 // Klaus, 2026-09-29: the controls are icons with tooltips, and the camera's
 // light (WhiteLed.state in cam-sim) is shown and switched from the panel.
 test('the live controls are icons with tooltips, and the light switches', async ({ page }, testInfo) => {

@@ -10,5 +10,5 @@ published as [GitHub releases](https://github.com/klaushofrichter/cams/releases)
 
 ### Added
 
-- Live shows a spinner with "Connecting to the live stream…" until the video plays ("Reconnecting…" after a drop), and how long the stream stays connected after you leave the page, from the keep-alive setting.
+- Live shows a spinner with "Connecting to the live stream…" until the video plays ("Reconnecting…" after a drop), and how long the stream stays connected after you leave the page, from the keep-alive setting. After 30 s without video it says calmly that the stream isn't available and it is still trying, without the spinner.
 

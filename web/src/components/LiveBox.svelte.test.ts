@@ -101,5 +101,63 @@ describe('LiveBox', () => {
       flushSync();
       expect(note()).toBe('The stream stays connected for 30 s after you leave this page.');
     });
+
+    describe('after 30 s without playing', () => {
+      beforeEach(() => vi.useFakeTimers());
+      afterEach(() => vi.useRealTimers());
+      const text = () => overlay()!.textContent ?? '';
+      const spinner = () => overlay()!.querySelector('.spinner');
+
+      it('turns calm: no spinner, no keep-alive line, still trying', () => {
+        open({ id: 'cam1', online: true }, 60);
+        vi.advanceTimersByTime(29_000);
+        flushSync();
+        expect(spinner()).not.toBeNull();
+        vi.advanceTimersByTime(1_000);
+        flushSync();
+        expect(spinner()).toBeNull();
+        expect(target!.querySelector('[data-testid="live-connecting-note"]')).toBeNull();
+        expect(text()).toBe("The live stream isn't available right now. Still trying…");
+        expect(overlay()!.getAttribute('data-state')).toBe('unavailable');
+      });
+
+      it('mentions the stills when they show', () => {
+        open({ id: 'cam1', online: true }, 60);
+        liveUi.update((u) => ({ ...u, stillsShowing: true }));
+        vi.advanceTimersByTime(30_000);
+        flushSync();
+        expect(text()).toBe("The live stream isn't available right now. Still trying… Showing stills meanwhile.");
+      });
+
+      it('counts on through reconnecting, and goes once it plays', () => {
+        open({ id: 'cam1', online: true }, 60);
+        vi.advanceTimersByTime(20_000);
+        liveUi.update((u) => ({ ...u, playerState: 'reconnecting' }));
+        flushSync();
+        vi.advanceTimersByTime(10_000);
+        flushSync();
+        expect(spinner()).toBeNull();
+        liveUi.update((u) => ({ ...u, playerState: 'playing' }));
+        flushSync();
+        expect(overlay()).toBeNull();
+      });
+
+      it('starts over after playing: a drop gets 30 s of spinner again', () => {
+        open({ id: 'cam1', online: true }, 60);
+        vi.advanceTimersByTime(30_000);
+        liveUi.update((u) => ({ ...u, playerState: 'playing' }));
+        flushSync();
+        liveUi.update((u) => ({ ...u, playerState: 'reconnecting' }));
+        flushSync();
+        vi.advanceTimersByTime(29_000);
+        flushSync();
+        expect(spinner()).not.toBeNull();
+        expect(text()).toContain('Reconnecting to the live stream…');
+        vi.advanceTimersByTime(1_000);
+        flushSync();
+        expect(spinner()).toBeNull();
+      });
+    });
   });
 });
+

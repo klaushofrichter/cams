@@ -9,6 +9,8 @@
   import { deriveStatus, liveStatus } from '../lib/liveStatus';
   import { badgeOf, liveUi, offlineReason, registerLiveFullscreen } from '../lib/liveUi';
 
+  const UNAVAILABLE_AFTER_MS = 30_000; // Klaus, 2026-10-03: no spinner forever
+
   // The live stream inside the player box (spec 2026-09-28). The camera's
   // status comes from the page (checkLiveStatus), so the Live panel works
   // without the stream. The video page
@@ -46,8 +48,19 @@
   // The connecting indicator: until the stream plays, unless the camera is
   // known offline (that has its own message). A stream kept alive is already
   // playing when Live comes back, so it shows nothing then. LiveSession has
-  // no give-up state: it retries with backoff for as long as Live is open.
+  // no give-up state: it retries with backoff for as long as Live is open, so
+  // after 30 s without playing (connecting and reconnecting alike; reset once
+  // it plays) the indicator turns calm, without the spinner.
   const connecting = $derived($liveUi.status?.online !== false && playerState !== 'playing');
+  const notPlaying = $derived(playerState !== 'playing'); // connecting <-> reconnecting doesn't restart the 30 s
+  let unavailable = $state(false);
+  $effect(() => {
+    void cameraId;
+    unavailable = false;
+    if (!notPlaying) return;
+    const t = setTimeout(() => (unavailable = true), UNAVAILABLE_AFTER_MS);
+    return () => clearTimeout(t);
+  });
 
   function fullscreen() {
     const video = box?.querySelector<HTMLVideoElement>('[data-testid="live-video"]') ?? null;
@@ -93,7 +106,7 @@
     <LiveStill {cameraId} active={visible} onactive={(on) => setStills(on)} />
   {/if}
   {#if connecting}
-    <LiveConnecting reconnecting={playerState === 'reconnecting'} stills={$liveUi.stillsShowing} />
+    <LiveConnecting reconnecting={playerState === 'reconnecting'} {unavailable} stills={$liveUi.stillsShowing} />
   {/if}
 </div>
 
