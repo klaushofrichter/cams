@@ -173,6 +173,13 @@ describe('GET /auth/logout', () => {
     expect(res.headers['clear-site-data']).toBeUndefined();
   });
 
+  // CodeQL js/missing-rate-limiting (PR #155): Logout touches the sign-in
+  // cookies, so it shares the sign-in routes' limiter.
+  it('is rate-limited like the sign-in routes', async () => {
+    const res = await request(createApp()).get('/auth/logout');
+    expect(res.headers['ratelimit-policy'] ?? res.headers['ratelimit']).toBeDefined();
+  });
+
   it('leaves the old session unusable once the browser drops the cookie', async () => {
     // /api/me itself is a Task 5 deliverable and does not exist on this
     // router yet; a route guarded by the real requireAuthApi middleware

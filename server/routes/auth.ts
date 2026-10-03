@@ -105,7 +105,9 @@ authRouter.get('/auth/google/callback', authRateLimit, async (req: Request, res:
 // Clear-Site-Data is deliberately not used here: it applies to the whole
 // registrable domain, not just this origin, so it would also sign the user
 // out of every other *.skylar.technology service sharing the browser.
-authRouter.get('/auth/logout', (_req: Request, res: Response) => {
+// Rate-limited like sign-in, as it rewrites the same cookies (CodeQL
+// js/missing-rate-limiting).
+authRouter.get('/auth/logout', authRateLimit, (_req: Request, res: Response) => {
   res.clearCookie(SESSION_COOKIE, COOKIE_OPTS);
   res.clearCookie(RETURN_COOKIE, COOKIE_OPTS);
   clearState(res);
