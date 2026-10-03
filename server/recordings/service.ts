@@ -79,6 +79,13 @@ export function isRecentDay(date: string, offsetMinutes: number, now = Date.now(
   return date >= cutoff;
 }
 
+// Drops the entries older than the longest TTL they can have (lists of days
+// no one looks at any more).
+function sweep(cache: Map<string, { at: number }>, maxTtl: number): void {
+  const now = Date.now();
+  for (const [k, e] of cache) if (now - e.at >= maxTtl) cache.delete(k);
+}
+
 // A lazily made value per camera.
 function perCamera<T>(make: () => T): (cameraId: string) => T {
   const values = new Map<string, T>();
@@ -278,6 +285,7 @@ export class RecordingsService {
     if (hit && Date.now() - hit.at < (hit.doubtful ? TODAY_TTL : MONTH_TTL)) return hit.days;
     const proxied = await this.listViaProxy(cameraId, month, () => listProxyDays(cameraId, month));
     const days = proxied ?? (await this.client(cameraId).searchMonth(month));
+    sweep(this.days_, MONTH_TTL);
     this.days_.set(key, { at: Date.now(), days, doubtful: !proxied && proxyActive(cameraId) });
     return days;
   }
@@ -305,6 +313,7 @@ export class RecordingsService {
       }, ctl.signal);
       const [sub, main] = proxied ?? (await Promise.all([client.searchDay(date, 'sub'), client.searchDay(date, 'main')]));
       const entry: DayEntry = { at: Date.now(), ...mergeDay(sub, main, date, time), doubtful: !proxied && proxyActive(cameraId) };
+      sweep(this.dayCache, PAST_TTL);
       this.dayCache.set(key, entry);
       return entry;
     })();

@@ -64,15 +64,25 @@
         .then((r) => { if (!stale) oldest = typeof r.oldest === 'number' ? r.oldest : null; })
         .catch(() => undefined);
     void load();
-    const id = setInterval(load, 60_000);
+    // Not while the tab is hidden; asked again when it shows.
+    const id = setInterval(() => {
+      if (document.visibilityState !== 'hidden') void load();
+    }, 60_000);
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') void load();
+    };
+    document.addEventListener('visibilitychange', onVisible);
     return () => {
       stale = true;
       clearInterval(id);
+      document.removeEventListener('visibilitychange', onVisible);
     };
   });
   // The right edge: now, or the end of the latest known clip (a camera clock
   // ahead of the browser's). Every move is kept within the two.
-  const latest = $derived(Math.max(now, ...allEvents.map((e) => Date.parse(e.end))));
+  // (The clips' end only changes with the events, not with every tick of `now`.)
+  const lastEnd = $derived(allEvents.reduce((m, e) => Math.max(m, Date.parse(e.end)), -Infinity));
+  const latest = $derived(Math.max(now, lastEnd));
   $effect(() => {
     const t = at;
     const lo = oldest ?? -Infinity;

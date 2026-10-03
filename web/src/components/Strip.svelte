@@ -35,7 +35,11 @@
   // now (2 s back, so a still shows) or the end of the latest known clip (a
   // camera clock ahead of the browser's).
   const lo = $derived(oldest ?? -Infinity);
-  const hi = $derived(Math.max(now - 2000, ...events.map((e) => Date.parse(e.end))));
+  // Each event's start and end in ms, parsed once per event list (not per
+  // scroll step, tick or pointer move).
+  const spansOf = $derived(events.map((e) => ({ e, s: Date.parse(e.start), t: Date.parse(e.end) })));
+  const lastEnd = $derived(spansOf.reduce((m, x) => Math.max(m, x.t), -Infinity));
+  const hi = $derived(Math.max(now - 2000, lastEnd));
   const clampT = (t: number) => Math.min(hi, Math.max(lo, t));
   const seekTo = (t: number) => onseek(clampT(t));
   const span = $derived(win.end - win.start);
@@ -45,8 +49,7 @@
   const pct = (t: number) => ((t - win.start) / span) * 100;
   const spans = $derived(stripSpans(coverage, win, now, oldest));
   const segs = $derived(
-    events
-      .map((e) => ({ e, s: Date.parse(e.start), t: Date.parse(e.end) }))
+    spansOf
       .filter(({ s, t }) => t > win.start && s < win.end)
       .map(({ e, s, t }) => ({ id: e.id, start: s, end: t, left: pct(Math.max(s, win.start)), width: Math.max(0.3, pct(Math.min(t, win.end)) - pct(Math.max(s, win.start))), ai: e.triggers.some((x) => x !== 'motion') })),
   );
@@ -155,7 +158,7 @@
     const label = localClock(t);
     cursor = { left, label };
     const p = previewAt(previews, t);
-    const ev = !p && thumbFor ? events.find((x) => t >= Date.parse(x.start) && t < Date.parse(x.end)) : undefined;
+    const ev = !p && thumbFor ? spansOf.find((x) => t >= x.s && t < x.t)?.e : undefined;
     if (!p && !ev) return hidePicture();
     const style = p ? tileStyle(p.minute, p.index, 1) : null;
     const img = ev && thumbFor ? thumbFor(ev.id) : undefined;
