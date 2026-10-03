@@ -57,12 +57,14 @@ export function toggleFilter(f: Filter, k: FilterKind | 'all'): Filter {
   const next = f.includes(k) ? f.filter((x) => x !== k) : [...f, k];
   return next.length ? ALL_KINDS.filter((x) => next.includes(x)) : [...ALL_KINDS];
 }
-const DATE = /^\d{4}-\d{2}-\d{2}$/;
+export const DATE = /^\d{4}-\d{2}-\d{2}$/;
 const CLIP = /^\d{8}-\d{6}-\d{6}$/;
-export const CURSOR_KEY = 'cams-cursor';
+const CURSOR_KEY = 'cams-cursor';
+
+export const pad2 = (n: number) => String(n).padStart(2, '0');
 
 export function localDate(d: Date): string {
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
 }
 
 export function addDays(date: string, n: number): string {
@@ -74,9 +76,10 @@ export function filterEvents(events: EventClip[], filter: Filter): EventClip[] {
   return isAllKinds(filter) ? events : events.filter((e) => e.triggers.some((t) => (filter as string[]).includes(t)));
 }
 
-export function formatClock(iso: string): string {
-  const d = new Date(iso);
-  return [d.getHours(), d.getMinutes(), d.getSeconds()].map((v) => String(v).padStart(2, '0')).join(':');
+// HH:MM:SS, local.
+export function formatClock(t: string | number): string {
+  const d = new Date(t);
+  return [d.getHours(), d.getMinutes(), d.getSeconds()].map(pad2).join(':');
 }
 
 const cam = (id: string) => encodeURIComponent(id);

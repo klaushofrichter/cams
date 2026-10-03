@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { dayRange, hourGroups, minuteOf, previewAt, splitRange, stillIndex, tileIndex, tileStyle, timelineCursor, cursorSearch, stepMinute, cardsInMinute, cardKind, secondKinds, seenStills, analysedSeconds, minuteIndex, type PreviewMinute } from './timeline';
+import { dayRange, hourGroups, minuteOf, previewAt, splitRange, stillIndex, tileIndex, tileStyle, timelineCursor, timelineSearch, stepMinute, cardsInMinute, cardKind, secondKinds, seenStills, analysedSeconds, minuteIndex, type PreviewMinute } from './timeline';
 
 // Tests run with TZ=America/Chicago (vitest.config).
 const m = (minute: number, present = Array(60).fill(true)): PreviewMinute => ({ minute, cols: 10, rows: 6, tileW: 160, tileH: 90, intervalS: 1, present, url: `/x/${minute}.jpg` });
@@ -60,8 +60,8 @@ describe('timeline cursor', () => {
   it('reads and writes cam, date and the open still', () => {
     expect(timelineCursor(new URLSearchParams('cam=den&date=2026-09-27&t=1790538436000'), '2026-09-28')).toEqual({ cam: 'den', date: '2026-09-27', t: 1790538436000 });
     expect(timelineCursor(new URLSearchParams('date=bad&t=x'), '2026-09-28')).toEqual({ cam: null, date: '2026-09-28', t: null });
-    expect(cursorSearch({ cam: 'den', date: '2026-09-27', t: null })).toBe('?cam=den&date=2026-09-27');
-    expect(cursorSearch({ cam: 'den', date: '2026-09-27', t: 5 })).toBe('?cam=den&date=2026-09-27&t=5');
+    expect(timelineSearch({ cam: 'den', date: '2026-09-27', t: null })).toBe('?cam=den&date=2026-09-27');
+    expect(timelineSearch({ cam: 'den', date: '2026-09-27', t: 5 })).toBe('?cam=den&date=2026-09-27&t=5');
   });
 });
 

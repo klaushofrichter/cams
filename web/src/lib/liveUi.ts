@@ -1,3 +1,4 @@
+import { triggerDownload } from './download';
 import { writable } from 'svelte/store';
 import { get } from 'svelte/store';
 import { getJson } from './api';
@@ -127,12 +128,7 @@ export async function saveSnapshot(id: string): Promise<void> {
     const res = await fetch(snapshotUrl(id), { credentials: 'same-origin' });
     if (!res.ok || !(res.headers.get('content-type') ?? '').startsWith('image/')) throw new Error(String(res.status));
     const url = URL.createObjectURL(await res.blob());
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `${id}-${stamp()}.jpg`;
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
+    triggerDownload(url, `${id}-${stamp()}.jpg`);
     setTimeout(() => URL.revokeObjectURL(url), 10_000);
   } catch {
     liveUi.update((u) => ({ ...u, snapshotError: "The snapshot couldn't be taken. The camera may be busy or offline." }));

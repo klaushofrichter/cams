@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onDestroy } from 'svelte';
-  import { cameras } from '../lib/stores';
+  import { cameras, cameraById } from '../lib/stores';
   import { liveEventsOn, preferences } from '../lib/preferences';
   import { eventStream, type CameraEvent } from '../lib/eventStream';
   import { TRIGGER_LABELS, type Trigger } from '../lib/recordings';
@@ -23,7 +23,7 @@
     if (p?.liveEvents === false) return;
     const types = p?.liveEventTypes ?? ['person', 'vehicle', 'pet', 'motion'];
     if (!(types as string[]).includes(e.kind)) return;
-    const name = $cameras.find((c) => c.id === e.cam)?.name ?? e.cam;
+    const name = $cameraById(e.cam)?.name ?? e.cam;
     const kind = TRIGGER_LABELS[e.kind as Trigger] ?? e.kind.charAt(0).toUpperCase() + e.kind.slice(1);
     clearTimeout(t1);
     clearTimeout(t2);

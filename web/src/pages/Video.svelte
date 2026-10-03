@@ -6,7 +6,7 @@
   import { historySeek, saveViewPoint } from '../lib/timeline';
   import LiveBox from '../components/LiveBox.svelte';
   import LivePanel from '../components/LivePanel.svelte';
-  import { cameras, selectedCameraId } from '../lib/stores';
+  import { cameras, cameraById, selectedCameraId } from '../lib/stores';
   import { navigate, replaceRoute, route, type Panel } from '../lib/router';
   import { getJson } from '../lib/api';
   import { loadDay, sourceLabel, type Downloads } from '../lib/dayCache';
@@ -186,7 +186,7 @@
   $effect(() => {
     const c = cam;
     proxyInfo = null;
-    if (!c || !$cameras.find((x) => x.id === c)?.proxyConfigured) return;
+    if (!c || !$cameraById(c)?.proxyConfigured) return;
     let stale = false;
     getJson<{ reachable: boolean; webUrl: string | null }>(`/api/cameras/${encodeURIComponent(c)}/proxy/info`)
       .then((r) => { if (!stale) proxyInfo = r; })
@@ -238,8 +238,8 @@
   $effect(() => {
     if (cam && liveShown) untrack(() => void checkLiveStatus(cam));
   });
-  const camProxy = $derived(!!$cameras.find((x) => x.id === cam)?.proxy);
-  const camera = $derived($cameras.find((x) => x.id === cam) ?? null);
+  const camProxy = $derived(!!$cameraById(cam)?.proxy);
+  const camera = $derived($cameraById(cam) ?? null);
   // The Live panel's recent events: today's, newest first (it shows five).
   const recent = $derived(date === $todayDate ? [...events].sort((a, b) => Date.parse(b.start) - Date.parse(a.start)) : []);
   const visible = $derived(filterEvents(events, filter));

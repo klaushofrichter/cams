@@ -6,6 +6,12 @@ export function formatNow(d: Date, locale?: string): string {
   return `${time} ${timeZoneLabel(d, locale)}`;
 }
 
+// A moment's local time of day, as the browser's locale writes it (with
+// seconds unless `seconds` is false).
+export function localClock(t: number | string, seconds = true): string {
+  return new Date(t).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', ...(seconds ? { second: '2-digit' } : {}) });
+}
+
 // Roughly how long ago `t` was (Klaus, 2026-09-28): "just now" under a
 // minute, then whole minutes, hours or days, rounded down.
 export function timeAgo(t: number, now: number): string {

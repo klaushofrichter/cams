@@ -6,7 +6,8 @@
   import VisionBadges from './VisionBadges.svelte';
   import { scrollIntoContainer } from '../lib/scroll';
   import { groupPending } from '../lib/eventStream';
-  import { cameras } from '../lib/stores';
+  import { cameraById } from '../lib/stores';
+  import { localClock } from '../lib/clock';
 
   let {
     cameraId,
@@ -67,7 +68,7 @@
   // Downloads (Klaus, 2026-09-29): each card's button opens the save dialog
   // (SD or 4K; with a cam-proxy also a pre-/post-roll). Nothing downloads
   // without the dialog's Save.
-  const composable = $derived(!!$cameras.find((c) => c.id === cameraId)?.proxy);
+  const composable = $derived(!!$cameraById(cameraId)?.proxy);
   let saving: EventClip | null = $state(null);
 
   // Open/closed state per `cameraId|date|hour` -- not just `date|hour`:
@@ -179,7 +180,7 @@
   <div class="card pending" data-testid="event-pending" role="status">
     <span class="dot" aria-hidden="true"></span>
     <span class="meta">
-      <strong>{new Date(p.start).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}</strong>
+      <strong>{localClock(p.start)}</strong>
       <span class="tags">{#each orderTriggers(p.kinds) as k (k)}<span class="tag">{TRIGGER_LABELS[k as keyof typeof TRIGGER_LABELS] ?? k}</span>{/each}</span>
       <span class="dur">recording…</span>
     </span>

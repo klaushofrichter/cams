@@ -3,8 +3,9 @@
   import { stripSpans, windowAround, STRIP_ZOOMS, type Coverage } from '../lib/strip';
   import { zoom, pickZoom } from '../lib/zoomPref';
   import { previewAt, tileStyle, type PreviewMinute } from '../lib/timeline';
-  import { addDays, localDate, type EventClip } from '../lib/recordings';
+  import { addDays, localDate, pad2, type EventClip } from '../lib/recordings';
   import { filmFrames, FILM_H, FILM_W } from '../lib/film';
+  import { localClock } from '../lib/clock';
 
   // History's strip (spec 2026-09-27): the playhead stays in the centre and
   // time moves under it. Drag, sideways wheel, click and ←/→ move it.
@@ -71,7 +72,7 @@
       const midnight = d.getHours() === 0 && d.getMinutes() === 0;
       const label = midnight
         ? `${d.toLocaleDateString(undefined, { weekday: 'short' })} ${d.getDate()}`
-        : `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+        : `${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
       out.push({ left: pct(t), label });
     }
     return out;
@@ -151,7 +152,7 @@
   function hoverAt(t: number, e: PointerEvent, el: HTMLElement) {
     const r = el.getBoundingClientRect();
     const left = ((e.clientX - r.left) / r.width) * 100;
-    const label = new Date(t).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+    const label = localClock(t);
     cursor = { left, label };
     const p = previewAt(previews, t);
     const ev = !p && thumbFor ? events.find((x) => t >= Date.parse(x.start) && t < Date.parse(x.end)) : undefined;

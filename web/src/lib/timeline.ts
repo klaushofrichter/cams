@@ -1,7 +1,7 @@
 // The Timeline page's arithmetic (Plan 6). cam-proxy works in UTC ms; the
 // page shows the browser's local day.
 import { writable } from 'svelte/store';
-import { localDate, saveCursor } from './recordings';
+import { DATE, localDate, saveCursor } from './recordings';
 import { navigate } from './router';
 import type { SummaryEntry } from './vision';
 
@@ -77,12 +77,12 @@ export function timelineCursor(params: URLSearchParams, today: string): Timeline
   const cam = params.get('cam');
   return {
     cam: cam && /^[a-z0-9][a-z0-9-]{0,31}$/.test(cam) ? cam : null,
-    date: /^\d{4}-\d{2}-\d{2}$/.test(date) ? date : today,
+    date: DATE.test(date) ? date : today,
     t: /^\d{1,15}$/.test(t) ? Number(t) : null,
   };
 }
 
-export function cursorSearch(c: TimelineCursor): string {
+export function timelineSearch(c: TimelineCursor): string {
   const p = new URLSearchParams();
   if (c.cam) p.set('cam', c.cam);
   p.set('date', c.date);
