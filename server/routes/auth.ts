@@ -3,33 +3,36 @@ import { OAuth2Client } from 'google-auth-library';
 import { SESSION_COOKIE, SESSION_MAX_AGE_MS, signSession } from '../session';
 import { getAllowedEmails } from '../allowedEmails';
 import { createAuthRateLimit } from '../middleware/rateLimit';
-import { RETURN_COOKIE } from '../middleware/requireAuth';
-import { checkState, clearState, redirectToGoogle } from '../googleLogin';
+import { RETURN_COOKIE, rememberReturn, safeReturnPath } from '../middleware/requireAuth';
+import { checkState, clearLoginHint, clearState, loginHint, redirectToGoogle, setLoginHint } from '../googleLogin';
 
 export const authRouter = Router();
 const authRateLimit = createAuthRateLimit();
 const COOKIE_OPTS = { httpOnly: true, secure: true, sameSite: 'lax' as const };
 
-// Only same-site /app paths: "/app", "/app/...", "/app?...". Anything that a
-// browser could read as another origin ("//x", "/\x", absolute URLs) or that
-// merely starts with the letters ("/apps") is refused.
-export function safeReturnPath(value: unknown): string | null {
-  if (typeof value !== 'string') return null;
-  if (!/^\/app(?:[/?]|$)/.test(value)) return null;
-  if (value.includes('//') || value.includes('\\')) return null;
-  // No "." or ".." segments, raw or percent-encoded: /app/../x would leave /app.
-  const path = value.split('?')[0];
-  if (path.split('/').some((seg) => /^(\.|%2e){1,2}$/i.test(seg))) return null;
-  return value;
-}
+export { safeReturnPath };
 
+// ?returnTo=/app/... : where the callback goes after sign-in (validated, an
+// unsafe value is ignored). ?silent=1 : the web app's renewal of an expired
+// session (web/src/lib/api.ts), Google's prompt=none for the account of the
+// last sign-in. Without that account's hint (never signed in here, or
+// logged out) there is nothing to renew: the start page, as before.
 authRouter.get('/auth/google/login', authRateLimit, (req: Request, res: Response) => {
+  rememberReturn(res, req.query.returnTo);
+  if (req.query.silent === '1') {
+    const hint = loginHint(req);
+    if (hint) redirectToGoogle(req, res, 'silent', hint);
+    else res.redirect(302, '/');
+    return;
+  }
   redirectToGoogle(req, res, 'first');
 });
 
 authRouter.get('/auth/google/callback', authRateLimit, async (req: Request, res: Response) => {
-  // The user cancelled at Google (or Google refused): back to the start page,
-  // never a JSON error page.
+  // The user cancelled at Google (or Google refused, or a silent renewal
+  // needs the user: login_required, interaction_required, ...): back to the
+  // start page, never a JSON error page. return_to is kept, so the normal
+  // sign-in from there still comes back to the same page.
   if (req.query.error !== undefined) {
     clearState(res);
     res.redirect('/');
@@ -74,28 +77,40 @@ authRouter.get('/auth/google/callback', authRateLimit, async (req: Request, res:
       return;
     }
     clearState(res);
+    if (attempt === 'silent') {
+      // The remembered account is no longer allowed: forget it, and let the
+      // user sign in from the start page (no chooser was asked for).
+      clearLoginHint(res);
+      res.redirect(302, '/');
+      return;
+    }
     res.status(403).json({ error: 'forbidden' });
     return;
   }
 
   clearState(res);
   res.cookie(SESSION_COOKIE, signSession(email), { ...COOKIE_OPTS, maxAge: SESSION_MAX_AGE_MS });
+  setLoginHint(res, email);
   const returnTo = safeReturnPath(req.cookies?.[RETURN_COOKIE]);
   res.clearCookie(RETURN_COOKIE, COOKIE_OPTS);
   res.redirect(302, returnTo ?? '/');
 });
 
-// Logout clears exactly the three cookies this app sets (session, return_to,
-// oauth_state), with the same attributes they were set with, so the next
+// Logout clears exactly the four cookies this app sets (session, return_to,
+// oauth_state, login_hint), with the same attributes they were set with, so the next
 // visit really needs a fresh Google sign-in (which always shows the account
-// chooser, see googleLogin.ts). localStorage (theme, sidebar) is kept.
+// chooser, see googleLogin.ts; without login_hint no silent renewal is
+// tried). localStorage (theme, sidebar) is kept.
 //
 // Clear-Site-Data is deliberately not used here: it applies to the whole
 // registrable domain, not just this origin, so it would also sign the user
 // out of every other *.skylar.technology service sharing the browser.
-authRouter.get('/auth/logout', (_req: Request, res: Response) => {
+// Rate-limited like sign-in, as it rewrites the same cookies (CodeQL
+// js/missing-rate-limiting).
+authRouter.get('/auth/logout', authRateLimit, (_req: Request, res: Response) => {
   res.clearCookie(SESSION_COOKIE, COOKIE_OPTS);
   res.clearCookie(RETURN_COOKIE, COOKIE_OPTS);
   clearState(res);
+  clearLoginHint(res);
   res.redirect(302, '/');
 });

@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { apiFetch } from '../lib/api';
   import { localClock as clock } from '../lib/clock';
   // Plan 7: the camera gateway's newest still for Live while its video isn't
   // playing, marked as stills with the still's time and age. One request at a
@@ -39,7 +40,7 @@
       if (loading || t - failedAt < 5000) return;
       loading = true;
       try {
-        const res = await fetch(`/api/cameras/${encodeURIComponent(id)}/still/latest.jpg?t=${Date.now()}`);
+        const res = await apiFetch(`/api/cameras/${encodeURIComponent(id)}/still/latest.jpg?t=${Date.now()}`);
         if (!res.ok) throw new Error(String(res.status));
         const at = Number(res.headers.get('X-Still-Time'));
         const blob = await res.blob();
