@@ -123,15 +123,26 @@ function proxyFailed(err: unknown, id: string, res: Response): void {
   else res.destroy();
 }
 
+// A minute with missing tiles may still be collected: cam-proxy composes its
+// sprite on demand under the minute's one URL, and a browser keeps an image
+// URL for the whole page (no-store or not), so a sprite loaded early stayed
+// blank where later tiles came in (Klaus, 2026-10-03). Its URL names how many
+// tiles it has; a whole minute keeps the plain URL (cached for 7 days).
+function spriteVersion(present: unknown): string {
+  if (!Array.isArray(present)) return '';
+  const n = present.filter(Boolean).length;
+  return n < present.length ? `?n=${n}` : '';
+}
+
 proxyRouter.get('/api/cameras/:id/previews', async (req: Request, res: Response) => {
   const p = proxied(req, res);
   const r = p && range(req, res);
   if (!p || !r) return;
   try {
-    const list = await p.client.json<{ minute: unknown; url: string }[]>(`/api/cameras/${p.cam}/previews`, { from: r[0], to: r[1] });
+    const list = await p.client.json<{ minute: unknown; url: string; present?: unknown }[]>(`/api/cameras/${p.cam}/previews`, { from: r[0], to: r[1] });
     // Only whole minutes: the value goes into URLs and CSS (issue #38).
-    const ok = (Array.isArray(list) ? list : []).filter((m): m is { minute: number; url: string } => Number.isSafeInteger(m?.minute) && (m.minute as number) % 60_000 === 0);
-    res.json(ok.map((m) => ({ ...m, url: `${p.base}/previews/${m.minute}.jpg` })));
+    const ok = (Array.isArray(list) ? list : []).filter((m): m is { minute: number; url: string; present?: unknown } => Number.isSafeInteger(m?.minute) && (m.minute as number) % 60_000 === 0);
+    res.json(ok.map((m) => ({ ...m, url: `${p.base}/previews/${m.minute}.jpg${spriteVersion(m.present)}` })));
   } catch (err) {
     proxyFailed(err, String(req.params.id), res);
   }

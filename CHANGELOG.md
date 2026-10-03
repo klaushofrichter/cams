@@ -8,3 +8,7 @@ published as [GitHub releases](https://github.com/klaushofrichter/cams/releases)
 
 ## [Unreleased]
 
+
+### Fixed
+
+- The timeline film no longer keeps a blank frame for a minute whose thumbnails were still coming in when it was first shown: the minute's picture is fetched again as it fills.
