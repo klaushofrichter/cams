@@ -1,3 +1,4 @@
+import { setTimeout as sleep } from 'timers/promises';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { AddressInfo } from 'net';
 import { Server } from 'http';
@@ -226,7 +227,7 @@ describe('ReolinkClient', () => {
     expect(first.subarray(0, 3).toString()).toBe('FLV');
     expect(state.activeStreams).toBe(1);
     ac.abort();
-    await new Promise((r) => setTimeout(r, 100));
+    await sleep(100);
     expect(state.activeStreams).toBe(0);
   });
 });
@@ -240,7 +241,7 @@ describe('Semaphore', () => {
       gate.run(async () => {
         active++;
         peak = Math.max(peak, active);
-        await new Promise((r) => setTimeout(r, 10));
+        await sleep(10);
         active--;
       });
     await Promise.all([task(), task(), task(), task(), task()]);
@@ -264,7 +265,7 @@ describe('Semaphore', () => {
     const hold = async () => {
       active++;
       peak = Math.max(peak, active);
-      await new Promise((r) => setTimeout(r, 5));
+      await sleep(5);
       active--;
     };
 
@@ -302,7 +303,7 @@ describe('Semaphore', () => {
 
     await Promise.all([taskA, taskB]);
     // Give the queued newcomer C time to run too.
-    await new Promise((r) => setTimeout(r, 20));
+    await sleep(20);
 
     expect(peak).toBe(1);
   });

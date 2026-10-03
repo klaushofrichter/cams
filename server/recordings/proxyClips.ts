@@ -1,9 +1,10 @@
 import { Readable } from 'stream';
-import { getProxyClient, proxyCameraId, ProxyError, type ProxyClient } from '../proxy/client';
+import { getProxyClient, proxyPath, requireProxyClient } from '../proxy/client';
 
 // A camera's recording from its cam-proxy (Plan 6): the clip the camera
 // uploaded by FTP that covers the event's start, when the camera itself
-// refuses the download.
+// refuses the download. The proxy can be switched off between finding a clip
+// or still and opening it: requireProxyClient then throws proxy_unreachable.
 
 interface ProxyClip {
   id: number;
@@ -20,21 +21,14 @@ const SLACK_MS = 5_000;
 export async function findProxyClip(cameraId: string, start: number, end: number): Promise<ProxyClip | null> {
   const client = getProxyClient(cameraId);
   if (!client) return null;
-  const clips = await client.json<ProxyClip[]>(`/api/cameras/${encodeURIComponent(proxyCameraId(cameraId))}/clips`, { from: start - SLACK_MS, to: Math.max(end, start) });
+  const clips = await client.json<ProxyClip[]>(proxyPath(cameraId, '/clips'), { from: start - SLACK_MS, to: Math.max(end, start) });
   const valid = clips.filter((c) => Number.isSafeInteger(c.id) && c.start <= start + SLACK_MS && (c.end ?? c.start) >= start);
   return valid.sort((a, b) => Math.abs(a.start - start) - Math.abs(b.start - start))[0] ?? null;
 }
 
-// The proxy can be switched off between finding a clip or still and opening it.
-function clientFor(cameraId: string): ProxyClient {
-  const client = getProxyClient(cameraId);
-  if (!client) throw new ProxyError('proxy_unreachable', 'the camera has no cam-proxy in use');
-  return client;
-}
-
 export async function openProxyClip(cameraId: string, id: number, signal?: AbortSignal): Promise<{ stream: Readable; size: number | null }> {
-  const client = clientFor(cameraId);
-  const res = await client.open(`/api/cameras/${encodeURIComponent(proxyCameraId(cameraId))}/clips/${id}.mp4`, undefined, { signal, timeoutMs: 30_000, idleMs: 30_000 });
+  const client = requireProxyClient(cameraId);
+  const res = await client.open(proxyPath(cameraId, `/clips/${id}.mp4`), undefined, { signal, timeoutMs: 30_000, idleMs: 30_000 });
   if (!res.ok || !res.body) {
     await res.body?.cancel();
     throw new Error(`cam-proxy ${client.host()} answered ${res.status} for clip ${id}`);
@@ -47,14 +41,14 @@ export async function openProxyClip(cameraId: string, id: number, signal?: Abort
 export async function findProxyStill(cameraId: string, from: number, to: number): Promise<number | null> {
   const client = getProxyClient(cameraId);
   if (!client) return null;
-  const stills = await client.json<number[]>(`/api/cameras/${encodeURIComponent(proxyCameraId(cameraId))}/stills`, { from, to });
+  const stills = await client.json<number[]>(proxyPath(cameraId, '/stills'), { from, to });
   const ts = stills.find((t) => Number.isSafeInteger(t) && t >= from && t <= to);
   return ts ?? null;
 }
 
 export async function openProxyStill(cameraId: string, ts: number): Promise<Readable> {
-  const client = clientFor(cameraId);
-  const res = await client.open(`/api/cameras/${encodeURIComponent(proxyCameraId(cameraId))}/stills/${Math.trunc(ts)}.jpg`, undefined, { idleMs: 10_000 });
+  const client = requireProxyClient(cameraId);
+  const res = await client.open(proxyPath(cameraId, `/stills/${Math.trunc(ts)}.jpg`), undefined, { idleMs: 10_000 });
   if (!res.ok || !res.body) {
     await res.body?.cancel();
     throw new Error(`cam-proxy ${client.host()} answered ${res.status} for still ${ts}`);

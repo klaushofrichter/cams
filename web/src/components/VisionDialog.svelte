@@ -3,7 +3,7 @@
   import TimelineStill from './TimelineStill.svelte';
   import { getJson } from '../lib/api';
   import { portal } from '../lib/portal';
-  import { localDate } from '../lib/recordings';
+  import { formatClock as clock, localDate } from '../lib/recordings';
   import { navigate } from '../lib/router';
   import { historyHref, openHistory } from '../lib/timeline';
   import { findingLine, LABEL, type CardAnalysis, type Category, type StillObject } from '../lib/vision';
@@ -38,10 +38,6 @@
 
   const enc = encodeURIComponent;
   const src = $derived(still ? `/api/cameras/${enc(cameraId)}/stills/${still.stillTs}.jpg` : '');
-  const clock = (ts: number) => {
-    const d = new Date(ts);
-    return [d.getHours(), d.getMinutes(), d.getSeconds()].map((v) => String(v).padStart(2, '0')).join(':');
-  };
   const timelineHref = $derived(still ? `/app/timeline?cam=${enc(cameraId)}&date=${localDate(new Date(still.stillTs))}&t=${still.stillTs}` : '');
   const entries = $derived(still ? [...still.summary].sort((a, b) => b.score - a.score) : []);
   function loadAll(): Promise<StillObject[]> {

@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onDestroy, onMount, tick, untrack } from 'svelte';
+  import { triggerDownload } from '../lib/download';
   import { downloadUrl, formatClock, orderTriggers, thumbUrl, TRIGGER_LABELS, type EventClip } from '../lib/recordings';
   import { cancelJob, composedName, formatLength, fullQualityAvailable, isAvailable, ORIGINAL_4K_LABEL, pollJob, resultLength, SIZE_LABELS, startJob, videoUrl, type ComposeSize, type JobView, type SaveSize } from '../lib/compose';
 
@@ -47,11 +48,7 @@
     if (fullMissing) return;
     const href = downloadUrl(camera, clip.id, 'main');
     void askFull().then((ok) => {
-      if (!ok) return;
-      const a = document.createElement('a');
-      a.href = href;
-      a.download = '';
-      a.click();
+      if (ok) triggerDownload(href);
     });
   }
   const fullMissing = $derived(is4k && !fullOk);

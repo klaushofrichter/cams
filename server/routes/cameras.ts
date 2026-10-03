@@ -1,42 +1,19 @@
 import { Router, Request, Response, NextFunction } from 'express';
 import { pipeline } from 'stream/promises';
-import { getCamera } from '../cameraRegistry';
 import { getClient } from '../reolink/clients';
 import { CameraError } from '../reolink/client';
 import { logger } from '../logger';
+import { knownCamera, sendCameraError } from './common';
 
 export const MAX_LIVE_PER_CAMERA = 4;
-const liveCounts = new Map<string, number>();
+// Per camera: the responses of its open live streams.
+const liveStreams = new Map<string, Set<Response>>();
 
 export function liveStreamCount(id: string): number {
-  return liveCounts.get(id) ?? 0;
+  return liveStreams.get(id)?.size ?? 0;
 }
 
 export const camerasRouter = Router();
-
-function cameraId(req: Request, res: Response): string | undefined {
-  const id = String(req.params.id);
-  if (!getCamera(id)) {
-    res.status(404).json({ error: 'unknown_camera' });
-    return undefined;
-  }
-  return id;
-}
-
-function sendCameraError(err: unknown, cameraIdValue: string, res: Response, next: NextFunction): void {
-  // Headers already went out: no matter what kind of error this is, a JSON
-  // body can no longer be sent and next(err) would try to send one anyway.
-  if (res.headersSent) {
-    res.destroy();
-    return;
-  }
-  if (!(err instanceof CameraError)) {
-    next(err);
-    return;
-  }
-  logger.warn({ cameraId: cameraIdValue, code: err.code, message: err.message }, 'camera_request_failed');
-  res.status(err.code === 'camera_error' ? 502 : 503).json({ error: err.code });
-}
 
 // A best-effort label for a stream failure's log line: never the full
 // message (which could carry a URL), just the error's code or name.
@@ -50,7 +27,7 @@ function errorDetail(err: unknown): string {
 const offlineSince = new Map<string, number>();
 
 camerasRouter.get('/api/cameras/:id/status', async (req: Request, res: Response, next: NextFunction) => {
-  const id = cameraId(req, res);
+  const id = knownCamera(req, res);
   if (!id) return;
   try {
     const status = await getClient(id)!.status();
@@ -65,7 +42,7 @@ camerasRouter.get('/api/cameras/:id/status', async (req: Request, res: Response,
 });
 
 camerasRouter.get('/api/cameras/:id/snapshot.jpg', async (req: Request, res: Response, next: NextFunction) => {
-  const id = cameraId(req, res);
+  const id = knownCamera(req, res);
   if (!id) return;
   try {
     const jpeg = await getClient(id)!.snapshot();
@@ -76,16 +53,16 @@ camerasRouter.get('/api/cameras/:id/snapshot.jpg', async (req: Request, res: Res
 });
 
 camerasRouter.get('/api/cameras/:id/live', async (req: Request, res: Response, next: NextFunction) => {
-  const id = cameraId(req, res);
+  const id = knownCamera(req, res);
   if (!id) return;
   if (liveStreamCount(id) >= MAX_LIVE_PER_CAMERA) {
     res.status(503).json({ error: 'too_many_streams' });
     return;
   }
   const quality = req.query.quality === 'main' ? 'main' : 'sub';
-  liveCounts.set(id, liveStreamCount(id) + 1);
+  const open = liveStreams.get(id) ?? new Set<Response>();
+  liveStreams.set(id, open.add(res));
   const abort = new AbortController();
-  let released = false;
   // Once piping starts, a failure on either side of the pipe destroys the
   // other side too (that's what stream.pipeline() is for), so both a viewer
   // disconnect and a camera drop end up closing both `res` and `upstream`.
@@ -94,10 +71,8 @@ camerasRouter.get('/api/cameras/:id/live', async (req: Request, res: Response, n
   // (which is just the automatic, resulting cleanup).
   let cause: 'viewer' | 'camera' | undefined;
   const release = () => {
-    if (released) return;
-    released = true;
     abort.abort();
-    liveCounts.set(id, Math.max(0, liveStreamCount(id) - 1));
+    open.delete(res);
   };
   res.on('close', () => {
     if (cause === undefined && !res.writableFinished) cause = 'viewer';

@@ -5,11 +5,11 @@
   import ThemeToggle from './ThemeToggle.svelte';
   import Clock from './Clock.svelte';
   import LiveNotice from './LiveNotice.svelte';
-  import { cameras, me, drawerOpen, selectedCameraId } from '../lib/stores';
+  import { cameraById, me, drawerOpen, selectedCameraId } from '../lib/stores';
   import { liveStatus } from '../lib/liveStatus';
 
   const REPO_URL = 'https://github.com/klaushofrichter/cams';
-  const selected = $derived($cameras.find((c) => c.id === $selectedCameraId));
+  const selected = $derived($cameraById($selectedCameraId));
 </script>
 
 <header class="topbar" data-testid="topbar">

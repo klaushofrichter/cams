@@ -1,3 +1,4 @@
+import { setTimeout as sleep } from 'timers/promises';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import request from 'supertest';
 import http, { Server } from 'http';
@@ -61,7 +62,7 @@ async function waitFor(predicate: () => boolean, { timeoutMs = 2000, intervalMs 
   const deadline = Date.now() + timeoutMs;
   while (!predicate()) {
     if (Date.now() >= deadline) throw new Error('waitFor: condition was not met in time');
-    await new Promise((r) => setTimeout(r, intervalMs));
+    await sleep(intervalMs);
   }
 }
 
@@ -94,7 +95,7 @@ describe('camera routes', () => {
   it('keeps the time a camera went offline across checks', async () => {
     const first = (await request(appServer).get('/api/cameras/down/status').set('Cookie', auth)).body.offlineSince as number;
     expect(first).toBeLessThanOrEqual(Date.now());
-    await new Promise((r) => setTimeout(r, 20));
+    await sleep(20);
     expect((await request(appServer).get('/api/cameras/down/status').set('Cookie', auth)).body.offlineSince).toBe(first);
   });
 
@@ -185,7 +186,7 @@ describe('camera routes', () => {
       // The request must actually have reached the route (slot taken) before
       // the disconnect, or this test could pass without testing anything.
       await waitFor(() => liveStreamCount('cam1') === 1);
-      await new Promise((r) => setTimeout(r, 50));
+      await sleep(50);
       req.destroy();
       // Well under flvDelayMs: only passes if the disconnect releases the
       // slot immediately, not after the delayed camera response arrives.
@@ -194,7 +195,7 @@ describe('camera routes', () => {
       // camera is never cancelled, so the simulator's delayed handler still runs
       // at flvDelayMs and starts a stream nobody is listening for. Wait past
       // that delay and confirm it never did.
-      await new Promise((r) => setTimeout(r, flvDelayMs + 100));
+      await sleep(flvDelayMs + 100);
       expect(slow.state.activeStreams).toBe(0);
     } finally {
       slowServer.closeAllConnections();

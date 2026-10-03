@@ -1,6 +1,6 @@
 <script lang="ts">
   import { openProxyClick } from '../lib/proxyLink';
-  import { cameras } from '../lib/stores';
+  import { cameras, cameraById } from '../lib/stores';
   import { putJson } from '../lib/settings';
   import { getJson } from '../lib/api';
   import Icon from './Icon.svelte';
@@ -10,7 +10,7 @@
   // camera list is updated on success, so Live, Recordings and Timeline follow.
   let { cameraId }: { cameraId: string } = $props();
 
-  const camera = $derived($cameras.find((c) => c.id === cameraId));
+  const camera = $derived($cameraById(cameraId));
   let saving = $state(false);
   // The proxy's own web page, while it answers (Klaus, 2026-09-28).
   let info = $state<{ reachable: boolean; webUrl: string | null } | null>(null);

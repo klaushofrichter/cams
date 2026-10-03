@@ -1,3 +1,4 @@
+import { setTimeout as sleep } from 'timers/promises';
 import { afterAll, describe, expect, it } from 'vitest';
 import { mkdtempSync, readdirSync, rmSync, statSync, writeFileSync } from 'fs';
 import { join } from 'path';
@@ -32,7 +33,7 @@ describe('DiskCache', () => {
   it('shares one producer between concurrent fills of the same key', async () => {
     const cache = new DiskCache(dir(), 10_000);
     let calls = 0;
-    const producer = async (tmp: string) => { calls++; await new Promise((r) => setTimeout(r, 30)); writeFileSync(tmp, 'x'); };
+    const producer = async (tmp: string) => { calls++; await sleep(30); writeFileSync(tmp, 'x'); };
     await Promise.all([cache.fill('k', producer), cache.fill('k', producer), cache.fill('k', producer)]);
     expect(calls).toBe(1);
   });
@@ -54,10 +55,10 @@ describe('DiskCache', () => {
     const d = dir();
     const cache = new DiskCache(d, 250);
     await cache.fill('old', bytes(100));
-    await new Promise((r) => setTimeout(r, 15));
+    await sleep(15);
     await cache.fill('pinned', bytes(100));
     cache.pin('pinned');
-    await new Promise((r) => setTimeout(r, 15));
+    await sleep(15);
     await cache.fill('new', bytes(100));
     expect(await cache.has('old')).toBe(false);
     expect(await cache.has('pinned')).toBe(true);
@@ -78,9 +79,9 @@ describe('DiskCache', () => {
     const cache = new DiskCache(d, 250); // room for two 100-byte files, not three
     cache.pin('a');
     await cache.fill('a', bytes(100));
-    await new Promise((r) => setTimeout(r, 15));
+    await sleep(15);
     await cache.fill('b', bytes(100));
-    await new Promise((r) => setTimeout(r, 15));
+    await sleep(15);
     // Forces an eviction pass with all three present: 'a' is the oldest but
     // pinned, so 'b' (the next-oldest, unpinned) must be evicted instead.
     await cache.fill('c', bytes(100));

@@ -6,7 +6,7 @@
   import { historySeek, saveViewPoint } from '../lib/timeline';
   import LiveBox from '../components/LiveBox.svelte';
   import LivePanel from '../components/LivePanel.svelte';
-  import { cameras, selectedCameraId } from '../lib/stores';
+  import { cameras, cameraById, selectedCameraId } from '../lib/stores';
   import { navigate, replaceRoute, route, type Panel } from '../lib/router';
   import { getJson } from '../lib/api';
   import { loadDay, sourceLabel, type Downloads } from '../lib/dayCache';
@@ -63,6 +63,8 @@
   let refreshTick = $state(0);
   let updatedAt: Date | null = $state(null);
   let lastKey = '';
+  // The neighbouring months' days of the last full load (see below).
+  let neighbourDays: { key: string; days: string[] } | null = null;
   // Live events of this camera that started and aren't listed yet (Klaus,
   // 2026-09-28): at the top of the list and on the strip right away.
   let pending: Pending[] = $state([]);
@@ -85,12 +87,18 @@
   });
   $effect(() => {
     const evs = events;
-    untrack(() => (pending = prunePending(pending, evs, Date.now())));
+    untrack(() => prune(evs));
   });
   $effect(() => {
-    const id = setInterval(() => (pending = prunePending(pending, events, Date.now())), 30_000);
+    const id = setInterval(() => prune(events), 30_000);
     return () => clearInterval(id);
   });
+  // A new array only when something was pruned: everything that reads
+  // `pending` would otherwise recompute for nothing.
+  function prune(evs: EventClip[]) {
+    const next = prunePending(pending, evs, Date.now());
+    if (next.length !== pending.length) pending = next;
+  }
 
   // The route this page reads: frozen while it is kept alive behind another
   // page, so that page's URL (a Timeline day, its camera) never moves it.
@@ -186,7 +194,7 @@
   $effect(() => {
     const c = cam;
     proxyInfo = null;
-    if (!c || !$cameras.find((x) => x.id === c)?.proxyConfigured) return;
+    if (!c || !$cameraById(c)?.proxyConfigured) return;
     let stale = false;
     getJson<{ reachable: boolean; webUrl: string | null }>(`/api/cameras/${encodeURIComponent(c)}/proxy/info`)
       .then((r) => { if (!stale) proxyInfo = r; })
@@ -238,8 +246,8 @@
   $effect(() => {
     if (cam && liveShown) untrack(() => void checkLiveStatus(cam));
   });
-  const camProxy = $derived(!!$cameras.find((x) => x.id === cam)?.proxy);
-  const camera = $derived($cameras.find((x) => x.id === cam) ?? null);
+  const camProxy = $derived(!!$cameraById(cam)?.proxy);
+  const camera = $derived($cameraById(cam) ?? null);
   // The Live panel's recent events: today's, newest first (it shows five).
   const recent = $derived(date === $todayDate ? [...events].sort((a, b) => Date.parse(b.start) - Date.parse(a.start)) : []);
   const visible = $derived(filterEvents(events, filter));
@@ -376,21 +384,26 @@
     }
     const month = d.slice(0, 7);
     const prevMonth = addDays(`${month}-01`, -1).slice(0, 7);
-    const dayFetches: Promise<{ days: string[] }>[] = [
-      getJson<{ days: string[] }>(daysUrl(c, prevMonth)).catch(() => ({ days: [] })),
-    ];
-    // Only needed when browsing a past month, so day-next can cross into a
-    // month that isn't otherwise loaded.
-    if (month < $todayDate.slice(0, 7)) {
-      const nextMonth = addDays(`${month}-01`, 32).slice(0, 7);
-      dayFetches.push(getJson<{ days: string[] }>(daysUrl(c, nextMonth)).catch(() => ({ days: [] })));
-    }
-    Promise.all([loadDay(c, d, { force: isRefresh }), getJson<{ days: string[] }>(daysUrl(c, month)), ...dayFetches])
-      .then(([e, d0, ...rest]) => {
+    const neighbourMonths = [prevMonth];
+    // The next month only when browsing a past month, so day-next can cross
+    // into a month that isn't otherwise loaded.
+    if (month < $todayDate.slice(0, 7)) neighbourMonths.push(addDays(`${month}-01`, 32).slice(0, 7));
+    // A refresh asks for the day's own month only: the neighbouring months'
+    // days, once all fetched, are kept for the same camera, day and months.
+    const nbKey = `${key}|${neighbourMonths.join()}`;
+    const neighbours: Promise<string[]> =
+      isRefresh && neighbourDays?.key === nbKey
+        ? Promise.resolve(neighbourDays.days)
+        : Promise.all(neighbourMonths.map((m) => getJson<{ days: string[] }>(daysUrl(c, m)).then((r) => r.days, () => null))).then((lists) => {
+            if (lists.every((l) => l !== null)) neighbourDays = { key: nbKey, days: lists.flat() };
+            return lists.flatMap((l) => l ?? []);
+          });
+    Promise.all([loadDay(c, d, { force: isRefresh }), getJson<{ days: string[] }>(daysUrl(c, month)), neighbours])
+      .then(([e, d0, nb]) => {
         if (seq !== eventsRequest) return;
         events = e.events;
         downloads = e.downloads;
-        days = [...new Set([...d0.days, ...rest.flatMap((r) => r.days)])].sort();
+        days = [...new Set([...d0.days, ...nb])].sort();
         updatedAt = new Date();
         // Always clear the skeleton and any earlier failure on success, even
         // for a refresh (isRefresh never set loading = true above, so a

@@ -1,3 +1,4 @@
+import { setTimeout as sleep } from 'timers/promises';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import request from 'supertest';
 import { execFileSync } from 'child_process';
@@ -202,7 +203,7 @@ describe('playback and thumbnails through cam-proxy’s recordings', () => {
     fake.recordingDelayMs = 300;
     try {
       const pending = thumbs.map((e) => thumb(e.id).then((r) => r.status));
-      await new Promise((r) => setTimeout(r, 100));
+      await sleep(100);
       const r = await binary(video(play.id));
       expect(r.status).toBe(200);
       // The playback reached the proxy behind at most the one thumbnail in flight.
@@ -223,7 +224,7 @@ describe('playback and thumbnails through cam-proxy’s recordings', () => {
     // a: the proxy fails, so the camera (3 s per download) holds the slot.
     fake.recordingsOverride = { status: 503, body: { error: 'camera_offline' } };
     const slow = video(a.id).then((r) => r);
-    await new Promise((r) => setTimeout(r, 300));
+    await sleep(300);
     fake.recordingsOverride = null;
     const t0 = Date.now();
     const fast = await binary(video(b.id));
@@ -313,7 +314,7 @@ describe('finding a bare name’s folder on the camera', () => {
     fake.recordingsOverride = { status: 503, body: { error: 'camera_offline' } };
     const b = ((await request(createApp()).get(`/api/cameras/cam1/events?date=${yesterday()}`).set('Cookie', auth)).body as Day).events[0]; // yesterday: paths, from the camera's Search
     const slow = video(a.id).then((r) => r);
-    await new Promise((r) => setTimeout(r, 300));
+    await sleep(300);
     const t0 = Date.now();
     expect((await video(b.id)).status).toBe(200);
     expect(Date.now() - t0).toBeLessThan(1000);

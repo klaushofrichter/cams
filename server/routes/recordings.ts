@@ -3,12 +3,11 @@ import { getProxyClient } from '../proxy/client';
 import { getAnalysisStore } from '../proxy/analyses';
 import { attachAnalyses } from '../recordings/analysis';
 import { pipeline } from 'stream/promises';
-import { getCamera } from '../cameraRegistry';
-import { CameraError } from '../reolink/client';
-import { logger } from '../logger';
-import { CLIP_ID, isRealDate, isRealMonth } from '../recordings/clipNames';
-import { getRecordings, RecordingError } from '../recordings/service';
+import { clipDate, CLIP_ID, isRealDate, isRealMonth } from '../recordings/clipNames';
+import { getRecordings } from '../recordings/service';
+import { RecordingError } from '../recordings/errors';
 import { extent } from '../recordings/extent';
+import { knownCamera, sendCameraError, sendFileQuietly } from './common';
 
 export const recordingsRouter = Router();
 
@@ -21,26 +20,12 @@ function fail(err: unknown, cameraId: string, res: Response, next: NextFunction)
     res.status(err.code === 'unknown_clip' ? 404 : 503).json({ error: err.code });
     return;
   }
-  if (err instanceof CameraError) {
-    logger.warn({ cameraId, code: err.code, message: err.message }, 'camera_request_failed');
-    res.status(err.code === 'camera_error' ? 502 : 503).json({ error: err.code });
-    return;
-  }
-  next(err);
-}
-
-function camera(req: Request, res: Response): string | undefined {
-  const id = String(req.params.id);
-  if (!getCamera(id)) {
-    res.status(404).json({ error: 'unknown_camera' });
-    return undefined;
-  }
-  return id;
+  sendCameraError(err, cameraId, res, next);
 }
 
 function clip(req: Request, res: Response): string | undefined {
   const id = String(req.params.clipId);
-  if (!CLIP_ID.test(id) || !isRealDate(`${id.slice(0, 4)}-${id.slice(4, 6)}-${id.slice(6, 8)}`)) {
+  if (!CLIP_ID.test(id) || !isRealDate(clipDate(id))) {
     res.status(400).json({ error: 'bad_request' });
     return undefined;
   }
@@ -48,7 +33,7 @@ function clip(req: Request, res: Response): string | undefined {
 }
 
 recordingsRouter.get('/api/cameras/:id/days', async (req, res, next) => {
-  const id = camera(req, res);
+  const id = knownCamera(req, res);
   if (!id) return;
   const month = String(req.query.month ?? '');
   if (!isRealMonth(month)) {
@@ -64,7 +49,7 @@ recordingsRouter.get('/api/cameras/:id/days', async (req, res, next) => {
 
 // How far back the camera's content goes (the History strip's left edge).
 recordingsRouter.get('/api/cameras/:id/extent', async (req, res, next) => {
-  const id = camera(req, res);
+  const id = knownCamera(req, res);
   if (!id) return;
   try {
     res.json(await extent(id));
@@ -74,7 +59,7 @@ recordingsRouter.get('/api/cameras/:id/extent', async (req, res, next) => {
 });
 
 recordingsRouter.get('/api/cameras/:id/events', async (req, res, next) => {
-  const id = camera(req, res);
+  const id = knownCamera(req, res);
   if (!id) return;
   const date = String(req.query.date ?? '');
   if (!isRealDate(date)) {
@@ -99,31 +84,21 @@ recordingsRouter.get('/api/cameras/:id/events', async (req, res, next) => {
 });
 
 recordingsRouter.get('/api/cameras/:id/clips/:clipId/video', async (req, res, next) => {
-  const id = camera(req, res);
+  const id = knownCamera(req, res);
   const clipId = id && clip(req, res);
   if (!id || !clipId) return;
   const rec = getRecordings();
   try {
     // Review focus: the file is pinned from before fill() starts (inside
     // withClip), so it can never be evicted while it's being served here.
-    await rec.withClip(id, clipId, (path) =>
-      new Promise<void>((resolve, reject) => {
-        res.sendFile(path, { headers: { 'Content-Type': 'video/mp4' } }, (err) => {
-          // A client abort surfaces here too (headers already sent, or the
-          // write failed with ECONNABORTED): there's nothing left to answer,
-          // so just resolve instead of rejecting into fail()'s error path.
-          if (err && !res.headersSent && !req.destroyed && (err as NodeJS.ErrnoException).code !== 'ECONNABORTED') reject(err);
-          else resolve();
-        });
-      }),
-    );
+    await rec.withClip(id, clipId, (path) => sendFileQuietly(req, res, path, { headers: { 'Content-Type': 'video/mp4' } }));
   } catch (err) {
     fail(err, id, res, next);
   }
 });
 
 recordingsRouter.get('/api/cameras/:id/clips/:clipId/thumb.jpg', async (req, res, next) => {
-  const id = camera(req, res);
+  const id = knownCamera(req, res);
   const clipId = id && clip(req, res);
   if (!id || !clipId) return;
   try {
@@ -134,21 +109,14 @@ recordingsRouter.get('/api/cameras/:id/clips/:clipId/thumb.jpg', async (req, res
     //
     // Pinned (via withThumbnail) from before fill() starts until sendFile()
     // finishes, so it can never be evicted while it's being served here.
-    await getRecordings().withThumbnail(id, clipId, (path) =>
-      new Promise<void>((resolve, reject) => {
-        res.type('image/jpeg').sendFile(path, (err) => {
-          if (err && !res.headersSent && !req.destroyed && (err as NodeJS.ErrnoException).code !== 'ECONNABORTED') reject(err);
-          else resolve();
-        });
-      }),
-    );
+    await getRecordings().withThumbnail(id, clipId, (path) => sendFileQuietly(req, res.type('image/jpeg'), path));
   } catch (err) {
     fail(err, id, res, next);
   }
 });
 
 recordingsRouter.get('/api/cameras/:id/clips/:clipId/download', async (req, res, next) => {
-  const id = camera(req, res);
+  const id = knownCamera(req, res);
   const clipId = id && clip(req, res);
   if (!id || !clipId) return;
   const q = req.query.quality;
@@ -193,7 +161,7 @@ recordingsRouter.get('/api/cameras/:id/clips/:clipId/download', async (req, res,
 // silent quality downgrade). The Save dialog asks when 4K is chosen; an
 // unknown clip is simply not available.
 recordingsRouter.get('/api/cameras/:id/clips/:clipId/full-quality', async (req, res, next) => {
-  const id = camera(req, res);
+  const id = knownCamera(req, res);
   const clipId = id && clip(req, res);
   if (!id || !clipId) return;
   try {
