@@ -6,7 +6,7 @@
   import { cameras, cameraById, selectedCameraId } from '../lib/stores';
   import { eventStream } from '../lib/eventStream';
   import { liveEventsOn } from '../lib/preferences';
-  import { addDays, formatClock, localDate, orderTriggers, pad2, TRIGGER_LABELS, type Trigger } from '../lib/recordings';
+  import { addDays, DATE, formatClock, localDate, orderTriggers, pad2, TRIGGER_LABELS, type Trigger } from '../lib/recordings';
   import { todayDate } from '../lib/refresh';
   import { localClock } from '../lib/clock';
   import type { StillObject } from '../lib/vision';
@@ -85,7 +85,7 @@
     still = null;
     ++pickSeq; // a still still loading for the day before is dropped
     message = '';
-    if (!cam?.proxy || !/^\d{4}-\d{2}-\d{2}$/.test(d)) return;
+    if (!cam?.proxy || !DATE.test(d)) return;
     message = 'Loading…';
     let stale = false;
     const b = base;
