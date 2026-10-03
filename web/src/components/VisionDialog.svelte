@@ -30,6 +30,8 @@
     return Math.max(0, none);
   }
   let index = $state(startIndex());
+  // With all objects, the still's object list stands in for the findings (issue #158).
+  let showAll = $state(false);
   // The card's analysis can change while open (a live update): stay in range.
   const at = $derived(Math.min(index, Math.max(0, stills.length - 1)));
   const still = $derived(stills[at] ?? null);
@@ -45,11 +47,11 @@
     return getJson<{ objects: StillObject[] }>(`/api/cameras/${enc(cameraId)}/analyses/${id}`).then((r) => r.objects);
   }
 
-  // Focus: into the dialog on open and kept there by Tab, and brought back
+  // Focus: into the dialog on open and kept there by Tab (one stop per radio group, its checked one), and brought back
   // when it lands outside while open (issue #113); the badge takes it back on
   // close (VisionBadges).
   let dialogEl: HTMLElement | undefined = $state();
-  const focusables = () => [...(dialogEl?.querySelectorAll<HTMLElement>('button, input, select, a[href]') ?? [])].filter((e) => !e.hasAttribute('disabled'));
+  const focusables = () => [...(dialogEl?.querySelectorAll<HTMLElement>('button, input:not([type="radio"]), input[type="radio"]:checked, select, a[href]') ?? [])].filter((e) => !e.hasAttribute('disabled'));
   onMount(() => {
     void tick().then(() => (focusables()[0] ?? dialogEl)?.focus());
   });
@@ -93,7 +95,7 @@
       <button class="x" aria-label="Close" data-testid="vision-dialog-close" onclick={close}>✕</button>
     </header>
     {#if still}
-      <TimelineStill {src} alt={`The analysed still at ${clock(still.stillTs)}`} summary={still.summary} {loadAll} />
+      <TimelineStill {src} alt={`The analysed still at ${clock(still.stillTs)}`} summary={still.summary} {loadAll} objectList bind:showAll />
       {#if stills.length > 1}
         <div class="steps">
           <button data-testid="vision-dialog-prev" aria-label="Previous analysed still" onclick={() => step(-1)}>◀</button>
@@ -101,7 +103,9 @@
           <button data-testid="vision-dialog-next" aria-label="Next analysed still" onclick={() => step(1)}>▶</button>
         </div>
       {/if}
-      {#if entries.length}
+      {#if showAll}
+        <!-- The still's object list says it all. -->
+      {:else if entries.length}
         <ul class="found">
           {#each entries as e, i (i)}<li>{findingLine(e.subtype, e.score)}</li>{/each}
         </ul>
