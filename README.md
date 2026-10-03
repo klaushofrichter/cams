@@ -1,15 +1,28 @@
 # cams
 
-[![Release](https://img.shields.io/github/v/release/klaushofrichter/cams)](https://github.com/klaushofrichter/cams/releases)
+[![Release](https://img.shields.io/github/v/release/klaushofrichter/cams?label=release&color=blue)](https://github.com/klaushofrichter/cams/releases)
 [![PR checks](https://github.com/klaushofrichter/cams/actions/workflows/production-checks.yml/badge.svg)](https://github.com/klaushofrichter/cams/actions/workflows/production-checks.yml)
-[![Build and publish image](https://github.com/klaushofrichter/cams/actions/workflows/build-push.yml/badge.svg)](https://github.com/klaushofrichter/cams/actions/workflows/build-push.yml)
-[![Deploy production](https://github.com/klaushofrichter/cams/actions/workflows/deploy-production.yml/badge.svg)](https://github.com/klaushofrichter/cams/actions/workflows/deploy-production.yml)
-<!-- Static badge: Dependabot has no status endpoint; alerts and security fixes are enabled in repo settings. -->
+[![Build and publish image](https://github.com/klaushofrichter/cams/actions/workflows/build-push.yml/badge.svg?branch=main)](https://github.com/klaushofrichter/cams/actions/workflows/build-push.yml)
+[![Deploy production](https://github.com/klaushofrichter/cams/actions/workflows/deploy-production.yml/badge.svg?branch=production)](https://github.com/klaushofrichter/cams/actions/workflows/deploy-production.yml)
 [![Dependabot](https://img.shields.io/badge/dependabot-enabled-025E8C?logo=dependabot&logoColor=white)](https://github.com/klaushofrichter/cams/security/dependabot)
+
+<!-- The release badge is the newest tag, which the deploy cuts after the
+     smoke test. Dependabot is a static badge (it has no status endpoint);
+     alerts and security updates are on in the repository settings, version
+     updates come from .github/dependabot.yml. No version numbers in the text
+     below: they go stale; the badge and the releases page carry them. -->
 
 Private viewer for Skylar Technology's Reolink security cameras, at
 <https://cams.skylar.technology>: live video, recorded events with AI detection,
 clip playback and downloads, and camera settings, behind Google sign-in.
+
+## Related repos
+
+- [cam-proxy](https://github.com/klaushofrichter/cam-proxy): the camera gateway. cams reads its client API (events, stills, clips, SD recordings); cam-proxy talks to the camera, or to cam-sim in the cluster.
+- [cam-sim](https://github.com/klaushofrichter/cam-sim): the camera simulator. It is the camera in cams' tests and `cam2` in production; its CI runs cams' suites against every change.
+- [cam-proxy-pi-display](https://github.com/klaushofrichter/cam-proxy-pi-display): the e-paper status display on the Pi. It reads cam-proxy's local health API and has nothing to do with cams.
+
+[docs/livestack.md](docs/livestack.md) runs all three (cams → cam-proxy → cam-sim or the real camera) together on one machine.
 
 ## How it fits together
 
@@ -24,19 +37,19 @@ clip playback and downloads, and camera settings, behind Google sign-in.
   - **Recordings from the proxy:** History's list, the calendar's days, playback, downloads and the clip-based thumbnails come from the proxy's recordings API: the SD card's files, which the proxy fetches over Baichuan, so any recording of the last 7 days plays and downloads in SD or 4K while the camera refuses HTTP downloads. Searches for such a camera go through the proxy while it answers; cams runs the camera's own Search only on a fallback and to find a file's folder for the camera's download (the camera answers overlapping Searches with an empty list, so an empty day from a fallback isn't kept for long). A recording file may take up to 120 s to start (the proxy queues its transfers). When the proxy can't answer (502/503 or unreachable), playback and SD downloads come from its FTP copy (`…-proxy.mp4`), then from the camera's own download behind the breaker, and the list and the calendar from the camera's Search. A 4K download never falls back to the FTP copy (it is the sub stream): it comes from the proxy or the camera, and when neither can serve it (or no main file is listed yet, right after an event) the "Save clip" dialog says "The full-resolution file isn't available right now; download the standard quality instead" and offers SD (`GET /api/cameras/:id/clips/:clipId/full-quality`). A recording the proxy reports gone from the SD card answers `unknown_clip`. Downloads from the recordings API keep the camera's `-sub`/`-main` names. Cameras without a proxy, or with it switched off, are unchanged. The line under the player names the source: cam-proxy (SD card), cam-proxy (FTP copies) or camera. The camera should still upload the sub stream (cam-proxy `ftp.stream: sub`: H.264, plays in every browser).
   - **Downloads:** every History card and the player have a download button, which opens the "Save clip" dialog; nothing downloads until its Save. It offers SD or 4K (the camera's original main stream, saved as it is). With a cam-proxy it also offers a composed clip with a pre-/post-roll (−600…60 s each, up to 1:00 in all) filled from other clips, the proxy's stills (1 fps) or "No recording" cards, optionally marked "STILLS 1 FPS", at SD, 640×360, 1280×720 or 1920×1080. cam-proxy encodes it (`/api/cameras/:id/compositions`, passed through): a progress bar, Cancel, a preview, Save. 4K can't take a pre- or post-roll.
   - **Event thumbnails** are the proxy's first still 2–12 s into the event (a JPEG): no clip transfer, no ffmpeg. Without one, a frame from the clip as before.
-  - **History strip:** the playhead stays centred and playback runs in real time through clips, the proxy's stills (1 fps, 24 h) and preview tiles (1 fps, 72 h), and stretches without anything ("No recording"), across days; a badge names the source. On the Live panel the strip's right end is the live stream: the playhead follows now; moving back switches to History at that moment, and ⇥ while playing (or playback catching up) is Live again. A line and the time follow the pointer, and a band of small frames runs under the strip. Zooms: 24, 12, 6, 3, 1 h and 30 min. Hovering the strip shows that moment's frame.
-  - **Connecting:** until the live video plays (or while it reconnects), a spinner over the player says "Connecting to the live stream…", with how long the stream stays connected after leaving Live (the keep-alive setting). After 30 s without video it turns calm, without the spinner: "The live stream isn't available right now. Still trying…" (and "Showing stills meanwhile." over stills); the retries go on. Over the proxy's stills it is a small bar at the bottom; a camera known offline shows its offline message instead, and a stream kept alive plays at once without it.
+  - **History strip:** the playhead stays centred and playback runs in real time through clips, the proxy's stills (1 fps, 24 h) and preview tiles (1 fps, 72 h), and stretches without anything ("No recording"), across days; a badge names the source. On the Live panel the strip's right end is the live stream: the playhead follows now; moving back switches to History at that moment, and ⇥ while playing (or playback catching up) is Live again. A line and the time follow the pointer, and a band of small frames runs under the strip (a minute whose frames were still coming in is fetched again as it fills). Zooms: 24, 12, 6, 3, 1 h and 30 min. Hovering the strip shows that moment's frame.
   - **Live fallback:** while live video isn't playing for 5 s (or the camera is offline), Live shows the proxy's newest still, updated every second, marked STILLS with the still's time and age (the line under the video says STILLS instead of LIVE).
   - **Switch:** Settings has a "cam-proxy" card for a camera with a proxy. Switching it off makes cams ignore the proxy for everyone (clips, thumbnails, stills and events from the camera only; the event subscription stops) until it is switched on again. The choice is kept in `proxy-state.json` (see `PROXY_STATE_FILE`) and survives restarts; thumbnails already cached stay.
 
 ## Pages and API
 
 - **Pages** (`/app/…`): one video page with two panels beside the same player and strip: Live (`/app/live`, the strip's live end) and History (`/app/recordings?panel=history&cam&date&at`; old `panel=events`, `panel=downloads` and `clip&t` links open History); Timeline (cameras with a cam-proxy; `?cam&date&t`; a minute opens its seconds under its hour and a second its still; from the menu it opens at History's position, or the newest minute after Live); Settings (the camera's settings, the cam-proxy switch, reboot); About (version, build date, cameras).
+- **Live connecting:** until the live video plays (or while it reconnects), a spinner over the player says "Connecting to the live stream…" (or "Reconnecting…"), with how long the stream stays connected after leaving Live (the keep-alive setting). After 30 s without video it turns calm, without the spinner: "The live stream isn't available right now. Still trying…" (plus "Showing stills meanwhile." over a cam-proxy's stills); the retries go on. Over the stills it is a small bar at the bottom. A camera known to be offline shows its offline message instead, and a stream kept alive plays at once without it.
 - **API** (all need the sign-in cookie and answer JSON 401 otherwise; changes need the same origin; `Cache-Control: no-store`):
   - `GET /api/me`, `GET /api/cameras`, `GET/PUT /api/preferences`, `GET /api/cameras/:id/extent` (`{oldest}`: the oldest content on the SD card or at the cam-proxy), `GET /api/cameras/:id/status` (online, model, firmware, `simulator` when it is cam-sim, and the main/sub `streams`, cached 10 min);
   - per camera `/api/cameras/:id/…`: `status`, `snapshot.jpg`, `live` (at most 4 per camera), `days`, `events`, `settings` (`PUT settings/:section`), `device`, `POST reboot`, `light` (`GET`, `PUT {"on":true|false}`: the camera's manual light, `WhiteLed.state`);
   - clips: `/api/cameras/:id/clips/:clipId/video|thumb.jpg|download?quality=sub|main`;
-  - cam-proxy: `PUT /api/cameras/:id/proxy` (`{"enabled": true|false}`, for all users; 404 `no_proxy` without one), `/api/cameras/:id/previews`, `previews/:minute.jpg`, `stills`, `stills/:ts.jpg`, `still/latest.jpg`, `GET /api/cameras/:id/analyses/:eventId` (Vision's full record for one event), and `GET /api/events/stream` (SSE, at most 20 browsers, a ping every 25 s).
+  - cam-proxy: `PUT /api/cameras/:id/proxy` (`{"enabled": true|false}`, for all users; 404 `no_proxy` without one), `GET proxy/info` (reachable, and the proxy's UI link), `POST proxy/login-link`, `compositions` (`POST`, `GET available`, `GET|DELETE :job`, `GET :job/video`: passed through to cam-proxy), `clips/:clipId/full-quality`, `/api/cameras/:id/previews`, `previews/:minute.jpg`, `stills`, `stills/:ts.jpg`, `still/latest.jpg`, `GET /api/cameras/:id/analyses/:eventId` (Vision's full record for one event), and `GET /api/events/stream` (SSE, at most 20 browsers, a ping every 25 s).
 
 ## Cameras
 
@@ -54,8 +67,8 @@ The cameras come from a JSON array in the file named by `CAMERAS_FILE`; in the c
 
 Production has two cameras:
 
-- `cam1` "Den": the real Reolink RLC-1224A, with its own Let's Encrypt certificate for `cam1.skylar.technology` (no cam-proxy yet: it comes with the Raspberry Pi next to the camera);
-- `cam2`: a [cam-sim](https://github.com/klaushofrichter/cam-sim) simulated camera in the same cluster (`cam2.cam-sim.svc.cluster.local`, TLS name `cam2.skylar.technology`), whose web page `https://cam2.skylar.technology/` works on the LAN only. It has a `proxy` entry: cam-proxy in the cluster (`http://cam-proxy.cam-proxy.svc.cluster.local:8480`).
+- `cam1` "Den": the real Reolink RLC-1224A, with its own Let's Encrypt certificate for `cam1.skylar.technology`. Its `proxy` entry is the cam-proxy on the Raspberry Pi next to the camera, on the LAN;
+- `cam2`: a [cam-sim](https://github.com/klaushofrichter/cam-sim) simulated camera in the same cluster (`cam2.cam-sim.svc.cluster.local`, TLS name `cam2.skylar.technology`), whose web page `https://cam2.skylar.technology/` works on the LAN only. Its `proxy` entry is cam-proxy in the cluster (`http://cam-proxy.cam-proxy.svc.cluster.local:8480`).
 
 `scripts/create-camera-user.sh` creates the dedicated `cams` user on the real camera and writes its entry (`cam1`) into `cams-cameras`, keeping the other cameras.
 
@@ -81,10 +94,10 @@ The Google OAuth client must list the redirect URI: `http://localhost:8080/auth/
 | `CACHE_DIR`, `CACHE_MAX_BYTES` | `$TMPDIR/cams-cache` (the image: `/var/cache/cams`), 1.5 GiB | downloaded clips and thumbnails |
 | `FFMPEG_PATH` | `ffmpeg` | for thumbnails |
 | `RECORDINGS_PROBE_MS`, `DOWNLOAD_RETRY_DELAY_MS` | `60000`, `1000` | how often a camera whose downloads fail is retried; the pause before a download's one retry |
-| `RATE_LIMIT_WINDOW_MS`, `RATE_LIMIT_MAX`, `RATE_LIMIT_API_MAX`, `RATE_LIMIT_MEDIA_MAX` | 5 min, `40`, `600`, `3000` | per window: sign-in, API, media (clip video/thumbnails/downloads and the proxy's sprites and stills) |
+| `RATE_LIMIT_WINDOW_MS`, `RATE_LIMIT_MAX`, `RATE_LIMIT_API_MAX`, `RATE_LIMIT_MEDIA_MAX`, `RATE_LIMIT_IMAGE_MAX` | 5 min, `40`, `600`, `3000`, `20000` | per window: sign-in, API, clip media (video, thumbnail, download), and the cam-proxy's sprites and stills |
 | `APP_VERSION`, `BUILD_DATE`, `WEB_DIST` | `dev`, none, the built `web/` | set by the image build (shown on About and by `/api/me`); where the web build is |
 
-`scripts/create-secrets.sh` creates the cluster Secrets `cams-oauth` (namespace `cams`) and `runner-pat` (namespace `cams-runner`) from `~/Development/reolink/.env`, keeping an existing `COOKIE_SECRET`. `npm run icons` regenerates the web icons; `npm run check` type-checks `web/`.
+`scripts/create-secrets.sh` creates the cluster Secrets `cams-oauth` (namespace `cams`) and `runner-pat` (namespace `cams-runner`) from `~/Development/reolink/.env`, keeping an existing `COOKIE_SECRET`. `npm run icons` regenerates the web icons; `npm run check` type-checks `web/`, `npm run lint:types` the server, `test/` and `e2e/`.
 
 ## Testing
 
@@ -113,7 +126,7 @@ Both suites need **ffmpeg** on the `PATH`, and e2e needs **Google Chrome**. The 
 
 ## Deployment and releases
 
-`main` is built and published as `ghcr.io/klaushofrichter/cams:main` but never deployed. Every PR to `main` or `production` runs `test`, `e2e` and `codeql`. Merging a PR from `main` to `production` deploys through the in-cluster runner, smoke-tests the public URL and creates a `vYYYY.MM.DD.N` release. The release notes come from the `[Unreleased]` section of `CHANGELOG.md`, which the workflow then empties on `main`.
+`main` is built and published as `ghcr.io/klaushofrichter/cams:main` but never deployed. Every PR to `main` or `production` runs `test`, `e2e` and `codeql`; `production` requires all three (strict, with an owner override). Merging a PR from `main` to `production` deploys through the in-cluster runner, smoke-tests the public URL and creates a `vYYYY.MM.DD.N` release. The release notes come from the `[Unreleased]` section of `CHANGELOG.md`, which the workflow then empties on `main`.
 
 ## Security
 

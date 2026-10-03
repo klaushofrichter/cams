@@ -71,6 +71,6 @@ beforeEach(() => resetClients());
 // intercept it, permanently binding service.ts's internal calls to the
 // real, unmocked module.
 beforeEach(async () => {
-  const { resetRecordings } = await import('../server/recordings/service');
+  const { resetRecordings } = await import('../server/recordings/service.js');
   resetRecordings();
 });

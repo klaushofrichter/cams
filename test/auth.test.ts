@@ -38,7 +38,7 @@ describe('GET /auth/google/login', () => {
     // Requirement: after Logout, signing in must not happen silently.
     expect(url.searchParams.get('prompt')).toBe('select_account');
     expect(url.searchParams.get('state')).toMatch(/^[0-9a-f]{32}\.first$/);
-    expect(res.headers['set-cookie'].join(';')).toMatch(/oauth_state=[0-9a-f]{32}/);
+    expect((res.get('Set-Cookie') ?? []).join(';')).toMatch(/oauth_state=[0-9a-f]{32}/);
   });
 });
 
@@ -49,7 +49,7 @@ describe('GET /auth/google/callback', () => {
       .set('Cookie', stateCookie);
     expect(res.status).toBe(302);
     expect(res.headers.location).toBe('/');
-    const cookies = res.headers['set-cookie'].join(';');
+    const cookies = (res.get('Set-Cookie') ?? []).join(';');
     expect(cookies).toMatch(/session=[^;]+; Max-Age=604800/);
     expect(cookies).toMatch(/HttpOnly/);
     expect(cookies).toMatch(/Secure/);
@@ -109,7 +109,7 @@ describe('GET /auth/google/callback', () => {
       .get(`/auth/google/callback?code=c&state=${NONCE}.first`)
       .set('Cookie', `${stateCookie}; return_to=${encodeURIComponent('/app/settings?cam=cam1')}`);
     expect(res.headers.location).toBe('/app/settings?cam=cam1');
-    expect(res.headers['set-cookie'].join(';')).toMatch(/return_to=;/);
+    expect((res.get('Set-Cookie') ?? []).join(';')).toMatch(/return_to=;/);
   });
 
   it('ignores an unsafe remembered path', async () => {
@@ -135,7 +135,7 @@ describe('cancelled Google sign-in', () => {
       .set('Cookie', stateCookie);
     expect(res.status).toBe(302);
     expect(res.headers.location).toBe('/');
-    expect(res.headers['set-cookie'].join(';')).toMatch(/oauth_state=;/);
+    expect((res.get('Set-Cookie') ?? []).join(';')).toMatch(/oauth_state=;/);
   });
 });
 
@@ -160,7 +160,7 @@ describe('GET /auth/logout', () => {
       .set('Cookie', `session=abc; oauth_state=${NONCE}; return_to=%2Fapp%2Flive`);
     expect(res.status).toBe(302);
     expect(res.headers.location).toBe('/');
-    const cookies = res.headers['set-cookie'].join(';');
+    const cookies = (res.get('Set-Cookie') ?? []).join(';');
     expect(cookies).toMatch(/session=;.*Expires=Thu, 01 Jan 1970/);
     expect(cookies).toMatch(/oauth_state=;/);
     expect(cookies).toMatch(/return_to=;/);
