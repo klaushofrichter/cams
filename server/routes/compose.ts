@@ -2,7 +2,7 @@ import { Router, type Request, type Response } from 'express';
 import { Readable } from 'stream';
 import { pipeline } from 'stream/promises';
 import { logger } from '../logger';
-import { getProxyClient, proxyCameraId, ProxyError } from '../proxy/client';
+import { getProxyClient, proxyPath, ProxyError } from '../proxy/client';
 import { CLIP_ID as EVENT } from '../recordings/clipNames';
 import { getRecordings } from '../recordings/service';
 import { knownCamera, proxyTarget } from './common';
@@ -15,7 +15,7 @@ const NAME = /^[A-Za-z0-9_.-]{1,120}\.mp4$/;
 
 function target(req: Request, res: Response) {
   const t = proxyTarget(req, res);
-  return t && { ...t, base: `/api/cameras/${encodeURIComponent(proxyCameraId(t.id))}/compositions` };
+  return t && { ...t, base: proxyPath(t.id, '/compositions') };
 }
 function failed(err: unknown, res: Response) {
   if (!(err instanceof ProxyError)) throw err;

@@ -16,7 +16,7 @@ import { makeThumbnail } from './thumbnail';
 import { Semaphore } from '../reolink/semaphore';
 import { findProxyClip, findProxyStill, openProxyClip, openProxyStill } from './proxyClips';
 import { RecordingError } from './errors';
-import { fallsBack, headProxyRecording, listProxyDays, listProxyDay, logProxyFailure, openProxyRecording, resetLegacyProxies, type ProxyRecording } from './proxyRecordings';
+import { fallsBack, headProxyRecording, listProxyDays, listProxyDay, logProxyFailure, openProxyRecording, type ProxyRecording } from './proxyRecordings';
 import { ProxyError } from '../proxy/client';
 
 export interface EventClip {
@@ -79,6 +79,16 @@ export function isRecentDay(date: string, offsetMinutes: number, now = Date.now(
   return date >= cutoff;
 }
 
+// A lazily made value per camera.
+function perCamera<T>(make: () => T): (cameraId: string) => T {
+  const values = new Map<string, T>();
+  return (cameraId) => {
+    let v = values.get(cameraId);
+    if (v === undefined) values.set(cameraId, (v = make()));
+    return v;
+  };
+}
+
 function abortError(): Error {
   const err = new Error('aborted');
   err.name = 'AbortError';
@@ -129,17 +139,41 @@ function baseName(name: string): string {
   return name.slice(name.lastIndexOf('/') + 1);
 }
 
-// A camera-local day's bounds in unix ms, for an older cam-proxy without the
-// `date` parameter (see listProxyDay). TimeInfo doesn't say whether DST is in
-// effect that day, so the window runs from midnight at the DST offset to the
-// next midnight at standard time; the list is filtered by the names' date
-// afterwards. At most 25 hours.
-export function dayBounds(date: string, t: TimeInfo): { from: number; to: number } {
-  const midnight = Date.parse(`${date}T00:00:00Z`);
-  return {
-    from: midnight - (t.stdOffsetMinutes + t.dstOffsetMinutes) * 60_000,
-    to: midnight + 86_400_000 - t.stdOffsetMinutes * 60_000 - 1,
-  };
+type DayFile = { name: string; size: number };
+
+// One day's events from its sub and main stream files (camera paths or bare
+// names), with each event's file names.
+function mergeDay(sub: DayFile[], main: DayFile[], date: string, time: TimeInfo): Pick<DayEntry, 'events' | 'names'> {
+  // Keyed by start time: the firmware can end an event's main-stream copy
+  // a few seconds after its sub-stream copy (065221_065224 vs
+  // 065221_065226), so both halves of one event share only the start.
+  const byStart = new Map<string, { parsed: ParsedClip; sub?: DayFile; main?: DayFile }>();
+  for (const [stream, files] of [['sub', sub], ['main', main]] as const) {
+    for (const f of files) {
+      const parsed = parseClipName(f.name);
+      if (!parsed || parsed.date !== date || isStillRecording(parsed)) continue;
+      const entry = byStart.get(parsed.start) ?? { parsed };
+      entry[stream] = f;
+      // The longer copy decides the event's end; the main stream's flags
+      // are authoritative for triggers when both exist.
+      const end = clipSpanEnd(entry.parsed) >= clipSpanEnd(parsed) ? entry.parsed.end : parsed.end;
+      const triggers = stream === 'main' && parsed.triggers.length ? parsed.triggers : entry.parsed.triggers.length ? entry.parsed.triggers : parsed.triggers;
+      entry.parsed = { ...entry.parsed, end, triggers };
+      byStart.set(parsed.start, entry);
+    }
+  }
+  const byId = new Map([...byStart.values()].map((e) => [clipIdOf(e.parsed), e] as const));
+  const events: EventClip[] = [...byId.entries()]
+    .map(([id, e]) => ({
+      id,
+      ...clipTimes(e.parsed, time),
+      triggers: e.parsed.triggers,
+      sizeSub: e.sub?.size ?? null,
+      sizeMain: e.main?.size ?? null,
+    }))
+    .sort(byStartTime);
+  const names = new Map([...byId.entries()].map(([id, e]) => [id, { sub: e.sub?.name, main: e.main?.name }]));
+  return { events, names };
 }
 
 // 'proxy-recordings': from the cam-proxy's recordings API (the SD card).
@@ -160,7 +194,6 @@ export class RecordingsService {
   private readonly listUnreachableAt = new Map<string, number>();
   private readonly daysInflight = new Map<string, DayList>();
   private readonly dayCache = new Map<string, DayEntry>();
-  private readonly transfers = new Map<string, PriorityGate>();
   // Per camera with a cam-proxy: whether its last recordings request failed.
   private readonly proxyRecordingsFailed = new Map<string, boolean>();
 
@@ -170,7 +203,9 @@ export class RecordingsService {
   // (unknown_clip) and an abort are thrown. `what` is the clip id, or the day
   // or month being listed, for the log. `record` false: a read-only question
   // that leaves the downloads state alone.
-  private async viaProxy<T>(cameraId: string, what: string, ask: () => Promise<T>, signal?: AbortSignal, record = true): Promise<T | null> {
+  // `list`: a day or month list, which also notes an unreachable proxy for
+  // listViaProxy.
+  private async viaProxy<T>(cameraId: string, what: string, ask: () => Promise<T>, signal?: AbortSignal, record = true, list = false): Promise<T | null> {
     if (!proxyActive(cameraId)) return null;
     try {
       const value = await ask();
@@ -180,6 +215,7 @@ export class RecordingsService {
       if (record && err instanceof RecordingError) this.proxyRecordingsFailed.set(cameraId, false); // the proxy answered
       if (!fallsBack(err, signal)) throw err;
       if (record) this.proxyRecordingsFailed.set(cameraId, true);
+      if (list && err instanceof ProxyError && err.code === 'proxy_unreachable') this.listUnreachableAt.set(cameraId, Date.now());
       logProxyFailure(cameraId, what, err);
       return null;
     }
@@ -191,17 +227,7 @@ export class RecordingsService {
     const at = this.listUnreachableAt.get(cameraId);
     if (at !== undefined && Date.now() - at < LIST_SPELL_MS) return null;
     this.listUnreachableAt.delete(cameraId);
-    let unreachable = false;
-    const value = await this.viaProxy(cameraId, what, async () => {
-      try {
-        return await ask();
-      } catch (err) {
-        unreachable = err instanceof ProxyError && err.code === 'proxy_unreachable';
-        throw err;
-      }
-    }, signal);
-    if (unreachable) this.listUnreachableAt.set(cameraId, Date.now());
-    return value;
+    return this.viaProxy(cameraId, what, ask, signal, true, true);
   }
 
   constructor(private readonly cache: DiskCache) {}
@@ -225,88 +251,22 @@ export class RecordingsService {
     return c;
   }
 
-  private stillGates = new Map<string, Semaphore>();
-  private stillGate(cameraId: string): Semaphore {
-    let g = this.stillGates.get(cameraId);
-    if (!g) this.stillGates.set(cameraId, (g = new Semaphore(3)));
-    return g;
-  }
+  // Per camera: proxy still lookups and fetches for thumbnails, three at a time.
+  private readonly stillGate = perCamera(() => new Semaphore(3));
 
   // Per camera: thumbnails' recording requests to the cam-proxy, one at a
   // time. The proxy fetches one file per camera, first come first served, so
   // at most one thumbnail's file sits there ahead of a playback. A playback of
   // a clip whose thumbnail waits here promotes it (same key).
-  private readonly proxyThumbGates = new Map<string, PriorityGate>();
-  private proxyThumbGate(cameraId: string): PriorityGate {
-    let g = this.proxyThumbGates.get(cameraId);
-    if (!g) this.proxyThumbGates.set(cameraId, (g = new PriorityGate(1)));
-    return g;
-  }
+  private readonly proxyThumbGate = perCamera(() => new PriorityGate(1));
 
-  private gate(cameraId: string): PriorityGate {
-    let g = this.transfers.get(cameraId);
-    if (!g) this.transfers.set(cameraId, (g = new PriorityGate(TRANSFERS_PER_CAMERA)));
-    return g;
-  }
+  // Per camera: its transfer slot for the camera's own downloads.
+  private readonly gate = perCamera(() => new PriorityGate(TRANSFERS_PER_CAMERA));
 
   // Test-only instrumentation (fix round 1, item 8): how many transfers for
   // this camera are queued behind the one active slot right now.
   transferQueueLength(cameraId: string): number {
     return this.gate(cameraId).queued;
-  }
-
-  // Acquires a transfer slot for this camera, honoring an optional abort
-  // signal. Signalling abort before a slot is granted rejects `ready`
-  // immediately and never touches the gate (if the signal is already
-  // aborted) or frees the slot the instant the queued acquisition is
-  // eventually handed one (the gate has no dequeue, so the queued callback
-  // still runs when its turn comes, but returns at once because its wait
-  // promise is already resolved, so the next waiter gets it right away).
-  // The caller must call release() when done with the slot; calling it more
-  // than once, or after an abort already did, is harmless.
-  private acquireTransfer(cameraId: string, signal?: AbortSignal): { ready: Promise<void>; release: () => void } {
-    let settled = false;
-    let releaseHeld!: () => void;
-    const held = new Promise<void>((resolve) => {
-      releaseHeld = resolve;
-    });
-    let resolveReady!: () => void;
-    let rejectReady!: (err: unknown) => void;
-    const ready = new Promise<void>((res, rej) => {
-      resolveReady = res;
-      rejectReady = rej;
-    });
-    const onAbort = () => {
-      if (settled) {
-        releaseHeld();
-        return;
-      }
-      settled = true;
-      rejectReady(abortError());
-      releaseHeld();
-    };
-    if (signal?.aborted) {
-      onAbort();
-    } else {
-      signal?.addEventListener('abort', onAbort, { once: true });
-      // A download someone clicked goes ahead of queued thumbnail fetches.
-      void this.gate(cameraId).run(
-        async () => {
-          if (settled) return; // aborted while queued; bail at once, freeing the slot
-          settled = true;
-          resolveReady();
-          await held;
-        },
-        { high: true },
-      );
-    }
-    return {
-      ready,
-      release: () => {
-        signal?.removeEventListener('abort', onAbort);
-        releaseHeld();
-      },
-    };
   }
 
   // A camera with a cam-proxy: the proxy's month list, so the camera is
@@ -336,46 +296,15 @@ export class RecordingsService {
     const ctl = new AbortController();
     const work = (async () => {
       // A camera with a cam-proxy: the proxy's list, sub then main, from the
-      // camera-local `date`; an older proxy gets the day's bounds instead; the
-      // camera's own Search when the proxy can't answer.
-      const bounds = dayBounds(date, time);
+      // camera-local `date`; the camera's own Search when the proxy can't answer.
       const files = (list: ProxyRecording[]) => list.map((r) => ({ name: r.id, size: r.size }));
       const proxied = await this.listViaProxy(cameraId, date, async () => {
-        const subList = files(await listProxyDay(cameraId, date, 'sub', bounds, ctl.signal));
-        const mainList = files(await listProxyDay(cameraId, date, 'main', bounds, ctl.signal));
+        const subList = files(await listProxyDay(cameraId, date, 'sub', ctl.signal));
+        const mainList = files(await listProxyDay(cameraId, date, 'main', ctl.signal));
         return [subList, mainList] as const;
       }, ctl.signal);
       const [sub, main] = proxied ?? (await Promise.all([client.searchDay(date, 'sub'), client.searchDay(date, 'main')]));
-      // Keyed by start time: the firmware can end an event's main-stream copy
-      // a few seconds after its sub-stream copy (065221_065224 vs
-      // 065221_065226), so both halves of one event share only the start.
-      const byStart = new Map<string, { parsed: ParsedClip; sub?: { name: string; size: number }; main?: { name: string; size: number } }>();
-      for (const [stream, files] of [['sub', sub], ['main', main]] as const) {
-        for (const f of files) {
-          const parsed = parseClipName(f.name);
-          if (!parsed || parsed.date !== date || isStillRecording(parsed)) continue;
-          const entry = byStart.get(parsed.start) ?? { parsed };
-          entry[stream] = f;
-          // The longer copy decides the event's end; the main stream's flags
-          // are authoritative for triggers when both exist.
-          const end = clipSpanEnd(entry.parsed) >= clipSpanEnd(parsed) ? entry.parsed.end : parsed.end;
-          const triggers = stream === 'main' && parsed.triggers.length ? parsed.triggers : entry.parsed.triggers.length ? entry.parsed.triggers : parsed.triggers;
-          entry.parsed = { ...entry.parsed, end, triggers };
-          byStart.set(parsed.start, entry);
-        }
-      }
-      const byId = new Map([...byStart.values()].map((e) => [clipIdOf(e.parsed), e] as const));
-      const events: EventClip[] = [...byId.entries()]
-        .map(([id, e]) => ({
-          id,
-          ...clipTimes(e.parsed, time),
-          triggers: e.parsed.triggers,
-          sizeSub: e.sub?.size ?? null,
-          sizeMain: e.main?.size ?? null,
-        }))
-        .sort(byStartTime);
-      const names = new Map([...byId.entries()].map(([id, e]) => [id, { sub: e.sub?.name, main: e.main?.name }]));
-      const entry: DayEntry = { at: Date.now(), events, names, doubtful: !proxied && proxyActive(cameraId) };
+      const entry: DayEntry = { at: Date.now(), ...mergeDay(sub, main, date, time), doubtful: !proxied && proxyActive(cameraId) };
       this.dayCache.set(key, entry);
       return entry;
     })();
@@ -471,7 +400,7 @@ export class RecordingsService {
       }
       this.cameraDownloadOkAt.set(cameraId, performance.now());
       if (this.health.has(cameraId)) {
-        if ((this.health.get(cameraId)?.failures ?? 0) >= BREAKER_FAILURES) logger.info({ cameraId }, 'recordings_breaker_closed');
+        if (this.breakerOpen(cameraId)) logger.info({ cameraId }, 'recordings_breaker_closed');
         this.health.delete(cameraId);
       }
       return res;
@@ -499,23 +428,24 @@ export class RecordingsService {
     if (h.failures === BREAKER_FAILURES) logger.warn({ cameraId }, 'recordings_breaker_opened');
   }
 
+  // BREAKER_FAILURES refusals in a row.
+  private breakerOpen(cameraId: string): boolean {
+    return (this.health.get(cameraId)?.failures ?? 0) >= BREAKER_FAILURES;
+  }
+
   // The breaker is open and no probe is due: a camera download would be
   // refused by guard(). A peek; it changes nothing.
   private refusing(cameraId: string): boolean {
-    const h = this.health.get(cameraId);
-    return !!h && h.failures >= BREAKER_FAILURES && performance.now() - h.lastProbeAt < RECORDINGS_PROBE_MS();
+    return this.breakerOpen(cameraId) && performance.now() - this.health.get(cameraId)!.lastProbeAt < RECORDINGS_PROBE_MS();
   }
 
   // Runs inside the transfer slot, right before a camera download, so
   // requests queued before the breaker opened are refused too.
   // Returns true when this call is the probe.
   private guard(cameraId: string): boolean {
-    const h = this.health.get(cameraId);
-    if (!h || h.failures < BREAKER_FAILURES) return false;
-    if (performance.now() - h.lastProbeAt < RECORDINGS_PROBE_MS()) {
-      throw new RecordingError('recordings_unavailable', 'the camera is refusing recording downloads');
-    }
-    h.lastProbeAt = performance.now(); // this request is the probe
+    if (!this.breakerOpen(cameraId)) return false;
+    if (this.refusing(cameraId)) throw new RecordingError('recordings_unavailable', 'the camera is refusing recording downloads');
+    this.health.get(cameraId)!.lastProbeAt = performance.now(); // this request is the probe
     logger.info({ cameraId }, 'recordings_breaker_probe');
     return true;
   }
@@ -525,14 +455,13 @@ export class RecordingsService {
   // the background (through the same gate and guard: still one probe per
   // interval) so the next events response can report 'ok' again.
   probeIfDue(cameraId: string, clipId: string | undefined): void {
-    const h = this.health.get(cameraId);
-    if (!clipId || !h || h.failures < BREAKER_FAILURES || performance.now() - h.lastProbeAt < RECORDINGS_PROBE_MS()) return;
+    if (!clipId || !this.breakerOpen(cameraId) || this.refusing(cameraId)) return;
     void this.withClip(cameraId, clipId, async () => undefined, 'low').catch(() => undefined);
   }
 
   downloadsState(cameraId: string): DownloadsState {
     if (proxyActive(cameraId)) return this.proxyRecordingsFailed.get(cameraId) ? 'proxy' : 'proxy-recordings';
-    return (this.health.get(cameraId)?.failures ?? 0) >= BREAKER_FAILURES ? 'unavailable' : 'ok';
+    return this.breakerOpen(cameraId) ? 'unavailable' : 'ok';
   }
 
   // The event's start and end, from the day's list.
@@ -622,7 +551,7 @@ export class RecordingsService {
     try {
       if (priority === 'high') {
         this.gate(cameraId).promote(key);
-        this.proxyThumbGates.get(cameraId)?.promote(key);
+        this.proxyThumbGate(cameraId).promote(key);
       }
       const path = await this.cache.fill(key, async (tmp) => {
         // 1. The proxy's recordings API: the SD file, fetched over Baichuan
@@ -788,14 +717,20 @@ export class RecordingsService {
     try {
       if (this.refusing(cameraId)) throw new RecordingError('recordings_unavailable', 'the camera is refusing recording downloads');
       const path = await this.cameraPath(cameraId, clipId, name, served);
-      const slot = this.acquireTransfer(cameraId, signal);
-      await slot.ready;
+      // A download someone clicked goes ahead of queued thumbnail fetches. A
+      // viewer who leaves frees the slot at once.
+      const release = await this.gate(cameraId).acquire({ high: true, signal });
+      signal?.addEventListener('abort', release, { once: true });
+      const done = () => {
+        signal?.removeEventListener('abort', release);
+        release();
+      };
       try {
         const res = await this.downloadWithRetry(cameraId, path, signal);
         const cl = res.headers['content-length'];
-        return this.handOver({ stream: res, size: typeof cl === 'string' && /^\d+$/.test(cl) ? Number(cl) : null }, filename, slot.release, signal);
+        return this.handOver({ stream: res, size: typeof cl === 'string' && /^\d+$/.test(cl) ? Number(cl) : null }, filename, done, signal);
       } catch (err) {
-        slot.release();
+        done();
         throw err;
       }
     } catch (err) {
@@ -858,7 +793,7 @@ export class RecordingsService {
       return true;
     }, undefined, false);
     if (known) return true;
-    if ((this.health.get(cameraId)?.failures ?? 0) >= BREAKER_FAILURES) return false;
+    if (this.breakerOpen(cameraId)) return false;
     const okAt = this.cameraDownloadOkAt.get(cameraId);
     return okAt !== undefined && performance.now() - okAt < CAMERA_DOWNLOAD_RECENT_MS;
   }
@@ -875,5 +810,4 @@ export function getRecordings(): RecordingsService {
 
 export function resetRecordings(): void {
   service = null;
-  resetLegacyProxies();
 }

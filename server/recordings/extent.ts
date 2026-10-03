@@ -1,5 +1,4 @@
-import { proxyActive } from '../cameraRegistry';
-import { getProxyClient, proxyCameraId } from '../proxy/client';
+import { getProxyClient, proxyPath } from '../proxy/client';
 import { logger } from '../logger';
 import { getRecordings } from './service';
 
@@ -39,10 +38,9 @@ async function cameraOldest(cameraId: string): Promise<number | null> {
 }
 
 async function proxyOldest(cameraId: string): Promise<number | null> {
-  if (!proxyActive(cameraId)) return null;
   const client = getProxyClient(cameraId);
   if (!client) return null;
-  const e = await client.json<{ clips: number | null; stills: number | null; previews: number | null }>(`/api/cameras/${encodeURIComponent(proxyCameraId(cameraId))}/extent`);
+  const e = await client.json<{ clips: number | null; stills: number | null; previews: number | null }>(proxyPath(cameraId, '/extent'));
   const all = [e.clips, e.stills, e.previews].filter((v): v is number => typeof v === 'number' && Number.isFinite(v));
   return all.length ? Math.min(...all) : null;
 }
