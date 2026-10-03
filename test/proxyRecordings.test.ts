@@ -4,7 +4,7 @@ import { setCameras } from '../server/cameraRegistry';
 import { logger } from '../server/logger';
 import { ProxyError, resetProxyClients } from '../server/proxy/client';
 import { RecordingError } from '../server/recordings/errors';
-import { fallsBack, listProxyDay, listProxyDays, listProxyRecordings, logProxyFailure, openProxyRecording } from '../server/recordings/proxyRecordings';
+import { fallsBack, listProxyDay, listProxyDays, listProxyRecordings, logProxyFailure, openProxyRecording, resetLegacyProxies } from '../server/recordings/proxyRecordings';
 import { FAKE_TOKEN, startFakeProxy, type FakeProxy } from './proxy/fakeProxy';
 
 // The client for cam-proxy's recordings API (spec 2026-10-02).
@@ -25,6 +25,7 @@ beforeEach(async () => {
   ]);
 });
 afterEach(async () => {
+  resetLegacyProxies();
   await fake.stop();
   setCameras([]);
   resetProxyClients();
@@ -226,4 +227,34 @@ describe('listProxyDay (cam-proxy date=)', () => {
     await expect(listProxyDay('den', '2026-10-01', 'sub', fb)).rejects.toMatchObject({ status: 503, reason: 'busy' });
     expect(fake.requests.length - before).toBe(2);
   }, 15_000);
+
+  it('stops waiting out a busy proxy when the viewer leaves', async () => {
+    fake.recordingsBusy = 5;
+    const ctl = new AbortController();
+    setTimeout(() => ctl.abort(new Error('viewer left')), 200);
+    const t = Date.now();
+    await expect(listProxyDay('den', '2026-10-01', 'sub', fb, ctl.signal)).rejects.toThrow('viewer left');
+    expect(Date.now() - t).toBeLessThan(800);
+    const before = fake.requests.length;
+    await expect(listProxyDay('den', '2026-10-01', 'sub', fb, AbortSignal.abort(new Error('gone')))).rejects.toThrow('gone');
+    expect(fake.requests.length).toBe(before);
+  }, 15_000);
+  it('remembers an older proxy for ten minutes: from/to at once, then date= again', async () => {
+    fake.legacyRecordings = true;
+    const now = vi.spyOn(Date, 'now');
+    const t0 = 1_800_000_000_000;
+    now.mockReturnValue(t0);
+    let before = fake.requests.length;
+    await listProxyDay('den', '2026-10-01', 'sub', fb);
+    await listProxyDay('den', '2026-10-01', 'main', fb);
+    expect(fake.requests.slice(before).map((r) => Object.keys(r.query).sort())).toEqual([['date', 'stream'], ['from', 'stream', 'to'], ['from', 'stream', 'to']]);
+    now.mockReturnValue(t0 + 9 * 60_000);
+    before = fake.requests.length;
+    await listProxyDay('den', '2026-10-02', 'sub', fb);
+    expect(fake.requests.length - before).toBe(1);
+    now.mockReturnValue(t0 + 11 * 60_000);
+    before = fake.requests.length;
+    await listProxyDay('den', '2026-10-02', 'sub', fb);
+    expect(fake.requests.slice(before).map((r) => Object.keys(r.query).sort())).toEqual([['date', 'stream'], ['from', 'stream', 'to']]);
+  });
 });

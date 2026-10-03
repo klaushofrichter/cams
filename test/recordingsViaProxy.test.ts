@@ -158,7 +158,7 @@ describe('the day’s list and the month’s days through cam-proxy', () => {
     expect(day.downloads).toBe('proxy-recordings');
     expect(day.events.length).toBeGreaterThan(0);
     const asks = recordingAsks();
-    expect(asks.map((r) => Object.keys(r.query).sort().join())).toEqual(['date,stream', 'from,stream,to', 'date,stream', 'from,stream,to']);
+    expect(asks.map((r) => Object.keys(r.query).sort().join())).toEqual(['date,stream', 'from,stream,to', 'from,stream,to']); // the memo spares main its date= try
     expect(asks.filter((r) => r.query.from !== undefined).map((r) => r.query.stream)).toEqual(['sub', 'main']);
   });
 
@@ -182,9 +182,32 @@ describe('the day’s list and the month’s days through cam-proxy', () => {
     expect(day.downloads).toBe('proxy');
   }, 15_000);
 
+  it('stops the day list when the viewer leaves during a busy wait, without a camera Search', async () => {
+    await seedRecordings(fake, 'cam1', today());
+    fake.recordingsBusy = 5;
+    const searches = state.searches;
+    const server = createApp().listen(0);
+    await new Promise((r) => server.once('listening', r));
+    try {
+      const port = (server.address() as AddressInfo).port;
+      const ctl = new AbortController();
+      const gone = fetch(`http://127.0.0.1:${port}/api/cameras/cam1/events?date=${today()}`, { headers: { Cookie: auth }, signal: ctl.signal }).catch(() => 'aborted');
+      await vi.waitFor(() => expect(recordingAsks().length).toBe(1));
+      ctl.abort();
+      expect(await gone).toBe('aborted');
+      await new Promise((r) => setTimeout(r, 1600)); // past the proxy's Retry-After of 1 s
+      expect(recordingAsks().length).toBe(1);
+      expect(state.searches).toBe(searches);
+    } finally {
+      await new Promise<void>((r) => server.close(() => r()));
+    }
+  }, 15_000);
+
   // Only for an older proxy without date=.
   it('keeps dayBounds, the window for an older proxy, wide enough for either offset', () => {
     expect(dayBounds('2026-11-01', { stdOffsetMinutes: -360, dstOffsetMinutes: 60 })).toEqual({ from: Date.parse('2026-11-01T05:00:00Z'), to: Date.parse('2026-11-02T06:00:00Z') - 1 });
+    // Berlin, spring forward: the day is 23 hours long.
+    expect(dayBounds('2026-03-29', { stdOffsetMinutes: 60, dstOffsetMinutes: 60 })).toEqual({ from: Date.parse('2026-03-28T22:00:00Z'), to: Date.parse('2026-03-30T00:00:00Z') - 3_600_000 - 1 });
     expect(dayBounds('2026-10-02', { stdOffsetMinutes: 0, dstOffsetMinutes: 0 })).toEqual({ from: Date.parse('2026-10-02T00:00:00Z'), to: Date.parse('2026-10-03T00:00:00Z') - 1 });
   });
 

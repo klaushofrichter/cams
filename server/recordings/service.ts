@@ -15,7 +15,7 @@ import { makeThumbnail } from './thumbnail';
 import { Semaphore } from '../reolink/semaphore';
 import { findProxyClip, findProxyStill, openProxyClip, openProxyStill } from './proxyClips';
 import { RecordingError } from './errors';
-import { fallsBack, headProxyRecording, listProxyDays, listProxyDay, logProxyFailure, openProxyRecording, type ProxyRecording } from './proxyRecordings';
+import { fallsBack, headProxyRecording, listProxyDays, listProxyDay, logProxyFailure, openProxyRecording, resetLegacyProxies, type ProxyRecording } from './proxyRecordings';
 import { ProxyError } from '../proxy/client';
 export { RecordingError } from './errors';
 
@@ -157,7 +157,7 @@ export class RecordingsService {
   private readonly days_ = new Map<string, { at: number; days: string[]; doubtful?: boolean }>();
   // Per camera: when a proxy list request last found the proxy unreachable.
   private readonly listUnreachableAt = new Map<string, number>();
-  private readonly daysInflight = new Map<string, Promise<DayEntry>>();
+  private readonly daysInflight = new Map<string, { work: Promise<DayEntry>; ctl: AbortController; waiters: number }>();
   private readonly dayCache = new Map<string, DayEntry>();
   private readonly transfers = new Map<string, PriorityGate>();
   // Per camera with a cam-proxy: whether its last recordings request failed.
@@ -186,7 +186,7 @@ export class RecordingsService {
 
   // viaProxy for the day and month lists: while the proxy was found
   // unreachable (a hang or a refused connection) a moment ago, null at once.
-  private async listViaProxy<T>(cameraId: string, what: string, ask: () => Promise<T>): Promise<T | null> {
+  private async listViaProxy<T>(cameraId: string, what: string, ask: () => Promise<T>, signal?: AbortSignal): Promise<T | null> {
     const at = this.listUnreachableAt.get(cameraId);
     if (at !== undefined && Date.now() - at < LIST_SPELL_MS) return null;
     this.listUnreachableAt.delete(cameraId);
@@ -198,7 +198,7 @@ export class RecordingsService {
         unreachable = err instanceof ProxyError && err.code === 'proxy_unreachable';
         throw err;
       }
-    });
+    }, signal);
     if (unreachable) this.listUnreachableAt.set(cameraId, Date.now());
     return value;
   }
@@ -321,7 +321,9 @@ export class RecordingsService {
     return days;
   }
 
-  private async day(cameraId: string, date: string): Promise<DayEntry> {
+  // `signal`: the viewer. The day's list is shared by everyone asking for it, so
+  // it is abandoned only when the last of them has left.
+  private async day(cameraId: string, date: string, signal?: AbortSignal): Promise<DayEntry> {
     const key = `${cameraId}|${date}`;
     const client = this.client(cameraId);
     const time = await client.timeInfo();
@@ -329,7 +331,8 @@ export class RecordingsService {
     const hit = this.dayCache.get(key);
     if (hit && Date.now() - hit.at < (hit.doubtful ? TODAY_TTL : ttl)) return hit;
     const inflight = this.daysInflight.get(key);
-    if (inflight) return inflight;
+    if (inflight) return this.waitFor(inflight, signal);
+    const ctl = new AbortController();
     const work = (async () => {
       // A camera with a cam-proxy: the proxy's list, sub then main, from the
       // camera-local `date`; an older proxy gets the day's bounds instead; the
@@ -337,10 +340,10 @@ export class RecordingsService {
       const bounds = dayBounds(date, time);
       const files = (list: ProxyRecording[]) => list.map((r) => ({ name: r.id, size: r.size }));
       const proxied = await this.listViaProxy(cameraId, date, async () => {
-        const subList = files(await listProxyDay(cameraId, date, 'sub', bounds));
-        const mainList = files(await listProxyDay(cameraId, date, 'main', bounds));
+        const subList = files(await listProxyDay(cameraId, date, 'sub', bounds, ctl.signal));
+        const mainList = files(await listProxyDay(cameraId, date, 'main', bounds, ctl.signal));
         return [subList, mainList] as const;
-      });
+      }, ctl.signal);
       const [sub, main] = proxied ?? (await Promise.all([client.searchDay(date, 'sub'), client.searchDay(date, 'main')]));
       // Keyed by start time: the firmware can end an event's main-stream copy
       // a few seconds after its sub-stream copy (065221_065224 vs
@@ -375,12 +378,44 @@ export class RecordingsService {
       this.dayCache.set(key, entry);
       return entry;
     })().finally(() => this.daysInflight.delete(key));
-    this.daysInflight.set(key, work);
-    return work;
+    const entry = { work, ctl, waiters: 0 };
+    this.daysInflight.set(key, entry);
+    return this.waitFor(entry, signal);
   }
 
-  async events(cameraId: string, date: string): Promise<EventClip[]> {
-    return (await this.day(cameraId, date)).events;
+  // One more viewer on a day's shared list. When the viewer leaves it stops
+  // waiting at once; the last one to leave aborts the list.
+  private waitFor(entry: { work: Promise<DayEntry>; ctl: AbortController; waiters: number }, signal?: AbortSignal): Promise<DayEntry> {
+    if (!signal) {
+      entry.waiters++; // never leaves, so the list is never abandoned under it
+      return entry.work;
+    }
+    if (signal.aborted) {
+      if (entry.waiters === 0) entry.ctl.abort(signal.reason);
+      return Promise.reject(signal.reason);
+    }
+    entry.waiters++;
+    return new Promise<DayEntry>((resolve, reject) => {
+      const onAbort = () => {
+        if (--entry.waiters === 0) entry.ctl.abort(signal.reason);
+        reject(signal.reason);
+      };
+      signal.addEventListener('abort', onAbort, { once: true });
+      entry.work.then(
+        (v) => {
+          signal.removeEventListener('abort', onAbort);
+          resolve(v);
+        },
+        (e) => {
+          signal.removeEventListener('abort', onAbort);
+          reject(e);
+        },
+      );
+    });
+  }
+
+  async events(cameraId: string, date: string, signal?: AbortSignal): Promise<EventClip[]> {
+    return (await this.day(cameraId, date, signal)).events;
   }
 
   // Review focus 1: ids are validated and resolved only through this
@@ -821,4 +856,5 @@ export function getRecordings(): RecordingsService {
 
 export function resetRecordings(): void {
   service = null;
+  resetLegacyProxies();
 }
