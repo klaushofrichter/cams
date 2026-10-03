@@ -39,7 +39,7 @@ describe('pages', () => {
     const res = await request(createApp()).get('/app/settings');
     expect(res.status).toBe(302);
     expect(res.headers.location).toBe('/');
-    expect(res.headers['set-cookie'].join(';')).toContain('return_to=%2Fapp%2Fsettings');
+    expect((res.get('Set-Cookie') ?? []).join(';')).toContain('return_to=%2Fapp%2Fsettings');
   });
 
   it('serves static files like the favicon publicly', async () => {

@@ -20,6 +20,9 @@ jobs:
       - run: sudo rm -f /etc/apt/sources.list.d/google-chrome.list
       - name: Ensure ffmpeg (thumbnail tests)
         run: command -v ffmpeg || (sudo apt-get update && sudo apt-get install -y --no-install-recommends ffmpeg)
+      # Type-check the server, test/ and e2e/ (tsconfig.check.json); the
+      # build only covers server/ and `check` only web/.
+      - run: npm run lint:types
       - run: npm test
       # Build every artifact in PR checks: the server, the web bundle, and a
       # tsc type check of web/ (svelte-check for .svelte files below).

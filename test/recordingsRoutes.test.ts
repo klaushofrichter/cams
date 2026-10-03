@@ -32,7 +32,7 @@ vi.mock('../server/recordings/thumbnail', async (importOriginal) => {
 // Node's own require() gets the one real, mutable module.exports object
 // every consumer (ESM or CJS) actually shares, so a plain property
 // reassignment on it is visible everywhere, including inside `send`.
-const nodeRequire = createRequire(import.meta.url);
+const nodeRequire = createRequire(__filename);
 
 const auth = `${SESSION_COOKIE}=${signSession('klaus@klaushofrichter.net')}`;
 const today = () => new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Chicago' }).format(new Date());

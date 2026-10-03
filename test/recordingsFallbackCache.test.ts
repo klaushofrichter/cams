@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi, type MockInstance } from 'vitest';
 import request from 'supertest';
 import { mkdtempSync, rmSync } from 'fs';
 import { tmpdir } from 'os';
@@ -69,7 +69,7 @@ const recordingAsks = () => fake.requests.filter((r) => r.path.startsWith('/api/
 const shape = (d: Day) => d.events.map((e) => [e.id, e.start, e.end, e.triggers]);
 
 const CACHE_SHORT_MS = 60_000; // past the short TTL (30 s), far inside the long ones (5 and 10 min)
-const warns = (spy: ReturnType<typeof vi.spyOn>) => spy.mock.calls.filter((c) => (c as unknown[])[1] === 'proxy_recordings_failed').length;
+const warns = (spy: MockInstance<typeof logger.warn>) => spy.mock.calls.filter((c) => (c as unknown[])[1] === 'proxy_recordings_failed').length;
 const later = (ms: number) => vi.spyOn(Date, 'now').mockReturnValue(Date.now() + ms);
 
 afterEach(() => vi.restoreAllMocks());
