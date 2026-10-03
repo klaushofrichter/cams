@@ -10,7 +10,7 @@ import request from 'supertest';
 async function freshLimiters(env: Record<string, string>) {
   vi.resetModules();
   Object.assign(process.env, env);
-  return import('../server/middleware/rateLimit');
+  return import('../server/middleware/rateLimit.js');
 }
 
 function buildApp(createApiRateLimit: () => express.RequestHandler, createMediaRateLimit: () => express.RequestHandler, createImageRateLimit?: () => express.RequestHandler) {

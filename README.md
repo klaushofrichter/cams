@@ -97,7 +97,7 @@ The Google OAuth client must list the redirect URI: `http://localhost:8080/auth/
 | `RATE_LIMIT_WINDOW_MS`, `RATE_LIMIT_MAX`, `RATE_LIMIT_API_MAX`, `RATE_LIMIT_MEDIA_MAX`, `RATE_LIMIT_IMAGE_MAX` | 5 min, `40`, `600`, `3000`, `20000` | per window: sign-in, API, clip media (video, thumbnail, download), and the cam-proxy's sprites and stills |
 | `APP_VERSION`, `BUILD_DATE`, `WEB_DIST` | `dev`, none, the built `web/` | set by the image build (shown on About and by `/api/me`); where the web build is |
 
-`scripts/create-secrets.sh` creates the cluster Secrets `cams-oauth` (namespace `cams`) and `runner-pat` (namespace `cams-runner`) from `~/Development/reolink/.env`, keeping an existing `COOKIE_SECRET`. `npm run icons` regenerates the web icons; `npm run check` type-checks `web/`.
+`scripts/create-secrets.sh` creates the cluster Secrets `cams-oauth` (namespace `cams`) and `runner-pat` (namespace `cams-runner`) from `~/Development/reolink/.env`, keeping an existing `COOKIE_SECRET`. `npm run icons` regenerates the web icons; `npm run check` type-checks `web/`, `npm run lint:types` the server, `test/` and `e2e/`.
 
 ## Testing
 

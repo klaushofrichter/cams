@@ -31,7 +31,7 @@ describe('fake cam-proxy: recordings', () => {
     for (const q of ['from=1&to=0&stream=sub', 'from=0&to=1', 'from=0&to=1&stream=hd', `from=0&to=${48 * 3_600_000 + 1}&stream=sub`]) {
       const r = await get(`/api/cameras/cam1/recordings?${q}`);
       expect(r.status).toBe(400);
-      expect((await r.json()).error).toBe('invalid');
+      expect(((await r.json()) as { error: string }).error).toBe('invalid');
     }
     expect((await get('/api/cameras/cam1/recordings/not-a-name.mp4')).status).toBe(400);
     expect((await get('/api/cameras/cam1/recordings/days?month=2026-13')).status).toBe(400);
@@ -125,7 +125,7 @@ describe('fake cam-proxy: recordings boundaries', () => {
     expect((await get(`/api/cameras/cam1/recordings/${id(128)}`)).status).toBe(404); // well-formed, unknown
     const long = await get(`/api/cameras/cam1/recordings/${id(129)}`);
     expect(long.status).toBe(400);
-    expect((await long.json()).error).toBe('invalid');
+    expect(((await long.json()) as { error: string }).error).toBe('invalid');
   });
 
   it('answers HEAD with Accept-Ranges and the length, without a transfer', async () => {
@@ -188,7 +188,7 @@ describe('fake cam-proxy: recordings boundaries', () => {
       for (const q of ['date=2026-10-01&from=0&stream=sub', 'date=2026-10-01&to=1&stream=sub', 'date=2026-10-01&from=0&to=1&stream=sub', 'date=2026-1-01&stream=sub', 'date=2026-02-30&stream=sub', 'date=1999-12-31&stream=sub', 'date=2100-01-01&stream=sub', 'date=2026-10-01']) {
         const r = await get(`/api/cameras/cam1/recordings?${q}`);
         expect(r.status, q).toBe(400);
-        expect((await r.json()).error).toBe('invalid');
+        expect(((await r.json()) as { error: string }).error).toBe('invalid');
       }
     });
 
@@ -205,7 +205,7 @@ describe('fake cam-proxy: recordings boundaries', () => {
       fake.legacyRecordings = true;
       const r = await get('/api/cameras/cam1/recordings?date=2026-10-01&stream=sub');
       expect(r.status).toBe(400);
-      expect((await r.json()).error).toBe('invalid');
+      expect(((await r.json()) as { error: string }).error).toBe('invalid');
       expect((await get(`/api/cameras/cam1/recordings?date=2026-10-01&from=${T0 - 1}&to=${T0 + 1}&stream=sub`)).status).toBe(200);
     });
   });

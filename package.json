@@ -16,7 +16,8 @@
     "test": "vitest run",
     "test:e2e": "playwright test",
     "icons": "node scripts/gen-icons.mjs",
-    "check:svelte": "npx --yes svelte-check@4.7.6 --workspace web --tsconfig ./tsconfig.json --threshold error"
+    "check:svelte": "npx --yes svelte-check@4.7.6 --workspace web --tsconfig ./tsconfig.json --threshold error",
+    "lint:types": "tsc --noEmit -p tsconfig.check.json"
   },
   "dependencies": {
     "cookie-parser": "^1.4.7",
