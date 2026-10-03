@@ -81,9 +81,14 @@ recordingsRouter.get('/api/cameras/:id/events', async (req, res, next) => {
     res.status(400).json({ error: 'bad_request' });
     return;
   }
+  // A viewer who leaves mid-list stops holding the proxy's busy wait.
+  const gone = new AbortController();
+  res.on('close', () => {
+    if (!res.writableEnded) gone.abort();
+  });
   try {
     const rec = getRecordings();
-    const events = await rec.events(id, date);
+    const events = await rec.events(id, date, gone.signal);
     rec.probeIfDue(id, events.at(-1)?.id);
     // cam-proxy's Vision results on the cards (spec 2026-09-30-analytics-in-cams-design).
     const shown = getProxyClient(id) ? attachAnalyses(events, await getAnalysisStore().forDay(id, date, events)) : events;
