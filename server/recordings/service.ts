@@ -153,11 +153,17 @@ export function dayBounds(date: string, t: TimeInfo): { from: number; to: number
 // cameras without a proxy (the camera's breaker).
 export type DownloadsState = 'ok' | 'proxy-recordings' | 'proxy' | 'unavailable';
 
+interface DayList {
+  work: Promise<DayEntry>;
+  ctl: AbortController;
+  waiters: number;
+}
+
 export class RecordingsService {
   private readonly days_ = new Map<string, { at: number; days: string[]; doubtful?: boolean }>();
   // Per camera: when a proxy list request last found the proxy unreachable.
   private readonly listUnreachableAt = new Map<string, number>();
-  private readonly daysInflight = new Map<string, { work: Promise<DayEntry>; ctl: AbortController; waiters: number }>();
+  private readonly daysInflight = new Map<string, DayList>();
   private readonly dayCache = new Map<string, DayEntry>();
   private readonly transfers = new Map<string, PriorityGate>();
   // Per camera with a cam-proxy: whether its last recordings request failed.
@@ -331,7 +337,7 @@ export class RecordingsService {
     const hit = this.dayCache.get(key);
     if (hit && Date.now() - hit.at < (hit.doubtful ? TODAY_TTL : ttl)) return hit;
     const inflight = this.daysInflight.get(key);
-    if (inflight) return this.waitFor(inflight, signal);
+    if (inflight) return this.waitFor(key, inflight, signal);
     const ctl = new AbortController();
     const work = (async () => {
       // A camera with a cam-proxy: the proxy's list, sub then main, from the
@@ -377,27 +383,45 @@ export class RecordingsService {
       const entry: DayEntry = { at: Date.now(), events, names, doubtful: !proxied && proxyActive(cameraId) };
       this.dayCache.set(key, entry);
       return entry;
-    })().finally(() => this.daysInflight.delete(key));
-    const entry = { work, ctl, waiters: 0 };
+    })();
+    const entry: DayList = { work, ctl, waiters: 0 };
+    // Its failure reaches the viewers waiting on it; this keeps one that
+    // nobody waits on any more from being an unhandled rejection.
+    work.catch(() => undefined);
+    void work.then(
+      () => this.forget(key, entry),
+      () => this.forget(key, entry),
+    );
     this.daysInflight.set(key, entry);
-    return this.waitFor(entry, signal);
+    return this.waitFor(key, entry, signal);
+  }
+
+  // An old list never removes a fresh one under the same key.
+  private forget(key: string, entry: DayList): void {
+    if (this.daysInflight.get(key) === entry) this.daysInflight.delete(key);
+  }
+
+  // The last viewer left: abort the list and let no one join it any more.
+  private abandon(key: string, entry: DayList, reason: unknown): void {
+    entry.ctl.abort(reason);
+    this.forget(key, entry);
   }
 
   // One more viewer on a day's shared list. When the viewer leaves it stops
   // waiting at once; the last one to leave aborts the list.
-  private waitFor(entry: { work: Promise<DayEntry>; ctl: AbortController; waiters: number }, signal?: AbortSignal): Promise<DayEntry> {
+  private waitFor(key: string, entry: DayList, signal?: AbortSignal): Promise<DayEntry> {
     if (!signal) {
       entry.waiters++; // never leaves, so the list is never abandoned under it
       return entry.work;
     }
     if (signal.aborted) {
-      if (entry.waiters === 0) entry.ctl.abort(signal.reason);
+      if (entry.waiters === 0) this.abandon(key, entry, signal.reason);
       return Promise.reject(signal.reason);
     }
     entry.waiters++;
     return new Promise<DayEntry>((resolve, reject) => {
       const onAbort = () => {
-        if (--entry.waiters === 0) entry.ctl.abort(signal.reason);
+        if (--entry.waiters === 0) this.abandon(key, entry, signal.reason);
         reject(signal.reason);
       };
       signal.addEventListener('abort', onAbort, { once: true });

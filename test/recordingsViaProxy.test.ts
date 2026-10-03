@@ -10,7 +10,7 @@ import { setCameras } from '../server/cameraRegistry';
 import { loadProxyState, setProxyEnabled } from '../server/proxyState';
 import { getClient, resetClients } from '../server/reolink/clients';
 import { resetProxyClients } from '../server/proxy/client';
-import { dayBounds, resetRecordings } from '../server/recordings/service';
+import { dayBounds, getRecordings, resetRecordings } from '../server/recordings/service';
 import { SESSION_COOKIE, signSession } from '../server/session';
 import { createSimCamera, type SimState } from './camera/sim';
 import { FAKE_TOKEN, startFakeProxy, type FakeProxy } from './proxy/fakeProxy';
@@ -202,6 +202,32 @@ describe('the day’s list and the month’s days through cam-proxy', () => {
       await new Promise<void>((r) => server.close(() => r()));
     }
   }, 15_000);
+
+  it('never joins an abandoned day list: a viewer arriving right after the last one left gets a fresh list', async () => {
+    await seedRecordings(fake, 'cam1', today());
+    fake.recordingsBusy = 1;
+    const rec = getRecordings();
+    const ctl = new AbortController();
+    const first = rec.events('cam1', today(), ctl.signal).catch((e: unknown) => e);
+    await vi.waitFor(() => expect(recordingAsks().length).toBe(1));
+    ctl.abort(new Error('left'));
+    const second = rec.events('cam1', today(), new AbortController().signal); // before the abandoned list has settled
+    expect(await first).toMatchObject({ message: 'left' });
+    expect((await second).length).toBeGreaterThan(0);
+  }, 15_000);
+
+  it('raises no unhandled rejection when the creator of a day list is already gone', async () => {
+    await seedRecordings(fake, 'cam1', today());
+    const seen = vi.fn();
+    process.on('unhandledRejection', seen);
+    try {
+      await expect(getRecordings().events('cam1', today(), AbortSignal.abort(new Error('gone')))).rejects.toThrow('gone');
+      await new Promise((r) => setTimeout(r, 200));
+      expect(seen).not.toHaveBeenCalled();
+    } finally {
+      process.off('unhandledRejection', seen);
+    }
+  });
 
   // Only for an older proxy without date=.
   it('keeps dayBounds, the window for an older proxy, wide enough for either offset', () => {

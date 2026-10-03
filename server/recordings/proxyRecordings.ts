@@ -107,8 +107,9 @@ export async function listProxyDay(cameraId: string, date: string, stream: 'sub'
     return await listWith(cameraId, { date, stream }, stream, signal);
   } catch (err) {
     if (!(err instanceof ProxyError) || err.status !== 400) throw err;
-    legacyUntil.set(cameraId, Date.now() + LEGACY_PROXY_MS);
-    return legacy();
+    const list = await legacy();
+    legacyUntil.set(cameraId, Date.now() + LEGACY_PROXY_MS); // only once from/to worked
+    return list;
   }
 }
 
