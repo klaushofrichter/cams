@@ -1,7 +1,7 @@
 // web/src/lib/liveUi.test.ts
 import { get } from 'svelte/store';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { badgeOf, checkLiveStatus, liveUi, offlineReason } from './liveUi';
+import { badgeOf, checkLiveStatus, keepAliveNote, liveUi, offlineReason } from './liveUi';
 
 describe('liveUi helpers', () => {
   it('names the badge as the Live page did', () => {
@@ -38,5 +38,16 @@ describe('checkLiveStatus', () => {
     await checkLiveStatus('cam2');
     await slow;
     expect(get(liveUi).status?.id).toBe('cam2');
+  });
+});
+
+describe('keepAliveNote', () => {
+  it('names every keep-alive choice', () => {
+    expect(keepAliveNote(0)).toBe('The stream disconnects when you leave this page.');
+    expect(keepAliveNote(30)).toBe('The stream stays connected for 30 s after you leave this page.');
+    expect(keepAliveNote(60)).toBe('The stream stays connected for 1 min after you leave this page.');
+    expect(keepAliveNote(120)).toBe('The stream stays connected for 2 min after you leave this page.');
+    expect(keepAliveNote(300)).toBe('The stream stays connected for 5 min after you leave this page.');
+    expect(keepAliveNote(900)).toBe('The stream stays connected for 15 min after you leave this page.');
   });
 });

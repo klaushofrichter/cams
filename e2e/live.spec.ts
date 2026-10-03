@@ -90,6 +90,27 @@ test('live video plays from the camera', async ({ page }) => {
   await expect(page.getByTestId('live-badge')).toContainText('LIVE');
 });
 
+// Klaus, 2026-10-03: until the stream plays, a spinner says it is connecting
+// and how long the stream stays connected after leaving Live. The stream is
+// held back for 2 s so the indicator is reliably there before it plays.
+test('a connecting indicator shows until the live video plays', async ({ page }) => {
+  await page.route(/\/api\/cameras\/[^/]+\/live\?/, async (route) => {
+    await new Promise((r) => setTimeout(r, 2_000));
+    await route.continue().catch(() => {}); // the page may have moved on
+  });
+  await page.goto('/app/live');
+  const indicator = page.getByTestId('live-connecting');
+  await expect(indicator).toBeVisible();
+  await expect(indicator).toHaveAttribute('role', 'status');
+  await expect(indicator).toContainText('Connecting to the live stream…');
+  await expect(page.getByTestId('live-connecting-note')).toHaveText(/^The stream (stays connected for (\d+ s|\d+ min) after you leave this page|disconnects when you leave this page)\.$/);
+  const video = page.getByTestId('live-video');
+  await expect
+    .poll(() => video.evaluate((v: HTMLVideoElement) => v.readyState >= 2 && v.currentTime > 0.5), { timeout: 15_000 })
+    .toBe(true);
+  await expect(indicator).toHaveCount(0);
+});
+
 test('audio starts muted and can be toggled', async ({ page }) => {
   await page.goto('/app/live');
   const video = page.getByTestId('live-video');
@@ -126,6 +147,7 @@ test('an unreachable camera shows the offline banner with retry', async ({ page 
   await page.getByTestId('retry').click();
   await expect(page.getByTestId('offline-banner')).toBeVisible();
   await expect(page.getByTestId('live-video')).toHaveCount(0);
+  await expect(page.getByTestId('live-connecting')).toHaveCount(0); // offline has its own message
 });
 
 // Review focus 4 ("switching cameras tears the stream down") is covered by
@@ -183,6 +205,27 @@ test('a camera with a gateway falls back to stills, clearly marked, when live vi
   await expect(page.getByTestId('live-badge')).toHaveText('● STILLS', { timeout: 20_000 });
   await expect(page.getByTestId('stills-badge')).toContainText(/^STILLS · \d{1,2}:\d{2}:\d{2}.* · \d+ s old$/);
   await expect(page.getByTestId('live-still').locator('img')).toHaveJSProperty('complete', true);
+  // Still trying: the connecting indicator stays, compact, over the stills.
+  await expect(page.getByTestId('live-connecting')).toBeVisible();
+  await expect(page.getByTestId('live-connecting')).toHaveClass(/stills/);
+});
+
+// Klaus, 2026-10-03: no spinner forever. After 30 s without playing the
+// indicator turns calm while the retries go on. The page's clock is faked
+// (as in recordings.spec.ts) so this doesn't wait out 30 real seconds.
+test('a stream that never plays turns the indicator calm after 30 s', async ({ page }) => {
+  await page.clock.install();
+  await page.goto('/app/live');
+  await page.getByTestId('camera-picker').selectOption('barn');
+  const indicator = page.getByTestId('live-connecting');
+  await expect(indicator).toHaveAttribute('data-state', 'connecting');
+  await page.clock.runFor(6_000); // stills after 5 s
+  await expect(page.getByTestId('live-still')).toBeVisible({ timeout: 10_000 });
+  await expect(indicator).toHaveAttribute('data-state', 'connecting');
+  await page.clock.runFor(25_000);
+  await expect(indicator).toHaveAttribute('data-state', 'unavailable');
+  await expect(indicator).toHaveText("The live stream isn't available right now. Still trying… Showing stills meanwhile.");
+  await expect(page.getByTestId('live-connecting-note')).toHaveCount(0);
 });
 
 // Klaus, 2026-09-29: the controls are icons with tooltips, and the camera's
