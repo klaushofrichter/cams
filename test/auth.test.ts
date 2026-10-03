@@ -292,10 +292,17 @@ describe('silent renewal and returnTo', () => {
     expect(cookiesOf(bad)).not.toContain('return_to=');
   });
 
-  it('the start page sends a visitor already signed in (another tab) to returnTo', async () => {
+  // Security review of #155: a third-party page must not open a chosen /app
+  // page for a signed-in user, so ?returnTo= counts only when signed out.
+  it('the start page ignores ?returnTo= for a visitor already signed in', async () => {
     const session = `session=${signSession('klaus@klaushofrichter.net')}`;
     const res = await request(createApp()).get('/?returnTo=%2Fapp%2Ftimeline').set('Cookie', session);
-    expect(res.headers.location).toBe('/app/timeline');
+    expect(res.headers.location).toBe('/app/live');
+    expect(cookiesOf(res)).not.toContain('return_to=%2Fapp');
+  });
+
+  it('the start page sends a visitor already signed in (another tab) to the remembered page', async () => {
+    const session = `session=${signSession('klaus@klaushofrichter.net')}`;
     const viaCookie = await request(createApp()).get('/').set('Cookie', `${session}; return_to=%2Fapp%2Fabout`);
     expect(viaCookie.headers.location).toBe('/app/about');
     expect(cookiesOf(viaCookie)).toMatch(/return_to=;/);

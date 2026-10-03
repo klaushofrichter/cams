@@ -15,12 +15,13 @@ export function pagesRouter(dir: string): Router {
   router.use(createApiRateLimit());
 
   // ?returnTo=/app/... (the web app's fallback when an expired session
-  // can't be renewed silently): remembered, so the sign-in from here comes
-  // back to that page. Signed in already (another tab signed in again):
-  // straight there.
+  // can't be renewed silently): remembered for a signed-out visitor, so the
+  // sign-in from here comes back to that page. A signed-in visitor (another
+  // tab signed in again) goes to the remembered page or Live; ?returnTo= is
+  // ignored then, so a third-party link can't open a chosen /app page.
   router.get('/', (req: Request, res: Response) => {
     if (currentUser(req)) {
-      const back = safeReturnPath(req.query.returnTo) ?? safeReturnPath(req.cookies?.[RETURN_COOKIE]);
+      const back = safeReturnPath(req.cookies?.[RETURN_COOKIE]);
       if (req.cookies?.[RETURN_COOKIE] !== undefined) res.clearCookie(RETURN_COOKIE, { httpOnly: true, secure: true, sameSite: 'lax' });
       res.redirect(302, back ?? '/app/live');
       return;
