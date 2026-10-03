@@ -99,45 +99,6 @@ export function previewAt(minutes: PreviewMinute[], ts: number): { minute: Previ
   return m.present[index] ? { minute: m, index } : null;
 }
 
-// The parts of a timeline window that have a thumbnail to show on hover: the
-// proxy's preview minutes and the events (their own thumbnails), merged, as
-// percent of the window. The rest is drawn as "no thumbnail".
-export function thumbCoverage(
-  previews: PreviewMinute[],
-  events: { start: number; end: number }[], // seconds into the day
-  dayStartMs: number,
-  win: { start: number; end: number },
-): { left: number; width: number }[] {
-  const spans = [
-    // each run of present tiles in a minute (a tile covers intervalS seconds)
-    ...previews.flatMap((p) => {
-      const base = (p.minute - dayStartMs) / 1000;
-      const out: { start: number; end: number }[] = [];
-      p.present.forEach((on, i) => {
-        if (!on) return;
-        const s0 = base + i * p.intervalS;
-        const last = out.at(-1);
-        if (last && last.end === s0) last.end = s0 + p.intervalS;
-        else out.push({ start: s0, end: s0 + p.intervalS });
-      });
-      return out;
-    }),
-    ...events,
-  ]
-    .map((s) => ({ start: Math.max(s.start, win.start), end: Math.min(s.end, win.end) }))
-    .filter((s) => s.end > s.start)
-    .sort((a, b) => a.start - b.start);
-  const merged: { start: number; end: number }[] = [];
-  for (const s of spans) {
-    const last = merged.at(-1);
-    if (last && s.start <= last.end) last.end = Math.max(last.end, s.end);
-    else merged.push({ ...s });
-  }
-  const len = win.end - win.start;
-  return merged.map((s) => ({ left: ((s.start - win.start) / len) * 100, width: ((s.end - s.start) / len) * 100 }));
-}
-
-
 // The view point shared by History, Live and the Timeline (Klaus,
 // 2026-09-29): the last History time, or null for Live ("now"), per camera,
 // for this browser session.
@@ -239,16 +200,6 @@ export function cardKind(c: { triggers: readonly string[] }): string {
   return [...c.triggers].sort((a, b) => rank(a) - rank(b))[0] ?? 'motion';
 }
 
-// A minute's colour: the most specific kind among its cards (null: none).
-export function minuteKind(m: { minute: number; intervalS?: number }, cards: { start: string; end: string; triggers: readonly string[] }[]): string | null {
-  let best: string | null = null;
-  for (const c of cardsInMinute(m, cards)) {
-    const k = cardKind(c);
-    if (best === null || rank(k) < rank(best)) best = k;
-  }
-  return best;
-}
-
 export function secondKinds(m: { minute: number; intervalS: number; present: boolean[] }, cards: { start: string; end: string; triggers: readonly string[] }[]): (string | null)[] {
   const list = cardsInMinute(m, cards);
   return m.present.map((_, i) => {
@@ -267,15 +218,6 @@ export function secondKinds(m: { minute: number; intervalS: number; present: boo
 // Vision's analysed stills that found something (a non-empty summary).
 export function seenStills(cards: TimelineCard[]): SeenStill[] {
   return cards.flatMap((c) => c.analysis?.stills.filter((s) => s.summary.length > 0) ?? []);
-}
-
-// The hour grid's marks for a minute: how many cards it has (×2, ×3), and
-// whether a still in it found something (purple).
-export function minuteMarks(m: { minute: number }, cards: TimelineCard[]): { count: number; analysed: boolean } {
-  return {
-    count: cardsInMinute(m, cards).length,
-    analysed: seenStills(cards).some((s) => s.stillTs >= m.minute && s.stillTs < m.minute + MINUTE),
-  };
 }
 
 // The hour grid's data for every minute of the day at once (issue #109: not

@@ -4,7 +4,6 @@ export type Trigger = 'person' | 'vehicle' | 'pet' | 'motion' | 'timer';
 // all four is "All". Always in ALL_KINDS order.
 export type FilterKind = 'person' | 'vehicle' | 'pet' | 'motion';
 export type Filter = FilterKind[];
-export type Zoom = 24 | 12 | 6 | 3 | 1 | 0.5;
 
 export interface EventClip {
   id: string;
@@ -58,7 +57,6 @@ export function toggleFilter(f: Filter, k: FilterKind | 'all'): Filter {
   const next = f.includes(k) ? f.filter((x) => x !== k) : [...f, k];
   return next.length ? ALL_KINDS.filter((x) => next.includes(x)) : [...ALL_KINDS];
 }
-const AI: Trigger[] = ['person', 'vehicle', 'pet'];
 const DATE = /^\d{4}-\d{2}-\d{2}$/;
 const CLIP = /^\d{8}-\d{6}-\d{6}$/;
 export const CURSOR_KEY = 'cams-cursor';
@@ -72,91 +70,8 @@ export function addDays(date: string, n: number): string {
   return localDate(new Date(y, m - 1, d + n));
 }
 
-export function secondsIntoDay(iso: string, date: string): number {
-  const [y, m, d] = date.split('-').map(Number);
-  return (new Date(iso).getTime() - new Date(y, m - 1, d).getTime()) / 1000;
-}
-
-export function dayLength(date: string): number {
-  const next = addDays(date, 1);
-  const [y1, m1, d1] = date.split('-').map(Number);
-  const [y2, m2, d2] = next.split('-').map(Number);
-  return (new Date(y2, m2 - 1, d2).getTime() - new Date(y1, m1 - 1, d1).getTime()) / 1000;
-}
-
-export function timelineWindow(zoom: Zoom, centerSec: number, daySec = 86400): { start: number; end: number } {
-  if (zoom === 24) return { start: 0, end: daySec };
-  const span = zoom * 3600;
-  // Whole hours: at 1 h the hour containing the moment, at 6 h the nearest
-  // whole hour to centre it. Kept inside the day.
-  const H = 3600;
-  const want = zoom === 1 ? Math.floor(centerSec / H) * H : Math.round((centerSec - span / 2) / H) * H;
-  const start = Math.min(Math.max(0, want), daySec - span);
-  return { start, end: start + span };
-}
-
-// The zoomed window one window length earlier or later, kept inside the day.
-// From the day's first (last) window it asks for the previous (next) day.
-export function panWindow(win: { start: number; end: number }, dir: -1 | 1, daySec = 86400): { start: number; end: number } | 'prev-day' | 'next-day' {
-  const span = win.end - win.start;
-  if (dir < 0) {
-    if (win.start <= 0) return 'prev-day';
-    const start = Math.max(0, win.start - span);
-    return { start, end: start + span };
-  }
-  if (win.end >= daySec) return 'next-day';
-  const end = Math.min(daySec, win.end + span);
-  return { start: end - span, end };
-}
-
-export function layoutSegments(
-  events: EventClip[],
-  date: string,
-  win: { start: number; end: number },
-): { id: string; left: number; width: number; ai: boolean }[] {
-  const span = win.end - win.start;
-  return events
-    .map((e) => {
-      const s = secondsIntoDay(e.start, date);
-      return { e, s, t: s + e.durationSec };
-    })
-    .filter(({ s, t }) => t > win.start && s < win.end)
-    .map(({ e, s, t }) => ({
-      id: e.id,
-      left: ((Math.max(s, win.start) - win.start) / span) * 100,
-      width: Math.max(0.4, ((Math.min(t, win.end) - Math.max(s, win.start)) / span) * 100),
-      ai: e.triggers.some((x) => AI.includes(x)),
-    }));
-}
-
-export function clipAtSecond(events: EventClip[], date: string, sec: number): EventClip | null {
-  let best: EventClip | null = null;
-  let bestDist = 300;
-  for (const e of events) {
-    const s = secondsIntoDay(e.start, date);
-    if (sec >= s && sec <= s + e.durationSec) return e;
-    const dist = Math.abs(s - sec);
-    if (dist <= bestDist) {
-      best = e;
-      bestDist = dist;
-    }
-  }
-  return best;
-}
-
-export function neighbour(events: EventClip[], id: string, dir: -1 | 1): EventClip | null {
-  const i = events.findIndex((e) => e.id === id);
-  return i < 0 ? null : (events[i + dir] ?? null);
-}
-
 export function filterEvents(events: EventClip[], filter: Filter): EventClip[] {
   return isAllKinds(filter) ? events : events.filter((e) => e.triggers.some((t) => (filter as string[]).includes(t)));
-}
-
-export function formatBytes(n: number | null): string {
-  if (n === null) return '—';
-  if (n >= 1024 * 1024) return `${(n / (1024 * 1024)).toFixed(1)} MB`;
-  return `${Math.round(n / 1024)} KB`;
 }
 
 export function formatClock(iso: string): string {
@@ -206,17 +121,7 @@ export function saveCursor(c: string, cursor: Cursor): void {
   }
 }
 
-export function dayStartMs(date: string): number {
-  const [y, m, d] = date.split('-').map(Number);
-  return new Date(y, m - 1, d).getTime();
-}
-
-// The label a wall clock shows `sec` seconds after local midnight. On DST days
-// that differs from sec/3600, so labels come from the real instant.
 const CLOCK: Intl.DateTimeFormatOptions = { hour: '2-digit', minute: '2-digit', hourCycle: 'h23' };
-export function tickLabel(date: string, sec: number, locale?: string): string {
-  return new Intl.DateTimeFormat(locale, CLOCK).format(new Date(dayStartMs(date) + sec * 1000));
-}
 
 // The label of a wall-clock hour (0–23, as getHours() gives it). Built from the
 // hour itself, not from hour*3600 seconds after midnight: on a DST day those
@@ -224,12 +129,6 @@ export function tickLabel(date: string, sec: number, locale?: string): string {
 function hourLabel(date: string, hour: number, locale?: string): string {
   const [y, m, d] = date.split('-').map(Number);
   return new Intl.DateTimeFormat(locale, CLOCK).format(new Date(y, m - 1, d, hour));
-}
-
-// The Live mini timeline's fixed legend: every 6 hours plus the day's end,
-// which reads "24:00" (like the caption), not the next day's "00:00".
-export function legendTicks(date: string, daySec: number, locale?: string): { sec: number; label: string }[] {
-  return [0, 6 * 3600, 12 * 3600, 18 * 3600, daySec].map((sec) => ({ sec, label: sec === daySec ? '24:00' : tickLabel(date, sec, locale) }));
 }
 
 export interface HourGroup {

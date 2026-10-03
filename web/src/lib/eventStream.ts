@@ -160,7 +160,7 @@ export function createEventStream(opts: { url?: string; factory?: (url: string) 
 // switched off, so the page hears when it is switched on again), unless live
 // events are off in Settings: then pages poll as before.
 let shared: EventStream | undefined;
-export function closeEventStream(): void {
+function closeEventStream(): void {
   shared?.close();
   shared = undefined;
 }

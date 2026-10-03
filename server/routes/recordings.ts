@@ -7,7 +7,8 @@ import { getCamera } from '../cameraRegistry';
 import { CameraError } from '../reolink/client';
 import { logger } from '../logger';
 import { CLIP_ID, isRealDate, isRealMonth } from '../recordings/clipNames';
-import { getRecordings, RecordingError } from '../recordings/service';
+import { getRecordings } from '../recordings/service';
+import { RecordingError } from '../recordings/errors';
 import { extent } from '../recordings/extent';
 
 export const recordingsRouter = Router();

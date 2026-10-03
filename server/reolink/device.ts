@@ -14,10 +14,6 @@ export async function readDetectionRaw(client: ReolinkClient): Promise<{ raw: Ra
   return { raw, settings: detectionFrom(raw) };
 }
 
-export async function readDetection(client: ReolinkClient): Promise<DetectionSettings> {
-  return (await readDetectionRaw(client)).settings;
-}
-
 export async function readImageRaw(client: ReolinkClient): Promise<{ raw: RawImage; settings: ImageSettings }> {
   const isp = await client.command('GetIsp', { channel: 0 });
   const ir = await client.command('GetIrLights', { channel: 0 });
@@ -25,10 +21,6 @@ export async function readImageRaw(client: ReolinkClient): Promise<{ raw: RawIma
   const osd = await client.command('GetOsd', { channel: 0 });
   const raw = { isp, ir, wl, osd };
   return { raw, settings: imageFrom(raw) };
-}
-
-export async function readImage(client: ReolinkClient): Promise<ImageSettings> {
-  return (await readImageRaw(client)).settings;
 }
 
 export interface DeviceInfo {

@@ -202,7 +202,3 @@ export function stopProxyStreams(final = false): void {
 export function proxyStates(): { cam: string; up: boolean }[] {
   return [...streams.values()].map((s) => ({ cam: s.cam, up: s.up() }));
 }
-
-export function proxyUp(cam: string): boolean {
-  return streams.get(cam)?.up() ?? false;
-}

@@ -156,7 +156,7 @@ export function webUiOf(cam: CameraConfig): { webUiUrl: string | null; webUiNote
 
 // The camera's own web UI, by LAN address: it's reachable from the home
 // network only (docs/reolink-api.md, "Camera authentication").
-export function webUiUrlOf(cam: CameraConfig): string {
+function webUiUrlOf(cam: CameraConfig): string {
   const host = cam.host.startsWith('[') ? cam.host.slice(0, cam.host.indexOf(']') + 1) : cam.host.split(':')[0];
   return `https://${host}/`;
 }

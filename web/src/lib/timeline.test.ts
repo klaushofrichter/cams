@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { dayRange, hourGroups, thumbCoverage, minuteOf, previewAt, splitRange, stillIndex, tileIndex, tileStyle, timelineCursor, cursorSearch, stepMinute, cardsInMinute, cardKind, minuteKind, secondKinds, seenStills, minuteMarks, analysedSeconds, minuteIndex, type PreviewMinute } from './timeline';
+import { dayRange, hourGroups, minuteOf, previewAt, splitRange, stillIndex, tileIndex, tileStyle, timelineCursor, cursorSearch, stepMinute, cardsInMinute, cardKind, secondKinds, seenStills, analysedSeconds, minuteIndex, type PreviewMinute } from './timeline';
 
 // Tests run with TZ=America/Chicago (vitest.config).
 const m = (minute: number, present = Array(60).fill(true)): PreviewMinute => ({ minute, cols: 10, rows: 6, tileW: 160, tileH: 90, intervalS: 1, present, url: `/x/${minute}.jpg` });
@@ -78,37 +78,6 @@ describe('previewAt', () => {
   });
 });
 
-describe('thumbCoverage (where the timeline has a thumbnail)', () => {
-  const day = Date.UTC(2026, 8, 27, 5); // local midnight, 2026-09-27
-  const win = { start: 0, end: 7200 }; // 00:00–02:00
-
-  it('covers the proxy’s preview minutes and the events, merged, as percent of the window', () => {
-    const previews = [m(day), m(day + 60_000), m(day + 3600_000)];
-    const events = [{ start: 90, end: 150 }, { start: 5400, end: 5460 }];
-    expect(thumbCoverage(previews, events, day, win)).toEqual([
-      { left: 0, width: (150 / 7200) * 100 }, // minutes 0–1 plus an event ending 02:30
-      { left: 50, width: (60 / 7200) * 100 },
-      { left: 75, width: (60 / 7200) * 100 },
-    ]);
-  });
-
-  it('clips to the window and is empty without anything', () => {
-    expect(thumbCoverage([], [], day, win)).toEqual([]);
-    expect(thumbCoverage([], [{ start: 7100, end: 7300 }], day, win)).toEqual([{ left: (7100 / 7200) * 100, width: (100 / 7200) * 100 }]);
-  });
-});
-
-describe('thumbCoverage with partly filled preview minutes (review M7)', () => {
-  it('covers only the seconds that have a tile', () => {
-    const day = Date.UTC(2026, 8, 27, 5);
-    const present = Array(60).fill(false).map((_, i) => i < 10 || i >= 50);
-    expect(thumbCoverage([m(day, present)], [], day, { start: 0, end: 60 })).toEqual([
-      { left: 0, width: (10 / 60) * 100 },
-      { left: (50 / 60) * 100, width: (10 / 60) * 100 },
-    ]);
-  });
-});
-
 describe('the minute view (spec 2026-09-30-analytics-in-cams-design)', () => {
   const M = Date.UTC(2026, 8, 30, 20, 48); // a minute
   const iso = (ms: number) => new Date(ms).toISOString();
@@ -140,8 +109,8 @@ describe('the minute view (spec 2026-09-30-analytics-in-cams-design)', () => {
 
   it('colours a minute by the most specific kind among its cards, not the earliest', () => {
     const cards = [card(M, M + 5000, ['motion']), card(M + 20_000, M + 25_000, ['person'])];
-    expect(minuteKind(minute, cards)).toBe('person');
-    expect(minuteKind(minute, [])).toBeNull();
+    expect(minuteIndex([minute], cards).get(M)?.kind).toBe('person');
+    expect(minuteIndex([minute], []).get(M)?.kind).toBeNull();
   });
 
   it('colours each second by the most specific card covering it', () => {
@@ -154,9 +123,9 @@ describe('the minute view (spec 2026-09-30-analytics-in-cams-design)', () => {
   it('marks a minute with its card count and with a still that found something', () => {
     const found = card(M, M + 30_000, ['person'], [{ eventId: 1, stillTs: M + 20_000, n: 1 }]);
     const nothing = card(M + 40_000, M + 50_000, ['person'], [{ eventId: 2, stillTs: M + 41_000, n: 0 }]);
-    expect(minuteMarks(minute, [found, nothing])).toEqual({ count: 2, analysed: true });
-    expect(minuteMarks(minute, [nothing])).toEqual({ count: 1, analysed: false });
-    expect(minuteMarks({ minute: M + 60_000 }, [found])).toEqual({ count: 0, analysed: false }); // the still's minute only
+    expect(minuteIndex([minute], [found, nothing]).get(M)).toMatchObject({ count: 2, analysed: true });
+    expect(minuteIndex([minute], [nothing]).get(M)).toMatchObject({ count: 1, analysed: false });
+    expect(minuteIndex([{ minute: M + 60_000 }], [found]).get(M + 60_000)).toMatchObject({ count: 0, analysed: false }); // the still's minute only
   });
 
   it('does not count a card that ends exactly where the minute starts (issue #109)', () => {
@@ -184,11 +153,12 @@ describe('the minute view (spec 2026-09-30-analytics-in-cams-design)', () => {
       card(M + 61_000, M + 62_000, ['pet'], [{ eventId: 2, stillTs: M + 61_500, n: 0 }]),
     ];
     const idx = minuteIndex([{ minute: M - 60_000 }, { minute: M }, { minute: M + 60_000 }, { minute: M + 120_000 }], cards);
-    for (const x of [M - 60_000, M, M + 60_000, M + 120_000]) {
-      const one = { minute: x };
-      expect(idx.get(x)).toEqual({ cards: cardsInMinute(one, cards), kind: minuteKind(one, cards), ...minuteMarks(one, cards) });
-    }
-    expect(idx.get(M + 60_000)).toMatchObject({ count: 2, kind: 'person', analysed: true });
+    const [a, b, c] = cards;
+    expect(idx.get(M - 60_000)).toEqual({ cards: [a], kind: 'motion', count: 1, analysed: false });
+    expect(idx.get(M)).toEqual({ cards: [a, b], kind: 'person', count: 2, analysed: false });
+    expect(idx.get(M + 60_000)).toEqual({ cards: [b, c], kind: 'person', count: 2, analysed: true });
+    expect(idx.get(M + 120_000)).toEqual({ cards: [], kind: null, count: 0, analysed: false });
+    for (const x of [M - 60_000, M, M + 60_000]) expect(idx.get(x)?.cards).toEqual(cardsInMinute({ minute: x }, cards));
   });
 
   it('finds the analysed still of each second', () => {

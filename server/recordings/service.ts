@@ -17,7 +17,6 @@ import { findProxyClip, findProxyStill, openProxyClip, openProxyStill } from './
 import { RecordingError } from './errors';
 import { fallsBack, headProxyRecording, listProxyDays, listProxyDay, logProxyFailure, openProxyRecording, resetLegacyProxies, type ProxyRecording } from './proxyRecordings';
 import { ProxyError } from '../proxy/client';
-export { RecordingError } from './errors';
 
 export interface EventClip {
   id: string;

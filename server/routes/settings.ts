@@ -187,7 +187,7 @@ settingsRouter.put('/api/cameras/:id/light', async (req, res, next) => {
 
 // A camera takes about a minute to come back; a second reboot in that time
 // (a double click, a second tab) would only restart it again.
-export const REBOOT_COOLDOWN_MS = 120_000;
+const REBOOT_COOLDOWN_MS = 120_000;
 const rebootedAt = new Map<string, number>();
 export function resetRebootCooldowns(): void {
   rebootedAt.clear();
