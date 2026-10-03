@@ -40,6 +40,8 @@ export interface FakeProxy {
   clips: FakeClip[];
   stills: Map<string, Map<number, Buffer>>; // cam → ts → jpeg
   previews: Map<string, Map<number, Buffer>>; // cam → minute → sprite
+  previewPresent: Map<number, boolean[]>; // tests: minute → its tiles' presence (default all 60)
+  previewCurrent: number | null; // tests: the minute being collected; like cam-proxy, its sprite answers no-store
   messages: FakeMessage[];
   oldestId: number; // resuming from an id before this answers `reset`
   offline: boolean; // every request is answered by closing the connection
@@ -92,6 +94,8 @@ export async function startFakeProxy(opts: { port?: number; token?: string } = {
     clips: [],
     stills: new Map(),
     previews: new Map(),
+    previewPresent: new Map(),
+    previewCurrent: null,
     messages: [],
     oldestId: 1,
     offline: false,
@@ -294,14 +298,15 @@ export async function startFakeProxy(opts: { port?: number; token?: string } = {
         }, fake.stillDelayMs);
       }
       if (kind === 'stills') return void res.json(keys);
-      res.json(keys.map((minute) => ({ minute, cols: 10, rows: 6, tileW: 160, tileH: 90, intervalS: 1, present: Array(60).fill(true), url: `/api/cameras/${req.params.cam}/previews/${minute}.jpg` })));
+      res.json(keys.map((minute) => ({ minute, cols: 10, rows: 6, tileW: 160, tileH: 90, intervalS: 1, present: fake.previewPresent.get(minute) ?? Array(60).fill(true), url: `/api/cameras/${req.params.cam}/previews/${minute}.jpg` })));
     });
     app.get(`/api/cameras/:cam/${kind}/:file`, (req, res) => {
       const m = /^(\d{1,15})\.jpg$/.exec(req.params.file);
       if (!m) return void res.status(400).json({ error: 'invalid' });
       const jpeg = fake[kind].get(req.params.cam)?.get(Number(m[1]));
       if (!jpeg) return void res.status(404).json({ error: 'not_found' });
-      res.type('image/jpeg').setHeader('Cache-Control', 'private, max-age=604800, immutable');
+      const current = kind === 'previews' && Number(m[1]) === fake.previewCurrent;
+      res.type('image/jpeg').setHeader('Cache-Control', current ? 'no-store' : 'private, max-age=604800, immutable');
       if (kind !== 'stills' || !fake.stillDelayMs) return void res.send(jpeg);
       inFlight++;
       fake.maxStillsInFlight = Math.max(fake.maxStillsInFlight, inFlight);
@@ -437,6 +442,22 @@ if (require.main === module) {
       const b = req.body as { cam?: unknown; type?: unknown; data?: unknown };
       if (typeof b.cam !== 'string' || typeof b.type !== 'string' || typeof b.data !== 'object' || !b.data) return void res.status(400).json({ error: 'cam, type and data' });
       res.json(fake.push({ cam: b.cam, type: b.type, data: b.data as Record<string, unknown> }));
+    });
+    // e2e only: POST /preview-minute {minute, tiles, current} gives Den's
+    // minute a sprite (if it has none) and lists its first `tiles` tiles as present, and (current) answer its
+    // sprite no-store, like cam-proxy's minute being collected. tiles 60 and
+    // current false put it back.
+    hooks.post('/preview-minute', (req, res) => {
+      const b = req.body as { minute?: unknown; tiles?: unknown; current?: unknown };
+      if (!Number.isSafeInteger(b.minute) || !Number.isSafeInteger(b.tiles) || typeof b.current !== 'boolean') return void res.status(400).json({ error: 'minute, tiles and current' });
+      const minute = b.minute as number, tiles = b.tiles as number;
+      const sprites = fake.previews.get('cam1') ?? new Map<number, Buffer>();
+      if (!sprites.has(minute)) sprites.set(minute, media.sprite); // Den's minute, as /analyses gives one
+      fake.previews.set('cam1', sprites);
+      if (tiles >= 60) fake.previewPresent.delete(minute);
+      else fake.previewPresent.set(minute, Array.from({ length: 60 }, (_, i) => i < tiles));
+      fake.previewCurrent = b.current ? minute : fake.previewCurrent === minute ? null : fake.previewCurrent;
+      res.json({ ok: true });
     });
     // e2e only: POST /analyses {cam, analysis} stores an analysis (for
     // /analyses and the full record) and gives its still's minute one still

@@ -8,7 +8,7 @@ published as [GitHub releases](https://github.com/klaushofrichter/cams/releases)
 
 ## [Unreleased]
 
-### Added
 
-- Live shows a spinner with "Connecting to the live stream…" until the video plays ("Reconnecting…" after a drop), and how long the stream stays connected after you leave the page, from the keep-alive setting. After 30 s without video it says calmly that the stream isn't available and it is still trying, without the spinner.
+### Fixed
 
+- The timeline film no longer keeps a blank frame for a minute whose thumbnails were still coming in when it was first shown: the minute's picture is fetched again as it fills.
