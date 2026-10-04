@@ -135,19 +135,25 @@ test('filters narrow the list and an empty filter says so', async ({ page }) => 
   await expect(page.getByTestId('event-card')).toHaveCount(4);
 });
 
-test('the cursor carries across panels and back from another page', async ({ page }, testInfo) => {
+// The Video page (spec 2026-10-04): the menu opens live; Back returns to the
+// recording, and a bare old History link restores the session's position.
+test('the cursor carries back from another page and into an old History link', async ({ page }, testInfo) => {
   await openEvents(page);
   await card(page, '093000').click();
-  // leave and come back through the menu
+  await expect(page).toHaveURL(/clip=\d{8}-093000-093020/);
+  // leave through the menu, then Back
   if (testInfo.project.name === 'phone') {
     await page.getByTestId('hamburger').click();
-    await page.getByTestId('drawer').getByTestId('nav-live').click();
-    await page.getByTestId('hamburger').click();
-    await page.getByTestId('drawer').getByTestId('nav-history').click();
+    await page.getByTestId('drawer').getByTestId('nav-settings').click();
   } else {
-    await page.getByTestId('sidebar').getByTestId('nav-live').click();
-    await page.getByTestId('sidebar').getByTestId('nav-history').click();
+    await page.getByTestId('sidebar').getByTestId('nav-settings').click();
   }
+  await expect(page.getByTestId('page-title')).toHaveText('Settings');
+  await page.goBack();
+  await expect(page.locator('[data-testid="event-card"][aria-current="true"]')).toHaveAttribute('data-clip-id', /-093000-093020$/);
+  await expect(page.getByTestId('mode-badge')).toHaveAttribute('data-mode', 'rec');
+  await page.goto('/app/recordings?panel=history');
+  await expect(page).toHaveURL(/\/app\/video\?.*clip=\d{8}-093000-093020/);
   await expect(page.locator('[data-testid="event-card"][aria-current="true"]')).toHaveAttribute('data-clip-id', /-093000-093020$/);
 });
 
@@ -266,27 +272,32 @@ test('a camera without a cam-proxy saves 4K straight from the link, asking nothi
   expect(asked).toBe(0);
 });
 
-test('the Live panel lists today’s events, newest first, and plays one', async ({ page }) => {
-  await page.goto('/app/live');
-  const rows = page.getByTestId('live-latest');
-  await expect(rows.first()).toBeVisible();
-  const times = await rows.evaluateAll((els) => els.map((e) => e.parentElement!.querySelector('[data-testid="live-latest-time"]')!.textContent!));
-  expect(times.length).toBeGreaterThan(1);
-  expect(times.length).toBeLessThanOrEqual(5); // Klaus, 2026-09-29: up to five
-  expect([...times].sort().reverse()).toEqual(times);
-  await rows.first().click();
+// The Video page (spec 2026-10-04): live lists today's events by hour,
+// newest first; a card plays the recording.
+test('live lists today’s events, newest first, and a card plays one', async ({ page }) => {
+  await page.goto('/app/video');
+  await expect(page.getByTestId('mode-badge')).toHaveAttribute('data-mode', 'live');
+  await expect(page.getByTestId('events-day')).toHaveText("Today's events");
+  const cards = page.getByTestId('event-card');
+  await expect(cards).toHaveCount(4);
+  const ids = await cards.evaluateAll((els) => els.map((e) => e.getAttribute('data-clip-id')!));
+  expect([...ids].sort().reverse()).toEqual(ids);
+  await card(page, '120505').click();
   await expect(page.getByTestId('live-badge')).toHaveCount(0);
+  await expect(page.getByTestId('mode-badge')).toHaveAttribute('data-mode', 'rec');
   await expect(page.getByTestId('source-badge')).toContainText(/SD 10 FPS|Stills|No recording/);
-  await expect(page).toHaveURL(/\/app\/recordings\?.*at=\d+.*panel=history/); // History (Klaus, 2026-09-28)
+  await expect(page).toHaveURL(/\/app\/video\?.*at=\d+/);
+  await expect(page).not.toHaveURL(/panel=/);
 });
 
-test('the video stays in place between Live and History', async ({ page }) => {
-  await page.goto('/app/live');
+test('the video stays in place between live and a recording', async ({ page }) => {
+  await page.goto('/app/video');
   const box = () => page.locator('.player .box').boundingBox();
-  await expect(page.getByTestId('live-panel')).toBeVisible();
+  await expect(page.getByTestId('mode-badge')).toHaveAttribute('data-mode', 'live');
   const a = await box();
-  await page.getByTestId('panel-tab-history').click();
-  await expect(page.getByTestId('page-title')).toHaveText('History');
+  await page.getByTestId('back-10').click();
+  await expect(page.getByTestId('mode-badge')).toHaveAttribute('data-mode', 'rec');
+  await expect(page.getByTestId('page-title')).toHaveText('Video');
   const b = await box();
   expect(b).toEqual(a);
 });
@@ -328,13 +339,20 @@ test('a picker choice made on Live survives navigating through the sidebar', asy
   await page.getByTestId('camera-picker').selectOption('porch');
   await expect(page.getByTestId('camera-picker')).toHaveValue('porch');
 
-  if (testInfo.project.name === 'phone') {
-    await page.getByTestId('hamburger').click();
-    await page.getByTestId('drawer').getByTestId('nav-history').click();
-  } else {
-    await page.getByTestId('sidebar').getByTestId('nav-history').click();
-  }
+  const nav = async (id: string) => {
+    if (testInfo.project.name === 'phone') {
+      await page.getByTestId('hamburger').click();
+      await page.getByTestId('drawer').getByTestId(id).click();
+    } else {
+      await page.getByTestId('sidebar').getByTestId(id).click();
+    }
+  };
+  await nav('nav-settings');
+  await nav('nav-video');
   await expect(page.getByTestId('camera-picker')).toHaveValue('porch');
+  await expect(page.getByTestId('camera-card-name')).toHaveText('Porch');
+  // Into a recording: the URL names the camera.
+  await page.getByTestId('back-10').click();
   await expect(page).toHaveURL(/[?&]cam=porch(&|$)/);
 });
 
@@ -359,8 +377,8 @@ test('zoom is kept when an event card is clicked, and across pages', async ({ pa
   await expect(page.locator('.bar-skeleton')).toHaveCount(0);
   await expect(page.getByTestId('timeline')).toBeVisible();
   // Another page and back, without a reload.
-  await page.evaluate(() => { history.pushState({}, '', '/app/live'); dispatchEvent(new PopStateEvent('popstate')); });
-  await expect(page.getByTestId('page-title')).toHaveText('Live');
+  await page.evaluate(() => { history.pushState({}, '', '/app/about'); dispatchEvent(new PopStateEvent('popstate')); });
+  await expect(page.getByTestId('page-title')).toHaveText('About');
   await page.evaluate(() => history.back());
   await expect(page.getByTestId('zoom-3')).toHaveAttribute('aria-pressed', 'true');
 });
@@ -620,30 +638,31 @@ test.describe('on an iPhone-sized screen', () => {
 });
 
 // Edges and the info line (Klaus, 2026-09-28).
-test('⇥ goes to now and stops there; the line under the video names time, source and trigger', async ({ page }) => {
+// One Video page (spec 2026-10-04): ⇥ from a recording is live, at now.
+test('⇥ goes to now, live; the line under the video names time, source and trigger', async ({ page }) => {
   await page.goto('/app/recordings?cam=barn&panel=history&at=' + (Date.now() - 5 * 60_000));
+  await expect(page.getByTestId('mode-badge')).toHaveAttribute('data-mode', 'rec');
   await page.getByTestId('strip-now').click();
-  await expect(page.getByTestId('strip-now')).toBeDisabled();
-  // Within seconds of now (the fake proxy's stills stop when it started, so
-  // the source there may be stills or nothing).
-  await expect.poll(async () => Date.now() - Number(new URL(page.url()).searchParams.get('at'))).toBeLessThan(15_000);
+  await expect(page.getByTestId('mode-badge')).toHaveAttribute('data-mode', 'live');
+  await expect(page).toHaveURL(/\/app\/video$/);
+  await expect(page.getByTestId('live-badge')).toBeVisible();
   await openEvents(page);
   await card(page, '081510').click(); // 08:15:10, person
   await expect(page.getByTestId('strip-info')).toContainText(/SD 10 FPS · Person/);
 });
 
-test('an old Events link opens History; the menu has no Events entry', async ({ page }) => {
+test('an old Events link opens the recording; the menu has no Events entry', async ({ page }) => {
   await page.goto('/app/recordings?panel=events');
-  await expect(page.getByTestId('panel-tab-history')).toHaveAttribute('aria-selected', 'true');
-  await expect(page.getByTestId('panel-tab-events')).toHaveCount(0);
+  await expect(page).toHaveURL(/\/app\/video\?.*clip=/);
+  await expect(page.getByTestId('mode-badge')).toHaveAttribute('data-mode', 'rec');
   await expect(page.getByTestId('nav-events')).toHaveCount(0);
 });
 
 // Klaus, 2026-09-29: Downloads joined History (a download button on each card).
-test('an old Downloads link opens History; the menu has no Downloads entry', async ({ page }) => {
+test('an old Downloads link opens the recording; the menu has no Downloads entry', async ({ page }) => {
   await page.goto('/app/recordings?panel=downloads');
-  await expect(page.getByTestId('panel-tab-history')).toHaveAttribute('aria-selected', 'true');
-  await expect(page.getByTestId('panel-tab-downloads')).toHaveCount(0);
+  await expect(page).toHaveURL(/\/app\/video\?/);
+  await expect(page.getByTestId('mode-badge')).toHaveAttribute('data-mode', 'rec');
   await expect(page.getByTestId('nav-downloads')).toHaveCount(0);
   await expect(page.getByTestId('event-download').first()).toBeVisible();
 });

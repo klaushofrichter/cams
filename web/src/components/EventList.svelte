@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { tick, untrack } from 'svelte';
+  import { tick, untrack, type Snippet } from 'svelte';
   import { orderTriggers, TRIGGER_LABELS, isAllKinds, defaultGroupOpen, formatClock, groupByHour, thumbUrl, type EventClip, type Filter } from '../lib/recordings';
   import ComposeDialog from './ComposeDialog.svelte';
   import EventFilter from './EventFilter.svelte';
@@ -23,6 +23,7 @@
     pending = [],
     onreveal,
     onhours,
+    tools,
   }: {
     cameraId: string;
     events: EventClip[];
@@ -39,6 +40,8 @@
     onreveal?: () => void;
     // Whether any hour group is open, for the "Collapse hours" / "Expand hours" button.
     onhours?: (anyOpen: boolean) => void;
+    // Between the filter and the list: the Video page's "Collapse hours" row (spec 2026-10-04).
+    tools?: Snippet;
   } = $props();
 
   // Keyed by cameraId|id, not just id: a clip id is only unique within its
@@ -149,6 +152,39 @@
     });
   });
 
+  // New events arrive at the top of today's list (review of #173): a reader
+  // scrolled down keeps the row they were reading where it was. Explicit,
+  // not the browser's overflow-anchor (off below), which not every browser
+  // has. Only for more of the same day: another camera or day starts over.
+  let bodyEl: HTMLElement | undefined = $state();
+  let anchorFor = '';
+  function scrollerOf(el: HTMLElement | undefined): HTMLElement | null {
+    for (let n: HTMLElement | null = el ?? null; n; n = n.parentElement) if (n.scrollTop > 0) return n;
+    return null;
+  }
+  $effect.pre(() => {
+    void events;
+    void pending;
+    const day = `${cameraId}|${date}`;
+    untrack(() => {
+      const same = day === anchorFor;
+      anchorFor = day;
+      const scroller = same && !pendingScroll ? scrollerOf(bodyEl) : null;
+      if (!scroller || !bodyEl) return;
+      const edge = scroller.getBoundingClientRect().top;
+      const row = [...bodyEl.querySelectorAll<HTMLElement>('[data-anchor]')].find((r) => r.getBoundingClientRect().bottom > edge);
+      if (!row) return;
+      const key = row.dataset.anchor!;
+      const top = row.getBoundingClientRect().top;
+      void tick().then(() => {
+        const again = bodyEl?.querySelector<HTMLElement>(`[data-anchor="${CSS.escape(key)}"]`);
+        if (!again) return;
+        const moved = again.getBoundingClientRect().top - top;
+        if (moved) scroller.scrollTop += moved;
+      });
+    });
+  });
+
   // "Collapse hours" / "Expand hours" (Klaus, 2026-09-29). The button offers
   // "Expand hours" only when every hour is collapsed.
   const anyOpen = $derived(groups.some((g) => groupOpen[keyOf(g.hour)] ?? defaultGroupOpen(g, selectedId)));
@@ -172,11 +208,12 @@
      (side-fill / side-scroll, Video.svelte; Klaus, 2026-10-03). -->
 <div class="events side-fill">
 <EventFilter {filter} {onfilter} />
-<div class="body side-scroll" data-testid="event-scroll">
+{@render tools?.()}
+<div class="body side-scroll" data-testid="event-scroll" bind:this={bodyEl}>
 
 <!-- One card per recording in progress (Klaus, 2026-09-30). -->
 {#each groupPending(pending) as p (p.start)}
-  <div class="card pending" data-testid="event-pending" role="status">
+  <div class="card pending" data-testid="event-pending" data-anchor={`pending-${p.start}`} role="status">
     <span class="dot" aria-hidden="true"></span>
     <span class="meta">
       <strong>{localClock(p.start)}</strong>
@@ -192,7 +229,7 @@
     {#each groups as g (g.hour)}
       {@const open = groupOpen[keyOf(g.hour)] ?? defaultGroupOpen(g, selectedId)}
       <section class="group" data-testid="hour-group" data-hour={g.hour}>
-        <button class="group-head" data-testid="hour-toggle" aria-expanded={open} onclick={() => toggle(g.hour)}>
+        <button class="group-head" data-anchor={`hour-${g.hour}`} data-testid="hour-toggle" aria-expanded={open} onclick={() => toggle(g.hour)}>
           <span class="label">{g.label}</span>
           <span class="count" data-testid="hour-count">{g.events.length} {g.events.length === 1 ? 'event' : 'events'}</span>
         </button>
@@ -200,7 +237,7 @@
           <ul class="list">
             {#each g.events as e (e.id)}
               {@const kinds = orderTriggers(e.triggers)}
-              <li class="item" class:current={e.id === selectedId}>
+              <li class="item" class:current={e.id === selectedId} data-anchor={e.id}>
                 <!-- The card's button fills the play area; its text lies over it and lets
                      clicks through, all but the Vision badges, which are buttons of
                      their own beside it, not in it (issue #113). -->
@@ -246,6 +283,8 @@
 
 <style>
   .events, .body { display: flex; flex-direction: column; gap: 10px; }
+  /* The list keeps its reading position itself (see the script). */
+  .body { overflow-anchor: none; }
   .groups { display: flex; flex-direction: column; gap: 10px; }
   .group-head {
     position: sticky; top: 0; z-index: 1; display: flex; align-items: center; justify-content: space-between; gap: 8px;

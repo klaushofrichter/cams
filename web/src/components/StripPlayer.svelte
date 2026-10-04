@@ -10,6 +10,8 @@
   import { localClock, timeAgo } from '../lib/clock';
   import { previewAt, tileStyle, type PreviewMinute } from '../lib/timeline';
   import { liveUi } from '../lib/liveUi';
+  import { enterFullscreen } from '../lib/fullscreen';
+  import { liveBadge, modeBadge, modeOf, registerPlayer, type PlayerFrame } from '../lib/videoMode';
 
   // History's player (spec 2026-09-27): one clock, `at`. A clip's <video>
   // drives it while a clip plays; otherwise a real-time ticker does, showing
@@ -17,7 +19,7 @@
   // so the next clip is loaded 3 s before it starts.
   let {
     cam, coverage, previews, now, at = $bindable(), playing = $bindable(), unavailable = false, onclipfail, onstep,
-    glued = false, live: liveSnippet,
+    glued = false, live: liveSnippet, onglue,
   }: {
     cam: string;
     coverage: Coverage;
@@ -30,6 +32,7 @@
     onstep: (dir: -1 | 1) => void;
     glued?: boolean; // the Live panel's playhead is at now: show the live stream
     live?: Snippet; // the live stream; kept mounted while unglued so it resumes at once
+    onglue?: () => void; // the REC badge: back to live (spec 2026-10-04)
   } = $props();
 
   // Live has no "after": forward 1 s and 10 s and next event are off there (#121).
@@ -45,7 +48,7 @@
   const TICK_MS = 250;
   const PRELOAD_MS = 3000;
   const BADGE: Record<Source['kind'], string> = {
-    clip: 'SD 10 FPS', still: 'Stills 1 FPS', preview: 'Preview 1 FPS', none: 'No recording', future: 'Live is on the Live page',
+    clip: 'SD 10 FPS', still: 'Stills 1 FPS', preview: 'Preview 1 FPS', none: 'No recording', future: 'Later than now',
   };
   // Glued: what the live stream is, from the camera's streams (spec 2026-09-28).
   const liveSource = $derived.by(() => {
@@ -251,6 +254,31 @@
   let boxW = $state(0);
   const tile = $derived(source.kind === 'preview' ? previewAt(previews, source.ts) : null);
 
+  // The Video page's snapshot and fullscreen in a recording (spec
+  // 2026-10-04): what is on screen, and the box to put in fullscreen. Live
+  // has its own (the camera's snapshot, LiveBox's fullscreen).
+  let boxEl: HTMLDivElement | undefined = $state();
+  function frame(): PlayerFrame | null {
+    if (glued) return null;
+    const s = source;
+    if (s.kind === 'clip') {
+      const v = vids[active];
+      return v ? { kind: 'clip', video: v, at } : null;
+    }
+    if (s.kind === 'still') return { kind: 'still', url: stillUrl(s.ts), at: s.ts };
+    if (s.kind === 'preview' && tile?.minute.url) {
+      const m = tile.minute;
+      return { kind: 'tile', url: m.url, sx: (tile.index % m.cols) * m.tileW, sy: Math.floor(tile.index / m.cols) * m.tileH, w: m.tileW, h: m.tileH, at: s.ts };
+    }
+    return null;
+  }
+  $effect(() => registerPlayer({
+    frame,
+    fullscreen: () => void enterFullscreen(boxEl, source.kind === 'clip' ? (vids[active] ?? null) : null),
+  }));
+  const mode = $derived(modeOf(glued));
+  const badge = $derived(mode === 'live' ? liveBadge($liveUi) : modeBadge(mode, at, now));
+
   function toggle() {
     if (source.kind === 'future') return;
     playing = !playing;
@@ -287,7 +315,7 @@
 
 <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
 <div class="player" data-testid="strip-player" tabindex="0" onkeydown={keydown}>
-  <div class="box" bind:clientWidth={boxW}>
+  <div class="box" bind:clientWidth={boxW} bind:this={boxEl}>
     {#each [0, 1] as i (i)}
       <video
         bind:this={vids[i]}
@@ -321,9 +349,16 @@
       </div>
     {:else if source.kind === 'none' || source.kind === 'future'}
       <div class="layer empty" data-testid="strip-empty">
-        <span>{source.kind === 'future' ? 'Live is on the Live page' : 'No recording'}</span>
+        <span>{source.kind === 'future' ? 'Later than now' : 'No recording'}</span>
         <small>{clock}</small>
       </div>
+    {/if}
+    <!-- The mode (spec 2026-10-04): ● LIVE, or REC and the time; REC is a
+         button back to live. -->
+    {#if glued}
+      <span class="mode live" class:on={badge === '● LIVE'} data-testid="mode-badge" data-mode="live" role="status">{badge}</span>
+    {:else}
+      <button class="mode rec" data-testid="mode-badge" data-mode="rec" title="Back to live" aria-label={`${badge}, back to live`} onclick={() => onglue?.()}>{badge}</button>
     {/if}
   </div>
   <div class="controls">
@@ -371,6 +406,15 @@
   video.hidden { visibility: hidden; }
   .layer.off { visibility: hidden; }
   .live { color: var(--danger); font-weight: 600; }
+  /* The mode badge: top right, clear of the stills badge (top left). */
+  .mode {
+    position: absolute; top: 8px; right: 8px; z-index: 2; padding: 3px 9px; border-radius: 7px; border: 0;
+    font: inherit; font-size: 12px; font-weight: 700; letter-spacing: 0.04em; font-variant-numeric: tabular-nums;
+    background: var(--scrim); color: var(--on-grad);
+  }
+  .mode.live.on { background: var(--danger); }
+  button.mode { cursor: pointer; }
+  button.mode:hover { outline: 2px solid var(--accent); }
   .live.stills { color: var(--warning-ink); }
   .tile-wrap { overflow: hidden; }
   .tile { position: absolute; left: 0; top: 0; transform-origin: 0 0; }

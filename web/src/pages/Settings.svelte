@@ -8,6 +8,7 @@
   import Icon from '../components/Icon.svelte';
   import { cameras, cameraById, selectedCameraId } from '../lib/stores';
   import { getJson } from '../lib/api';
+  import { cameraKind, streamsText, type CameraStatus } from '../lib/liveUi';
   import {
     diffPatch, FIELD_LABELS, OSD_POSITIONS, postJson, putJson,
     type DetectionSettings, type DeviceInfo, type ImageSettings, type SaveResult,
@@ -73,12 +74,16 @@
   let imageState: State = $state('idle');
   let imageErrors: Record<string, string> = $state({});
   let device: DeviceInfo | null = $state(null);
+  // Real or simulated, and the streams (the camera's status, cached 10 min
+  // by the server): the Live panel showed them before the Video page.
+  let status: CameraStatus | null = $state(null);
   let seq = 0;
 
   $effect(() => {
     const id = $selectedCameraId;
     const mine = ++seq;
     detection = detectionEdit = image = imageEdit = device = null;
+    status = null;
     // A switch to another camera must not carry over the previous camera's
     // errors, save states, or an open reboot-confirm step.
     detectionErrors = {};
@@ -100,6 +105,11 @@
       .catch(() => {
         if (mine === seq) loadError = 'The camera settings could not be loaded. The camera may be offline.';
       });
+    getJson<CameraStatus>(`/api/cameras/${encodeURIComponent(id)}/status`)
+      .then((st) => {
+        if (mine === seq && st.online) status = st;
+      })
+      .catch(() => {});
     getJson<DeviceInfo>(`/api/cameras/${encodeURIComponent(id)}/device`)
       .then((d) => {
         if (mine === seq) device = d;
@@ -434,6 +444,10 @@
         <dl>
           <dt>Model</dt><dd data-testid="device-model">{device.model}</dd>
           <dt>Firmware</dt><dd data-testid="device-firmware">{device.firmware}</dd>
+          {#if status}
+            <dt>Kind</dt><dd data-testid="device-kind">{cameraKind(status)}</dd>
+            {#if streamsText(status)}<dt>Streams</dt><dd data-testid="device-streams">{streamsText(status)}</dd>{/if}
+          {/if}
           <dt>Storage</dt>
           <dd data-testid="device-storage">
             {#if device.storage}{gb(device.storage.usedMb)} of {gb(device.storage.totalMb)} used{#if !device.storage.mounted} (not mounted){/if}{:else}No SD card{/if}

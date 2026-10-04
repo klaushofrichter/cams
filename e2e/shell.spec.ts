@@ -64,16 +64,12 @@ test('navigation reaches every page and keeps the URL in sync', async ({ page },
       await page.getByTestId('sidebar').getByTestId(`nav-${id}`).click();
     }
   };
-  // The first landing on the recordings page (from a plain nav href with no
-  // cam/date/clip) canonicalises its own URL once it resolves a camera
-  // (adding cam, date, t and filter); staying on the page and switching
-  // panels afterwards no longer rewrites the URL, so those cases keep the
-  // plain nav-item href.
+  // One Video entry (spec 2026-10-04): /app/live lands on /app/video.
+  await expect(page).toHaveURL('/app/video');
   const cases: [string, string | RegExp, string][] = [
-    ['history', /^http:\/\/[^/]+\/app\/recordings\?.*[?&]panel=history(&|$)/, 'History'],
     ['settings', '/app/settings', 'Settings'],
     ['about', '/app/about', 'About'],
-    ['live', '/app/live', 'Live'],
+    ['video', '/app/video', 'Video'],
   ];
   for (const [id, url, title] of cases) {
     await open(id);
@@ -85,9 +81,22 @@ test('navigation reaches every page and keeps the URL in sync', async ({ page },
   await expect(page.getByTestId('page-title')).toHaveText('About');
 });
 
-test('unknown app paths show the Live page', async ({ page }) => {
+// Klaus, 2026-10-04: Live and History are one menu entry, "Video".
+test('the menu has one Video entry, and no Live or History', async ({ page }, testInfo) => {
+  await page.goto('/app/video');
+  const menu = testInfo.project.name === 'phone' ? page.getByTestId('drawer') : page.getByTestId('sidebar');
+  if (testInfo.project.name === 'phone') await page.getByTestId('hamburger').click();
+  await expect(menu.locator('[data-testid^="nav-"]')).toHaveText(['Video', 'Timeline', 'Settings', 'About']);
+  await expect(menu.getByTestId('nav-video')).toHaveAttribute('aria-current', 'page');
+  await expect(menu.getByTestId('nav-video')).toHaveAttribute('href', '/app/video');
+  for (const id of ['nav-live', 'nav-history']) await expect(page.getByTestId(id)).toHaveCount(0);
+  for (const id of ['panel-tab-live', 'panel-tab-history', 'live-recent']) await expect(page.getByTestId(id)).toHaveCount(0);
+});
+
+test('unknown app paths show the Video page', async ({ page }) => {
   await page.goto('/app/does-not-exist');
-  await expect(page.getByTestId('page-title')).toHaveText('Live');
+  await expect(page.getByTestId('page-title')).toHaveText('Video');
+  await expect(page).toHaveURL('/app/video');
 });
 
 test('about page shows the version', async ({ page }) => {
@@ -121,7 +130,7 @@ test.describe('desktop sidebar', () => {
     await page.goto('/app/live');
     const sidebar = page.getByTestId('sidebar');
     await expect.poll(async () => (await sidebar.boundingBox())!.width).toBe(220);
-    for (const id of ['live', 'history', 'settings', 'about']) {
+    for (const id of ['video', 'settings', 'about']) {
       const box = await sidebar.getByTestId(`nav-${id}`).locator('svg').boundingBox();
       expect(box, `icon for ${id}`).not.toBeNull();
       expect(box!.width, `icon width for ${id}`).toBeGreaterThanOrEqual(18);
@@ -135,7 +144,7 @@ test.describe('desktop sidebar', () => {
     await expect.poll(async () => (await sidebar.boundingBox())!.width).toBe(64);
     // A window wider than the app centres it (Klaus, 2026-09-28): measure from the column's left edge.
     const left = (await sidebar.boundingBox())!.x;
-    for (const id of ['live', 'history', 'settings', 'about']) {
+    for (const id of ['video', 'settings', 'about']) {
       const box = await sidebar.getByTestId(`nav-${id}`).locator('svg').boundingBox();
       expect(box, `icon for ${id}`).not.toBeNull();
       expect(box!.width, `icon width for ${id}`).toBeGreaterThanOrEqual(18);

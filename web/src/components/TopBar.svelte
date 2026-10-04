@@ -16,7 +16,7 @@
   <button class="hamburger" data-testid="hamburger" aria-label="Open menu" aria-expanded={$drawerOpen} onclick={() => drawerOpen.set(true)}>
     <Icon name="menu" />
   </button>
-  <a class="brand" href="/app/live" aria-label="cams home">
+  <a class="brand" href="/app/video" aria-label="cams home">
     <span class="indicator" data-testid="stream-indicator" data-state={$liveStatus.state} title={$liveStatus.detail}>
       <Logo size={28} />
     </span>

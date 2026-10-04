@@ -1,4 +1,4 @@
-import { triggerDownload } from './download';
+import { snapshotName, triggerDownload } from './download';
 import { writable } from 'svelte/store';
 import { get } from 'svelte/store';
 import { apiFetch, getJson } from './api';
@@ -65,6 +65,18 @@ export const liveUi = writable<LiveUi>({
   snapshotError: '',
 });
 
+// What the camera is and what it streams (Settings; the Live panel said it
+// before the Video page, review of #173).
+export function cameraKind(s: CameraStatus | null): string {
+  if (!s) return '';
+  return s.simulator ? `Simulated camera (${s.simulator})` : 'Camera';
+}
+export function streamsText(s: CameraStatus | null): string {
+  const one = (label: string, x: StreamInfo | null | undefined) =>
+    x ? `${label} ${x.codec === 'h265' ? 'H.265' : 'H.264'} ${x.width}×${x.height} @${x.fps}` : null;
+  return [one('Main', s?.streams?.main), one('Sub', s?.streams?.sub)].filter(Boolean).join(' · ');
+}
+
 export function badgeOf(playerState: PlayerState, stillsShowing: boolean): string {
   return playerState === 'playing' ? '● LIVE' : stillsShowing ? '● STILLS' : '● …';
 }
@@ -118,7 +130,6 @@ export function toggleQuality(): void {
   });
 }
 
-const stamp = () => new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-');
 // Fetch first, then save: a plain download link would silently save an
 // error page (or nothing) when the camera can't take a snapshot.
 export async function saveSnapshot(id: string): Promise<void> {
@@ -128,7 +139,7 @@ export async function saveSnapshot(id: string): Promise<void> {
     const res = await apiFetch(snapshotUrl(id));
     if (!res.ok || !(res.headers.get('content-type') ?? '').startsWith('image/')) throw new Error(String(res.status));
     const url = URL.createObjectURL(await res.blob());
-    triggerDownload(url, `${id}-${stamp()}.jpg`);
+    triggerDownload(url, snapshotName(id, 'live', Date.now()));
     setTimeout(() => URL.revokeObjectURL(url), 10_000);
   } catch {
     liveUi.update((u) => ({ ...u, snapshotError: "The snapshot couldn't be taken. The camera may be busy or offline." }));

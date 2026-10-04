@@ -72,8 +72,8 @@ test('coming back within the keep-alive shows the live picture without reconnect
   // and still playing, not paused, while hidden
   expect(await page.getByTestId('live-video').evaluate((v: HTMLVideoElement) => !v.paused)).toBe(true);
 
-  await page.getByTestId('sidebar').getByTestId('nav-live').click();
-  await expect(page.getByTestId('page-title')).toHaveText('Live');
+  await page.getByTestId('sidebar').getByTestId('nav-video').click();
+  await expect(page.getByTestId('page-title')).toHaveText('Video');
   // immediately playing, the same element, and no new stream was opened
   await expect.poll(() => video.evaluate((v: HTMLVideoElement) => v.readyState >= 2 && !v.paused), { timeout: 1_000 }).toBe(true);
   expect(await video.evaluate((v) => v.dataset.keepaliveMark)).toBe('same');
@@ -133,8 +133,8 @@ test('hidden Live is muted, and unmuted again on return', async ({ page }) => {
   await expect(hidden).toBeHidden();
   await expect.poll(() => hidden.evaluate((v: HTMLVideoElement) => v.muted), { timeout: 2_000 }).toBe(true);
 
-  await page.getByTestId('sidebar').getByTestId('nav-live').click();
-  await expect(page.getByTestId('page-title')).toHaveText('Live');
+  await page.getByTestId('sidebar').getByTestId('nav-video').click();
+  await expect(page.getByTestId('page-title')).toHaveText('Video');
   // Unmuted again: the earlier choice came back, not a fresh `muted: true`.
   await expect(page.getByTestId('mute-toggle')).toHaveAttribute('aria-pressed', 'true');
   expect(await video.evaluate((v: HTMLVideoElement) => v.muted)).toBe(false);
@@ -237,38 +237,67 @@ test('changing the camera while Live is kept alive ends the stream at once', asy
   await expect(page.locator('video')).toHaveCount(0);
   expect(streams.opened.length).toBe(opened); // no stream for Porch while away
 
-  await page.getByTestId('sidebar').getByTestId('nav-live').click();
+  await page.getByTestId('sidebar').getByTestId('nav-video').click();
   await expect.poll(() => video.evaluate((v: HTMLVideoElement) => v.readyState >= 2), { timeout: 15_000 }).toBe(true);
   expect(streams.open()).toBe(1);
 });
 
-// Live is the strip's right end (spec 2026-09-28): playback on the Live panel
-// keeps the stream for the keep-alive, and ⇥ shows it again at once.
-test('moving into playback keeps the live stream for the keep-alive; ⇥ shows it again at once', async ({ page }) => {
+// Live is the strip's right end (spec 2026-09-28): a recording keeps the
+// stream for the keep-alive, and ⇥ shows it again at once (spec 2026-10-04:
+// one Video page, the mode follows the player).
+test('moving into a recording keeps the live stream for the keep-alive; ⇥ shows it again at once', async ({ page }) => {
   await setKeepAlive(page, 60);
   const streams = watchStreams(page);
-  await page.goto('/app/live');
+  await page.goto('/app/video');
   const video = page.getByTestId('live-video');
   await expect.poll(() => video.evaluate((v: HTMLVideoElement) => v.readyState >= 2), { timeout: 15_000 }).toBe(true);
   const opened = streams.opened.length;
-  await page.getByTestId('back-10').click(); // playback: History (Klaus, 2026-09-28)
+  await page.getByTestId('back-10').click(); // a recording
   await expect(page.getByTestId('live-badge')).toHaveCount(0);
-  await expect(page).toHaveURL(/\/app\/recordings\?.*at=\d+.*panel=history/);
-  await expect(page.getByTestId('sidebar').getByTestId('nav-history')).toHaveAttribute('aria-current', 'page');
-  await expect(page.getByTestId('panel-tab-history')).toHaveAttribute('aria-selected', 'true');
+  await expect(page.getByTestId('mode-badge')).toHaveAttribute('data-mode', 'rec');
+  await expect(page).toHaveURL(/\/app\/video\?.*at=\d+/);
+  await expect(page.getByTestId('sidebar').getByTestId('nav-video')).toHaveAttribute('aria-current', 'page');
   expect(streams.open()).toBe(1); // kept
-  await page.getByTestId('play-toggle').click();
-  await page.getByTestId('strip-now').click(); // playing: ⇥ is Live again
+  await page.getByTestId('strip-now').click(); // ⇥: live again
   await expect(page.getByTestId('live-badge')).toHaveText('● LIVE');
-  await expect(page).toHaveURL(/\/app\/live$/);
+  await expect(page.getByTestId('mode-badge')).toHaveAttribute('data-mode', 'live');
+  await expect(page).toHaveURL(/\/app\/video$/);
+  expect(streams.opened.length).toBe(opened);
+  // and the same with the REC badge
+  await page.getByTestId('back-10').click();
+  await expect(page.getByTestId('mode-badge')).toHaveAttribute('data-mode', 'rec');
+  await page.getByTestId('mode-badge').click();
+  await expect(page.getByTestId('live-badge')).toHaveText('● LIVE');
   expect(streams.opened.length).toBe(opened);
 });
 
+// Review of #173: with keep-alive off, a recording closes the stream at
+// once, and ⇥ opens a new one.
+test('with keep-alive off, a recording closes the stream and ⇥ opens it again', async ({ page }) => {
+  await setKeepAlive(page, 0);
+  const streams = watchStreams(page);
+  await page.goto('/app/video');
+  const video = page.locator('[data-testid="live-video"]:visible');
+  await expect.poll(() => video.evaluate((v: HTMLVideoElement) => v.readyState >= 2), { timeout: 15_000 }).toBe(true);
+  expect(streams.open()).toBe(1);
+  const opened = streams.opened.length;
+  await page.getByTestId('back-10').click();
+  await expect(page.getByTestId('mode-badge')).toHaveAttribute('data-mode', 'rec');
+  await expect.poll(() => streams.open(), { timeout: 5_000 }).toBe(0);
+  await expect(page.getByTestId('live-video')).toHaveCount(0);
+  await page.getByTestId('strip-now').click();
+  await expect(page.getByTestId('mode-badge')).toHaveAttribute('data-mode', 'live');
+  await expect.poll(() => video.evaluate((v: HTMLVideoElement) => v.readyState >= 2), { timeout: 15_000 }).toBe(true);
+  expect(streams.opened.length).toBe(opened + 1);
+  expect(streams.open()).toBe(1);
+  await setKeepAlive(page, 60); // restore, in case afterAll doesn't run
+});
+
 // Final review: the video page kept alive behind another page must not follow
-// that page's URL (a Timeline day), and the Live menu opens live again.
-test('another page’s URL doesn’t move the kept-alive live view; the Live menu is live', async ({ page }) => {
+// that page's URL (a Timeline day), and the Video menu opens live again.
+test('another page’s URL doesn’t move the kept-alive live view; the Video menu is live', async ({ page }) => {
   await setKeepAlive(page, 60);
-  await page.goto('/app/live');
+  await page.goto('/app/video');
   await expect(page.getByTestId('live-badge')).toHaveText('● LIVE', { timeout: 15_000 });
   await page.getByTestId('sidebar').getByTestId('nav-timeline').click();
   await expect(page.getByTestId('timeline-page')).toBeVisible();
@@ -277,52 +306,53 @@ test('another page’s URL doesn’t move the kept-alive live view; the Live men
     history.pushState({}, '', '/app/timeline?cam=cam1&date=2026-01-02');
     dispatchEvent(new PopStateEvent('popstate'));
   });
-  await page.getByTestId('sidebar').getByTestId('nav-live').click();
-  await expect(page).toHaveURL(/\/app\/live$/);
+  await page.getByTestId('sidebar').getByTestId('nav-video').click();
+  await expect(page).toHaveURL(/\/app\/video$/);
   await expect(page.getByTestId('live-badge')).toHaveText('● LIVE');
 });
 
-test('from History after leaving live, the Live tab and the Live menu go back to live', async ({ page }) => {
+test('from a recording, the Video menu goes back to live', async ({ page }) => {
   await setKeepAlive(page, 60);
-  await page.goto('/app/live');
+  await page.goto('/app/video');
   await expect(page.getByTestId('live-badge')).toHaveText('● LIVE', { timeout: 15_000 });
   await page.getByTestId('back-10').click();
-  await expect(page).toHaveURL(/\/app\/recordings\?.*panel=history/);
-  await page.getByTestId('panel-tab-live').click();
+  await expect(page).toHaveURL(/\/app\/video\?.*at=/);
+  await page.getByTestId('sidebar').getByTestId('nav-video').click();
   await expect(page.getByTestId('live-badge')).toHaveText('● LIVE');
-  await page.getByTestId('back-10').click();
-  await expect(page).toHaveURL(/\/app\/recordings\?.*panel=history/);
-  await page.getByTestId('sidebar').getByTestId('nav-live').click();
-  await expect(page.getByTestId('live-badge')).toHaveText('● LIVE');
+  await expect(page).toHaveURL(/\/app\/video$/);
 });
 
-test('⇥ on History while paused stays on History; playing, it goes to Live (Klaus, 2026-09-28)', async ({ page }) => {
+// One page (spec 2026-10-04): ⇥ is live whether the recording plays or is
+// paused (on the old History page a paused ⇥ stayed there, 2026-09-28), and
+// playback catching up with now is live too.
+test('⇥ from a recording is live, paused or playing; Back returns to the recording', async ({ page }) => {
   await setKeepAlive(page, 60);
-  await page.goto('/app/live');
+  await page.goto('/app/video');
   await expect(page.getByTestId('live-badge')).toHaveText('● LIVE', { timeout: 15_000 });
   await page.getByTestId('back-10').click();
-  await expect(page).toHaveURL(/panel=history/);
+  await expect(page).toHaveURL(/\/app\/video\?.*at=/);
   await page.getByTestId('strip-now').click(); // paused
-  await page.waitForTimeout(500);
-  await expect(page).toHaveURL(/panel=history/);
-  await expect(page.getByTestId('live-badge')).toHaveCount(0);
+  await expect(page).toHaveURL(/\/app\/video$/);
+  await expect(page.getByTestId('live-badge')).toHaveText('● LIVE');
   await page.getByTestId('back-10').click();
   await page.getByTestId('play-toggle').click();
   await page.getByTestId('strip-now').click(); // playing
-  await expect(page).toHaveURL(/\/app\/live$/);
-  await expect(page.getByTestId('sidebar').getByTestId('nav-live')).toHaveAttribute('aria-current', 'page');
+  await expect(page).toHaveURL(/\/app\/video$/);
+  await expect(page.getByTestId('sidebar').getByTestId('nav-video')).toHaveAttribute('aria-current', 'page');
   await expect(page.getByTestId('live-badge')).toHaveText('● LIVE');
-  // Back returns to History, not a loop into Live.
+  // Back returns to the recording, not a loop into live.
   await page.goBack();
-  await expect(page).toHaveURL(/panel=history/);
+  await expect(page).toHaveURL(/\/app\/video\?.*at=/);
+  await expect(page.getByTestId('mode-badge')).toHaveAttribute('data-mode', 'rec');
 });
 
 // Final review (batch 2).
-test('an old /app/live?at= link opens History without trapping Back', async ({ page }) => {
+test('an old /app/live?at= link opens the recording without trapping Back', async ({ page }) => {
   await page.goto('/app/settings');
   await expect(page.getByTestId('settings-card-prefs')).toBeVisible();
   await page.goto(`/app/live?at=${Date.now() - 3_600_000}`);
-  await expect(page).toHaveURL(/panel=history/);
+  await expect(page).toHaveURL(/\/app\/video\?.*at=\d+/);
+  await expect(page.getByTestId('mode-badge')).toHaveAttribute('data-mode', 'rec');
   await page.goBack();
   await expect(page).toHaveURL(/\/app\/settings$/);
 });

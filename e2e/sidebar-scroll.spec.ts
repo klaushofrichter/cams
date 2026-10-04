@@ -1,9 +1,10 @@
 import { expect, test, type Page } from '@playwright/test';
 import { signIn } from './session';
 
-// The History sidebar on a desktop (Klaus, 2026-10-03): only the event list
-// (cards and hour titles) scrolls; the Live / History tabs, "Collapse hours"
-// and the filter chips stay at the top, and the page itself doesn't scroll.
+// The Video sidebar on a desktop (Klaus, 2026-10-03; one page 2026-10-04):
+// only the event list (cards and hour titles) scrolls; the camera card, the
+// controls, the filter chips and "Collapse hours" stay at the top, and the
+// page itself doesn't scroll.
 // The phone layout (stacked) is unchanged.
 test.skip(() => test.info().project.name !== 'desktop', 'the side-by-side layout is the desktop one');
 test.beforeEach(async ({ context, baseURL }) => {
@@ -37,7 +38,7 @@ const inViewport = async (page: Page, testId: string) => {
   return b.y >= 0 && b.y + b.height <= v.height && b.x >= 0 && b.x + b.width <= v.width;
 };
 
-test('only the History event list scrolls; tabs, Collapse hours and the filter stay', async ({ page }) => {
+test('only the event list scrolls; the camera, the controls, Collapse hours and the filter stay', async ({ page }) => {
   await longDay(page);
   await page.goto('/app/recordings?panel=history&cam=cam1');
   await expect(page.getByTestId('event-card')).toHaveCount(36);
@@ -51,7 +52,7 @@ test('only the History event list scrolls; tabs, Collapse hours and the filter s
   await expect.poll(() => list.evaluate((el) => Math.ceil(el.scrollTop + el.clientHeight) >= el.scrollHeight)).toBe(true);
   expect(await main.evaluate((el) => el.scrollTop)).toBe(0);
   expect(await page.evaluate(() => document.scrollingElement!.scrollTop)).toBe(0);
-  for (const id of ['panel-tab-live', 'panel-tab-history', 'hours-toggle', 'filter-all', 'filter-motion']) {
+  for (const id of ['camera-card', 'live-controls', 'hours-toggle', 'filter-all', 'filter-motion']) {
     expect(await inViewport(page, id), id).toBe(true);
   }
   // the last card is in view, inside the list
@@ -65,22 +66,23 @@ test('only the History event list scrolls; tabs, Collapse hours and the filter s
   // about 700 px the player column itself no longer fits, as before)
   await page.setViewportSize({ width: 1440, height: 720 });
   await expect.poll(() => main.evaluate((el) => el.scrollHeight <= el.clientHeight)).toBe(true);
-  for (const id of ['panel-tab-history', 'hours-toggle', 'filter-all']) expect(await inViewport(page, id), id).toBe(true);
+  for (const id of ['camera-card', 'hours-toggle', 'filter-all']) expect(await inViewport(page, id), id).toBe(true);
   const side = (await page.locator('aside.side').boundingBox())!;
   expect(side.y + side.height).toBeLessThanOrEqual(720);
 });
 
-test('the Live sidebar keeps the tabs and its filter in place too', async ({ page }) => {
+test('live, the sidebar keeps the camera, the controls and the filter in place too', async ({ page }) => {
   await longDay(page);
   await page.setViewportSize({ width: 1440, height: 720 });
-  await page.goto('/app/live');
-  await expect(page.getByTestId('live-latest')).toHaveCount(5);
+  await page.goto('/app/video');
+  await expect(page.getByTestId('mode-badge')).toHaveAttribute('data-mode', 'live');
+  await expect(page.getByTestId('event-card')).toHaveCount(36);
   const main = page.locator('main.main');
   await expect.poll(() => main.evaluate((el) => el.scrollHeight <= el.clientHeight)).toBe(true);
-  for (const id of ['panel-tab-live', 'filter-all', 'filter-motion']) expect(await inViewport(page, id), id).toBe(true);
-  const rows = page.getByTestId('live-scroll');
+  for (const id of ['camera-card', 'live-controls', 'filter-all', 'filter-motion']) expect(await inViewport(page, id), id).toBe(true);
+  const rows = page.getByTestId('event-scroll');
   await rows.evaluate((el) => el.scrollTo(0, el.scrollHeight));
   await expect.poll(() => rows.evaluate((el) => Math.ceil(el.scrollTop + el.clientHeight) >= el.scrollHeight)).toBe(true);
-  for (const id of ['panel-tab-live', 'filter-all']) expect(await inViewport(page, id), id).toBe(true);
+  for (const id of ['camera-card', 'filter-all']) expect(await inViewport(page, id), id).toBe(true);
   expect(await main.evaluate((el) => el.scrollTop)).toBe(0);
 });
