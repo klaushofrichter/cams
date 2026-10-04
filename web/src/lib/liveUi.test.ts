@@ -1,7 +1,7 @@
 // web/src/lib/liveUi.test.ts
 import { get } from 'svelte/store';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { badgeOf, checkLiveStatus, keepAliveNote, liveUi, offlineReason } from './liveUi';
+import { badgeOf, checkLiveStatus, keepAliveNote, liveUi, offlineReason, cameraKind, streamsText } from './liveUi';
 
 describe('liveUi helpers', () => {
   it('names the badge as the Live page did', () => {
@@ -49,5 +49,19 @@ describe('keepAliveNote', () => {
     expect(keepAliveNote(120)).toBe('The stream stays connected for 2 min after you leave this page.');
     expect(keepAliveNote(300)).toBe('The stream stays connected for 5 min after you leave this page.');
     expect(keepAliveNote(900)).toBe('The stream stays connected for 15 min after you leave this page.');
+  });
+});
+
+// Review of #173: what the Live panel said about the camera is on Settings now.
+describe('camera kind and streams for Settings', () => {
+  it('names a simulated camera with its version, else a camera', () => {
+    expect(cameraKind({ id: 'c', online: true, simulator: 'cam-sim 2026.09.29.1' })).toBe('Simulated camera (cam-sim 2026.09.29.1)');
+    expect(cameraKind({ id: 'c', online: true, simulator: null })).toBe('Camera');
+    expect(cameraKind(null)).toBe('');
+  });
+  it('names the main and sub streams', () => {
+    expect(streamsText({ id: 'c', online: true, streams: { main: { codec: 'h265', width: 4512, height: 2512, fps: 20 }, sub: { codec: 'h264', width: 896, height: 512, fps: 10 } } }))
+      .toBe('Main H.265 4512×2512 @20 · Sub H.264 896×512 @10');
+    expect(streamsText({ id: 'c', online: true })).toBe('');
   });
 });

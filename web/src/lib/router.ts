@@ -1,15 +1,20 @@
 import { writable, type Readable } from 'svelte/store';
 import type { IconName } from './icons';
 
-// Live and History are one video page; the panel says which (spec
-// 2026-09-28). The URLs stay: /app/live and /app/recordings.
+// One Video page (spec 2026-10-04): the player decides between live and a
+// recording; the URL only says which to open. `panel` is that request:
+// 'live' (at now) or 'history' (a recording). /app/live and /app/recordings
+// still work (`legacy`): the page rewrites them to /app/video.
 export type Page = 'video' | 'timeline' | 'settings' | 'about';
 export type Panel = 'live' | 'history';
+
+export const VIDEO_PATH = '/app/video';
 
 export interface Route {
   page: Page;
   panel: Panel;
   params: URLSearchParams;
+  legacy: boolean; // a video URL other than /app/video
 }
 
 export interface NavItem {
@@ -18,7 +23,6 @@ export interface NavItem {
   icon: IconName;
   href: string;
   page: Page;
-  panel?: Panel;
   needsProxy?: boolean; // shown only when some camera has a cam-proxy
 }
 
@@ -27,30 +31,28 @@ const OTHER_PAGES: Page[] = ['timeline', 'settings', 'about'];
 export function parseRoute(pathname: string, search: string): Route {
   const params = new URLSearchParams(search);
   const segment = pathname.replace(/^\/app\/?/, '').split('/')[0];
-  if ((OTHER_PAGES as string[]).includes(segment)) return { page: segment as Page, panel: 'live', params };
-  // Anything unknown is Live, never a blank shell.
-  if (segment !== 'recordings') return { page: 'video', panel: 'live', params };
-  // 'events' (2026-09-28) and 'downloads' (2026-09-29) were more doors to the
-  // same list; both are History now, where each card has a download button (Klaus).
-  return { page: 'video', panel: 'history', params };
+  if ((OTHER_PAGES as string[]).includes(segment)) return { page: segment as Page, panel: 'live', params, legacy: false };
+  const positioned = params.has('at') || params.has('date') || params.has('clip');
+  // History, Events (2026-09-28) and Downloads (2026-09-29) links: a recording.
+  if (segment === 'recordings') return { page: 'video', panel: 'history', params, legacy: pathname !== VIDEO_PATH };
+  // An old /app/live?at= link (earlier versions wrote them) is a recording too.
+  if (segment === 'live') return { page: 'video', panel: params.has('at') ? 'history' : 'live', params, legacy: true };
+  // Anything unknown is the video page, never a blank shell.
+  return { page: 'video', panel: positioned && segment === 'video' ? 'history' : 'live', params, legacy: pathname !== VIDEO_PATH };
 }
 
-// Live and History are two doors into one video page; the panel decides
-// which side panel is open.
 export const NAV_ITEMS: NavItem[] = [
-  { id: 'live', label: 'Live', icon: 'live', href: '/app/live', page: 'video', panel: 'live' },
-  { id: 'history', label: 'History', icon: 'history', href: '/app/recordings?panel=history', page: 'video', panel: 'history' },
+  { id: 'video', label: 'Video', icon: 'live', href: VIDEO_PATH, page: 'video' },
   { id: 'timeline', label: 'Timeline', icon: 'timeline', href: '/app/timeline', page: 'timeline', needsProxy: true },
   { id: 'settings', label: 'Settings', icon: 'settings', href: '/app/settings', page: 'settings' },
   { id: 'about', label: 'About', icon: 'about', href: '/app/about', page: 'about' },
 ];
 
 export function isActive(item: NavItem, route: Route): boolean {
-  if (item.page !== route.page) return false;
-  return item.panel === undefined || item.panel === route.panel;
+  return item.page === route.page;
 }
 
-const store = writable<Route>(parseRoute('/app/live', ''));
+const store = writable<Route>(parseRoute(VIDEO_PATH, ''));
 export const route: Readable<Route> = { subscribe: store.subscribe };
 
 function sync(): void {

@@ -43,9 +43,9 @@ describe('nearestMinute', () => {
 // there, and the URL alone can't say so (it may not even change).
 describe('openHistory', () => {
   it('saves the shared cursor, goes to History at the second and asks it to stop there', () => {
-    history.replaceState(null, '', '/app/recordings?cam=den&panel=history&at=5000');
+    history.replaceState(null, '', '/app/video?cam=den&at=5000');
     openHistory('den', 5000);
-    expect(location.pathname + location.search).toBe('/app/recordings?cam=den&panel=history&at=5000');
+    expect(location.pathname + location.search).toBe('/app/video?cam=den&at=5000');
     expect(loadViewPoint('den')).toEqual({ at: 5000 });
     expect(loadCursor()?.cursor.at).toBe(5000);
     expect(loadCursor()?.cursor.date).toBe(localDate(new Date(5000)));

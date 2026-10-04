@@ -371,7 +371,7 @@ describe('Timeline', () => {
       expect(still()).toBe(`/api/cameras/den/stills/${m0 + 20_000}.jpg`);
       expect(qa('[data-testid="timeline-boxes"] rect')).toHaveLength(1);
       expect(q('[data-testid="timeline-box-label"]')?.textContent).toBe('Person 84%');
-      expect(q('[data-testid="timeline-open-history"]')?.getAttribute('href')).toBe(`/app/recordings?cam=den&panel=history&at=${m0 + 20_000}`);
+      expect(q('[data-testid="timeline-open-history"]')?.getAttribute('href')).toBe(`/app/video?cam=den&at=${m0 + 20_000}`);
     });
 
     const analysedCard = () => ({ id: 'c1', start: new Date(m0 + 5000).toISOString(), end: new Date(m0 + 40_000).toISOString(), triggers: ['person'], durationSec: 35, sizeSub: 1, sizeMain: 1,

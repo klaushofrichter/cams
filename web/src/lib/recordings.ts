@@ -75,12 +75,6 @@ export function addDays(date: string, n: number): string {
 export function filterEvents(events: EventClip[], filter: Filter): EventClip[] {
   return isAllKinds(filter) ? events : events.filter((e) => e.triggers.some((t) => (filter as string[]).includes(t)));
 }
-// The Live panel's most recent events: the newest n that match the filter
-// (filtered first, so a filter never leaves fewer than n when more match).
-export function recentEvents(events: EventClip[], filter: Filter, n: number): EventClip[] {
-  return [...filterEvents(events, filter)].sort((a, b) => Date.parse(b.start) - Date.parse(a.start)).slice(0, n);
-}
-
 // HH:MM:SS, local.
 export function formatClock(t: string | number): string {
   const d = new Date(t);
@@ -112,12 +106,12 @@ export function parseCursor(params: URLSearchParams, today: string): { cam: stri
   };
 }
 
-export function cursorSearch(c: string, cursor: Cursor, panel: string): string {
+// The Video page's query (spec 2026-10-04): no `panel` any more.
+export function cursorSearch(c: string, cursor: Cursor): string {
   const p = new URLSearchParams({ cam: c, date: cursor.date });
   if (cursor.at !== null) p.set('at', String(Math.floor(cursor.at)));
   if (cursor.clipId) p.set('clip', cursor.clipId);
   if (cursor.at === null) p.set('t', String(Math.floor(cursor.offsetSec)));
-  p.set('panel', panel);
   return `?${p.toString()}`;
 }
 

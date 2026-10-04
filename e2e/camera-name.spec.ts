@@ -32,7 +32,7 @@ test('a rename shows at once in the picker, the titles and on other open pages',
   const live = await context.newPage();
   await live.goto('/app/live');
   await expect(live.getByTestId('camera-picker')).toHaveValue('cam1');
-  await expect(live.getByTestId('live-camera-name')).toHaveText('Den');
+  await expect(live.getByTestId('camera-card-name')).toHaveText('Den');
   await expect(live).toHaveTitle('● Live · Den · cams');
 
   await page.goto('/app/settings');
@@ -44,7 +44,7 @@ test('a rename shows at once in the picker, the titles and on other open pages',
 
   // The other page heard it on the event stream, without a reload.
   await expect(option(live)).toHaveText(NEW);
-  await expect(live.getByTestId('live-camera-name')).toHaveText(NEW);
+  await expect(live.getByTestId('camera-card-name')).toHaveText(NEW); // the Video page's camera card (spec 2026-10-04)
   await expect(live).toHaveTitle(`● Live · ${NEW} · cams`);
   await expect(live.getByTestId('camera-picker')).toHaveValue('cam1'); // the id stays
   await live.close();

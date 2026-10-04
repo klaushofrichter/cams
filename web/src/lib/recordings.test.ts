@@ -2,7 +2,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   ALL_KINDS, addDays, cursorSearch, isAllKinds, parseFilter, toggleFilter, downloadUrl, filterEvents, groupByHour,
-  loadCursor, orderTriggers, parseCursor, recentEvents, saveCursor, thumbUrl, videoUrl,
+  loadCursor, orderTriggers, parseCursor, saveCursor, thumbUrl, videoUrl,
   type EventClip,
 } from './recordings';
 
@@ -63,29 +63,10 @@ describe('URL builders', () => {
   });
 });
 
-// The Live panel's most recent events follow the event filter (Klaus,
-// 2026-10-03): the newest that match, not the newest five filtered down.
-describe('recentEvents', () => {
-  const day = Array.from({ length: 10 }, (_, i) => {
-    const hh = String(8 + i).padStart(2, '0');
-    return E(`${DAY.replaceAll('-', '')}-${hh}0000-${hh}0020`, `${DAY}T${hh}:00:00-05:00`, `${DAY}T${hh}:00:20-05:00`, i % 2 ? ['person'] : ['vehicle', 'motion']);
-  });
-  it('is the newest first, at most n', () => {
-    const r = recentEvents(day, ALL_KINDS, 5);
-    expect(r.map((e) => e.start.slice(11, 13))).toEqual(['17', '16', '15', '14', '13']);
-  });
-  it('filters before taking n, so five matches show even when the five newest do not all match', () => {
-    const r = recentEvents(day, ['person'], 5);
-    expect(r).toHaveLength(5);
-    expect(r.map((e) => e.start.slice(11, 13))).toEqual(['17', '15', '13', '11', '09']);
-    expect(recentEvents(day, ['pet'], 5)).toEqual([]);
-  });
-});
-
 describe('cursor', () => {
   it('parses and serialises the URL cursor', () => {
-    const q = cursorSearch('cam1', { date: DAY, clipId: events[0].id, offsetSec: 12.4, at: null }, 'events');
-    expect(q).toBe(`?cam=cam1&date=${DAY}&clip=${events[0].id}&t=12&panel=events`);
+    const q = cursorSearch('cam1', { date: DAY, clipId: events[0].id, offsetSec: 12.4, at: null });
+    expect(q).toBe(`?cam=cam1&date=${DAY}&clip=${events[0].id}&t=12`);
     expect(parseCursor(new URLSearchParams(q), '2026-09-26')).toEqual({
       cam: 'cam1', cursor: { date: DAY, clipId: events[0].id, offsetSec: 12, at: null },
     });
@@ -202,8 +183,8 @@ describe('the strip position in the URL', () => {
   });
 
   it('writes at and the clip under the playhead, no t', () => {
-    const s = cursorSearch('den', { date: '2026-09-27', clipId: '20260927-120505-120530', offsetSec: 0, at: 1790552160000 }, 'history');
-    expect(s).toBe('?cam=den&date=2026-09-27&at=1790552160000&clip=20260927-120505-120530&panel=history');
+    const s = cursorSearch('den', { date: '2026-09-27', clipId: '20260927-120505-120530', offsetSec: 0, at: 1790552160000 });
+    expect(s).toBe('?cam=den&date=2026-09-27&at=1790552160000&clip=20260927-120505-120530');
   });
 });
 

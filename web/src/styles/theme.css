@@ -20,6 +20,7 @@
   --accent-2: #6366F1;
   --accent-ink: #06202A;
   --danger: #EF4444;
+  --ok: #22C55E; /* a camera online (the Video page's status dot) */
   --warning: #F59E0B;
   --warning-ink: #1F1300;
   /* Vision badges by confidence (Klaus, 2026-09-30): ≥ 80 %, 50–79 %, < 50 %. */
@@ -75,6 +76,7 @@
   --accent-2: #4F46E5;
   --accent-ink: #FFFFFF;
   --danger: #DC2626;
+  --ok: #16A34A;
   --warning: #D97706;
   --warning-ink: #FFFFFF;
   --vision-high: #166534;
@@ -118,6 +120,7 @@
     --accent-2: #4F46E5;
     --accent-ink: #FFFFFF;
     --danger: #DC2626;
+    --ok: #16A34A;
     --warning: #D97706;
     --warning-ink: #FFFFFF;
     --vision-high: #166534;

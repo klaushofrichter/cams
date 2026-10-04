@@ -1,45 +1,55 @@
 import { describe, expect, it } from 'vitest';
-import { NAV_ITEMS, isActive, parseRoute } from './router';
+import { NAV_ITEMS, VIDEO_PATH, isActive, parseRoute } from './router';
 
 describe('parseRoute', () => {
   it.each([
+    ['/app/video', '', 'video'],
     ['/app/live', '', 'video'],
     ['/app/recordings', '', 'video'],
     ['/app/settings', '', 'settings'],
     ['/app/about', '', 'about'],
     ['/app', '', 'video'],
     ['/app/', '', 'video'],
-    // Review focus 5: unknown pages fall back to Live, never a blank shell.
+    // Review focus 5: unknown pages fall back to the video page, never a blank shell.
     ['/app/nope', '', 'video'],
     ['/app/recordings/extra', '', 'video'],
   ])('%s -> %s', (path, search, page) => {
     expect(parseRoute(path, search).page).toBe(page);
   });
 
-  it('reads the recordings panel, defaulting to history', () => {
-    expect(parseRoute('/app/recordings', '?panel=events').panel).toBe('history'); // Events is History now (Klaus, 2026-09-28)
-    expect(parseRoute('/app/recordings', '?panel=downloads').panel).toBe('history'); // Downloads is part of History now (Klaus, 2026-09-29)
-    expect(parseRoute('/app/recordings', '?panel=bogus').panel).toBe('history');
-    expect(parseRoute('/app/recordings', '').panel).toBe('history');
+  // The Video page (spec 2026-10-04): the URL asks for live or a recording.
+  it('reads /app/video: live without a position, a recording with one', () => {
+    expect(parseRoute('/app/video', '')).toMatchObject({ page: 'video', panel: 'live', legacy: false });
+    expect(parseRoute('/app/video', '?cam=porch')).toMatchObject({ panel: 'live', legacy: false });
+    expect(parseRoute('/app/video', '?cam=porch&date=2026-10-01')).toMatchObject({ panel: 'history', legacy: false });
+    expect(parseRoute('/app/video', '?cam=porch&at=5000')).toMatchObject({ panel: 'history' });
+    expect(parseRoute('/app/video', '?clip=20261001-101010-101030&t=3')).toMatchObject({ panel: 'history' });
   });
 
-  it('routes Live and the recordings panels to one video page (spec 2026-09-28)', () => {
-    expect(parseRoute('/app/live', '')).toMatchObject({ page: 'video', panel: 'live' });
-    expect(parseRoute('/app/recordings', '?panel=downloads')).toMatchObject({ page: 'video', panel: 'history' });
-    expect(parseRoute('/app/recordings', '?panel=events')).toMatchObject({ page: 'video', panel: 'history' });
-    expect(parseRoute('/app/recordings', '')).toMatchObject({ page: 'video', panel: 'history' });
-    expect(parseRoute('/app/nope', '')).toMatchObject({ page: 'video', panel: 'live' });
+  it('keeps the old URLs working: /app/live is live, /app/recordings a recording', () => {
+    expect(parseRoute('/app/live', '')).toMatchObject({ page: 'video', panel: 'live', legacy: true });
     expect(parseRoute('/app/live', '?panel=downloads').panel).toBe('live');
+    expect(parseRoute('/app/live', '?at=5000').panel).toBe('history'); // an old playback link
+    for (const s of ['?panel=events', '?panel=downloads', '?panel=history', '?panel=bogus', '']) {
+      expect(parseRoute('/app/recordings', s)).toMatchObject({ page: 'video', panel: 'history', legacy: true });
+    }
+    expect(parseRoute('/app/nope', '')).toMatchObject({ page: 'video', panel: 'live', legacy: true });
   });
 
-  it('keeps other query params for later plans', () => {
+  it('marks only other pages as not legacy', () => {
+    expect(parseRoute('/app/settings', '').legacy).toBe(false);
+  });
+
+  it('keeps the query params', () => {
     expect(parseRoute('/app/recordings', '?cam=cam1&t=x').params.get('cam')).toBe('cam1');
   });
 });
 
 describe('navigation items', () => {
-  it('lists the menu entries in order', () => {
-    expect(NAV_ITEMS.map((i) => i.label)).toEqual(['Live', 'History', 'Timeline', 'Settings', 'About']);
+  it('lists the menu entries in order: one Video entry (Klaus, 2026-10-04)', () => {
+    expect(NAV_ITEMS.map((i) => i.label)).toEqual(['Video', 'Timeline', 'Settings', 'About']);
+    expect(NAV_ITEMS[0]).toMatchObject({ id: 'video', href: VIDEO_PATH, page: 'video' });
+    expect(VIDEO_PATH).toBe('/app/video');
   });
 
   it('parses the Timeline page, which needs a cam-proxy', () => {
@@ -47,16 +57,10 @@ describe('navigation items', () => {
     expect(NAV_ITEMS.find((i) => i.id === 'timeline')).toMatchObject({ href: '/app/timeline', page: 'timeline', needsProxy: true });
   });
 
-  it('points History at the recordings workspace', () => {
-    const hrefs = Object.fromEntries(NAV_ITEMS.map((i) => [i.id, i.href]));
-    expect(hrefs.history).toBe('/app/recordings?panel=history');
-    expect(hrefs.downloads).toBeUndefined();
-  });
-
-  it('marks exactly one item active', () => {
-    const r = parseRoute('/app/recordings', '?panel=events');
-    expect(NAV_ITEMS.filter((i) => isActive(i, r)).map((i) => i.id)).toEqual(['history']);
-    const live = parseRoute('/app/live', '');
-    expect(NAV_ITEMS.filter((i) => isActive(i, live)).map((i) => i.id)).toEqual(['live']);
+  it('marks Video active in both modes and for the old URLs', () => {
+    for (const [p, s] of [['/app/video', ''], ['/app/video', '?at=1'], ['/app/live', ''], ['/app/recordings', '?panel=events']]) {
+      expect(NAV_ITEMS.filter((i) => isActive(i, parseRoute(p, s))).map((i) => i.id)).toEqual(['video']);
+    }
+    expect(NAV_ITEMS.filter((i) => isActive(i, parseRoute('/app/about', ''))).map((i) => i.id)).toEqual(['about']);
   });
 });

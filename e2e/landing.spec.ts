@@ -45,8 +45,8 @@ test.describe('auth boundaries', () => {
   test('signed-in visitors skip the landing page', async ({ page, context, baseURL }) => {
     await signIn(context, baseURL!);
     await page.goto('/');
-    await expect(page).toHaveURL('/app/live');
-    await expect(page.getByTestId('page-title')).toHaveText('Live');
+    await expect(page).toHaveURL('/app/video');
+    await expect(page.getByTestId('page-title')).toHaveText('Video');
   });
 
   test('logout returns to the landing page and locks the app', async ({ page, context, baseURL }, testInfo) => {
