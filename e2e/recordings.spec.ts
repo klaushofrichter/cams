@@ -1,7 +1,7 @@
 import { expect, test, type Page } from '@playwright/test';
 import { signIn } from './session';
 import { expandAllHours } from './hours';
-import { FAKE_PROXY_PORT, FAKE_PROXY_TOKEN, motionStillMs, vehicleDetectionMs } from './fakeProxyData';
+import { FAKE_PROXY_PORT, FAKE_PROXY_TOKEN, motionStillMs, personDetectionMs, vehicleDetectionMs } from './fakeProxyData';
 
 // The simulated cameras' demo clips (cam-sim DEMO_CLIPS, CAMSIM_SEED_CLIPS=demo):
 // today 08:15:10 person, 09:30:00 vehicle, 12:05:05 motion, 17:45:40 pet;
@@ -61,6 +61,21 @@ const proxyStill = async (page: Page, ts: number) =>
 test('a vehicle card shows the still from the moment it was detected', async ({ page }) => {
   await openEvents(page);
   expect(Buffer.compare(await thumbBytes(page, '093000'), await proxyStill(page, vehicleDetectionMs()))).toBe(0);
+});
+
+// Klaus, 2026-10-04: a card with two person events says "Person 2x".
+test('a card with two person events says "Person 2x"', async ({ page }) => {
+  await openEvents(page);
+  await expect(card(page, '081510').locator('..').locator('.tag')).toHaveText(['Person 2x']);
+  await expect(card(page, '093000').locator('..').locator('.tag')).toHaveText(['Vehicle']);
+});
+
+// Klaus, 2026-10-04: neither person event confirmed by Vision: the still at
+// the first one's detection second, named by its version.
+test('a card with two person events shows the first one’s detection still', async ({ page }) => {
+  await openEvents(page);
+  expect(Buffer.compare(await thumbBytes(page, '081510'), await proxyStill(page, personDetectionMs()))).toBe(0);
+  await expect(card(page, '081510').getByTestId('event-thumb')).toHaveAttribute('src', /thumb\.jpg\?v=d2$/);
 });
 
 test('a motion card keeps the still 2 s into the recording', async ({ page }) => {

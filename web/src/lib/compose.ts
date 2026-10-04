@@ -13,7 +13,7 @@ export interface JobView { id: string; state: 'queued' | 'running' | 'done' | 'f
 
 // The limits and the length rule are the server's own module, so the dialog
 // and the server never disagree (Klaus, 2026-10-04: plain save 600 s,
-// generated 300 s, 120 s at 1080p; seconds shown as "44 s", "114 s (1:54)").
+// generated 300 s, 120 s at 1080p; lengths shown as "44s", "1m 54s", "5m").
 export { formatSeconds, GENERATE_MAX_S, GENERATE_MAX_S_1080P, isPlain, PLAIN_MAX_S, resultLength, saveMaxS } from '../../../server/clipLimits';
 
 // A roll slider's range, given the other roll (clip of clipS seconds, a
@@ -40,6 +40,22 @@ export function snapRoll(v: number, r: RollRange): number {
   const x = Math.min(r.max, Math.max(r.min, Math.round(v)));
   if (r.gapFrom !== undefined && x > r.gapFrom && x < 0) return x - r.gapFrom <= -x ? r.gapFrom : 0;
   return x;
+}
+// The pre-roll slider runs right to left (Klaus, 2026-10-04): its filled part
+// sits at the right, and left is an earlier start; the post-roll slider runs
+// left to right, right adding. Side by side they read as the window around
+// the clip. ← and → move each thumb the way it looks (the dialog handles
+// them, the same in every browser); null: the browser's own key (↑ adds).
+export function rollKeyStep(which: 'pre' | 'post', key: string): number | null {
+  if (key !== 'ArrowLeft' && key !== 'ArrowRight') return null;
+  const right = key === 'ArrowRight' ? 1 : -1;
+  return which === 'pre' ? -right : right;
+}
+// A roll slider's value as a screen reader says it.
+export function rollValueText(which: 'pre' | 'post', v: number): string {
+  if (v === 0) return which === 'pre' ? 'no pre-roll' : 'no post-roll';
+  if (v < 0) return `cuts ${-v} s`;
+  return which === 'pre' ? `starts ${v} s earlier` : `ends ${v} s later`;
 }
 // The rolls a dialog opens with: none, unless the clip is longer than even a
 // plain save; then the post-roll cuts it to the generated limit at its end.

@@ -11,7 +11,10 @@ import type { AddressInfo } from 'net';
 import { tmpdir } from 'os';
 import { join } from 'path';
 import { cameraNameProblem } from '../../server/cameraName';
-import { formatSeconds, generateMaxS } from '../../server/clipLimits';
+import { generateMaxS } from '../../server/clipLimits';
+
+// cam-proxy's own wording of a length (src/compose/plan.ts there), not cams's.
+const proxySeconds = (s: number) => (s < 60 ? `${s} s` : `${s} s (${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')})`);
 
 export interface FakeClip { id: number; cam: string; start: number; end: number; stream: string; events: number[]; body: Buffer; snapshot?: Buffer }
 export interface FakeMessage { id: number; ts: number; cam: string; type: string; data: Record<string, unknown> }
@@ -280,7 +283,7 @@ export async function startFakeProxy(opts: { port?: number; token?: string } = {
     if (Math.min(rawEnd, span.end) - Math.max(start, span.start) < 1000) return void res.status(400).json({ error: 'invalid', detail: 'at least 1 s of the clip must remain' });
     const durationS = Math.round((rawEnd - start) / 1000);
     const maxS = generateMaxS(String(b.size));
-    if (durationS > maxS) return void res.status(400).json({ error: 'invalid', detail: `at most ${formatSeconds(maxS)}` });
+    if (durationS > maxS) return void res.status(400).json({ error: 'invalid', detail: `at most ${proxySeconds(maxS)}` });
     const id = randomBytes(16).toString('base64url');
     const job = { state: 'running' as 'queued' | 'running' | 'done', progress: 0, durationS };
     fake.compositions.set(id, job);
@@ -341,7 +344,12 @@ export async function startFakeProxy(opts: { port?: number; token?: string } = {
       (fake.events.get(req.params.cam) ?? [])
         .filter((e) => (from === undefined || e.start >= from) && (to === undefined || e.start <= to) && (q.kind === undefined || e.kind === q.kind))
         .sort((a, b) => b.start - a.start || b.id - a.id)
-        .slice(0, Math.min(Math.max(1, limit ?? 1000), 1000)), // clamped, like the real one
+        .slice(0, Math.min(Math.max(1, limit ?? 1000), 1000)) // clamped, like the real one
+        .map((e) => {
+          // Like the real one, each event with its latest analysis (one stored by a test hook too).
+          const a = e.analysis ? null : [...(fake.analyses.get(req.params.cam) ?? [])].reverse().find((x) => x.eventId === e.id);
+          return a ? { ...e, analysis: { provider: a.provider, status: a.status, reason: a.reason, stillTs: a.stillTs, objects: a.objects, summary: a.summary } } : e;
+        }),
     );
   });
   app.get('/api/cameras/:cam/events/:id/analysis', (req, res) => {
@@ -529,8 +537,9 @@ if (require.main === module) {
       res.json({ ok: true });
     });
     // e2e only: POST /analyses {cam, analysis} stores an analysis (for
-    // /analyses and the full record) and gives its still's minute one still
-    // per second and a sprite, so the Timeline can show it.
+    // /analyses, the full record and its event in /events) and gives its
+    // still's minute one still per second and a sprite, so the Timeline can
+    // show it.
     hooks.post('/analyses', (req, res) => {
       const b = req.body as { cam?: unknown; analysis?: FakeAnalysis };
       const a = b.analysis;
@@ -539,7 +548,8 @@ if (require.main === module) {
       if (a.stillTs !== null) {
         const minute = Math.floor(a.stillTs / 60_000) * 60_000;
         const stills = fake.stills.get(b.cam) ?? new Map<number, Buffer>();
-        for (let s = 0; s < 60; s++) stills.set(minute + s * 1000, media.jpeg);
+        // Seeded stills (a card's detection still) stay as they are.
+        for (let s = 0; s < 60; s++) if (!stills.has(minute + s * 1000)) stills.set(minute + s * 1000, media.jpeg);
         fake.stills.set(b.cam, stills);
         const previews = fake.previews.get(b.cam) ?? new Map<number, Buffer>();
         previews.set(minute, media.sprite);

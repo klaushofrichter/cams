@@ -2,7 +2,7 @@
   import { onDestroy, onMount, tick, untrack } from 'svelte';
   import { triggerDownload } from '../lib/download';
   import { downloadUrl, formatClock, orderTriggers, thumbUrl, TRIGGER_LABELS, type EventClip } from '../lib/recordings';
-  import { cancelJob, composedName, formatSeconds, PLAIN_MAX_S, sliderBounds, fullQualityAvailable, isAvailable, isPlain, ORIGINAL_4K_LABEL, pollJob, presetRolls, resultLength, rollRange, saveMaxS, SIZE_LABELS, snapRoll, startJob, videoUrl, type ComposeSize, type JobView, type RollRange, type SaveSize } from '../lib/compose';
+  import { cancelJob, composedName, formatSeconds, PLAIN_MAX_S, rollKeyStep, rollValueText, sliderBounds, fullQualityAvailable, isAvailable, isPlain, ORIGINAL_4K_LABEL, pollJob, presetRolls, resultLength, rollRange, saveMaxS, SIZE_LABELS, snapRoll, startJob, videoUrl, type ComposeSize, type JobView, type RollRange, type SaveSize } from '../lib/compose';
 
   // Every download of a clip goes through this dialog (Klaus, 2026-09-29): SD
   // or 4K as recorded, or, with a cam-proxy, SD sizes with a pre-/post-roll
@@ -64,6 +64,9 @@
   const maxS = $derived(saveMaxS(size, roll.pre, roll.post));
   const length = $derived(resultLength(clip.durationSec, roll.pre, roll.post, maxS));
   const plain = $derived(isPlain(size, roll.pre, roll.post));
+  // The limit only when it matters (Klaus, 2026-10-04): a generated clip
+  // (300 s, 120 s at 1080p) or a recording longer than a plain save.
+  const showLimit = $derived(!plain || clip.durationSec > PLAIN_MAX_S);
   // The sliders' ranges: each given the other roll, never past the limit.
   const preRange = $derived(rollRange(clip.durationSec, Number(postS) || 0, size));
   const postRange = $derived(rollRange(clip.durationSec, Number(preS) || 0, size));
@@ -78,6 +81,15 @@
   }
   const slidePre = (e: Event) => slide(e, preRange, (v) => (preS = v));
   const slidePost = (e: Event) => slide(e, postRange, (v) => (postS = v));
+  // ← / → as the thumb looks: on the reversed pre-roll slider ← is an
+  // earlier start (rollKeyStep), clamped like a drag.
+  function stepKey(e: KeyboardEvent, which: 'pre' | 'post') {
+    const d = rollKeyStep(which, e.key);
+    if (d === null) return;
+    e.preventDefault();
+    if (which === 'pre') preS = snapRoll((Number(preS) || 0) + d, preRange);
+    else postS = snapRoll((Number(postS) || 0) + d, postRange);
+  }
   const ready = $derived(job?.state === 'done');
   const busy = $derived(job?.state === 'queued' || job?.state === 'running');
   const name = $derived(composedName(camera, clip.id, (is4k ? 'sd' : size) as ComposeSize));
@@ -225,7 +237,7 @@
     <button class="x" data-testid="compose-close" aria-label="Close" onclick={close}>✕</button>
   </header>
   <div class="clip">
-    <img data-testid="compose-thumb" src={thumbUrl(camera, clip.id)} alt="" />
+    <img data-testid="compose-thumb" src={thumbUrl(camera, clip.id, clip.thumb)} alt="" />
     <span>{formatClock(clip.start)} · {formatSeconds(clip.durationSec)} · {orderTriggers(clip.triggers).map((t) => TRIGGER_LABELS[t]).join(', ')}</span>
   </div>
   {#if composable && !available}
@@ -235,10 +247,15 @@
     {#if !simple}
       <!-- Number and slider show the same roll; a negative one cuts the clip
            (pre-roll at its start, post-roll at its end). -->
+      <!-- The pre-roll slider runs right to left (Klaus, 2026-10-04): filled at
+           the right, left is an earlier start; the post-roll slider fills from
+           the left, right adds. Together: the window around the clip. -->
       <label>Pre-roll (s) <input type="number" data-testid="compose-pre" min={preRange.min} max={preRange.max} step="1" disabled={rollOff} bind:value={preS} />
-        <input type="range" data-testid="compose-pre-slider" aria-label="Pre-roll (s)" min={track.min} max={track.max} step="1" disabled={rollOff} value={rollOff ? 0 : Number(preS) || 0} oninput={slidePre} /></label>
+        <input type="range" dir="rtl" data-testid="compose-pre-slider" aria-label="Pre-roll (s)" aria-valuetext={rollValueText('pre', rollOff ? 0 : Number(preS) || 0)}
+          min={track.min} max={track.max} step="1" disabled={rollOff} value={rollOff ? 0 : Number(preS) || 0} oninput={slidePre} onkeydown={(e) => stepKey(e, 'pre')} /></label>
       <label>Post-roll (s) <input type="number" data-testid="compose-post" min={postRange.min} max={postRange.max} step="1" disabled={rollOff} bind:value={postS} />
-        <input type="range" data-testid="compose-post-slider" aria-label="Post-roll (s)" min={track.min} max={track.max} step="1" disabled={rollOff} value={rollOff ? 0 : Number(postS) || 0} oninput={slidePost} /></label>
+        <input type="range" data-testid="compose-post-slider" aria-label="Post-roll (s)" aria-valuetext={rollValueText('post', rollOff ? 0 : Number(postS) || 0)}
+          min={track.min} max={track.max} step="1" disabled={rollOff} value={rollOff ? 0 : Number(postS) || 0} oninput={slidePost} onkeydown={(e) => stepKey(e, 'post')} /></label>
     {/if}
     <label>Size
       <select data-testid="compose-size" bind:value={size}>
@@ -266,7 +283,7 @@
     <p class="muted" data-testid="compose-too-long-note">This recording is {formatSeconds(clip.durationSec)}. A save as it is can be at most {formatSeconds(PLAIN_MAX_S)}, and only a cam-proxy copy can be cut, so it can’t be saved here.</p>
   {/if}
   {#if length.ok}
-    <p class="muted" data-testid="compose-length" role="status">Result: {formatSeconds(length.seconds)} · at most {formatSeconds(maxS)}</p>
+    <p class="muted" data-testid="compose-length" role="status">Result: {formatSeconds(length.seconds)}{showLimit ? ` · at most ${formatSeconds(maxS)}` : ''}</p>
   {:else}
     <p class="err" data-testid="compose-error" role="status">{length.error}</p>
   {/if}
