@@ -1,4 +1,6 @@
 <script lang="ts">
+  // A text expression keeps its spaces (whitespace at an element's edge is dropped).
+  const SEP = ' — ';
   import { checkButton, CheckError, confirmsLine, findings, requestCheck, reusedLine, usageLine, type CheckResult, type DayCheck, type UsageState } from '../lib/stillChecks';
 
   // "✧ Check with Vision" under the Timeline's large still (cams #179, spec
@@ -73,7 +75,7 @@
   {#if error}<p class="error" role="alert" data-testid="still-check-error">{error}</p>{/if}
   {#if check}
     <p data-testid="still-check-result">
-      <span class="vision">✧ Vision: {findings(check.summary)}</span>{#if confirms}<span data-testid="still-check-confirms"> · {confirms}</span>{/if}{#if reused}<span class="muted" data-testid="still-check-reused"> · {reused}</span>{/if}{#if onaround}<span> · </span><button class="link" data-testid="still-check-around" onclick={() => onaround(ts)}>Save clip around this</button>{/if}
+      <span class="vision">✧ Vision: {findings(check.summary)}</span>{#if confirms}<span data-testid="still-check-confirms">{SEP}{confirms}</span>{/if}{#if reused}<span class="muted" data-testid="still-check-reused">{SEP}{reused}</span>{/if}{#if onaround}<span>{SEP}</span><button class="link" data-testid="still-check-around" onclick={() => onaround(ts)}>Save clip around this</button>{/if}
     </p>
   {/if}
 </div>
