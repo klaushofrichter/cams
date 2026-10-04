@@ -55,7 +55,8 @@
   // own camera, so switching cameras without a page reload could otherwise
   // have one camera's broken-thumbnail mark wrongly hide another's.
   let broken = $state(new Set<string>());
-  const brokenKey = (id: string) => `${cameraId}|${id}`;
+  // With the thumbnail's version: a new one (a later Vision confirmation) tries again.
+  const brokenKey = (e: EventClip) => `${cameraId}|${e.id}|${e.thumb ?? ''}`;
   // The key comes from the element, not from this item's reactive state: the
   // error can land while the item re-renders (the derived_inert warnings seen
   // in production), so the handler reads nothing reactive but `broken`.
@@ -293,10 +294,10 @@
                     // The thumbnail also brings the player into view; the rest of the card keeps the list in view.
                     if ((ev.target as Element | null)?.closest('[data-testid="event-thumb"]')) onreveal?.();
                   }}>
-                    {#if broken.has(brokenKey(e.id))}
+                    {#if broken.has(brokenKey(e))}
                       <span class="thumb placeholder" data-testid="event-thumb"></span>
                     {:else}
-                      <img class="thumb" data-testid="event-thumb" alt="" use:lazySrc={thumbUrl(cameraId, e.id)} data-broken-key={brokenKey(e.id)} onerror={markBroken} />
+                      <img class="thumb" data-testid="event-thumb" alt="" use:lazySrc={thumbUrl(cameraId, e.id, e.thumb)} data-broken-key={brokenKey(e)} onerror={markBroken} />
                     {/if}
                     <span class="sr-only">{[formatClock(e.start), `${e.durationSec} s`, ...kinds.map((t) => tagText(t, e.counts))].join(', ')}</span>
                   </button>

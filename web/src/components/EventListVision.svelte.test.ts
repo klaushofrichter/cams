@@ -92,3 +92,21 @@ describe('EventList: per-type counts', () => {
     expect(t.querySelector('[data-testid="event-card"] .sr-only')!.textContent).toContain('Motion, Person 2x');
   });
 });
+
+// Klaus, 2026-10-04: when Vision confirms one of a card's events later, the
+// day reloads with a new thumbnail version, and the card asks for it.
+describe('EventList: the thumbnail follows its version', () => {
+  it('asks again when the version changes, not on a reload without a change', () => {
+    const [first] = makeEvents(DATE, 5, 1);
+    const props = $state({ cameraId: 'camA', events: [{ ...first, triggers: ['person'], thumb: 'd928' }] as EventClip[], filter: ALL_KINDS, date: DATE, selectedId: null, onfilter: () => {}, onselect: () => {} });
+    target = document.createElement('div');
+    document.body.appendChild(target);
+    component = mount(EventList, { target, props }) as unknown as Record<string, unknown>;
+    flushSync();
+    const img = () => target!.querySelector<HTMLImageElement>('[data-testid="event-thumb"]')!;
+    expect(img().getAttribute('src')).toBe(`/api/cameras/camA/clips/${first.id}/thumb.jpg?v=d928`);
+    props.events = [{ ...first, triggers: ['person'], thumb: 'c930' }];
+    flushSync();
+    expect(img().getAttribute('src')).toBe(`/api/cameras/camA/clips/${first.id}/thumb.jpg?v=c930`);
+  });
+});

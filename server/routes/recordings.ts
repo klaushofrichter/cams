@@ -3,7 +3,7 @@ import { getProxyClient } from '../proxy/client';
 import { getAnalysisStore } from '../proxy/analyses';
 import { attachAnalyses } from '../recordings/analysis';
 import { getAiEventStore } from '../proxy/aiEvents';
-import { attachCounts } from '../recordings/detection';
+import { attachAiEvents } from '../recordings/detection';
 import { pipeline } from 'stream/promises';
 import { formatSeconds, PLAIN_MAX_S } from '../clipLimits';
 import { clipDate, clipSeconds, CLIP_ID, isRealDate, isRealMonth } from '../recordings/clipNames';
@@ -84,7 +84,7 @@ recordingsRouter.get('/api/cameras/:id/events', async (req, res, next) => {
     let shown: typeof events = events;
     if (getProxyClient(id)) {
       const [analyses, ai] = await Promise.all([getAnalysisStore().forDay(id, date, events), getAiEventStore().forDay(id, date, events)]);
-      shown = attachCounts(attachAnalyses(events, analyses), ai);
+      shown = attachAiEvents(attachAnalyses(events, analyses), ai, (clipId, v) => rec.thumbVersion(id, clipId, v));
     }
     res.json({ date, events: shown, downloads: rec.downloadsState(id) });
   } catch (err) {
@@ -110,6 +110,14 @@ recordingsRouter.get('/api/cameras/:id/clips/:clipId/thumb.jpg', async (req, res
   const id = knownCamera(req, res);
   const clipId = id && clip(req, res);
   if (!id || !clipId) return;
+  // The card's thumbnail version from the day's list (thumbPlan): c<event>
+  // or d<event>, maybe with a retry suffix. It names a cache file.
+  const v = req.query.v;
+  if (v !== undefined && (typeof v !== 'string' || !/^[cd]\d{1,15}(-r\d{1,15})?$/.test(v))) {
+    res.status(400).json({ error: 'bad_request' });
+    return;
+  }
+  const version = v as string | undefined;
   try {
     // Set Content-Type only once thumbnail() has actually succeeded: Express's
     // res.json() (used by fail() below) skips setting Content-Type when one
@@ -118,7 +126,7 @@ recordingsRouter.get('/api/cameras/:id/clips/:clipId/thumb.jpg', async (req, res
     //
     // Pinned (via withThumbnail) from before fill() starts until sendFile()
     // finishes, so it can never be evicted while it's being served here.
-    await getRecordings().withThumbnail(id, clipId, (path) => sendFileQuietly(req, res.type('image/jpeg'), path));
+    await getRecordings().withThumbnail(id, clipId, (path) => sendFileQuietly(req, res.type('image/jpeg'), path), version);
   } catch (err) {
     fail(err, id, res, next);
   }

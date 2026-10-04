@@ -9,4 +9,5 @@ published as [GitHub releases](https://github.com/klaushofrichter/cams/releases)
 ## [Unreleased]
 
 - Event cards: a card holding several events of one AI type says how many, e.g. "Person 2x" (Vehicle and Pet likewise; Motion never gets a count).
+- Event cards: the thumbnail is the still of the card's first event Vision confirmed, else the second its first person, vehicle or pet event was detected (not the highest-scoring analysis); it changes when a Vision result arrives later, and a card that got the start-of-recording image because the detection still wasn't available asks again.
 

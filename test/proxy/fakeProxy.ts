@@ -534,8 +534,9 @@ if (require.main === module) {
       res.json({ ok: true });
     });
     // e2e only: POST /analyses {cam, analysis} stores an analysis (for
-    // /analyses and the full record) and gives its still's minute one still
-    // per second and a sprite, so the Timeline can show it.
+    // /analyses, the full record and its event in /events) and gives its
+    // still's minute one still per second and a sprite, so the Timeline can
+    // show it.
     hooks.post('/analyses', (req, res) => {
       const b = req.body as { cam?: unknown; analysis?: FakeAnalysis };
       const a = b.analysis;
@@ -544,7 +545,8 @@ if (require.main === module) {
       if (a.stillTs !== null) {
         const minute = Math.floor(a.stillTs / 60_000) * 60_000;
         const stills = fake.stills.get(b.cam) ?? new Map<number, Buffer>();
-        for (let s = 0; s < 60; s++) stills.set(minute + s * 1000, media.jpeg);
+        // Seeded stills (a card's detection still) stay as they are.
+        for (let s = 0; s < 60; s++) if (!stills.has(minute + s * 1000)) stills.set(minute + s * 1000, media.jpeg);
         fake.stills.set(b.cam, stills);
         const previews = fake.previews.get(b.cam) ?? new Map<number, Buffer>();
         previews.set(minute, media.sprite);

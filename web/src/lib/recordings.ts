@@ -16,6 +16,9 @@ export interface EventClip {
   analysis?: CardAnalysis; // cam-proxy's Vision results, when it analysed this recording
   // cam-proxy's person, vehicle and pet events in this recording, per type (Klaus, 2026-10-04).
   counts?: Partial<Record<'person' | 'vehicle' | 'pet', number>>;
+  // Which still the card's thumbnail is (the server's thumbPlan): a new one
+  // after a later Vision confirmation is a new image request.
+  thumb?: string;
 }
 
 export interface Cursor {
@@ -93,7 +96,8 @@ const cam = (id: string) => encodeURIComponent(id);
 export const eventsUrl = (c: string, date: string) => `/api/cameras/${cam(c)}/events?date=${encodeURIComponent(date)}`;
 export const daysUrl = (c: string, month: string) => `/api/cameras/${cam(c)}/days?month=${encodeURIComponent(month)}`;
 export const videoUrl = (c: string, id: string) => `/api/cameras/${cam(c)}/clips/${encodeURIComponent(id)}/video`;
-export const thumbUrl = (c: string, id: string) => `/api/cameras/${cam(c)}/clips/${encodeURIComponent(id)}/thumb.jpg`;
+export const thumbUrl = (c: string, id: string, version?: string) =>
+  `/api/cameras/${cam(c)}/clips/${encodeURIComponent(id)}/thumb.jpg${version ? `?v=${encodeURIComponent(version)}` : ''}`;
 export const downloadUrl = (c: string, id: string, q: 'sub' | 'main') => `/api/cameras/${cam(c)}/clips/${encodeURIComponent(id)}/download?quality=${q}`;
 
 // No event filter: that is the saved preference only (eventFilter.ts); an

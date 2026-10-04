@@ -29,30 +29,38 @@ export function parseProxyEvents(body: unknown): ProxyEvent[] {
   });
 }
 
-// The seconds to try for a card's thumbnail, best first: the stills Vision
-// confirmed the event's own type on (highest score first), then the first
-// detection's start. An event counts for the card when it starts in
-// [start − 5 s, end], as analyses do. Empty for motion-only cards.
-export function detectionMoments(events: ProxyEvent[], start: number, end: number): number[] {
-  const inCard = events.filter((e) => e.start >= start - SLACK_MS && e.start <= end);
-  if (!inCard.length) return [];
-  const confirmed = inCard
-    .flatMap((e) => {
-      const score = Math.max(-1, ...(e.analysis?.summary ?? []).filter((s) => s.category === e.kind).map((s) => s.score));
-      return score >= 0 ? [{ ts: e.analysis!.stillTs, score }] : [];
-    })
-    .sort((a, b) => b.score - a.score || a.ts - b.ts)
-    .map((c) => c.ts);
-  const first = Math.min(...inCard.map((e) => e.start));
-  return [...new Set([...confirmed, first])];
+// Whether Vision confirmed the event's own type on its analysed still.
+const confirmed = (e: ProxyEvent): boolean => !!e.analysis?.summary.some((s) => s.category === e.kind);
+
+// A card's thumbnail from its person, vehicle and pet events (Klaus,
+// 2026-10-04): the still of the first event Vision confirmed the type of
+// (then the other confirmed ones), else the second the first event was
+// detected at, which is also the last resort. `version` names the choice
+// (c<event id>: a confirmed event's still; d<event id>: a detection second),
+// so it changes when an analysis arrives later. null without AI events.
+export function thumbPlan(events: ProxyEvent[]): { version: string; moments: number[] } | null {
+  if (!events.length) return null;
+  const sorted = [...events].sort((a, b) => a.start - b.start || a.id - b.id);
+  const yes = sorted.filter(confirmed);
+  const first = sorted[0];
+  const moments = [...new Set([...yes.map((e) => e.analysis!.stillTs), first.start])];
+  return { version: yes.length ? `c${yes[0].id}` : `d${first.id}`, moments };
 }
 
-// The card's person, vehicle and pet events from its cam-proxy: one request.
-export async function proxyDetections(cameraId: string, start: number, end: number): Promise<number[]> {
+// The seconds to try for a card's thumbnail, best first (thumbPlan). An event
+// counts for the card when it starts in [start − 5 s, end], as analyses do.
+// Empty for motion-only cards.
+export function detectionMoments(events: ProxyEvent[], start: number, end: number): number[] {
+  return thumbPlan(events.filter((e) => e.start >= start - SLACK_MS && e.start <= end))?.moments ?? [];
+}
+
+// The person, vehicle and pet events from a card's cam-proxy that may be
+// the card's (starting in [start − 5 s, end]): one request.
+export async function proxyCardEvents(cameraId: string, start: number, end: number): Promise<ProxyEvent[]> {
   const client = getProxyClient(cameraId);
   if (!client) return [];
   const body = await client.json<unknown>(proxyPath(cameraId, '/events'), { from: start - SLACK_MS, to: end, limit: 1000 });
-  return detectionMoments(parseProxyEvents(body), start, end);
+  return parseProxyEvents(body).filter((e) => e.start >= start - SLACK_MS && e.start <= end);
 }
 
 // A day's person, vehicle and pet events per card (cards as unix ms spans),
@@ -75,9 +83,17 @@ export function kindCounts(events: ProxyEvent[]): Partial<Record<Category, numbe
   return counts;
 }
 
-// The cards with their per-type counts, where the proxy's events are known.
-export function attachCounts<T extends { start: string; end: string }>(cards: T[], events: ProxyEvent[] | null): (T & { counts?: Partial<Record<Category, number>> })[] {
+// The cards with their per-type counts and their thumbnail's version, where
+// the proxy's events are known. `version` may add to the plan's (a retry).
+export function attachAiEvents<T extends { id: string; start: string; end: string }>(
+  cards: T[],
+  events: ProxyEvent[] | null,
+  version: (cardId: string, planned: string) => string = (_, v) => v,
+): (T & { counts?: Partial<Record<Category, number>>; thumb?: string })[] {
   if (!events) return cards;
   const per = cardEvents(cards.map((c) => ({ start: Date.parse(c.start), end: Date.parse(c.end) })), events);
-  return cards.map((c, i) => (per[i].length ? { ...c, counts: kindCounts(per[i]) } : c));
+  return cards.map((c, i) => {
+    const plan = thumbPlan(per[i]);
+    return plan ? { ...c, counts: kindCounts(per[i]), thumb: version(c.id, plan.version) } : c;
+  });
 }

@@ -59,6 +59,8 @@ describe('URL builders', () => {
   it('escapes ids and dates that contain path-breaking characters', () => {
     expect(videoUrl('cam1', '../etc/passwd')).toBe('/api/cameras/cam1/clips/..%2Fetc%2Fpasswd/video');
     expect(thumbUrl('cam1', 'a/b')).toBe('/api/cameras/cam1/clips/a%2Fb/thumb.jpg');
+    // The card's thumbnail version (which event's still): a new one is a new request.
+    expect(thumbUrl('cam1', 'a/b', 'c930')).toBe('/api/cameras/cam1/clips/a%2Fb/thumb.jpg?v=c930');
     expect(downloadUrl('cam1', '../x', 'sub')).toBe('/api/cameras/cam1/clips/..%2Fx/download?quality=sub');
   });
 });

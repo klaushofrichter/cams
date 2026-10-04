@@ -225,7 +225,7 @@
     <button class="x" data-testid="compose-close" aria-label="Close" onclick={close}>✕</button>
   </header>
   <div class="clip">
-    <img data-testid="compose-thumb" src={thumbUrl(camera, clip.id)} alt="" />
+    <img data-testid="compose-thumb" src={thumbUrl(camera, clip.id, clip.thumb)} alt="" />
     <span>{formatClock(clip.start)} · {formatSeconds(clip.durationSec)} · {orderTriggers(clip.triggers).map((t) => TRIGGER_LABELS[t]).join(', ')}</span>
   </div>
   {#if composable && !available}

@@ -11,6 +11,7 @@ import { setCameras } from '../server/cameraRegistry';
 import { resetClients } from '../server/reolink/clients';
 import { resetProxyClients } from '../server/proxy/client';
 import { resetAiEventStore } from '../server/proxy/aiEvents';
+import { proxyHub } from '../server/proxy/stream';
 import { getRecordings, resetRecordings } from '../server/recordings/service';
 import { SESSION_COOKIE, signSession } from '../server/session';
 import { createSimCamera, type SimState } from './camera/sim';
@@ -285,6 +286,88 @@ describe('proxy first (Plan 7)', () => {
       fake.stills.set('cam1', new Map([[c.start + 2000, STILL]]));
       for (let i = 0; i < 3; i++) expect(Buffer.compare((await thumb(app, c.id)).body, STILL)).toBe(0);
       expect(eventLookups()).toBe(1);
+    });
+
+    // Klaus, 2026-10-04 (the real 05:16:43 card): the list names the card's
+    // thumbnail (thumb: which event's still), and that version is the cache
+    // key, so a Vision confirmation arriving later is a new thumbnail.
+    describe('a version per card', () => {
+      const thumbV = (app: ReturnType<typeof createApp>, id: string, v: string) => binary(request(app).get(`/api/cameras/cam1/clips/${id}/thumb.jpg?v=${v}`).set('Cookie', auth));
+      async function listed(app: ReturnType<typeof createApp>, id: string) {
+        const body = (await request(app).get(`/api/cameras/cam1/events?date=${today()}`).set('Cookie', auth)).body as { events: { id: string; thumb?: string; counts?: Record<string, number> }[] };
+        return body.events.find((e) => e.id === id)!;
+      }
+      const none = (stillTs: number) => ({ provider: 'google-vision', status: 'ok', reason: null, stillTs, objects: [], summary: [] });
+      const confirmed = (stillTs: number) => ({ ...none(stillTs), summary: [{ category: 'person', subtype: 'person', score: 0.8, box: { x0: 0, y0: 0, x1: 1, y1: 1 } }] });
+      const SECOND = Buffer.concat([JPEG, Buffer.from('still-of-the-second-person')]);
+
+      it('two person events, the first not confirmed: the first one’s still, 36 s in; a later confirmation switches it', async () => {
+        // The real card: 05:16:43, 103 s, person events at 05:17:19 and 05:17:28.
+        await new Promise<void>((r) => cam.close(() => r()));
+        const sim = await createSimCamera({ user: 'u', password: 'p', clips: [{ daysAgo: 0, start: '051643', end: '051826', triggers: ['person', 'motion'] }] });
+        state = sim.state;
+        cam = sim.app.listen(0);
+        await new Promise((r) => cam.once('listening', r));
+        setCameras([{ id: 'cam1', name: 'Den', host: `127.0.0.1:${(cam.address() as AddressInfo).port}`, protocol: 'http', user: 'u', password: 'p', proxy: { url: fake.url, token: FAKE_TOKEN } }]);
+        resetClients();
+        resetRecordings();
+        const app = createApp();
+        const c = await card(app, 'person');
+        expect(c.end - c.start).toBe(103_000);
+        resetAiEventStore(); // the list above cached a day without the events
+        fake.events.set('cam1', [event(927, 'motion', c.start + 33_000), event(928, 'person', c.start + 36_000, none(c.start + 37_000)), event(930, 'person', c.start + 45_000, none(c.start + 46_000))]);
+        fake.stills.set('cam1', new Map([[c.start + 2000, STILL], [c.start + 36_000, DET], [c.start + 46_000, SECOND]]));
+        const first = await listed(app, c.id);
+        expect(first.thumb).toBe('d928');
+        expect(first.counts).toEqual({ person: 2 });
+        expect(Buffer.compare((await thumbV(app, c.id, first.thumb!)).body, DET)).toBe(0);
+        expect(existsSync(join(cacheDir, `cam1_${c.id}.det-d928.jpg`))).toBe(true);
+        // Vision confirms the second event; cam-proxy announces the analysis.
+        fake.events.get('cam1')![2].analysis = confirmed(c.start + 46_000);
+        proxyHub.emit('message', { cam: 'cam1', type: 'analysis', data: {} });
+        const later = await listed(app, c.id);
+        expect(later.thumb).toBe('c930');
+        expect(Buffer.compare((await thumbV(app, c.id, later.thumb!)).body, SECOND)).toBe(0);
+        // The old version is still the old still (a page that hasn't reloaded yet).
+        expect(Buffer.compare((await thumbV(app, c.id, 'd928')).body, DET)).toBe(0);
+      });
+
+      it('a motion card has no version and keeps the still 2 s in', async () => {
+        const app = createApp();
+        const c = await card(app, 'motion');
+        resetAiEventStore();
+        fake.events.set('cam1', [event(4, 'motion', c.start + 6000)]);
+        fake.stills.set('cam1', new Map([[c.start + 2000, STILL], [c.start + 6000, DET]]));
+        expect((await listed(app, c.id)).thumb).toBeUndefined();
+        expect(Buffer.compare((await thumb(app, c.id)).body, STILL)).toBe(0);
+      });
+
+      it('a missed detection changes the version, so the page asks again; a found one goes back to it', async () => {
+        process.env.DETECTION_RETRY_MS = '0';
+        try {
+          const app = createApp();
+          const c = await card(app, 'person');
+          resetAiEventStore();
+          fake.events.set('cam1', [event(928, 'person', c.start + 6000)]);
+          fake.stills.set('cam1', new Map([[c.start + 2000, STILL]])); // not yet at the detection
+          expect((await listed(app, c.id)).thumb).toBe('d928');
+          expect(Buffer.compare((await thumbV(app, c.id, 'd928')).body, STILL)).toBe(0);
+          const retry = (await listed(app, c.id)).thumb!;
+          expect(retry).toMatch(/^d928-r\d+$/);
+          fake.stills.get('cam1')!.set(c.start + 6000, DET);
+          expect(Buffer.compare((await thumbV(app, c.id, retry)).body, DET)).toBe(0);
+          expect((await listed(app, c.id)).thumb).toBe('d928');
+          expect(Buffer.compare((await thumbV(app, c.id, 'd928')).body, DET)).toBe(0);
+        } finally {
+          delete process.env.DETECTION_RETRY_MS;
+        }
+      });
+
+      it('refuses a malformed version', async () => {
+        const app = createApp();
+        const c = await card(app, 'person');
+        expect((await request(app).get(`/api/cameras/cam1/clips/${c.id}/thumb.jpg?v=../x`).set('Cookie', auth)).status).toBe(400);
+      });
     });
 
     it('never looks up events for a motion-only card', async () => {
