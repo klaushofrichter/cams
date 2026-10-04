@@ -75,6 +75,11 @@ export function addDays(date: string, n: number): string {
 export function filterEvents(events: EventClip[], filter: Filter): EventClip[] {
   return isAllKinds(filter) ? events : events.filter((e) => e.triggers.some((t) => (filter as string[]).includes(t)));
 }
+// The Live panel's most recent events: the newest n that match the filter
+// (filtered first, so a filter never leaves fewer than n when more match).
+export function recentEvents(events: EventClip[], filter: Filter, n: number): EventClip[] {
+  return [...filterEvents(events, filter)].sort((a, b) => Date.parse(b.start) - Date.parse(a.start)).slice(0, n);
+}
 
 // HH:MM:SS, local.
 export function formatClock(t: string | number): string {

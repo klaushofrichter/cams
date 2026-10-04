@@ -2,8 +2,9 @@
   import { openProxyClick } from '../lib/proxyLink';
   import Icon from './Icon.svelte';
   import VisionBadges from './VisionBadges.svelte';
+  import EventFilter from './EventFilter.svelte';
   import { checkLiveStatus, liveFullscreen, liveUi, offlineReason, saveSnapshot, toggleMute, toggleQuality, type StreamInfo } from '../lib/liveUi';
-  import { formatClock, orderTriggers, thumbUrl, TRIGGER_LABELS, type EventClip } from '../lib/recordings';
+  import { formatClock, isAllKinds, orderTriggers, thumbUrl, TRIGGER_LABELS, type EventClip, type Filter } from '../lib/recordings';
   import { timeAgo } from '../lib/clock';
   import type { CameraSummary } from '../lib/stores';
   import { groupPending, type Pending } from '../lib/eventStream';
@@ -12,13 +13,15 @@
 
   // The Live panel (spec 2026-09-28): the camera, its recent events and the
   // live controls, beside the player column. The stream itself is LiveBox's.
-  let { camera, recent, pending, onplay, proxyInfo, paused = false }: {
+  let { camera, recent, pending, onplay, proxyInfo, paused = false, filter, onfilter }: {
     camera: CameraSummary;
-    recent: EventClip[]; // today's events, newest first
+    recent: EventClip[]; // today's events that match the filter, newest first
     pending: Pending[];
     onplay: (e: EventClip) => void;
     proxyInfo: { reachable: boolean; webUrl: string | null } | null;
     paused?: boolean; // the stream isn't open: the tab is hidden
+    filter: Filter; // the event filter, History's too (Klaus, 2026-10-03)
+    onfilter: (f: Filter) => void;
   } = $props();
 
   const status = $derived($liveUi.status);
@@ -151,6 +154,7 @@
   <!-- Under the controls, with a title (Klaus, 2026-09-28); up to five (2026-09-29). -->
   <section class="tile recent" data-testid="live-recent">
     <h3>Most recent events</h3>
+    <EventFilter {filter} {onfilter} />
     {#each pendingShown as p (p.start)}
       <div class="latest pending" data-testid="live-latest-pending">
         <span class="dot"></span>
@@ -175,7 +179,7 @@
         </span>
       </div>
     {:else}
-      {#if !pendingShown.length}<p class="none" data-testid="live-no-events">No events today</p>{/if}
+      {#if !pendingShown.length}<p class="none" data-testid="live-no-events">No {isAllKinds(filter) ? '' : filter.map((f) => TRIGGER_LABELS[f].toLowerCase()).join(' or ') + ' '}events today</p>{/if}
     {/each}
   </section>
 </div>

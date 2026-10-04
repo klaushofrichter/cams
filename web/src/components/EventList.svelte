@@ -1,7 +1,8 @@
 <script lang="ts">
   import { tick, untrack } from 'svelte';
-  import { ALL_KINDS, orderTriggers, TRIGGER_LABELS, isAllKinds, toggleFilter, defaultGroupOpen, formatClock, groupByHour, thumbUrl, type EventClip, type Filter } from '../lib/recordings';
+  import { orderTriggers, TRIGGER_LABELS, isAllKinds, defaultGroupOpen, formatClock, groupByHour, thumbUrl, type EventClip, type Filter } from '../lib/recordings';
   import ComposeDialog from './ComposeDialog.svelte';
+  import EventFilter from './EventFilter.svelte';
   import Icon from './Icon.svelte';
   import VisionBadges from './VisionBadges.svelte';
   import { scrollIntoContainer } from '../lib/scroll';
@@ -167,13 +168,7 @@
   }
 </script>
 
-<div class="filters" role="group" aria-label="Filter events">
-  <!-- Several kinds at once; All is every kind (Klaus, 2026-09-28). -->
-  <button data-testid="filter-all" aria-pressed={isAllKinds(filter)} onclick={() => onfilter(toggleFilter(filter, 'all'))}>All</button>
-  {#each ALL_KINDS as f (f)}
-    <button data-testid={`filter-${f}`} aria-pressed={!isAllKinds(filter) && filter.includes(f)} onclick={() => onfilter(toggleFilter(filter, f))}>{TRIGGER_LABELS[f]}</button>
-  {/each}
-</div>
+<EventFilter {filter} {onfilter} />
 
 <!-- One card per recording in progress (Klaus, 2026-09-30). -->
 {#each groupPending(pending) as p (p.start)}
@@ -244,9 +239,6 @@
 {/if}
 
 <style>
-  .filters { display: flex; gap: 4px; flex-wrap: wrap; margin-bottom: 10px; }
-  .filters button { font-size: 12px; padding: 4px 10px; border-radius: 999px; border: 1px solid var(--border); background: transparent; color: var(--muted); cursor: pointer; }
-  .filters button[aria-pressed='true'] { background: var(--surface-2); color: var(--text); border-color: var(--accent); }
   .groups { display: flex; flex-direction: column; gap: 10px; }
   .group-head {
     position: sticky; top: 0; z-index: 1; display: flex; align-items: center; justify-content: space-between; gap: 8px;

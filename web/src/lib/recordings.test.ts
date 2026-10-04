@@ -2,7 +2,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   ALL_KINDS, addDays, cursorSearch, isAllKinds, parseFilter, toggleFilter, downloadUrl, filterEvents, groupByHour,
-  loadCursor, orderTriggers, parseCursor, saveCursor, thumbUrl, videoUrl,
+  loadCursor, orderTriggers, parseCursor, recentEvents, saveCursor, thumbUrl, videoUrl,
   type EventClip,
 } from './recordings';
 
@@ -60,6 +60,25 @@ describe('URL builders', () => {
     expect(videoUrl('cam1', '../etc/passwd')).toBe('/api/cameras/cam1/clips/..%2Fetc%2Fpasswd/video');
     expect(thumbUrl('cam1', 'a/b')).toBe('/api/cameras/cam1/clips/a%2Fb/thumb.jpg');
     expect(downloadUrl('cam1', '../x', 'sub')).toBe('/api/cameras/cam1/clips/..%2Fx/download?quality=sub');
+  });
+});
+
+// The Live panel's most recent events follow the event filter (Klaus,
+// 2026-10-03): the newest that match, not the newest five filtered down.
+describe('recentEvents', () => {
+  const day = Array.from({ length: 10 }, (_, i) => {
+    const hh = String(8 + i).padStart(2, '0');
+    return E(`${DAY.replaceAll('-', '')}-${hh}0000-${hh}0020`, `${DAY}T${hh}:00:00-05:00`, `${DAY}T${hh}:00:20-05:00`, i % 2 ? ['person'] : ['vehicle', 'motion']);
+  });
+  it('is the newest first, at most n', () => {
+    const r = recentEvents(day, ALL_KINDS, 5);
+    expect(r.map((e) => e.start.slice(11, 13))).toEqual(['17', '16', '15', '14', '13']);
+  });
+  it('filters before taking n, so five matches show even when the five newest do not all match', () => {
+    const r = recentEvents(day, ['person'], 5);
+    expect(r).toHaveLength(5);
+    expect(r.map((e) => e.start.slice(11, 13))).toEqual(['17', '15', '13', '11', '09']);
+    expect(recentEvents(day, ['pet'], 5)).toEqual([]);
   });
 });
 

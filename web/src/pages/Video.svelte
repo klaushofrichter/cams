@@ -13,8 +13,9 @@
   import { clipStartFromId } from '../lib/strip';
   import {
     addDays, cursorSearch, daysUrl, filterEvents, loadCursor, localDate,
-    filterParam, parseCursor, parseFilter, saveCursor, type Cursor, type EventClip, type Filter,
+    filterParam, parseCursor, parseFilter, recentEvents, saveCursor, type Cursor, type EventClip, type Filter,
   } from '../lib/recordings';
+  import { eventFilter, pickEventFilter } from '../lib/eventFilter';
   import { liveEventsOn, preferences } from '../lib/preferences';
   import { createTodayRefresher, todayDate } from '../lib/refresh';
   import { eventStream, prunePending, type Pending } from '../lib/eventStream';
@@ -229,15 +230,18 @@
   // Likewise, a primitive projection of cursor.date for the events effect.
   const date = $derived(cursor.date);
 
-  // parseCursor already falls back to 'all' when the URL has no filter, so
-  // the stored preference is only applied by overriding that case here.
-  // Reads the preferences store reactively (not the pref() snapshot helper,
-  // which uses get() and would not update this derived value if the
-  // preference arrived or changed after the page mounted).
+  // The event filter is one preference for History and Live (Klaus,
+  // 2026-10-03, lib/eventFilter.ts): a chip on either panel changes both,
+  // across page switches and reloads. The URL's `filter` only mirrors it
+  // (and stands in until the preferences have loaded).
   // A string first: the list only changes when the kinds do, not on every
   // URL update (every 2 s while playing), so lists and the strip don't
   // recompute (issue #69).
-  const filterKey = $derived(filterParam(vroute.params.has('filter') ? parsed.filter : parseFilter($preferences?.eventFilter)));
+  const filterKey = $derived(filterParam($eventFilter ?? parsed.filter));
+  function setFilter(f: Filter) {
+    void pickEventFilter(f);
+    if (panel !== 'live') go({}, { filter: f }, 'replace');
+  }
   const filter: Filter = $derived(parseFilter(filterKey === 'all' ? 'all' : filterKey));
   const panel: Panel = $derived(vroute.panel);
   // The Live panel's camera status: checked on opening it and on another
@@ -248,8 +252,9 @@
   });
   const camProxy = $derived(!!$cameraById(cam)?.proxy);
   const camera = $derived($cameraById(cam) ?? null);
-  // The Live panel's recent events: today's, newest first (it shows five).
-  const recent = $derived(date === $todayDate ? [...events].sort((a, b) => Date.parse(b.start) - Date.parse(a.start)) : []);
+  // The Live panel's recent events: today's five newest that match the
+  // filter, newest first (filtered first, not five filtered down).
+  const recent = $derived(date === $todayDate ? recentEvents(events, filter, 5) : []);
   const visible = $derived(filterEvents(events, filter));
   // The strip's first position: the URL's `at`, else an old link's clip and
   // offset, else (null) the day's first event.
@@ -498,12 +503,13 @@
         {#if panel === 'live'}
           {#if camera}
             <LivePanel {camera} {recent} pending={pendingToday} proxyInfo={proxyInfo} paused={!liveWanted}
-              onplay={(e) => historyView?.jump(Date.parse(e.start), true)} />
+              {filter} onfilter={setFilter}
+            onplay={(e) => historyView?.jump(Date.parse(e.start), true)} />
           {/if}
         {:else}
           <EventList bind:this={eventList} cameraId={cam} events={visible} {filter} date={cursor.date} selectedId={playheadClip} pending={pendingToday}
             onreveal={revealPlayer} onhours={(o) => (hoursOpen = o)}
-            onfilter={(f) => go({}, { filter: f }, 'replace')}
+            onfilter={setFilter}
             onselect={(e) => historyView?.jump(Date.parse(e.start), true)} onthumberror={recheckDownloads} downloadsOk={downloads !== 'unavailable'} />
         {/if}
       </aside>

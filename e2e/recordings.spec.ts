@@ -126,6 +126,7 @@ test('one-second steps move a paused clip, and the bar fits one row', async ({ p
 });
 
 test('filters narrow the list and an empty filter says so', async ({ page }) => {
+  await keepPrefsLocal(page);
   await openEvents(page);
   await page.getByTestId('filter-person').click();
   await expect(page.getByTestId('event-card')).toHaveCount(1);
@@ -337,9 +338,10 @@ test('a picker choice made on Live survives navigating through the sidebar', asy
   await expect(page).toHaveURL(/[?&]cam=porch(&|$)/);
 });
 
-// Picking a zoom saves it as a preference; every test here shares one user,
-// so the save is answered in the browser and never reaches the server.
-async function keepZoomLocal(page: import('@playwright/test').Page) {
+// Picking a zoom or an event filter saves it as a preference; every test here
+// shares one user, so the save is answered in the browser and never reaches
+// the server (e2e/event-filter.spec.ts saves the filter for real, as its own users).
+async function keepPrefsLocal(page: import('@playwright/test').Page) {
   const current = await (await page.request.get('/api/preferences')).json();
   await page.route('**/api/preferences', async (route) => {
     if (route.request().method() !== 'PUT') return route.fallback();
@@ -348,7 +350,7 @@ async function keepZoomLocal(page: import('@playwright/test').Page) {
 }
 
 test('zoom is kept when an event card is clicked, and across pages', async ({ page }) => {
-  await keepZoomLocal(page);
+  await keepPrefsLocal(page);
   await openEvents(page);
   await page.getByTestId('zoom-3').click();
   await expect(page.getByTestId('zoom-3')).toHaveAttribute('aria-pressed', 'true');
@@ -457,7 +459,7 @@ test('a stretch with nothing recorded says so', async ({ page }) => {
 });
 
 test('dragging the strip to yesterday changes the date and the list', async ({ page }) => {
-  await keepZoomLocal(page); // the zoom is a shared user's preference
+  await keepPrefsLocal(page); // the zoom is a shared user's preference
   // In the browser's zone (America/Chicago), not the runner's (UTC on CI):
   // between 00:00 and 05:00 UTC they are different days.
   const earlyToday = await page.evaluate(() => { const d = new Date(); return new Date(d.getFullYear(), d.getMonth(), d.getDate(), 0, 30).getTime(); });
@@ -523,7 +525,7 @@ test('an old Downloads link opens History; the menu has no Downloads entry', asy
 // Live events (Klaus, 2026-09-28): the fake proxy sends a person event for
 // Barn (no other test counts Barn's requests, so the reloads it causes are harmless).
 test('a new event shows at once: a top-bar notification and a "recording…" entry', async ({ page }) => {
-  await keepZoomLocal(page); // the zoom change below must not reach the shared user
+  await keepPrefsLocal(page); // the zoom change below must not reach the shared user
   await page.goto('/app/recordings?cam=barn&panel=history');
   await expect(page.getByTestId('timeline')).toBeVisible();
   const push = () => page.request.post(`http://127.0.0.1:${FAKE_PROXY_PORT - 2}/push`, { data: { cam: 'barn', type: 'camera-event', data: { eventId: 99, kind: 'person', phase: 'start', ts: Date.now(), source: 'onvif' } } });
@@ -585,6 +587,7 @@ test('a day that failed to load names no source', async ({ page }) => {
 });
 
 test('filter chips do not add browser history entries', async ({ page }) => {
+  await keepPrefsLocal(page);
   await page.goto('/app/recordings?panel=history&cam=cam1');
   await expect(page.getByTestId('event-card').first()).toBeVisible();
   const before = await page.evaluate(() => history.length);

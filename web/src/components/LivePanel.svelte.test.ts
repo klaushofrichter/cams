@@ -18,7 +18,7 @@ const ev = { id: '20260928-091953-092013', start: new Date(Date.now() - 12 * 60_
 function render(extra: Record<string, unknown> = {}) {
   target = document.createElement('div');
   document.body.appendChild(target);
-  component = mount(LivePanel, { target, props: { camera: { id: 'cam2', name: 'cam2', webUiUrl: null }, recent: [ev], pending: [], onplay: vi.fn(), proxyInfo: null, ...extra } });
+  component = mount(LivePanel, { target, props: { camera: { id: 'cam2', name: 'cam2', webUiUrl: null }, recent: [ev], pending: [], onplay: vi.fn(), proxyInfo: null, filter: ['person', 'vehicle', 'pet', 'motion'], onfilter: vi.fn(), ...extra } });
   flushSync();
   return target;
 }
@@ -58,7 +58,8 @@ describe('LivePanel', () => {
   it('puts a recording in progress on top, within the five', () => {
     render({ recent: [1, 2, 3, 4, 5].map(evAt), pending: [{ kind: 'person', ts: Date.now() }] });
     const recent = q('live-recent')!;
-    expect(recent.firstElementChild!.nextElementSibling).toBe(q('live-latest-pending'));
+    // the title, the filter, then the recording in progress
+    expect(recent.firstElementChild!.nextElementSibling!.nextElementSibling).toBe(q('live-latest-pending'));
     expect(q('live-latest-pending')!.textContent).toContain('recording…');
     expect(all('live-latest')).toHaveLength(4);
   });
@@ -116,7 +117,7 @@ describe('LivePanel', () => {
     const row = q('live-latest')!;
     expect(row.querySelector('button, [role="button"]')).toBeNull();
     expect(row.textContent!.trim()).toMatch(/^Motion, Person, \d{2}:\d{2}:\d{2}, 12 minutes ago$/);
-    const order = [...q('live-recent')!.querySelectorAll('button, [tabindex]')].map((b) => b.getAttribute('data-testid'));
+    const order = [...q('live-recent')!.querySelectorAll('button, [tabindex]')].map((b) => b.getAttribute('data-testid')).filter((id) => !id?.startsWith('filter-'));
     expect(order).toEqual(['live-latest', 'vision-badge']);
   });
 
@@ -124,6 +125,29 @@ describe('LivePanel', () => {
     render({ recent: [] });
     expect(q('live-recent')!.textContent).toContain('Most recent events');
     expect(q('live-no-events')!.textContent).toBe('No events today');
+  });
+
+  // The History chips above the most recent events (Klaus, 2026-10-03).
+  it('shows the event filter above the most recent events; a chip asks for the new filter', () => {
+    const onfilter = vi.fn();
+    render({ filter: ['person', 'pet'], onfilter });
+    const recent = q('live-recent')!;
+    const chips = recent.querySelector('[data-testid="event-filter"]') as HTMLElement;
+    expect(chips).not.toBeNull();
+    expect(chips.compareDocumentPosition(q('live-latest')!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    const chip = (k: string) => chips.querySelector(`[data-testid="filter-${k}"]`) as HTMLElement;
+    expect(chip('all').getAttribute('aria-pressed')).toBe('false');
+    expect(chip('person').getAttribute('aria-pressed')).toBe('true');
+    expect(chip('vehicle').getAttribute('aria-pressed')).toBe('false');
+    chip('vehicle').click();
+    expect(onfilter).toHaveBeenCalledWith(['person', 'vehicle', 'pet']);
+    chip('all').click();
+    expect(onfilter).toHaveBeenLastCalledWith(['person', 'vehicle', 'pet', 'motion']);
+  });
+
+  it('names the filter when no event today matches it', () => {
+    render({ recent: [], filter: ['person', 'vehicle'] });
+    expect(q('live-no-events')!.textContent).toBe('No person or vehicle events today');
   });
 
   it('shows the offline banner with Retry', () => {
