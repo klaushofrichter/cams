@@ -14,7 +14,7 @@ export interface JobView { id: string; state: 'queued' | 'running' | 'done' | 'f
 // The limits and the length rule are the server's own module, so the dialog
 // and the server never disagree (Klaus, 2026-10-04: plain save 600 s,
 // generated 300 s, 120 s at 1080p; lengths shown as "44s", "1m 54s", "5m").
-export { aroundLength, formatSeconds, GENERATE_MAX_S, GENERATE_MAX_S_1080P, isPlain, PLAIN_MAX_S, resultLength, saveMaxS } from '../../../server/clipLimits';
+export { aroundLength, formatSeconds, generateMaxS, GENERATE_MAX_S, GENERATE_MAX_S_1080P, isPlain, PLAIN_MAX_S, resultLength, saveMaxS } from '../../../server/clipLimits';
 
 // A roll slider's range, given the other roll (clip of clipS seconds, a
 // size's generated limit): at least 1 s of the clip stays and the result

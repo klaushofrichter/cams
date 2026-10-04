@@ -13,6 +13,7 @@
   import TimelineStill from '../components/TimelineStill.svelte';
   import StillCheck from '../components/StillCheck.svelte';
   import ChecksList from '../components/ChecksList.svelte';
+  import ComposeDialog from '../components/ComposeDialog.svelte';
   import { checkedMinutes, checkSeconds, loadCheckObjects, loadChecks, loadUsage, stepCheck, withCheck, type CheckResult, type DayCheck, type UsageState } from '../lib/stillChecks';
   import {
     analysedSeconds, blankMinute, cardKind, cardsInMinute, timelineSearch, dayRange, historyHref, hourGroups, loadViewPoint, minuteIndex, minuteOf, nearestMinute, secondStamp, seenStills, shareViewPoint,
@@ -40,6 +41,8 @@
   let open = $state<PreviewMinute | null>(null); // the minute view
   // The large still; `gap`: a second without one, stepped into (issue #159).
   let still = $state<{ ts: number; gap?: true } | null>(null);
+  // The second "Save clip around this" opened the Save dialog at (#179 phase 3).
+  let aroundAt = $state<number | null>(null);
   // Vision's analysis of the large still, from the cards: one that arrives
   // with a live refresh shows on a still already open (issue #109).
   const seenStill = $derived.by(() => {
@@ -306,6 +309,8 @@
     pickMessage = '';
   }
   function onkey(e: KeyboardEvent) {
+    // The Save dialog has its own keys (#179 phase 3).
+    if (aroundAt !== null) return;
     // Modified keys are the browser's (Alt+← is Back); fields keep their keys.
     if (e.altKey || e.metaKey || e.ctrlKey) return;
     const el = e.target as HTMLElement | null;
@@ -590,7 +595,7 @@
                     <a data-testid="timeline-open-history" href={historyHref(camera.id, s.ts)}
                       onclick={(e) => { if (e.button === 0 && !e.metaKey && !e.ctrlKey && !e.shiftKey) { e.preventDefault(); navigate((e.currentTarget as HTMLAnchorElement).getAttribute('href')!); } }}>Open in Video</a>
                   </div>
-                  <StillCheck {base} ts={s.ts} gap={!!s.gap} check={k} analysed={seenStill !== null} {usage} onresult={onCheck} ondone={() => void refreshUsage()} />
+                  <StillCheck {base} ts={s.ts} gap={!!s.gap} check={k} analysed={seenStill !== null} {usage} onresult={onCheck} ondone={() => void refreshUsage()} onaround={(t) => (aroundAt = t)} />
                 </div>
               {/if}
             </div>
@@ -600,6 +605,10 @@
     {/each}
   {/if}
 </section>
+{#if aroundAt !== null && camera}
+  <!-- "Save clip around this" (#179 phase 3): the Save dialog at that second. -->
+  <ComposeDialog camera={camera.id} at={aroundAt} stillSrc={`${base}/stills/${aroundAt}.jpg`} onclose={() => (aroundAt = null)} />
+{/if}
 
 <style>
   .timeline { display: grid; gap: 12px; }
