@@ -282,15 +282,15 @@ describe('Strip', () => {
     const kinds = () => [...target!.querySelectorAll('[data-testid="scrub-kind"]')].map((e) => (e as HTMLElement).dataset.kind);
     afterEach(() => vi.useRealTimers());
 
-    it('shows an icon per type of the clip, person, vehicle, pet, motion, named', async () => {
+    it('shows an icon per type of the clip, in the cards’ order (motion, person, vehicle, pet), named', async () => {
       vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
       const bar = render({ events: [clip(['motion', 'pet', 'person', 'vehicle'])], thumbFor: (id: string) => `/t/${id}.jpg` });
       await hoverX(bar, 205);
       expect(q('scrub-preview')).not.toBeNull();
-      expect(kinds()).toEqual(['person', 'vehicle', 'pet', 'motion']);
+      expect(kinds()).toEqual(['motion', 'person', 'vehicle', 'pet']);
       const icons = [...target!.querySelectorAll('[data-testid="scrub-kind"]')] as HTMLElement[];
-      expect(icons.map((e) => e.getAttribute('aria-label'))).toEqual(['Person', 'Vehicle', 'Pet', 'Motion']);
-      expect(icons.map((e) => e.getAttribute('title'))).toEqual(['Person', 'Vehicle', 'Pet', 'Motion']);
+      expect(icons.map((e) => e.getAttribute('aria-label'))).toEqual(['Motion', 'Person', 'Vehicle', 'Pet']);
+      expect(icons.map((e) => e.getAttribute('title'))).toEqual(['Motion', 'Person', 'Vehicle', 'Pet']);
       expect(icons.every((e) => e.querySelector('svg path'))).toBe(true);
     });
 
@@ -298,10 +298,22 @@ describe('Strip', () => {
       vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
       const bar = render({ events: [clip(['person', 'motion'], { person: 2 })], thumbFor: (id: string) => `/t/${id}.jpg` });
       await hoverX(bar, 205);
-      expect(kinds()).toEqual(['person', 'motion']);
+      expect(kinds()).toEqual(['motion', 'person']);
       const person = target!.querySelector('[data-testid="scrub-kind"][data-kind="person"]') as HTMLElement;
       expect(person.textContent!.trim()).toBe('2x');
       expect(person.getAttribute('aria-label')).toBe('Person 2x');
+    });
+
+    // Review of #183: a clip without a type the popup draws (a scheduled
+    // recording) gets a neutral clip icon, so the slot doesn't look empty.
+    it('gives a scheduled-only clip a neutral clip icon in the same slot', async () => {
+      vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+      const bar = render({ events: [clip(['timer'])], thumbFor: (id: string) => `/t/${id}.jpg` });
+      await hoverX(bar, 205);
+      expect(kinds()).toEqual(['clip']);
+      const k = target!.querySelector('[data-testid="scrub-kind"]') as HTMLElement;
+      expect(k.getAttribute('aria-label')).toBe('Scheduled');
+      expect(k.querySelector('svg path')).not.toBeNull();
     });
 
     it('says Still over the stills, in the same slot, and the box is the same size', async () => {
@@ -413,8 +425,65 @@ describe('Strip', () => {
       expect(kinds()).toEqual(['person']);
       props.at = T + 3000; // the pointer is over b now
       flushSync();
-      expect(kinds()).toEqual(['vehicle', 'motion']);
+      expect(kinds()).toEqual(['motion', 'vehicle']);
       expect(img()).toBe('/t/b.jpg');
+    });
+
+    // Review of #183: tiles four a second, so the wanted picture changes at
+    // every 250 ms step; the popup's at most once a second.
+    it('changes the picture at most once a second when the wanted one changes faster', async () => {
+      vi.useFakeTimers({ now: T, toFake: ['Date', 'setTimeout', 'clearTimeout'] });
+      const { bar, props } = renderMoving();
+      const fast: PreviewMinute = { minute, cols: 20, rows: 12, tileW: 160, tileH: 90, intervalS: 0.25, present: Array(240).fill(true), url: '/p.jpg' };
+      props.previews = [fast];
+      flushSync();
+      bar.dispatchEvent(new PointerEvent('pointermove', { clientX: X, bubbles: true }));
+      flushSync();
+      await tick(200);
+      let changes = 0;
+      let last = pos();
+      for (let k = 1; k <= 12; k++) { // three seconds, a new tile each step
+        props.at = T + k * 250;
+        flushSync();
+        if (pos() !== last) { changes++; last = pos(); }
+        await tick(250);
+        if (pos() !== last) { changes++; last = pos(); }
+      }
+      expect(changes).toBeLessThanOrEqual(3);
+      expect(changes).toBeGreaterThanOrEqual(2);
+    });
+
+    it('leaves no timer behind when it goes away', async () => {
+      vi.useFakeTimers({ now: T, toFake: ['Date', 'setTimeout', 'clearTimeout'] });
+      const { bar, props } = renderMoving();
+      bar.dispatchEvent(new PointerEvent('pointermove', { clientX: X, bubbles: true }));
+      flushSync();
+      await tick(200);
+      props.at = T + 2000; // within the second: a picture is due
+      flushSync();
+      bar.dispatchEvent(new PointerEvent('pointermove', { clientX: X - 5, bubbles: true })); // another tile: its rest
+      flushSync();
+      vi.advanceTimersByTime(1); // Svelte's own 0 ms timer after an event
+      expect(vi.getTimerCount()).toBe(1); // the rest
+      props.at = T + 2250; // following again: a picture due
+      flushSync();
+      unmount(component!);
+      component = undefined;
+      expect(vi.getTimerCount()).toBe(0);
+    });
+
+    it('does not change the picture while the tab is hidden, even one already due', async () => {
+      vi.useFakeTimers({ now: T, toFake: ['Date', 'setTimeout', 'clearTimeout'] });
+      const { bar, props } = renderMoving();
+      bar.dispatchEvent(new PointerEvent('pointermove', { clientX: X, bubbles: true }));
+      flushSync();
+      await tick(200);
+      props.at = T + 2000; // due within the second
+      flushSync();
+      expect(pos()).toBe(posOf(30));
+      Object.defineProperty(document, 'hidden', { configurable: true, get: () => true });
+      await tick(1500);
+      expect(pos()).toBe(posOf(30));
     });
 
     it('stops when the pointer has left the bar', async () => {

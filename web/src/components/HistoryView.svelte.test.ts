@@ -52,6 +52,14 @@ describe('HistoryView', () => {
     expect(onposition).toHaveBeenLastCalledWith(Date.parse(E1.start), E1.id);
   });
 
+  // Review of #183: the REC badge names the stream the page plays (the clip
+  // route's SD file).
+  it('badges a playing clip with the stream the page plays: SD', async () => {
+    await render({ initialAt: Date.parse(E1.start) + 5000 });
+    const b = target!.querySelector('[data-testid="mode-badge"]')!;
+    expect(b.textContent!.trim()).toMatch(/· SD$/);
+  });
+
   it('opens at the URL position', async () => {
     const at = Date.parse('2026-09-27T10:00:00-05:00');
     const { onposition } = await render({ initialAt: at });

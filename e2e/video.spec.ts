@@ -174,7 +174,7 @@ test('the timeline popup shows the clip’s types, or Still, in one box size', a
   await expect(person).toHaveAttribute('aria-label', 'Person 2x');
   await expect(person).toHaveText('2x');
   await expect(person.locator('svg')).toBeVisible();
-  await expect(page.getByTestId('scrub-kind').first()).toHaveAttribute('data-kind', 'person'); // person first
+  await expect(page.getByTestId('scrub-kind').first()).toHaveAttribute('data-kind', 'person'); // its only type
   const stillAt = Math.floor((Date.now() - 3 * 60_000) / 1000) * 1000; // Den's preview tiles: the last ten minutes
   const stillDay = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Chicago' }).format(new Date(stillAt));
   await page.goto(`/app/video?cam=cam1&date=${stillDay}&at=${stillAt}`);

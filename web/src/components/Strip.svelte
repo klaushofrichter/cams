@@ -151,12 +151,20 @@
   function showNext() {
     clearTimeout(pictureTimer);
     pictureTimer = undefined;
+    // A hidden tab keeps the picture it has (the next move after it shows
+    // again brings the right one).
+    if (typeof document !== 'undefined' && document.hidden) return;
     if (hover && pictureNext) {
       hover = { ...hover, ...pictureNext };
       pictureAt = Date.now();
     }
     pictureNext = null;
   }
+  // Gone: no picture or rest timer left behind (review of #183).
+  $effect(() => () => {
+    clearTimeout(rest);
+    clearTimeout(pictureTimer);
+  });
   $effect(() => {
     void at; // the window moves (playback, live, a seek)
     void spansOf;
@@ -310,7 +318,7 @@
   .kind.vehicle { color: var(--kind-vehicle); }
   .kind.pet { color: var(--kind-pet); }
   .kind.motion { color: var(--kind-motion); }
-  .kind.still { color: var(--muted); }
+  .kind.still, .kind.clip { color: var(--muted); }
   .when { font-size: 11px; line-height: 14px; height: 14px; color: var(--muted); text-align: center; font-family: var(--mono); }
   .tools { display: flex; gap: 8px; justify-content: flex-end; flex-wrap: wrap; }
   .zoom { display: flex; gap: 4px; }

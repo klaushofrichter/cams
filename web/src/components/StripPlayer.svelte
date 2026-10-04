@@ -33,8 +33,8 @@
     glued?: boolean; // the Live panel's playhead is at now: show the live stream
     live?: Snippet; // the live stream; kept mounted while unglued so it resumes at once
     onglue?: () => void; // the REC badge: back to live (spec 2026-10-04)
-    // The stream a clip's video plays: the clip route serves the sub stream
-    // (SD) today; main (4K) when a player asks for it.
+    // The stream a clip's video plays (HistoryView passes VIDEO_STREAM, the
+    // clip route's: sub, SD); main says 4K.
     clipStream?: 'sub' | 'main';
   } = $props();
 
