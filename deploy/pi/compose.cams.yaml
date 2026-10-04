@@ -1,10 +1,13 @@
 # cams on the cam-proxy Raspberry Pi: the demo kit (docs/pi-demo.md).
-# Its own directory and compose project, next to cam-proxy's: any directory
-# the admin user can write, on our Pi /srv/cam-proxy/cams (no sudo). In it:
+# Its own directory and compose project, next to cam-proxy's: on our Pi
+# /srv/cam-proxy/cams (no sudo). In it:
 #   compose.yaml   this file
-#   .env           COOKIE_SECRET and CAMS_LOGIN_TOKEN (mode 600)
-#   cameras.json   the camera (deploy/pi/cameras.example.json; readable by uid 1000)
+#   cameras.json   the camera, "host": "from-proxy" (deploy/pi/cameras.example.json; readable by uid 1000)
 #   data/          preferences, the proxy switch and the clip cache (writable by uid 1000)
+#   .env           optional: CAMS_TAG only, to pin a release
+# The secrets (CAMS_LOGIN_TOKEN, COOKIE_SECRET) are in the Pi's one file,
+# cam-proxy's /srv/cam-proxy/.env (../.env), next to CAMERA_HOST and
+# PI_ADDRESS. cams takes the camera's address from cam-proxy.
 # Paths below are relative to this file.
 # Update: docker compose pull && docker compose up -d
 #
@@ -16,12 +19,11 @@ services:
     image: ghcr.io/klaushofrichter/cams:${CAMS_TAG:-latest}
     restart: unless-stopped
     network_mode: host
+    # CAMS_LOGIN_TOKEN and COOKIE_SECRET (required), CAMS_TOKEN_USER (optional,
+    # default local). Token sign-in only: no GOOGLE_* variables on the Pi.
+    env_file: ../.env
     environment:
       PORT: "8080"
-      # Token sign-in only: no GOOGLE_* variables on the Pi.
-      CAMS_LOGIN_TOKEN: ${CAMS_LOGIN_TOKEN:?set in .env}
-      CAMS_TOKEN_USER: ${CAMS_TOKEN_USER:-local}
-      COOKIE_SECRET: ${COOKIE_SECRET:?set in .env}
       # Plain http on the LAN: session cookies without Secure (a startup warning says so).
       COOKIE_SECURE: "false"
       CAMERAS_FILE: /config/cameras.json

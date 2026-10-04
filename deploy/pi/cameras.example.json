@@ -2,7 +2,7 @@
   {
     "id": "cam1",
     "name": "Den",
-    "host": "<camera-lan-address>",
+    "host": "from-proxy",
     "protocol": "https",
     "tlsServername": "cam1.skylar.technology",
     "user": "cams",

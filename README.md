@@ -66,7 +66,7 @@ The cameras come from a JSON array in the file named by `CAMERAS_FILE`; in the c
 | Field | | |
 |---|---|---|
 | `id` | required | lowercase letters, digits and dashes, up to 32 characters, unique |
-| `name`, `host`, `user`, `password` | required | `host` is an address or name, with an optional `:port`. `name` is shown until the camera reports its own name (through its cam-proxy, or read from the camera); the camera stores the name, renamed in Settings |
+| `name`, `host`, `user`, `password` | required | `host` is an address or name, with an optional `:port`, or `"from-proxy"` with a `proxy`: then cams uses the address its cam-proxy reports (`address` in its camera list and `camera` stream message; the Pi demo kit, [docs/pi-demo.md](docs/pi-demo.md)); until the proxy has answered, the camera's direct features answer `camera_address_unknown` ("Waiting for the proxy…"). `name` is shown until the camera reports its own name (through its cam-proxy, or read from the camera); the camera stores the name, renamed in Settings |
 | `protocol` | optional | `https` (default) or `http` |
 | `tlsServername` | optional | check the camera's certificate against this name (for a camera reached by address) |
 | `webUiUrl` | optional | the link to the camera's own web page; `null` for none. Default: `https://<host>/` (without the port), or no link when only `webUiNote` is set |
