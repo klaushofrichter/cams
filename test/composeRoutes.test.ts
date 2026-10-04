@@ -6,6 +6,7 @@ import { createApp } from '../server/app';
 import { setCameras } from '../server/cameraRegistry';
 import { ProxyError, resetProxyClients } from '../server/proxy/client';
 import { getRecordings } from '../server/recordings/service';
+import { getClient } from '../server/reolink/clients';
 import { SESSION_COOKIE, signSession } from '../server/session';
 import { FAKE_TOKEN, startFakeProxy, type FakeProxy } from './proxy/fakeProxy';
 
@@ -176,5 +177,84 @@ describe('compositions pass-through', () => {
     expect(r.status).toBe(502);
     expect(r.body).toEqual({ error: 'proxy_unavailable' });
     expect((await post('den', { eventId: EVENT, preS: 0, postS: 5, size: 'sd', badge: false })).status).toBe(502);
+  });
+});
+
+// "Save clip around this" (#179 phase 3, spec §5): `at` instead of `eventId`.
+describe('compositions around a second', () => {
+  // A second a minute ago with stills from 30 s before to 30 s after, and an
+  // FTP clip over its last 10 s.
+  const AT = Math.floor(Date.now() / 1000) * 1000 - 60_000;
+  const jpeg = Buffer.from([0xff, 0xd8, 0xff, 0xd9]);
+  beforeEach(() => {
+    fake.stills.set('cam1', new Map(Array.from({ length: 61 }, (_, i) => [AT - 30_000 + i * 1000, jpeg])));
+    fake.clips.push({ id: 9, cam: 'cam1', start: AT + 20_000, end: AT + 30_000, stream: 'sub', events: [], body: Buffer.alloc(1) });
+    // The camera's time settings: UTC-6 with DST on (UTC-5).
+    vi.spyOn(getClient('den')!, 'timeInfo').mockResolvedValue({ stdOffsetMinutes: -360, dstOffsetMinutes: 60 });
+  });
+  const around = (more: object = {}) => post('den', { at: AT, preS: 10, postS: 10, size: 'sd', badge: true, ...more });
+  const stamp = (t: number, offMin: number) => new Date(t + offMin * 60_000).toISOString().slice(0, 19).replace('T', '_').replaceAll(':', '-');
+
+  it('relays {at, …} and names the file in the camera\'s time', async () => {
+    const r = await around({ timeZone: 'Asia/Tokyo' });
+    expect(r.status).toBe(201);
+    expect(r.body).toMatchObject({ durationS: 21, name: `den-${stamp(AT, -300)}-around.mp4` });
+    expect(fake.composeRequests.at(-1)).toEqual({ at: AT, preS: 10, postS: 10, size: 'sd', badge: true, timeZone: 'Asia/Tokyo' });
+    // Remembered like a clip's job: it can be polled and fetched.
+    expect((await request(createApp()).get(`/api/cameras/den/compositions/${r.body.id}`).set('Cookie', auth)).status).toBe(200);
+  });
+
+  it('names the file in the viewer\'s zone when the camera\'s time is unknown, else UTC', async () => {
+    vi.spyOn(getClient('den')!, 'timeInfo').mockRejectedValue(new Error('offline'));
+    expect((await around({ timeZone: 'Asia/Tokyo' })).body.name).toBe(`den-${stamp(AT, 540)}-around.mp4`);
+    expect((await around()).body.name).toBe(`den-${stamp(AT, 0)}-around.mp4`);
+  });
+
+  it('relays a dry run and its answers', async () => {
+    const r = await around({ dryRun: true });
+    expect(r.status).toBe(200);
+    expect(r.body).toEqual({ start: AT - 10_000, end: AT + 11_000, durationS: 21, seconds: { clip: 0, still: 21, card: 0 }, clips: [] });
+    const edge = await around({ at: AT + 20_000, preS: 5, postS: 5, dryRun: true });
+    expect(edge.body).toMatchObject({ seconds: { clip: 6, still: 5, card: 0 }, clips: [{ start: AT + 20_000, end: AT + 30_000 }] });
+    expect(fake.composeRequests.at(-1)).toMatchObject({ dryRun: true });
+  });
+
+  it('passes the proxy\'s 409 nothing_to_compose through', async () => {
+    const r = await around({ at: AT - 5 * 60_000 });
+    expect(r.status).toBe(409);
+    expect(r.body).toEqual({ error: 'nothing_to_compose', detail: 'no clip or still covers any second of this window' });
+  });
+
+  it.each([
+    [{ eventId: EVENT }, 'exactly one of eventId or at'],
+    [{ at: String(AT) }, 'at is a whole second (unix ms)'],
+    [{ at: AT + 0.5 }, 'at is a whole second (unix ms)'],
+    [{ at: AT + 1 }, 'at is a whole second (unix ms)'],
+    [{ at: -1000 }, 'at is a whole second (unix ms)'],
+    [{ at: AT + 3_600_000 }, 'at is in the future'],
+    [{ at: AT - 9 * 86_400_000 }, 'at is older than the stills and clips kept'],
+    [{ preS: -1 }, 'Whole seconds from 0 to 3600'],
+    [{ preS: 150, postS: 150 }, 'At most 5m'],
+    [{ preS: 60, postS: 60, size: '1080p' }, 'At most 2m'],
+    [{ size: '4k' }, 'size is sd, 360p, 720p or 1080p'],
+    [{ badge: 'yes' }, 'badge is true or false'],
+    [{ dryRun: 1 }, 'dryRun is true or false'],
+  ])('refuses %j itself, without asking the proxy', async (more, detail) => {
+    const before = fake.composeRequests.length;
+    const r = await around(more);
+    expect(r.status).toBe(400);
+    expect(r.body).toEqual({ error: 'invalid', detail });
+    expect(fake.composeRequests.length).toBe(before);
+  });
+
+  // The fake mirrors cam-proxy's §13 rules (its own words).
+  it('the fake proxy refuses like cam-proxy: a window not yet over, negative rolls, span with at', async () => {
+    const send = (body: object) => fetch(`${fake.url}/api/cameras/cam1/compositions`, { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${FAKE_TOKEN}` }, body: JSON.stringify({ preS: 0, postS: 0, size: 'sd', badge: false, ...body }) }).then(async (r) => [r.status, await r.json()]);
+    const late = await send({ at: Math.floor(Date.now() / 1000) * 1000 - 2000, postS: 10 });
+    expect(late[0]).toBe(400);
+    expect(late[1].detail).toMatch(/^the window ends in the future \(\d+ s from now\)$/);
+    expect(await send({ at: AT, preS: -1 })).toEqual([400, { error: 'invalid', detail: 'around a second, pre-roll and post-roll are whole seconds from 0 to 3600' }]);
+    expect(await send({ at: AT, span: { start: AT, end: AT + 1000 } })).toEqual([400, { error: 'invalid', detail: 'span goes with clipId, not with at' }]);
+    expect(await send({ at: AT, clipId: 7 })).toEqual([400, { error: 'invalid', detail: 'exactly one of clipId (a clip) or at (a second, unix ms)' }]);
   });
 });
