@@ -40,9 +40,12 @@ describe('Strip', () => {
     expect(kinds).toEqual(['none', 'pictures', 'none', 'outside']);
   });
 
-  it('offers five zooms', () => {
+  // Klaus, 2026-10-04: no 12 h; 10 min and 1 min added.
+  it('offers seven zooms, 24 h down to 1 min', () => {
     render({});
-    for (const z of [24, 12, 6, 3, 1]) expect(q(`zoom-${z}`)).not.toBeNull();
+    const zooms = [...target!.querySelectorAll('[data-testid^="zoom-"]')];
+    expect(zooms.map((b) => b.getAttribute('data-testid'))).toEqual(['zoom-24', 'zoom-6', 'zoom-3', 'zoom-1', 'zoom-30m', 'zoom-10m', 'zoom-1m']);
+    expect(zooms.map((b) => b.textContent)).toEqual(['24 h', '6 h', '3 h', '1 h', '30 min', '10 min', '1 min']);
     expect(q('zoom-1')!.getAttribute('aria-pressed')).toBe('true');
   });
 
@@ -184,14 +187,57 @@ describe('Strip', () => {
     render({});
     preferences.set({ ...PREFS, timelineZoom: 0.5 });
     flushSync();
-    expect(q('zoom-0.5')!.textContent).toBe('30 min');
-    q('zoom-0.5')!.click();
+    expect(q('zoom-30m')!.textContent).toBe('30 min');
+    q('zoom-30m')!.click();
     flushSync();
     expect(q('strip-back')!.title).toBe('Back 30 min'); // issue #69: not "0.5 h"
     expect(q('strip-forward')!.getAttribute('aria-label')).toBe('Forward 30 minutes');
     const labels = [...target!.querySelectorAll('[data-testid="strip-tick"]')].map((e) => e.textContent);
     expect(labels).toContain('12:05');
     expect(labels).toContain('11:50');
+  });
+
+  it('offers 10 minutes, with ticks every 2 minutes', () => {
+    render({});
+    q('zoom-10m')!.click();
+    flushSync();
+    expect(q('zoom-10m')!.getAttribute('aria-pressed')).toBe('true');
+    expect(q('strip-back')!.title).toBe('Back 10 min');
+    expect(q('strip-forward')!.getAttribute('aria-label')).toBe('Forward 10 minutes');
+    const labels = [...target!.querySelectorAll('[data-testid="strip-tick"]')].map((e) => e.textContent);
+    expect(labels).toEqual(['11:56', '11:58', '12:00', '12:02', '12:04']);
+  });
+
+  it('offers 1 minute, with ticks every 15 seconds that show the seconds', () => {
+    render({ barWidth: 640 });
+    q('zoom-1m')!.click();
+    flushSync();
+    expect(q('strip-back')!.title).toBe('Back 1 min');
+    expect(q('strip-forward')!.getAttribute('aria-label')).toBe('Forward 1 minute');
+    const labels = [...target!.querySelectorAll('[data-testid="strip-tick"]')].map((e) => e.textContent);
+    expect(labels).toEqual(['11:59:30', '11:59:45', '12:00:00', '12:00:15', '12:00:30']);
+    // the edge labels stay inside the bar
+    const ticks = [...target!.querySelectorAll('[data-testid="strip-tick"]')];
+    expect(ticks[0].classList.contains('start')).toBe(true);
+    expect(ticks.at(-1)!.classList.contains('end')).toBe(true);
+  });
+
+  it('spaces the ticks for the bar\'s width: every 30 s at 1 min on a phone', () => {
+    render({ barWidth: 229 });
+    q('zoom-1m')!.click();
+    flushSync();
+    const labels = [...target!.querySelectorAll('[data-testid="strip-tick"]')].map((e) => e.textContent);
+    expect(labels).toEqual(['11:59:30', '12:00:00', '12:00:30']);
+  });
+
+  it('drags 1 minute across the bar at the 1 min zoom (600 px = 60 s)', () => {
+    const onseek = vi.fn();
+    const bar = render({ onseek });
+    q('zoom-1m')!.click();
+    flushSync();
+    bar.dispatchEvent(new PointerEvent('pointerdown', { clientX: 300, bubbles: true }));
+    bar.dispatchEvent(new PointerEvent('pointermove', { clientX: 200, bubbles: true }));
+    expect(onseek).toHaveBeenLastCalledWith(T + 10_000); // 100 px left: 10 s later
   });
 
   it('follows the pointer with a line and the time under it, even without a picture (Klaus, 2026-09-28)', () => {

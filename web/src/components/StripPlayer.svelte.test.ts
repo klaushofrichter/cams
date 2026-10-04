@@ -320,6 +320,19 @@ describe('StripPlayer', () => {
     expect(document.querySelector('[data-testid="compose-thumb"]')!.getAttribute('src')).toContain(clip.id);
   });
 
+  // iPhone, 2026-10-04: the button came and went with the clip under the
+  // playhead, and the strip below it jumped. Without a clip it keeps its room.
+  it('keeps the download button, hidden and off, where there is no clip', () => {
+    render({ at: T + 25_000 }); // a still, no clip
+    const b = q('clip-download')!;
+    expect(b).not.toBeNull();
+    expect(b.classList.contains('off')).toBe(true);
+    expect((b as HTMLButtonElement).disabled).toBe(true);
+    b.click();
+    flushSync();
+    expect(document.querySelector('[data-testid="compose-dialog"]')).toBeNull();
+  });
+
   // 2026-09-29: dragging across four hours asked for 2,542 stills in a minute,
   // which spent cams' media budget and emptied the Timeline. While the
   // position moves by hand, no still per second: only where it settles.

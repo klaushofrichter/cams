@@ -1,13 +1,28 @@
 // web/src/lib/strip.ts
-import { addDays, localDate, type EventClip } from './recordings';
+import { addDays, localDate, pad2, type EventClip } from './recordings';
 import type { PreviewMinute } from './timeline';
 
 // The History strip (spec 2026-09-27-history-strip-design.md): what is at a
 // moment, from the runs of clips, stills and preview tiles a camera has.
 // Times are UTC ms; runs are [start, end).
 
-export type StripZoom = 24 | 12 | 6 | 3 | 1 | 0.5;
-export const STRIP_ZOOMS: StripZoom[] = [24, 12, 6, 3, 1, 0.5];
+// The window's width in hours (the saved preference `timelineZoom`). Klaus,
+// 2026-10-04: no 12 h; 10 min and 1 min added (1/6 and 1/60 of an hour).
+export type StripZoom = number;
+export const STRIP_ZOOMS: readonly StripZoom[] = [24, 6, 3, 1, 0.5, 1 / 6, 1 / 60];
+
+// A saved zoom as one the strip offers: 12 h (gone) is 6 h; anything else
+// unknown is 24 h. A near match (a rounded 1/6) counts.
+export function normalizeZoom(z: unknown): StripZoom {
+  if (z === 12) return 6;
+  if (typeof z !== 'number') return 24;
+  return STRIP_ZOOMS.find((x) => Math.abs(x - z) < 1e-6) ?? 24;
+}
+const minutesOf = (z: StripZoom) => Math.round(z * 60);
+// "30 min", not "0.5 h" (issue #69); the test id the same way: zoom-30m.
+export const zoomKey = (z: StripZoom) => (z >= 1 ? `${z}` : `${minutesOf(z)}m`);
+export const zoomLabel = (z: StripZoom) => (z >= 1 ? `${z} h` : `${minutesOf(z)} min`);
+export const zoomWords = (z: StripZoom) => (z >= 1 ? `${z} hour${z === 1 ? '' : 's'}` : `${minutesOf(z)} minute${minutesOf(z) === 1 ? '' : 's'}`);
 
 export interface Run { start: number; end: number }
 export interface ClipRun extends Run { clip: EventClip }
@@ -111,6 +126,71 @@ export function nextChange(cov: Coverage, t: number, now: number): number | null
     }
   }
   return best === Infinity ? null : best;
+}
+
+// --- ticks under the bar ---
+// Counted from each local midnight (so they sit on local hours in any time
+// zone), labelled with the wall clock (the repeated hour on the 25-hour day
+// shows twice); the date at midnight. Each zoom has its step (24 h: 3 h …
+// 1 min: 15 s); a narrow bar (a phone) takes the next larger step until the
+// labels are far enough apart (review of #171, 2026-10-04). Below a minute
+// every label has its seconds.
+const S = 1000;
+const M = 60 * S;
+const H = 60 * M;
+const TICK_STEPS = [10 * S, 15 * S, 30 * S, M, 2 * M, 5 * M, 10 * M, 15 * M, 30 * M, H, 2 * H, 3 * H, 6 * H, 12 * H, 24 * H];
+const ZOOM_STEP: [StripZoom, number][] = [[24, 3 * H], [6, H], [3, 30 * M], [1, 15 * M], [0.5, 5 * M], [1 / 6, 2 * M], [1 / 60, 15 * S]];
+export const TICK_CHAR_PX = 6.5; // a 10 px monospace character, rounded up
+const TICK_GAP_PX = 10;
+const labelPx = (chars: number) => chars * TICK_CHAR_PX;
+const minSpacing = (step: number) => labelPx(step < M ? 8 : 5) + TICK_GAP_PX; // "12:00:30" or "12:00"
+
+export function tickStep(zoom: StripZoom, widthPx: number): number {
+  const span = zoom * H;
+  let step = ZOOM_STEP.find(([z]) => zoom >= z - 1e-9)?.[1] ?? 15 * S;
+  if (!(widthPx > 0)) return step;
+  for (const s of TICK_STEPS) if (s >= step && (s / span) * widthPx >= minSpacing(s)) return s;
+  return TICK_STEPS[TICK_STEPS.length - 1];
+}
+
+export interface Tick { t: number; left: number; label: string; align: 'start' | 'center' | 'end' }
+
+// The ticks in the window. With the bar's width known, a label that would
+// stick out at an edge is aligned to it, and one that would then touch its
+// neighbour is left out.
+export function stripTicks(win: Run, zoom: StripZoom, widthPx: number): Tick[] {
+  const step = tickStep(zoom, widthPx);
+  const span = win.end - win.start;
+  const times: number[] = [];
+  for (let day = localDate(new Date(win.start)); ; day = addDays(day, 1)) {
+    const [y, m, dd] = day.split('-').map(Number);
+    const midnight = new Date(y, m - 1, dd).getTime();
+    if (midnight > win.end) break;
+    const next = new Date(y, m - 1, dd + 1).getTime();
+    // From the first tick in the window, not from midnight (a 15 s step).
+    for (let t = midnight + Math.max(0, Math.ceil((win.start - midnight) / step)) * step; t < next && t <= win.end; t += step) times.push(t);
+  }
+  const out: Tick[] = [];
+  let lastEnd = -Infinity;
+  for (const t of times) {
+    const d = new Date(t);
+    const label = d.getHours() === 0 && d.getMinutes() === 0 && d.getSeconds() === 0
+      ? `${d.toLocaleDateString(undefined, { weekday: 'short' })} ${d.getDate()}`
+      : `${pad2(d.getHours())}:${pad2(d.getMinutes())}${step < M ? `:${pad2(d.getSeconds())}` : ''}`;
+    const left = ((t - win.start) / span) * 100;
+    if (!(widthPx > 0)) {
+      out.push({ t, left, label, align: 'center' });
+      continue;
+    }
+    const w = labelPx(label.length);
+    const px = (left / 100) * widthPx;
+    const align: Tick['align'] = px - w / 2 < 0 ? 'start' : px + w / 2 > widthPx ? 'end' : 'center';
+    const from = align === 'start' ? px : align === 'end' ? px - w : px - w / 2;
+    if (from < lastEnd + (out.length ? TICK_GAP_PX / 2 : 0)) continue;
+    lastEnd = from + w;
+    out.push({ t, left, label, align });
+  }
+  return out;
 }
 
 export function windowAround(t: number, zoom: StripZoom): Run {
