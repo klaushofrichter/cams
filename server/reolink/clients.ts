@@ -1,17 +1,23 @@
-import { getCamera } from '../cameraRegistry';
+import { addressEvents, cameraHost, getCamera, hostFromProxy } from '../cameraRegistry';
 import { ReolinkClient } from './client';
 
 // One client per camera for the life of the process, so the token cache and
-// the concurrency gate are shared by every request for that camera.
+// the concurrency gate are shared by every request for that camera. A
+// from-proxy camera's client is built for the address its proxy reported
+// (none yet: every request answers camera_address_unknown), and again when
+// that address changes (the token belongs to the old one).
 const clients = new Map<string, ReolinkClient>();
+
+addressEvents.on('address', ({ cam }: { cam: string }) => clients.delete(cam));
 
 export function getClient(id: string): ReolinkClient | undefined {
   const existing = clients.get(id);
   if (existing) return existing;
   const cam = getCamera(id);
   if (!cam) return undefined;
-  const client = new ReolinkClient(cam);
-  clients.set(id, client);
+  const client = new ReolinkClient(hostFromProxy(cam) ? { ...cam, host: cameraHost(id) ?? '' } : cam);
+  // Not cached while the address is unknown: the next call sees it once reported.
+  if (!hostFromProxy(cam) || cameraHost(id)) clients.set(id, client);
   return client;
 }
 

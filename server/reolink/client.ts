@@ -7,7 +7,9 @@ import { TimeInfo, timeInfoFromGetTime } from '../recordings/clipNames';
 import { CameraTarget, openRequest, readBody, requestWasWritten, ResponseTooLargeError, splitHost } from './http';
 import { Semaphore } from './semaphore';
 
-export type CameraErrorCode = 'camera_offline' | 'camera_auth_failed' | 'camera_error';
+// camera_address_unknown: a from-proxy camera whose proxy hasn't reported its
+// address yet (spec 2026-10-04-camera-address-from-proxy-design).
+export type CameraErrorCode = 'camera_offline' | 'camera_auth_failed' | 'camera_error' | 'camera_address_unknown';
 
 // Messages are for logs only and never contain URLs, tokens or passwords;
 // clients see just the code.
@@ -110,7 +112,13 @@ export class ReolinkClient {
     return (this.opts.now ?? Date.now)();
   }
 
+  // A from-proxy camera before its address is known: nothing to connect to.
+  private requireHost(): void {
+    if (!this.cam.host) throw new CameraError('camera_address_unknown', 'waiting for the proxy to report the camera address');
+  }
+
   private async post(cmd: string, param: object, token?: string): Promise<ReolinkReply> {
+    this.requireHost();
     const path = `/cgi-bin/api.cgi?cmd=${encodeURIComponent(cmd)}${token ? `&token=${encodeURIComponent(token)}` : ''}`;
     const body = JSON.stringify([{ cmd, action: 0, param }]);
     return this.gate.run(async () => {
@@ -199,7 +207,7 @@ export class ReolinkClient {
   // The certificate the camera presents (subject, issuer, expiry). The camera's
   // GetCertificateInfo only says whether a custom one is installed.
   async cameraCertificate(): Promise<{ subject: string; issuer: string; validTo: string } | null> {
-    if (this.cam.protocol !== 'https') return null;
+    if (this.cam.protocol !== 'https' || !this.cam.host) return null;
     // Same host parsing as requests (bracketed IPv6 included). This only
     // reads the certificate for display: nothing is sent, and it runs outside
     // the API gate because it opens no camera session. The certificate is
@@ -324,6 +332,7 @@ export class ReolinkClient {
   // on a normal reply: Snap answers 200 with a rspCode -6 body, FLV closes
   // the connection without a response (see isResetBeforeHeaders).
   private async getWithToken(buildPath: (token: string) => string, accept: RegExp, signal?: AbortSignal): Promise<IncomingMessage> {
+    this.requireHost();
     for (let attempt = 0; attempt < 2; attempt++) {
       const token = await this.requestToken();
       let res: IncomingMessage;
@@ -382,6 +391,7 @@ export class ReolinkClient {
   }
 
   async snapshot(): Promise<Buffer> {
+    this.requireHost();
     for (let attempt = 0; attempt < 2; attempt++) {
       const token = await this.requestToken();
       const outcome = await this.snapshotAttempt(token);

@@ -79,6 +79,7 @@ export interface FakeProxy {
   camerasBody?: unknown; // tests: answer /api/cameras with this instead
   loginLinks: number; // one-time admin UI links minted (POST /control/login-links)
   cameraNames: Map<string, string>; // proxy camera id → the camera's name (in /api/cameras; PUT /control/camera/name)
+  cameraAddresses: Map<string, string>; // proxy camera id → its camera.host (`address` in /api/cameras; cam-proxy pi-config spec §2)
   nameOverride: { status: number; body: unknown } | null; // tests: PUT /control/camera/name answers this (after checking the name)
   nameRequests: { cam: string; name: unknown }[]; // PUT /control/camera/name bodies (its control API is cam1's, like a one-camera proxy)
   compositions: Map<string, { state: 'queued' | 'running' | 'done'; progress: number; durationS: number }>;
@@ -144,6 +145,7 @@ export async function startFakeProxy(opts: { port?: number; token?: string } = {
     publicUrl: null,
     loginLinks: 0,
     cameraNames: new Map([['cam1', 'Den']]),
+    cameraAddresses: new Map([['cam1', '192.0.2.10']]),
     nameOverride: null,
     nameRequests: [],
     compositions: new Map(),
@@ -257,7 +259,7 @@ export async function startFakeProxy(opts: { port?: number; token?: string } = {
   };
   // The camera list, as the real one reports it (only what cams reads).
   app.get('/api/cameras', (_req, res) => {
-    res.json(fake.camerasBody !== undefined ? fake.camerasBody : [...fake.cameraNames].map(([id, name]) => ({ id, name, online: true, lastEventTs: null, stream: null, publicUrl: fake.publicUrl })));
+    res.json(fake.camerasBody !== undefined ? fake.camerasBody : [...fake.cameraNames].map(([id, name]) => ({ id, name, online: true, lastEventTs: null, stream: null, publicUrl: fake.publicUrl, address: fake.cameraAddresses.get(id) ?? null })));
   });
   // Like the real one: the oldest clip, still and preview it holds.
   app.get('/api/cameras/:cam/extent', (req, res) => {
