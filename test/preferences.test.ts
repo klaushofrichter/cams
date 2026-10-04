@@ -65,12 +65,22 @@ describe('preferences', () => {
     expect((await request(createApp()).get('/api/preferences').set('Cookie', klaus)).body.eventFilter).toEqual(['vehicle']);
   });
 
-  it('accepts the strip zooms 24, 12, 6, 3, 1 and 0.5', async () => {
-    for (const z of [24, 12, 6, 3, 1, 0.5]) {
+  it('accepts the strip zooms 24 h, 6 h, 3 h, 1 h, 30 min, 10 min and 1 min', async () => {
+    for (const z of [24, 6, 3, 1, 0.5, 1 / 6, 1 / 60]) {
       const res = await request(createApp()).put('/api/preferences').set('Cookie', klaus).send({ timelineZoom: z });
       expect(res.status).toBe(200);
       expect(res.body.timelineZoom).toBe(z);
     }
+  });
+
+  // Klaus, 2026-10-04: 12 h went. A 12 h saved earlier, or sent by a page
+  // loaded before the update, becomes 6 h without an error.
+  it('reads and takes a 12 h zoom as 6 h', async () => {
+    const res = await request(createApp()).put('/api/preferences').set('Cookie', klaus).send({ timelineZoom: 12 });
+    expect(res.status).toBe(200);
+    expect(res.body.timelineZoom).toBe(6);
+    writeFileSync(process.env.PREFS_FILE!, JSON.stringify({ 'klaus@klaushofrichter.net': { timelineZoom: 12 } }));
+    expect((await request(createApp()).get('/api/preferences').set('Cookie', klaus)).body.timelineZoom).toBe(6);
   });
 
   it('accepts a configured camera and null as the default camera', async () => {

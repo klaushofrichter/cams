@@ -614,7 +614,10 @@ describe('Timeline', () => {
       });
 
       it('crossing an hour switches the view to that hour, at its first or last minute', async () => {
+        // Yesterday: today's 11:00 is in the future until it comes (the
+        // test failed every morning before 11:00 Chicago).
         const h = new Date();
+        h.setDate(h.getDate() - 1);
         h.setHours(10, 58, 0, 0);
         const a = h.getTime();
         await open(a + 60_000 + 59_000, [a, a + 60_000, a + 120_000]); // 10:59:59

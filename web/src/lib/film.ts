@@ -32,8 +32,10 @@ function tileNear(byMinute: Map<number, PreviewMinute>, t: number): FilmFrame['t
 const lookups = new WeakMap<PreviewMinute[], Map<number, PreviewMinute>>();
 
 export function filmFrames(win: Run, width: number, previews: PreviewMinute[]): FilmFrame[] {
-  const n = Math.floor((width + FILM_GAP) / (FILM_W + FILM_GAP));
   const span = win.end - win.start;
+  // At most one frame a second (a tile a second): the 1 min zoom on a wide
+  // screen would otherwise show one tile twice (2026-10-04).
+  const n = Math.min(Math.floor((width + FILM_GAP) / (FILM_W + FILM_GAP)), Math.floor(span / 1000));
   if (n <= 0 || !(span > 0)) return [];
   const step = span / n;
   // Built once per preview list, not on every redraw (issue #69).

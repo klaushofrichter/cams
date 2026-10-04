@@ -491,6 +491,132 @@ test('on a phone the strip and controls fit the width', async ({ page }, testInf
   await expect(page.getByTestId('timeline')).toBeVisible();
   const overflow = await page.evaluate(() => document.documentElement.scrollWidth - innerWidth);
   expect(overflow).toBeLessThanOrEqual(0);
+  // The seven zooms, 24 h to 1 min, on one row (Klaus, 2026-10-04).
+  const zooms = page.locator('[data-testid^="zoom-"]');
+  await expect(zooms).toHaveText(['24 h', '6 h', '3 h', '1 h', '30 min', '10 min', '1 min']);
+  const boxes = await zooms.evaluateAll((els) => els.map((e) => e.getBoundingClientRect()).map((r) => ({ top: r.top, right: r.right, left: r.left })));
+  for (const b of boxes) {
+    expect(b.top).toBe(boxes[0].top);
+    expect(b.left).toBeGreaterThanOrEqual(0);
+    expect(b.right).toBeLessThanOrEqual(390);
+  }
+});
+
+// Review of #171: at 1 min the 15 s labels ran into each other and the last
+// was cut off ("08:15:4"). At every zoom, no label overlaps another or
+// leaves the bar.
+test('on a phone the tick labels neither overlap nor leave the bar, at every zoom', async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== 'phone', 'phone layout');
+  await keepPrefsLocal(page); // the zooms below must not reach the shared user
+  const at = await page.evaluate(() => new Date().setHours(8, 15, 20, 0));
+  await page.goto(`/app/recordings?cam=cam1&panel=history&at=${at}`);
+  for (const z of ['24', '6', '3', '1', '30m', '10m', '1m']) {
+    await page.getByTestId(`zoom-${z}`).click();
+    await expect(page.getByTestId(`zoom-${z}`)).toHaveAttribute('aria-pressed', 'true');
+    for (const shift of [0, 7, 19]) { // a few positions: the edges' labels differ
+      if (shift) {
+        const b = (await page.getByTestId('timeline').boundingBox())!;
+        await page.mouse.move(b.x + b.width / 2, b.y + b.height / 2);
+        await page.mouse.down();
+        await page.mouse.move(b.x + b.width / 2 + shift, b.y + b.height / 2, { steps: 3 });
+        await page.mouse.up();
+      }
+      await page.waitForTimeout(100);
+      const r = await page.getByTestId('timeline').evaluate((bar) => {
+        const b = bar.getBoundingClientRect();
+        const inner = { left: b.left + bar.clientLeft, right: b.left + bar.clientLeft + bar.clientWidth };
+        const labels = [...bar.querySelectorAll('[data-testid="strip-tick"]')].map((e) => ({ text: e.textContent, ...JSON.parse(JSON.stringify(e.getBoundingClientRect())) }));
+        return { inner, labels };
+      });
+      const where = `zoom ${z}, ${JSON.stringify(r.labels.map((l) => l.text))}`;
+      expect(r.labels.length, where).toBeGreaterThan(0);
+      for (const l of r.labels) {
+        expect(l.left, where).toBeGreaterThanOrEqual(r.inner.left - 0.5);
+        expect(l.right, where).toBeLessThanOrEqual(r.inner.right + 0.5);
+      }
+      for (let i = 1; i < r.labels.length; i++) expect(r.labels[i].left, where).toBeGreaterThanOrEqual(r.labels[i - 1].right);
+    }
+  }
+});
+
+// iPhone, 2026-10-04: the download button took a line of its own under the
+// info line, and came and went (with the info line's second line) as a drag
+// crossed recorded and empty stretches: the timeline under it jumped. On a
+// phone it sits at the end of the player's buttons, and both keep their room.
+test.describe('on an iPhone-sized screen', () => {
+  test.use({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 3, hasTouch: true });
+  test('dragging the strip over clips and empty stretches never moves the timeline', async ({ page }, testInfo) => {
+    test.skip(testInfo.project.name !== 'phone', 'phone layout');
+    await keepPrefsLocal(page); // the zoom below must not reach the shared user
+    const at = await page.evaluate(() => new Date().setHours(8, 15, 20, 0)); // inside today's 08:15:10 person clip
+    await page.goto(`/app/recordings?cam=cam1&panel=history&at=${at}`);
+    await page.getByTestId('zoom-10m').click(); // 10 min: the 25 s clip is ~10 px wide
+    await expect(page.getByTestId('source-badge')).toHaveText('SD 10 FPS');
+    await expect(page.getByTestId('clip-download')).toBeVisible();
+    // On the player's button row, at its right end, inside the screen.
+    const play = (await page.getByTestId('play-toggle').boundingBox())!;
+    const dl = (await page.getByTestId('clip-download').boundingBox())!;
+    expect.soft(Math.abs(dl.y - play.y)).toBeLessThan(2);
+    expect.soft(dl.x + dl.width).toBeLessThanOrEqual(390);
+    expect.soft(dl.x).toBeGreaterThan((await page.getByTestId('next-clip').boundingBox())!.x);
+
+    // The timeline's top relative to the video (the page may scroll).
+    const offset = () => page.evaluate(() => {
+      const box = document.querySelector('.player .box')!.getBoundingClientRect();
+      return document.querySelector('[data-testid="timeline"]')!.getBoundingClientRect().top - box.top;
+    });
+    const bar = (await page.getByTestId('timeline').boundingBox())!;
+    const cx = bar.x + bar.width / 2;
+    const cy = bar.y + bar.height / 2;
+    const start = await offset();
+    const seen = new Set<string>();
+    const infoHeights = new Set<number>();
+    let noClipDownloadWidth = Infinity;
+    let shift = 0;
+    await page.mouse.move(cx, cy);
+    await page.mouse.down();
+    for (const dx of [3, 6, 9, 12, 18, 24, 30, 24, 12, 6, 0, -3, -6, -12, -18, -24, -30, -18, -6, 0]) {
+      await page.mouse.move(cx + dx, cy);
+      await page.waitForTimeout(80);
+      const source = (await page.getByTestId('source-badge').textContent())!;
+      seen.add(source);
+      shift = Math.max(shift, Math.abs((await offset()) - start));
+      // The info line keeps its two lines' room whatever it says, and the
+      // download button its box without a clip (hidden, not removed).
+      infoHeights.add(await page.getByTestId('strip-info').evaluate((e) => e.getBoundingClientRect().height));
+      if (source !== 'SD 10 FPS') noClipDownloadWidth = Math.min(noClipDownloadWidth, await page.getByTestId('clip-download').evaluate((e) => e.getBoundingClientRect().width));
+    }
+    await page.mouse.up();
+    await page.waitForTimeout(200);
+    shift = Math.max(shift, Math.abs((await offset()) - start));
+    console.log(`timeline layout shift while dragging: ${shift} px; sources seen: ${[...seen].join(', ')}; info heights: ${[...infoHeights].join(', ')}; download width without a clip: ${noClipDownloadWidth}`);
+    expect([...infoHeights]).toHaveLength(1);
+    expect(noClipDownloadWidth).toBeGreaterThan(0);
+    expect(noClipDownloadWidth).toBeLessThan(Infinity); // measured
+    expect(seen.has('SD 10 FPS')).toBe(true);
+    expect(seen.size).toBeGreaterThan(1); // an empty stretch too
+    expect(shift).toBe(0);
+  });
+
+  // Porch has no cam-proxy, so no "Show in Timeline": its clip line takes two
+  // lines on a phone and its "No recording" line one. The strip stays put.
+  test('the info line keeps two lines\' room when it needs only one', async ({ page }, testInfo) => {
+    test.skip(testInfo.project.name !== 'phone', 'phone layout');
+    const place = async (at: number, source: string) => {
+      const day = await page.evaluate((t) => { const d = new Date(t); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; }, at);
+      await page.goto(`/app/recordings?cam=porch&date=${day}&panel=history&at=${at}`);
+      await expect(page.getByTestId('source-badge')).toHaveText(source);
+      return page.evaluate(() => {
+        const box = document.querySelector('.player .box')!.getBoundingClientRect();
+        const info = document.querySelector('[data-testid="strip-info"]')!.getBoundingClientRect();
+        return { info: info.height, timeline: document.querySelector('[data-testid="timeline"]')!.getBoundingClientRect().top - box.top };
+      });
+    };
+    const clip = await place(await page.evaluate(() => new Date().setHours(8, 15, 20, 0)), 'SD 10 FPS');
+    const empty = await place(await page.evaluate(() => { const d = new Date(); d.setDate(d.getDate() - 1); return d.setHours(12, 0, 0, 0); }), 'No recording');
+    console.log(`porch info line: clip ${clip.info} px, no recording ${empty.info} px`);
+    expect(empty).toEqual(clip);
+  });
 });
 
 // Edges and the info line (Klaus, 2026-09-28).

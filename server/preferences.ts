@@ -10,7 +10,7 @@ export interface Preferences {
   lastCamera: string | null; // remembered on every camera switch
   liveQuality: 'sub' | 'main';
   eventFilter: EventKind[]; // shown kinds, several at once; all four is "All" (Klaus, 2026-09-28)
-  timelineZoom: 24 | 12 | 6 | 3 | 1 | 0.5;
+  timelineZoom: number; // hours, one of TIMELINE_ZOOMS
   liveKeepAlive: 0 | 30 | 60 | 120 | 300 | 900; // seconds; 0 = off
   liveEvents: boolean; // new events at once, with a notification (Klaus, 2026-09-28)
   liveEventTypes: ('person' | 'vehicle' | 'pet' | 'motion')[]; // which ones notify
@@ -25,6 +25,17 @@ function eventFilterOf(v: unknown): EventKind[] | null {
   if (typeof v === 'string') return (KINDS as string[]).includes(v) ? [v as EventKind] : null;
   if (!Array.isArray(v) || v.length === 0 || new Set(v).size !== v.length || !v.every((k) => (KINDS as unknown[]).includes(k))) return null;
   return KINDS.filter((k) => v.includes(k));
+}
+
+// The History strip's zooms in hours: 24 h to 1 min (Klaus, 2026-10-04: no
+// 12 h; 10 min and 1 min added). A 12 h saved earlier, or sent by a page
+// loaded before that, is taken as 6 h. Matched within a hair, since 1/6 and
+// 1/60 are no exact decimals.
+export const TIMELINE_ZOOMS = [24, 6, 3, 1, 0.5, 1 / 6, 1 / 60] as const;
+function timelineZoomOf(v: unknown): number | null {
+  if (v === 12) return 6;
+  if (typeof v !== 'number') return null;
+  return TIMELINE_ZOOMS.find((z) => Math.abs(z - v) < 1e-6) ?? null;
 }
 
 export const KEEP_ALIVE_CHOICES = [0, 30, 60, 120, 300, 900] as const;
@@ -139,12 +150,16 @@ export function validatePreferencesPatch(body: unknown): { ok: true; patch: Part
   if ('liveQuality' in b && b.liveQuality !== 'sub' && b.liveQuality !== 'main') details.push('liveQuality: sub or main');
   let eventFilter: EventKind[] | null = null;
   if ('eventFilter' in b && !(eventFilter = eventFilterOf(b.eventFilter))) details.push('eventFilter: a list of person, vehicle, pet and motion');
-  if ('timelineZoom' in b && ![24, 12, 6, 3, 1, 0.5].includes(b.timelineZoom as number)) details.push('timelineZoom: 24, 12, 6, 3, 1 or 0.5');
+  let timelineZoom: number | null = null;
+  if ('timelineZoom' in b && (timelineZoom = timelineZoomOf(b.timelineZoom)) === null) details.push('timelineZoom: 24, 6, 3, 1, 0.5, 1/6 or 1/60 (hours)');
   if ('liveKeepAlive' in b && !(KEEP_ALIVE_CHOICES as readonly number[]).includes(b.liveKeepAlive as number)) details.push('liveKeepAlive: 0, 30, 60, 120, 300 or 900');
   if ('liveEvents' in b && typeof b.liveEvents !== 'boolean') details.push('liveEvents: true or false');
   if ('liveEventTypes' in b && !(Array.isArray(b.liveEventTypes) && b.liveEventTypes.every((t) => ['person', 'vehicle', 'pet', 'motion'].includes(t as string)) && new Set(b.liveEventTypes).size === b.liveEventTypes.length)) {
     details.push('liveEventTypes: a list of person, vehicle, pet and motion');
   }
   if (details.length) return { ok: false, details };
-  return { ok: true, patch: (eventFilter ? { ...b, eventFilter } : b) as Partial<Preferences> };
+  const patch: Record<string, unknown> = { ...b };
+  if (eventFilter) patch.eventFilter = eventFilter;
+  if (timelineZoom !== null) patch.timelineZoom = timelineZoom;
+  return { ok: true, patch: patch as Partial<Preferences> };
 }

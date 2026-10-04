@@ -1,16 +1,16 @@
 <!-- web/src/components/Strip.svelte -->
 <script lang="ts">
-  import { stripSpans, windowAround, STRIP_ZOOMS, type Coverage } from '../lib/strip';
+  import { stripSpans, stripTicks, windowAround, STRIP_ZOOMS, zoomKey, zoomLabel, zoomWords, type Coverage } from '../lib/strip';
   import { zoom, pickZoom } from '../lib/zoomPref';
   import { previewAt, tileStyle, type PreviewMinute } from '../lib/timeline';
-  import { addDays, localDate, pad2, type EventClip } from '../lib/recordings';
+  import type { EventClip } from '../lib/recordings';
   import { filmFrames, FILM_H, FILM_W } from '../lib/film';
   import { localClock } from '../lib/clock';
 
   // History's strip (spec 2026-09-27): the playhead stays in the centre and
   // time moves under it. Drag, sideways wheel, click and ←/→ move it.
   let {
-    coverage, events, visibleIds, failedIds, at, now, currentId, previews, thumbFor, onseek, ondrag, onstep, oldest = null, pending = [], onglue, filmWidth,
+    coverage, events, visibleIds, failedIds, at, now, currentId, previews, thumbFor, onseek, ondrag, onstep, oldest = null, pending = [], onglue, filmWidth, barWidth,
   }: {
     coverage: Coverage;
     events: EventClip[];
@@ -28,6 +28,7 @@
     oldest?: number | null; // the oldest content (the left edge); null: not known
     pending?: { kind: string; ts: number }[]; // live events not listed as recordings yet
     filmWidth?: number; // tests only: jsdom has no layout
+    barWidth?: number; // tests only, as filmWidth
   } = $props();
 
   const win = $derived(windowAround(at, $zoom));
@@ -44,8 +45,8 @@
   const seekTo = (t: number) => onseek(clampT(t));
   const span = $derived(win.end - win.start);
   // "30 min", not "0.5 h" (issue #69).
-  const span_label = $derived($zoom >= 1 ? `${$zoom} h` : `${$zoom * 60} min`);
-  const span_words = $derived($zoom >= 1 ? `${$zoom} hour${$zoom === 1 ? '' : 's'}` : `${$zoom * 60} minutes`);
+  const span_label = $derived(zoomLabel($zoom));
+  const span_words = $derived(zoomWords($zoom));
   const pct = (t: number) => ((t - win.start) / span) * 100;
   const spans = $derived(stripSpans(coverage, win, now, oldest));
   const segs = $derived(
@@ -55,31 +56,9 @@
   );
   const nowLeft = $derived(now > win.start && now < win.end ? pct(now) : null);
 
-  // Ticks counted from each local midnight (so they sit on local hours in any
-  // time zone), labelled with the wall clock (the repeated hour on the 25-hour
-  // day shows twice); a date at midnight.
-  const ticks = $derived.by(() => {
-    const h = $zoom >= 12 ? 3 : $zoom === 6 ? 1 : $zoom === 3 ? 0.5 : $zoom === 1 ? 0.25 : 5 / 60;
-    const step = h * 3_600_000;
-    const out: { left: number; label: string }[] = [];
-    const times: number[] = [];
-    for (let day = localDate(new Date(win.start)); ; day = addDays(day, 1)) {
-      const [y, m, dd] = day.split('-').map(Number);
-      const midnight = new Date(y, m - 1, dd).getTime();
-      if (midnight > win.end) break;
-      const next = new Date(y, m - 1, dd + 1).getTime();
-      for (let t = midnight; t < next; t += step) if (t >= win.start && t <= win.end) times.push(t);
-    }
-    for (const t of times) {
-      const d = new Date(t);
-      const midnight = d.getHours() === 0 && d.getMinutes() === 0;
-      const label = midnight
-        ? `${d.toLocaleDateString(undefined, { weekday: 'short' })} ${d.getDate()}`
-        : `${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
-      out.push({ left: pct(t), label });
-    }
-    return out;
-  });
+  // The ticks: their step from the bar's width (lib/strip.ts stripTicks).
+  let barW = $state(0);
+  const ticks = $derived(stripTicks(win, $zoom, barWidth ?? barW));
 
   // Pointer: a press that moves less than 4 px is a click (seek there);
   // otherwise a drag (time follows the pointer, right = back in time).
@@ -195,7 +174,7 @@
   <div class="tools">
     <div class="zoom" role="group" aria-label="Timeline zoom">
       {#each STRIP_ZOOMS as z (z)}
-        <button data-testid={`zoom-${z}`} aria-pressed={$zoom === z} onclick={() => void pickZoom(z)}>{z >= 1 ? `${z} h` : `${z * 60} min`}</button>
+        <button data-testid={`zoom-${zoomKey(z)}`} aria-pressed={$zoom === z} onclick={() => void pickZoom(z)}>{zoomLabel(z)}</button>
       {/each}
     </div>
   </div>
@@ -207,7 +186,7 @@
   <div class="barwrap">
   <!-- The playhead's mark above the bar (Klaus, 2026-09-28: more prominent). -->
   <span class="mark" data-testid="strip-playhead-mark" aria-hidden="true"></span>
-  <div class="bar" class:dragging data-testid="timeline" role="slider" tabindex="0" aria-label="Recordings timeline" aria-valuenow={Math.round(at / 1000)}
+  <div class="bar" class:dragging bind:clientWidth={barW} data-testid="timeline" role="slider" tabindex="0" aria-label="Recordings timeline" aria-valuenow={Math.round(at / 1000)}
     onpointerdown={down} onpointermove={move} onpointerup={up} onpointercancel={cancel} onlostpointercapture={cancel} onpointerleave={leave} onwheel={wheel} onkeydown={keydown}>
     {#each spans as s, i (i)}
       <span class={`span ${s.kind}`} data-testid="strip-span" data-kind={s.kind} style={`left:${s.left}%;width:${s.width}%`}></span>
@@ -226,7 +205,7 @@
       {#if !hover}<span class="cursor-time" class:flip={cursor.left > 80} data-testid="strip-cursor-time" style={`left:${cursor.left}%`}>{cursor.label}</span>{/if}
     {/if}
     <div class="ticks">
-      {#each ticks as t (t.left)}<span data-testid="strip-tick" style={`left:${t.left}%`}>{t.label}</span>{/each}
+      {#each ticks as t (t.t)}<span data-testid="strip-tick" class={t.align} style={`left:${t.left}%`}>{t.label}</span>{/each}
     </div>
   </div>
   </div>
@@ -264,6 +243,11 @@
   .zoom { display: flex; gap: 4px; }
   .zoom button { font-size: 12px; padding: 3px 9px; border-radius: 8px; border: 1px solid var(--border); background: transparent; color: var(--muted); cursor: pointer; }
   .zoom button[aria-pressed='true'] { background: var(--surface-2); color: var(--text); border-color: var(--accent); }
+  /* Seven zooms on one row at 390 px (2026-10-04). */
+  @media (max-width: 479px) {
+    .zoom { gap: 3px; }
+    .zoom button { padding: 3px 6px; white-space: nowrap; }
+  }
   .bar { position: relative; height: 46px; border-radius: 10px; background: var(--strip-empty); border: 1px solid var(--border); cursor: crosshair; overflow: hidden; touch-action: pan-y; user-select: none; }
   .bar.dragging { cursor: grabbing; }
   .cursor { position: absolute; top: 0; bottom: 0; width: 1px; background: var(--text); opacity: 0.7; pointer-events: none; }
@@ -289,4 +273,6 @@
   .playhead { position: absolute; top: -2px; bottom: -2px; width: 3px; margin-left: -1.5px; background: var(--accent); box-shadow: 0 0 0 1px color-mix(in srgb, var(--bg) 60%, transparent); pointer-events: none; }
   .ticks { position: absolute; left: 0; right: 0; bottom: 2px; height: 12px; pointer-events: none; }
   .ticks span { position: absolute; transform: translateX(-50%); font-size: 10px; color: var(--muted); font-family: var(--mono); white-space: nowrap; }
+  .ticks span.start { transform: none; }
+  .ticks span.end { transform: translateX(-100%); }
 </style>
