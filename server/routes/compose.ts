@@ -1,11 +1,12 @@
 import { Router, type Request, type Response } from 'express';
 import { Readable } from 'stream';
 import { pipeline } from 'stream/promises';
-import { generateMaxS, resultLength } from '../clipLimits';
+import { aroundLength, generateMaxS, resultLength } from '../clipLimits';
 import { logger } from '../logger';
-import { getProxyClient, proxyPath, ProxyError } from '../proxy/client';
-import { CLIP_ID as EVENT } from '../recordings/clipNames';
+import { getProxyClient, proxyPath, ProxyError, type ProxyClient } from '../proxy/client';
+import { CLIP_ID as EVENT, offsetAt, offsetStamp, zoneStamp, type TimeInfo } from '../recordings/clipNames';
 import { getRecordings } from '../recordings/service';
+import { getClient } from '../reolink/clients';
 import { knownCamera, proxyTarget } from './common';
 
 // Composed clips (cam-proxy spec 2026-09-28): the Downloads modal's calls,
@@ -57,7 +58,8 @@ function known(cam: string, req: Request, res: Response): string | undefined {
 composeRouter.post('/api/cameras/:id/compositions', async (req, res) => {
   const t = target(req, res);
   if (!t) return;
-  const b = (req.body ?? {}) as { eventId?: unknown; preS?: unknown; postS?: unknown; size?: unknown; badge?: unknown; timeZone?: unknown };
+  const b = (req.body ?? {}) as { eventId?: unknown; at?: unknown; preS?: unknown; postS?: unknown; size?: unknown; badge?: unknown; timeZone?: unknown; dryRun?: unknown };
+  if (b.at !== undefined) return void (await around(t, b, res));
   if (typeof b.eventId !== 'string' || !EVENT.test(b.eventId)) return void res.status(400).json({ error: 'invalid', detail: 'eventId is required' });
   try {
     let clip: { id: number; event: { start: number; end: number } } | null;
@@ -89,6 +91,63 @@ composeRouter.post('/api/cameras/:id/compositions', async (req, res) => {
     failed(err, res);
   }
 });
+
+// "Save clip around this" (#179 phase 3, spec §5, rulings 14 and 16): a
+// window around a second, checked here with the dialog's rule and words, then
+// relayed; the proxy plans it from its clips and stills.
+const SIZES = ['sd', '360p', '720p', '1080p'];
+const AT_MAX_AGE_MS = 8 * 86_400_000; // the proxy keeps 7 days from the start of a UTC day
+async function around(t: { id: string; client: ProxyClient; base: string }, b: { eventId?: unknown; at?: unknown; preS?: unknown; postS?: unknown; size?: unknown; badge?: unknown; timeZone?: unknown; dryRun?: unknown }, res: Response) {
+  const bad = (detail: string) => void res.status(400).json({ error: 'invalid', detail });
+  if (b.eventId !== undefined) return bad('exactly one of eventId or at');
+  const at = b.at;
+  if (typeof at !== 'number' || !Number.isSafeInteger(at) || at < 0 || at % 1000 !== 0) return bad('at is a whole second (unix ms)');
+  const now = Date.now();
+  if (at > now) return bad('at is in the future');
+  if (at < now - AT_MAX_AGE_MS) return bad('at is older than the stills and clips kept');
+  if (typeof b.size !== 'string' || !SIZES.includes(b.size)) return bad('size is sd, 360p, 720p or 1080p');
+  if (typeof b.badge !== 'boolean') return bad('badge is true or false');
+  if (b.dryRun !== undefined && typeof b.dryRun !== 'boolean') return bad('dryRun is true or false');
+  const len = aroundLength(b.preS as number, b.postS as number, b.size);
+  if (!len.ok) return bad(len.error);
+  const zone = typeof b.timeZone === 'string' && validZone(b.timeZone) ? b.timeZone : undefined;
+  try {
+    const up = await t.client.open(t.base, undefined, { method: 'POST', body: JSON.stringify({ at, preS: b.preS, postS: b.postS, size: b.size, badge: b.badge, ...(zone ? { timeZone: zone } : {}), ...(b.dryRun ? { dryRun: true } : {}) }) });
+    const text = await up.text();
+    if (up.status !== 201) {
+      res.status(up.status);
+      return void (text ? res.type('application/json').send(text) : res.end());
+    }
+    const job = JSON.parse(text) as { id?: unknown };
+    if (typeof job.id === 'string' && JOB.test(job.id)) remember(t.id, job.id);
+    res.status(201).json({ ...job, name: `${t.id}-${await stampOf(t.id, at, zone)}-around.mp4` });
+  } catch (err) {
+    failed(err, res);
+  }
+}
+const validZone = (z: string) => {
+  try {
+    new Intl.DateTimeFormat('en-US', { timeZone: z });
+    return true;
+  } catch {
+    return false;
+  }
+};
+// YYYY-MM-DD_HH-MM-SS of `at` in the camera's local time at that moment
+// (its time settings and DST rule, as every other save is named, #72); in
+// the viewer's zone, else UTC, when the camera can't be asked within 2 s
+// (ruling 16).
+async function stampOf(cam: string, at: number, zone: string | undefined): Promise<string> {
+  let time: TimeInfo;
+  try {
+    const client = getClient(cam);
+    if (!client) throw new Error('no client');
+    time = await Promise.race([client.timeInfo(), new Promise<never>((_r, reject) => setTimeout(() => reject(new Error('slow')), 2000).unref())]);
+  } catch {
+    return zone ? zoneStamp(at, zone) : offsetStamp(at, 0);
+  }
+  return offsetStamp(at, offsetAt(time, at, zone));
+}
 
 // The event → proxy clip lookup failed (the proxy, or the camera's day list):
 // not "no copy", which the dialog would take as final (issue #76).

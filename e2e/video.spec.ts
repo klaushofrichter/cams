@@ -1,6 +1,7 @@
 import { readFileSync } from 'fs';
 import { expect, test, type Download, type Page } from '@playwright/test';
 import { signIn } from './session';
+import { chicagoMs } from './fakeProxyData';
 import { eventCount } from './hours';
 
 // The Video page (spec docs/superpowers/specs/2026-10-04-video-page-design.md):
@@ -24,7 +25,7 @@ test('/app/live lands on /app/video, live, titled Video', async ({ page }) => {
 });
 
 test('an old History link lands on /app/video at the asked day and time, as a recording', async ({ page }) => {
-  const at = Date.parse(`${chicagoToday()}T12:05:10-05:00`); // Den's 12:05:05 motion clip (CDT)
+  const at = chicagoMs(chicagoToday(), '12:05:10'); // Den's 12:05:05 motion clip (Chicago time, DST-proof)
   await page.goto(`/app/recordings?cam=cam1&date=${chicagoToday()}&panel=history&at=${at}`);
   await expect(page).toHaveURL(new RegExp(`/app/video\\?cam=cam1&date=${chicagoToday()}&at=${at}`));
   await expect(page).not.toHaveURL(/panel=/);
@@ -36,7 +37,7 @@ test('an old History link lands on /app/video at the asked day and time, as a re
 
 // Klaus, 2026-10-04: REC says what it shows: SD (or 4K) for a clip, Still for the stills.
 test('the REC badge says SD over a clip and Still over the stills', async ({ page }) => {
-  const clipAt = Date.parse(`${chicagoToday()}T12:05:10-05:00`); // Den's 12:05:05 motion clip (CDT)
+  const clipAt = chicagoMs(chicagoToday(), '12:05:10'); // Den's 12:05:05 motion clip (Chicago time, DST-proof)
   await page.goto(`/app/video?cam=cam1&date=${chicagoToday()}&at=${clipAt}`);
   await expect(badge(page)).toHaveText(/^REC \d{2}:\d{2}:\d{2}( [AP]M)? · SD$/);
   await expect(badge(page)).toHaveAttribute('aria-label', /^REC .* · SD, back to live$/);
@@ -163,7 +164,7 @@ test('the timeline popup shows the clip’s types, or Still, in one box size', a
     await page.waitForTimeout(300); // the picture after its 150 ms rest
     return (await page.getByTestId('scrub-preview').boundingBox())!;
   };
-  const clipAt = Date.parse(`${chicagoToday()}T08:15:20-05:00`); // Den's person recording (two person events)
+  const clipAt = chicagoMs(chicagoToday(), '08:15:20'); // Den's person recording (two person events)
   await page.goto(`/app/video?cam=cam1&date=${chicagoToday()}&at=${clipAt}`);
   await expect(badge(page)).toHaveText(/· SD$/);
   const overClip = await hoverCentre();

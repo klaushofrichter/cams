@@ -44,3 +44,12 @@ export function resultLength(clipS: number, preS: number, postS: number, maxS: n
   const seconds = end - start;
   return seconds > maxS ? { ok: false, error: `At most ${formatSeconds(maxS)}` } : { ok: true, seconds };
 }
+
+// Around a second (#179 phase 3): the window [at - pre, at + 1 s + post],
+// rolls 0 or more (nothing to cut), always generated. The anchor is a 1 s
+// "clip", so this is resultLength's rule (cam-proxy: compositionWindow on
+// {at, at + 1000}).
+export function aroundLength(preS: number, postS: number, size: string): Length {
+  if (![preS, postS].every((v) => Number.isInteger(v) && v >= 0 && v <= ROLL_LIMIT_S)) return { ok: false, error: `Whole seconds from 0 to ${ROLL_LIMIT_S}` };
+  return resultLength(1, preS, postS, generateMaxS(size));
+}
