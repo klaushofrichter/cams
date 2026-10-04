@@ -2,6 +2,7 @@ import { readFileSync } from 'fs';
 import { expect, test, type Page } from '@playwright/test';
 import { REAL_PROXY, REAL_PROXY_ON } from './env';
 import { signIn } from './session';
+import { eventCount, expandAllHours } from './hours';
 
 // Across the stack (spec 2026-10-02-recordings-via-proxy-design): Silo's
 // cam-sim refuses HTTP Download, the real cam-proxy fetches the SD recording
@@ -16,7 +17,11 @@ const card = (page: Page, hhmmss: string) => page.locator(`[data-testid="event-c
 
 test('Silo plays and saves a recording its camera refuses over HTTP', async ({ page }) => {
   await page.goto('/app/recordings?cam=silo&panel=events');
-  await expect(page.getByTestId('event-card')).toHaveCount(4, { timeout: 30_000 });
+  // Hours far from the landing collapse (stage 2), so count from the hour
+  // titles, then open them all for the card below.
+  await expect.poll(() => eventCount(page), { timeout: 30_000 }).toBe(4);
+  await expandAllHours(page);
+  await expect(page.getByTestId('event-card')).toHaveCount(4);
   await expect(page.getByTestId('recordings-source')).toHaveText('Source of recordings and thumbnails: cam-proxy (SD card)');
   await card(page, '120505').click();
   const video = page.getByTestId('clip-video');

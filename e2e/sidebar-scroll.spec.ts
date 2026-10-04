@@ -1,5 +1,6 @@
 import { expect, test, type Page } from '@playwright/test';
 import { signIn } from './session';
+import { expandAllHours } from './hours';
 
 // The Video sidebar on a desktop (Klaus, 2026-10-03; one page 2026-10-04):
 // only the event list (cards and hour titles) scrolls; the camera card, the
@@ -41,6 +42,7 @@ const inViewport = async (page: Page, testId: string) => {
 test('only the event list scrolls; the camera, the controls, Collapse hours and the filter stay', async ({ page }) => {
   await longDay(page);
   await page.goto('/app/recordings?panel=history&cam=cam1');
+  await expandAllHours(page); // all 12 hours, whatever the time of day
   await expect(page.getByTestId('event-card')).toHaveCount(36);
   const list = page.getByTestId('event-scroll');
   const main = page.locator('main.main');
@@ -76,6 +78,7 @@ test('live, the sidebar keeps the camera, the controls and the filter in place t
   await page.setViewportSize({ width: 1440, height: 720 });
   await page.goto('/app/video');
   await expect(page.getByTestId('mode-badge')).toHaveAttribute('data-mode', 'live');
+  await expandAllHours(page);
   await expect(page.getByTestId('event-card')).toHaveCount(36);
   const main = page.locator('main.main');
   await expect.poll(() => main.evaluate((el) => el.scrollHeight <= el.clientHeight)).toBe(true);

@@ -34,6 +34,7 @@
   let { pageVisible = true, tabVisible = true }: { pageVisible?: boolean; tabVisible?: boolean } = $props();
 
   let events: EventClip[] = $state([]);
+  let eventsFor = $state(''); // `cam|date` of `events`
   let days: string[] = $state([]);
   let loading = $state(true);
   let failed = $state(false);
@@ -360,13 +361,43 @@
       } else if (r.legacy || (!r.params.has('date') && !r.params.has('clip') && !r.params.has('at'))) go({}, 'replace');
     });
   });
+  // Landings (stage 2, spec 2026-10-04): the viewer arrives at a new spot
+  // (the page loads, a day is picked, an event card, a link or Back, going
+  // live). The event list collapses the hours more than 6 h from it then,
+  // never while scrubbing or playing. `at` null is now (live).
+  let landing: { at: number | null } | undefined = $state();
+  const land = (at: number | null) => (landing = { at });
+  // A day picked (or a URL with a day and no time): the playhead goes to the
+  // day's first event, known once the day's events are in.
+  let landDay = $state(untrack(() => !glued && initialAt === null));
+  $effect(() => {
+    if (!landDay || eventsFor !== `${cam}|${date}`) return;
+    const first = events.reduce((m, e) => Math.min(m, Date.parse(e.start)), Infinity);
+    const [y, m, d] = date.split('-').map(Number);
+    untrack(() => {
+      landDay = false;
+      land(Number.isFinite(first) ? first : new Date(y, m - 1, d).getTime());
+    });
+  });
+  // Going live (also the page loading live) is a landing at now.
+  $effect(() => {
+    if (glued) untrack(() => land(null));
+  });
+
   // A position from outside (a link, back/forward, a restored cursor) moves
   // the playhead; the page's own reports come back here and are ignored.
   let reportedAt: number | null = null;
+  let firstPosition = true; // the page loading at a URL position is a landing too
   $effect(() => {
     const t = initialAt;
     untrack(() => {
-      if (t !== null && (reportedAt === null || Math.abs(t - reportedAt) >= 1000)) historyView?.jump(t);
+      const first = firstPosition;
+      firstPosition = false;
+      if (t === null) return;
+      if (reportedAt === null || Math.abs(t - reportedAt) >= 1000) {
+        historyView?.jump(t);
+        land(t);
+      } else if (first) land(t);
     });
   });
 
@@ -379,6 +410,7 @@
       if (historyView && s.cam === cam) {
         reportedAt = s.at;
         historyView.jump(s.at);
+        land(s.at);
       }
       historySeek.set(null);
     });
@@ -426,6 +458,7 @@
       .then(([e, d0, nb]) => {
         if (seq !== eventsRequest) return;
         events = e.events;
+        eventsFor = key;
         downloads = e.downloads;
         days = [...new Set([...d0.days, ...nb])].sort();
         updatedAt = new Date();
@@ -472,7 +505,7 @@
   <header class="head">
     <!-- Not while kept alive behind another page: that page has the title. -->
     <h1 data-testid={pageVisible ? 'page-title' : undefined}>Video</h1>
-    <span class="center">{#if cam}<DayPicker date={cursor.date} {days} today={$todayDate} onchange={(d) => go({ date: d, clipId: null, offsetSec: 0, at: null })} />{/if}</span>
+    <span class="center">{#if cam}<DayPicker date={cursor.date} {days} today={$todayDate} onchange={(d) => { landDay = true; go({ date: d, clipId: null, offsetSec: 0, at: null }); }} />{/if}</span>
     <!-- Three fixed columns, so the day picker stays centred whether or not
          "Updated" is shown (Klaus, 2026-09-27). -->
     <span class="updated">{#if cam && isToday && updatedAt}<span data-testid={pageVisible ? 'events-updated' : undefined}>Updated {formatNow(updatedAt)}</span>{/if}</span>
@@ -515,7 +548,8 @@
         <EventList bind:this={eventList} cameraId={cam} events={visible} {filter} date={cursor.date} selectedId={playheadClip} pending={pendingToday}
           onreveal={revealPlayer} onhours={(o) => (hoursOpen = o)}
           onfilter={setFilter}
-          onselect={(e) => historyView?.jump(Date.parse(e.start), true)} onthumberror={recheckDownloads} downloadsOk={downloads !== 'unavailable'}>
+          {landing}
+          onselect={(e) => { historyView?.jump(Date.parse(e.start), true); land(Date.parse(e.start)); }} onthumberror={recheckDownloads} downloadsOk={downloads !== 'unavailable'}>
           {#snippet tools()}
             <div class="listhead">
               <span class="day" data-testid="events-day">{isToday ? "Today's events" : `Events on ${cursor.date}`}</span>
