@@ -502,6 +502,56 @@ test('on a phone the strip and controls fit the width', async ({ page }, testInf
   }
 });
 
+// iPhone, 2026-10-04: the download button took a line of its own under the
+// info line, and came and went (with the info line's second line) as a drag
+// crossed recorded and empty stretches: the timeline under it jumped. On a
+// phone it sits at the end of the player's buttons, and both keep their room.
+test.describe('on an iPhone-sized screen', () => {
+  test.use({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 3, hasTouch: true });
+  test('dragging the strip over clips and empty stretches never moves the timeline', async ({ page }, testInfo) => {
+    test.skip(testInfo.project.name !== 'phone', 'phone layout');
+    await keepPrefsLocal(page); // the zoom below must not reach the shared user
+    const at = await page.evaluate(() => new Date().setHours(8, 15, 20, 0)); // inside today's 08:15:10 person clip
+    await page.goto(`/app/recordings?cam=cam1&panel=history&at=${at}`);
+    await page.getByTestId('zoom-10m').click(); // 10 min: the 25 s clip is ~10 px wide
+    await expect(page.getByTestId('source-badge')).toHaveText('SD 10 FPS');
+    await expect(page.getByTestId('clip-download')).toBeVisible();
+    // On the player's button row, at its right end, inside the screen.
+    const play = (await page.getByTestId('play-toggle').boundingBox())!;
+    const dl = (await page.getByTestId('clip-download').boundingBox())!;
+    expect.soft(Math.abs(dl.y - play.y)).toBeLessThan(2);
+    expect.soft(dl.x + dl.width).toBeLessThanOrEqual(390);
+    expect.soft(dl.x).toBeGreaterThan((await page.getByTestId('next-clip').boundingBox())!.x);
+
+    // The timeline's top relative to the video (the page may scroll).
+    const offset = () => page.evaluate(() => {
+      const box = document.querySelector('.player .box')!.getBoundingClientRect();
+      return document.querySelector('[data-testid="timeline"]')!.getBoundingClientRect().top - box.top;
+    });
+    const bar = (await page.getByTestId('timeline').boundingBox())!;
+    const cx = bar.x + bar.width / 2;
+    const cy = bar.y + bar.height / 2;
+    const start = await offset();
+    const seen = new Set<string>();
+    let shift = 0;
+    await page.mouse.move(cx, cy);
+    await page.mouse.down();
+    for (const dx of [3, 6, 9, 12, 18, 24, 30, 24, 12, 6, 0, -3, -6, -12, -18, -24, -30, -18, -6, 0]) {
+      await page.mouse.move(cx + dx, cy);
+      await page.waitForTimeout(80);
+      seen.add((await page.getByTestId('source-badge').textContent())!);
+      shift = Math.max(shift, Math.abs((await offset()) - start));
+    }
+    await page.mouse.up();
+    await page.waitForTimeout(200);
+    shift = Math.max(shift, Math.abs((await offset()) - start));
+    console.log(`timeline layout shift while dragging: ${shift} px; sources seen: ${[...seen].join(', ')}`);
+    expect(seen.has('SD 10 FPS')).toBe(true);
+    expect(seen.size).toBeGreaterThan(1); // an empty stretch too
+    expect(shift).toBe(0);
+  });
+});
+
 // Edges and the info line (Klaus, 2026-09-28).
 test('⇥ goes to now and stops there; the line under the video names time, source and trigger', async ({ page }) => {
   await page.goto('/app/recordings?cam=barn&panel=history&at=' + (Date.now() - 5 * 60_000));

@@ -59,6 +59,7 @@
   const source = $derived(sourceAt(coverage, at, now));
   // Downloads go through the save dialog, as on the History cards (Klaus, 2026-09-29).
   let saving: EventClip | null = $state(null);
+  const downloadable = $derived(!glued && source.kind === 'clip' && !unavailable ? source.clip : null);
 
   // --- video A/B ---
   let vids: (HTMLVideoElement | undefined)[] = $state([undefined, undefined]);
@@ -353,10 +354,10 @@
         {/if}
       {/if}
     </span>
-    {#if !glued && source.kind === 'clip' && !unavailable}
-      {@const c = source.clip}
-      <button class="dl" data-testid="clip-download" title="Download…" aria-label="Download this clip" onclick={() => (saving = c)}><Icon name="downloads" size={16} /></button>
-    {/if}
+    <!-- Always there, off without a clip: on a phone it keeps its room, since
+         its coming and going moved the strip under it (2026-10-04). -->
+    <button class="dl" class:off={!downloadable} data-testid="clip-download" title="Download…" aria-label="Download this clip" aria-hidden={!downloadable} disabled={!downloadable}
+      onclick={() => downloadable && (saving = downloadable)}><Icon name="downloads" size={16} /></button>
   </div>
 </div>
 {#if saving}
@@ -384,4 +385,12 @@
   .controls button:disabled { opacity: 0.5; cursor: default; }
   .time { font-family: var(--mono); font-size: 13px; color: var(--muted); }
   .dl { margin-left: auto; }
+  .dl.off { display: none; } /* a desktop: as before */
+  /* A phone (2026-10-04): the download button ends the button row and keeps
+     its room without a clip, and the info line below it keeps two lines'
+     room, so neither moves the strip when the source changes under a drag. */
+  @media (max-width: 767px) {
+    .info { order: 1; flex-basis: 100%; line-height: 1.4; min-height: calc(2 * 1.4em); }
+    .dl.off { display: inline-flex; visibility: hidden; }
+  }
 </style>
