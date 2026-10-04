@@ -165,7 +165,7 @@ export function nearestMinute(minutes: PreviewMinute[], t: number): PreviewMinut
 // The minute view (spec 2026-09-30-analytics-in-cams-design, cam-proxy's
 // model): a minute opens under its hour, steps ◀ ▶ within that hour, and
 // marks its seconds by the cards (recordings) and Vision's analysed stills.
-export interface SeenStill { eventId: number; stillTs: number; summary: SummaryEntry[] }
+export interface SeenStill { eventId: number; stillTs: number; summary: SummaryEntry[]; checkId?: number }
 export interface TimelineCard { id: string; start: string; end: string; triggers: string[]; analysis?: { stills: SeenStill[] } }
 
 const MINUTE = 60_000;
@@ -217,9 +217,10 @@ export function secondKinds(m: { minute: number; intervalS: number; present: boo
   });
 }
 
-// Vision's analysed stills that found something (a non-empty summary).
+// Vision's analysed stills that found something (a non-empty summary). A
+// card's still checks (cams #179) are the Timeline's own list, marked ✧.
 export function seenStills(cards: TimelineCard[]): SeenStill[] {
-  return cards.flatMap((c) => c.analysis?.stills.filter((s) => s.summary.length > 0) ?? []);
+  return cards.flatMap((c) => c.analysis?.stills.filter((s) => s.summary.length > 0 && s.checkId === undefined) ?? []);
 }
 
 // The hour grid's data for every minute of the day at once (issue #109: not

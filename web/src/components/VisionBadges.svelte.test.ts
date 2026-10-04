@@ -323,4 +323,26 @@ describe('the Vision dialog', () => {
     expect(byId('vision-dialog')).toBeNull();
     expect(byId('vision-dialog-backdrop')).toBeNull();
   });
+
+  it('lists a still check among the card’s stills, its own image and objects, marked “checked by hand” (cams #179)', async () => {
+    const asked: string[] = [];
+    vi.stubGlobal('fetch', async (url: string) => {
+      asked.push(url);
+      return new Response(JSON.stringify({ objects: [{ name: 'Person', score: 0.9, box }] }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+    });
+    const withCheck: CardAnalysis = {
+      best: { person: { score: 0.9, subtype: 'person' } },
+      notConfirmed: [],
+      stills: [{ eventId: 0, kind: 'check', stillTs: T2, summary: [{ category: 'person', subtype: 'person', score: 0.9, box }], checkId: 17 }],
+    };
+    inCard(withCheck);
+    await open();
+    expect(byId('vision-dialog-checked')?.textContent).toContain('✧ checked by hand');
+    expect(byId('timeline-still')?.getAttribute('src')).toBe('/api/cameras/cam1/still-checks/17.jpg');
+    (byId('timeline-show-all') as HTMLInputElement).click();
+    flushSync();
+    await tick();
+    await new Promise((r) => setTimeout(r, 0));
+    expect(asked).toEqual(['/api/cameras/cam1/still-checks/17']);
+  });
 });

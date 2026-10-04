@@ -11,6 +11,7 @@ import { setCameras } from '../server/cameraRegistry';
 import { resetClients } from '../server/reolink/clients';
 import { resetProxyClients } from '../server/proxy/client';
 import { resetAiEventStore } from '../server/proxy/aiEvents';
+import { resetCheckStore } from '../server/proxy/stillChecks';
 import { proxyHub } from '../server/proxy/stream';
 import { getRecordings, resetRecordings } from '../server/recordings/service';
 import { SESSION_COOKIE, signSession } from '../server/session';
@@ -46,6 +47,7 @@ beforeEach(async () => {
   resetProxyClients();
   resetRecordings();
   resetAiEventStore();
+  resetCheckStore();
 });
 afterEach(async () => {
   await new Promise<void>((r) => cam.close(() => r()));
