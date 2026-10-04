@@ -10,6 +10,8 @@
     <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
     <link rel="manifest" href="/site.webmanifest" />
     <meta name="theme-color" content="#0B1220" />
+    <!-- Which sign-ins exist: GET / rewrites this to "google", "token" or "google token" (server/routes/pages.ts). -->
+    <meta name="cams-login" content="google" />
     <script>
       try { var t = localStorage.getItem('cams-theme'); if (t === 'light' || t === 'dark') document.documentElement.dataset.theme = t; } catch (e) {}
     </script>

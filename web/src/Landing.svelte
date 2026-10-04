@@ -1,6 +1,11 @@
 <script lang="ts">
   import Logo from './components/Logo.svelte';
   import CameraIllustration from './components/CameraIllustration.svelte';
+  import LoginOptions from './components/LoginOptions.svelte';
+  import { loginMethods } from './lib/login';
+  const methods = loginMethods();
+  // A form post with a wrong token comes back as /?login=failed.
+  const failed = new URLSearchParams(location.search).get('login') === 'failed';
   const year = new Date().getFullYear();
 </script>
 
@@ -19,15 +24,7 @@
         recorded event with AI detection of people, vehicles and pets, clip downloads and camera settings, from any
         browser.
       </p>
-      <a class="login" href="/auth/google/login" data-testid="login">
-        <svg width="16" height="16" viewBox="0 0 48 48" aria-hidden="true">
-          <path fill="currentColor" d="M24 9.5c3.5 0 6.6 1.2 9 3.5l6.7-6.7C35.6 2.4 30.1 0 24 0 14.6 0 6.6 5.4 2.7 13.3l7.8 6C12.4 13.6 17.7 9.5 24 9.5z" />
-          <path fill="currentColor" d="M46.1 24.5c0-1.6-.1-3.1-.4-4.5H24v9h12.4c-.5 2.9-2.2 5.3-4.6 6.9l7.5 5.8c4.4-4 6.8-10 6.8-17.2z" />
-          <path fill="currentColor" d="M10.5 28.7a14.4 14.4 0 0 1 0-9.4l-7.8-6A24 24 0 0 0 0 24c0 3.9.9 7.5 2.7 10.7l7.8-6z" />
-          <path fill="currentColor" d="M24 48c6.1 0 11.3-2 15-5.5l-7.5-5.8c-2 1.4-4.6 2.3-7.5 2.3-6.3 0-11.6-4.1-13.5-9.8l-7.8 6C6.6 42.6 14.6 48 24 48z" />
-        </svg>
-        Sign in with Google
-      </a>
+      <LoginOptions {methods} {failed} />
       <ul class="chips">
         <li>● Live view</li>
         <li>◷ Timeline playback</li>
@@ -68,20 +65,6 @@
   h1 { font-size: clamp(32px, 5vw, 48px); line-height: 1.1; margin: 0 0 14px; letter-spacing: -0.02em; }
   .grad { background: var(--grad); -webkit-background-clip: text; background-clip: text; color: transparent; }
   p { color: var(--muted); font-size: 16px; margin: 0 0 22px; }
-  .login {
-    display: inline-flex;
-    align-items: center;
-    gap: 10px;
-    padding: 12px 20px;
-    border-radius: 12px;
-    background: var(--accent);
-    color: var(--accent-ink);
-    font-weight: 700;
-    text-decoration: none;
-    box-shadow: 0 8px 24px color-mix(in srgb, var(--accent) 35%, transparent);
-    transition: transform 0.15s ease, box-shadow 0.15s ease;
-  }
-  .login:hover { transform: translateY(-1px); box-shadow: 0 12px 28px color-mix(in srgb, var(--accent) 45%, transparent); }
   .chips { display: flex; flex-wrap: wrap; gap: 8px; list-style: none; padding: 0; margin: 20px 0 0; }
   .chips li {
     font-size: 12px;

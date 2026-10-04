@@ -1,6 +1,6 @@
 import { SIMS, simEnv } from './e2e/sims';
 import { defineConfig, devices } from '@playwright/test';
-import { E2E_ENV, E2E_PORT, REAL_PROXY, REAL_PROXY_ON } from './e2e/env';
+import { E2E_ENV, E2E_PORT, E2E_TOKEN_ENV, E2E_TOKEN_PORT, REAL_PROXY, REAL_PROXY_ON } from './e2e/env';
 
 export default defineConfig({
   testDir: './e2e',
@@ -18,13 +18,25 @@ export default defineConfig({
   projects: [
     {
       name: 'desktop',
-      testIgnore: /live-teardown\.spec\.ts|camera-name\.spec\.ts/,
+      testIgnore: /live-teardown\.spec\.ts|camera-name\.spec\.ts|token-login\.spec\.ts/,
       use: { ...devices['Desktop Chrome'], channel: 'chrome', viewport: { width: 1440, height: 900 } },
     },
     {
       name: 'phone',
-      testIgnore: /live-teardown\.spec\.ts|camera-name\.spec\.ts/,
+      testIgnore: /live-teardown\.spec\.ts|camera-name\.spec\.ts|token-login\.spec\.ts/,
       use: { ...devices['Desktop Chrome'], channel: 'chrome', viewport: { width: 390, height: 844 }, hasTouch: true },
+    },
+    // e2e/token-login.spec.ts: the second server (E2E_TOKEN_ENV, the Pi's
+    // token-only sign-in), at both sizes.
+    {
+      name: 'token-desktop',
+      testMatch: /token-login\.spec\.ts/,
+      use: { ...devices['Desktop Chrome'], channel: 'chrome', viewport: { width: 1440, height: 900 }, baseURL: `http://localhost:${E2E_TOKEN_PORT}` },
+    },
+    {
+      name: 'token-phone',
+      testMatch: /token-login\.spec\.ts/,
+      use: { ...devices['Desktop Chrome'], channel: 'chrome', viewport: { width: 390, height: 844 }, hasTouch: true, baseURL: `http://localhost:${E2E_TOKEN_PORT}` },
     },
     // e2e/camera-name.spec.ts renames Den, whose name the other specs check:
     // after them, one size at a time.
@@ -50,7 +62,7 @@ export default defineConfig({
       name: 'live-teardown',
       testMatch: /live-teardown\.spec\.ts/,
       fullyParallel: false,
-      dependencies: ['desktop', 'phone', 'camera-name-phone'],
+      dependencies: ['desktop', 'phone', 'camera-name-phone', 'token-desktop', 'token-phone'],
       use: { ...devices['Desktop Chrome'], channel: 'chrome', viewport: { width: 1440, height: 900 } },
     },
   ],
@@ -75,6 +87,8 @@ export default defineConfig({
     // and clips never carry over from an earlier run. Not in globalSetup, which
     // runs after the web servers have started.
     { command: `node -e "require('fs').rmSync(process.env.CACHE_DIR, { recursive: true, force: true })" && npm start`, port: E2E_PORT, reuseExistingServer: !process.env.CI, env: E2E_ENV },
+    // The token-login server (the Pi demo kit's configuration).
+    { command: `node -e "require('fs').rmSync(process.env.CACHE_DIR, { recursive: true, force: true })" && npm start`, port: E2E_TOKEN_PORT, reuseExistingServer: !process.env.CI, env: E2E_TOKEN_ENV },
   ],
   globalSetup: require.resolve('./e2e/global-setup'),
 });

@@ -15,6 +15,8 @@
 Private viewer for Skylar Technology's Reolink security cameras, at
 <https://cams.skylar.technology>: live video, recorded events with AI detection,
 clip playback and downloads, and camera settings, behind Google sign-in.
+The same image runs on the cam-proxy Raspberry Pi as a self-contained demo kit
+with a token sign-in: [docs/pi-demo.md](docs/pi-demo.md).
 
 ## Related repos
 
@@ -26,7 +28,7 @@ clip playback and downloads, and camera settings, behind Google sign-in.
 
 ## How it fits together
 
-- `server/`: Express 5 + TypeScript. Google OAuth, sessions, `/health`, the JSON API, and serving the web build.
+- `server/`: Express 5 + TypeScript. Google OAuth (and the token login for the Pi), sessions, `/health`, the JSON API, and serving the web build.
 - `web/`: Svelte 5 + Vite. `index.html` is the public landing page; `app.html` is the signed-in app.
 - The app runs as a Knative service `cams` (namespace `cams`) on the k3s cluster. Its manifests live in the `kube-setup` repo, not here.
 - Notes on the camera's HTTP API, as measured on the real camera: [docs/reolink-api.md](docs/reolink-api.md).
@@ -91,7 +93,11 @@ The Google OAuth client must list the redirect URI: `http://localhost:8080/auth/
 
 | Variable | Default | |
 |---|---|---|
-| `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `GOOGLE_REDIRECT_URI`, `COOKIE_SECRET`, `ALLOWED_EMAILS` | required | `ALLOWED_EMAILS` is comma-separated |
+| `COOKIE_SECRET` | required | signs the session cookie |
+| `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `GOOGLE_REDIRECT_URI`, `ALLOWED_EMAILS` | required for Google sign-in | all three Google variables or none; `ALLOWED_EMAILS` is comma-separated |
+| `CAMS_LOGIN_TOKEN` or `CAMS_LOGIN_TOKEN_FILE` | none | the token sign-in (the Pi demo kit, [docs/pi-demo.md](docs/pi-demo.md)): 24+ characters, "Sign in with token" on the start page (below Google when both are set; alone without Google). `POST /auth/token` (`{"token"}` JSON or a form; never in the URL), 10 failures per 15 min per address. At least one sign-in must be configured, or the server refuses to start |
+| `CAMS_TOKEN_USER` | `local` | the identity of a token session; it bypasses `ALLOWED_EMAILS` (only token sessions do) |
+| `COOKIE_SECURE` | `true` | `false` drops `Secure` from cams' cookies so they work over plain http (the Pi); logged at startup |
 | `CAMERAS_FILE` | none (no cameras) | see [Cameras](#cameras) |
 | `PORT` | `8080` | |
 | `LOG_LEVEL` | `info` | |
@@ -100,6 +106,7 @@ The Google OAuth client must list the redirect URI: `http://localhost:8080/auth/
 | `CACHE_DIR`, `CACHE_MAX_BYTES` | `$TMPDIR/cams-cache` (the image: `/var/cache/cams`), 1.5 GiB | downloaded clips and thumbnails |
 | `FFMPEG_PATH` | `ffmpeg` | for thumbnails |
 | `RECORDINGS_PROBE_MS`, `DOWNLOAD_RETRY_DELAY_MS` | `60000`, `1000` | how often a camera whose downloads fail is retried; the pause before a download's one retry |
+| `RATE_LIMIT_TOKEN_FAILURES` | `10` | failed token sign-ins per address per 15 min |
 | `RATE_LIMIT_WINDOW_MS`, `RATE_LIMIT_MAX`, `RATE_LIMIT_API_MAX`, `RATE_LIMIT_MEDIA_MAX`, `RATE_LIMIT_IMAGE_MAX` | 5 min, `40`, `600`, `3000`, `20000` | per window: sign-in, API, clip media (video, thumbnail, download), and the cam-proxy's sprites and stills |
 | `APP_VERSION`, `BUILD_DATE`, `WEB_DIST` | `dev`, none, the built `web/` | set by the image build (shown on About and by `/api/me`); where the web build is |
 
@@ -138,6 +145,6 @@ Both suites need **ffmpeg** on the `PATH`, and e2e needs **Google Chrome**. The 
 
 - **Sign-in:** Google OAuth with an email allow-list re-checked on every request.
 - **Session:** an httpOnly, Secure, SameSite=Lax cookie (7 days).
-- **Expired session:** any API 401 `{"error":"unauthorized"}` (cams's own "not signed in", never a camera's or cam-proxy's refusal) sends the page, once, to `/auth/google/login?silent=1&returnTo=<this page>`: Google's `prompt=none` for the account of the last sign-in (the `login_hint` cookie, httpOnly, 30 days, cleared by Logout), back to the same page without any Google screen. When Google needs the user (`login_required` and the like), there is no remembered account, or a silent attempt was already made in the last 5 minutes (sessionStorage), the start page instead, whose sign-in also returns to that page. `returnTo` is only ever a relative `/app` path (no `//`, `\`, scheme, dot segments or control characters); anything else is ignored. **Privacy:** the `login_hint` cookie holds only the email address; for up to 30 days after the 7-day session ends, while the browser is still signed in to Google, it lets a silent sign-in renew the session without any screen. Logout deletes it and ends that. Failed `/api` images and videos and a refused event stream check `/api/me` (at most every 30 s) to find out. cams keeps no Google refresh token.
+- **Expired session:** any API 401 `{"error":"unauthorized"}` (cams's own "not signed in", never a camera's or cam-proxy's refusal) sends the page, once, to `/auth/google/login?silent=1&returnTo=<this page>`: Google's `prompt=none` for the account of the last sign-in (the `login_hint` cookie, httpOnly, 30 days, cleared by Logout), back to the same page without any Google screen. When Google needs the user (`login_required` and the like), there is no remembered account, or a silent attempt was already made in the last 5 minutes (sessionStorage), the start page instead, whose sign-in also returns to that page. `returnTo` is only ever a relative `/app` path (no `//`, `\`, scheme, dot segments or control characters); anything else is ignored. **Privacy:** the `login_hint` cookie holds only the email address; for up to 30 days after the 7-day session ends, while the browser is still signed in to Google, it lets a silent sign-in renew the session without any screen. Logout deletes it and ends that. Failed `/api` images and videos and a refused event stream check `/api/me` (at most every 30 s) to find out. cams keeps no Google refresh token. A token session (the token sign-in) is never renewed through Google: `/auth/google/login` sends it, and any request when Google isn't configured, to the start page, which returns to the page after the token.
 - **Other protections:** a same-origin check on state-changing API calls, and rate limits on sign-in and the API.
 - **Container:** runs as uid 1000 with all capabilities dropped.

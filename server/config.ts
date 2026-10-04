@@ -1,14 +1,20 @@
-const REQUIRED_ENV_VARS = [
-  'GOOGLE_CLIENT_ID',
-  'GOOGLE_CLIENT_SECRET',
-  'GOOGLE_REDIRECT_URI',
-  'COOKIE_SECRET',
-  'ALLOWED_EMAILS',
-] as const;
+import { checkLoginEnv, LoginSummary } from './loginConfig';
+import { logger } from './logger';
 
-export function assertRequiredEnv(): void {
-  const missing = REQUIRED_ENV_VARS.filter((name) => !process.env[name]);
-  if (missing.length > 0) {
-    throw new Error(`Missing required environment variable(s): ${missing.join(', ')}`);
+// Startup check: throws (naming variables, never values) when the server
+// can't run as configured. Google's three variables and ALLOWED_EMAILS are
+// needed only with Google sign-in; a login token alone is enough on the Pi
+// (spec 2026-10-04-pi-deployment-design).
+export function assertRequiredEnv(): LoginSummary {
+  if (!process.env.COOKIE_SECRET) {
+    throw new Error('Missing required environment variable(s): COOKIE_SECRET');
   }
+  const summary = checkLoginEnv();
+  if (summary.google && !process.env.ALLOWED_EMAILS) {
+    throw new Error('Missing required environment variable(s): ALLOWED_EMAILS (needed with Google sign-in)');
+  }
+  if (!summary.cookieSecure) {
+    logger.warn({ kind: 'config' }, 'cookie_secure_off');
+  }
+  return summary;
 }

@@ -37,6 +37,22 @@ export const E2E_ENV: Record<string, string> = {
   RATE_LIMIT_CHECKS_PER_DAY: '10000',
 };
 
+// A second cams server for the token login (spec 2026-10-04-pi-deployment-
+// design): the Pi demo kit's configuration, a login token and no Google,
+// cookies without Secure. Its own preferences, proxy state and cache, so it
+// never disturbs the main server's specs. e2e/token-login.spec.ts.
+export const E2E_TOKEN_PORT = 8087;
+export const E2E_LOGIN_TOKEN = 'e2e-login-token-not-a-secret-0000000';
+export const E2E_TOKEN_ENV: Record<string, string> = {
+  ...Object.fromEntries(Object.entries(E2E_ENV).filter(([k]) => !k.startsWith('GOOGLE_') && k !== 'ALLOWED_EMAILS')),
+  PORT: String(E2E_TOKEN_PORT),
+  CAMS_LOGIN_TOKEN: E2E_LOGIN_TOKEN,
+  COOKIE_SECURE: 'false',
+  PREFS_FILE: '/tmp/cams-e2e-token-prefs.json',
+  PROXY_STATE_FILE: '/tmp/cams-e2e-token-proxy-state.json',
+  CACHE_DIR: join(tmpdir(), 'cams-e2e-token-cache'),
+};
+
 // The cam-proxy release the e2e runs for Silo (e2e/realProxy.ts): the first
 // with the recordings API, or later. Bump both with cam-proxy releases: the
 // digest is the image index's (`docker buildx imagetools inspect <image>:<tag>`),
