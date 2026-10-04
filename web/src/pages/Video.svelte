@@ -447,7 +447,7 @@
 <section class="page">
   <header class="head">
     <!-- Not while kept alive behind another page: that page has the title. -->
-    <h1 data-testid={pageVisible ? 'page-title' : undefined}>{panel === 'live' ? 'Live' : 'Recordings'}</h1>
+    <h1 data-testid={pageVisible ? 'page-title' : undefined}>{panel === 'live' ? 'Live' : 'History'}</h1>
     <!-- Kept in place (only hidden) on Live, so the video doesn't move between panels. -->
     <span class="center" class:off={panel === 'live'}>{#if cam}<DayPicker date={cursor.date} {days} today={$todayDate} onchange={(d) => go({ date: d, clipId: null, offsetSec: 0, at: null })} />{/if}</span>
     <!-- Three fixed columns, so the day picker stays centred whether or not

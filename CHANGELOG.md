@@ -9,4 +9,5 @@ published as [GitHub releases](https://github.com/klaushofrichter/cams/releases)
 ## [Unreleased]
 
 - Player (History and Live): one-second steps beside the 10-second ones, in the order ⏮ << < ▶ > >> ⏭; the 10-second buttons no longer say "10". Shift+← and Shift+→ step one second (← → still step 10 s). A step on a paused clip shows that frame. Forward steps stay off while Live is at now.
+- History: the page heading says "History" instead of "Recordings", as in the menu.
 

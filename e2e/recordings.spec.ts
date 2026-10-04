@@ -285,7 +285,7 @@ test('the video stays in place between Live and History', async ({ page }) => {
   await expect(page.getByTestId('live-panel')).toBeVisible();
   const a = await box();
   await page.getByTestId('panel-tab-history').click();
-  await expect(page.getByTestId('page-title')).toHaveText('Recordings');
+  await expect(page.getByTestId('page-title')).toHaveText('History');
   const b = await box();
   expect(b).toEqual(a);
 });
