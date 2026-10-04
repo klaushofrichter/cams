@@ -101,7 +101,7 @@ describe('the check button', () => {
     await openAt(AT);
     expect(button().disabled).toBe(false);
     expect(button().textContent).toContain('✧ Check with Vision');
-    expect(q('still-check-usage')?.textContent).toBe('14 of 1000 this month · 2 of 10 checks today');
+    expect(q('still-check-usage')?.textContent).toBe('14 of 1000 Vision calls this month · 2 of 10 checks today');
   });
 
   for (const [name, u, reason] of [
