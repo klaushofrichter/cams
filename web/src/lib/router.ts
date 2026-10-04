@@ -55,7 +55,10 @@ export function isActive(item: NavItem, route: Route): boolean {
 const store = writable<Route>(parseRoute(VIDEO_PATH, ''));
 export const route: Readable<Route> = { subscribe: store.subscribe };
 
+// The URL the route was last read from (the page shows it).
+let shown = '';
 function sync(): void {
+  shown = location.pathname + location.search;
   store.set(parseRoute(location.pathname, location.search));
 }
 
@@ -70,12 +73,32 @@ export function navigate(href: string): void {
 // through every clip or re-play a stale restore.
 export function replaceRoute(href: string): void {
   if (href === location.pathname + location.search) return;
-  history.replaceState({}, '', href);
+  // The entry's state stays (fill-the-screen marks its entry, see guardBack).
+  history.replaceState(history.state, '', href);
+  sync();
+}
+
+// A Back that only leaves something on screen (the player's fill-the-screen
+// mode, spec 2026-10-04-fullscreen-recorded): the guard returns true to take
+// it, and the URL stays what is shown (the entry below may hold an older
+// position). One guard at a time.
+let backGuard: (() => boolean) | null = null;
+export function guardBack(fn: () => boolean): () => void {
+  backGuard = fn;
+  return () => {
+    if (backGuard === fn) backGuard = null;
+  };
+}
+function onPop(): void {
+  if (backGuard?.()) {
+    if (location.pathname + location.search !== shown) history.replaceState(history.state, '', shown);
+    return;
+  }
   sync();
 }
 
 export function initRouter(): () => void {
   sync();
-  addEventListener('popstate', sync);
-  return () => removeEventListener('popstate', sync);
+  addEventListener('popstate', onPop);
+  return () => removeEventListener('popstate', onPop);
 }

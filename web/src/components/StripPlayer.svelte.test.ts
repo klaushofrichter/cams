@@ -8,6 +8,8 @@ import type { EventClip } from '../lib/recordings';
 import { currentPlayer } from '../lib/videoMode';
 import { liveUi } from '../lib/liveUi';
 import { localClock } from '../lib/clock';
+import { get } from 'svelte/store';
+import { exitPlayerFullscreen, playerFs } from '../lib/playerFullscreen';
 
 const T = Date.parse('2026-09-27T12:00:00-05:00');
 const clip: EventClip = { id: '20260927-120010-120020', start: new Date(T + 10_000).toISOString(), end: new Date(T + 20_000).toISOString(), durationSec: 10, triggers: ['motion'], sizeSub: 1, sizeMain: 1 };
@@ -442,5 +444,110 @@ describe('StripPlayer', () => {
     target!.remove();
     render({ glued: true, now: T + 2000 }); // live: the page saves the camera's own snapshot
     expect(currentPlayer()!.frame()).toBeNull();
+  });
+});
+
+// Fullscreen (#182, spec 2026-10-04-fullscreen-recorded): the player box in
+// every mode, so the mode badge is inside what goes fullscreen.
+describe('StripPlayer fullscreen', () => {
+  const fsEnabled = (on: boolean) => Object.defineProperty(document, 'fullscreenEnabled', { configurable: true, value: on });
+  afterEach(() => {
+    exitPlayerFullscreen();
+    delete (HTMLElement.prototype as { requestFullscreen?: unknown }).requestFullscreen;
+  });
+
+  it('puts the box with the mode badge into fullscreen, live and in a recording', async () => {
+    fsEnabled(true);
+    const calls: Element[] = [];
+    HTMLElement.prototype.requestFullscreen = vi.fn(async function (this: HTMLElement) { calls.push(this); });
+    const p = render({ glued: true, now: T + 2000, at: T }) as unknown as { glued: boolean };
+    currentPlayer()!.fullscreen();
+    await tick(0);
+    expect(calls).toHaveLength(1);
+    expect(calls[0].contains(q('mode-badge'))).toBe(true); // the bug: LiveBox fullscreened only the live layer
+    expect(get(playerFs)).toBe('element');
+    expect(q('fs-overlay')!.dataset.kind).toBe('element');
+    p.glued = false; // a recording: the same fullscreen, the same box
+    flushSync();
+    expect(calls[0].contains(q('mode-badge'))).toBe(true);
+    expect(q('mode-badge')!.dataset.mode).toBe('rec');
+    expect(q('fs-overlay')).not.toBeNull();
+  });
+
+  it('fills the screen without element fullscreen (iPhone), and leaves it', async () => {
+    fsEnabled(false);
+    render();
+    expect(q('fs-overlay')).toBeNull();
+    currentPlayer()!.fullscreen();
+    await tick(0);
+    const box = q('mode-badge')!.parentElement!;
+    expect(box.classList.contains('fill')).toBe(true);
+    expect(q('fs-overlay')!.dataset.kind).toBe('fill');
+    q('fs-exit')!.click();
+    flushSync();
+    expect(box.classList.contains('fill')).toBe(false);
+    expect(q('fs-overlay')).toBeNull();
+  });
+
+  it('steps with the keys once each, and jumps events, while fullscreen', async () => {
+    fsEnabled(false);
+    const onstep = vi.fn();
+    const p = render({ at: T, onstep });
+    currentPlayer()!.fullscreen();
+    await tick(0);
+    // On the player (its own key handler steps aside) and on the window.
+    q('strip-player')!.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }));
+    flushSync();
+    expect(p.at).toBe(T + 10_000);
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowLeft', shiftKey: true }));
+    flushSync();
+    expect(p.at).toBe(T + 9000);
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: ']' }));
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'PageUp' }));
+    expect(onstep.mock.calls).toEqual([[1], [-1]]);
+    q('fs-fwd-1')!.click();
+    flushSync();
+    expect(p.at).toBe(T + 10_000);
+  });
+
+  it('live: forward and the next event do nothing, back leaves live', async () => {
+    fsEnabled(false);
+    const onstep = vi.fn();
+    const p = render({ glued: true, now: T + 2000, at: T, onstep });
+    currentPlayer()!.fullscreen();
+    await tick(0);
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight' }));
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: ']' }));
+    flushSync();
+    expect(p.at).toBe(T);
+    expect(onstep).not.toHaveBeenCalled();
+    expect(q('fs-hint')!.textContent).toBe('');
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowLeft' }));
+    flushSync();
+    expect(p.at).toBe(T - 10_000);
+  });
+
+  // Review of #185: ⏭ Event only when it jumped; ⏮/⏭ off at the ends.
+  it('hints an event jump only when there was one, and passes the ends on', async () => {
+    fsEnabled(false);
+    let jumped = false;
+    const onstep = vi.fn(() => jumped);
+    const p = render({ at: T, onstep, stepAvail: { prev: false, next: true } }) as unknown as { stepAvail: { prev: boolean; next: boolean } };
+    currentPlayer()!.fullscreen();
+    await tick(0);
+    expect((q('fs-prev-event') as HTMLButtonElement).disabled).toBe(true);
+    expect((q('fs-next-event') as HTMLButtonElement).disabled).toBe(false);
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: ']' }));
+    flushSync();
+    expect(onstep).toHaveBeenCalledWith(1);
+    expect(q('fs-hint')!.textContent).toBe('');
+    jumped = true;
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: ']' }));
+    flushSync();
+    expect(q('fs-hint')!.textContent).toBe('⏭ Event');
+    p.stepAvail = { prev: true, next: false };
+    flushSync();
+    expect((q('fs-prev-event') as HTMLButtonElement).disabled).toBe(false);
+    expect((q('fs-next-event') as HTMLButtonElement).disabled).toBe(true);
   });
 });

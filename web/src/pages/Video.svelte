@@ -24,6 +24,7 @@
   import { createKeepAlive } from '../lib/keepAlive';
   import { checkLiveStatus, liveStreamHeld } from '../lib/liveUi';
   import { modeOf } from '../lib/videoMode';
+  import { exitPlayerFullscreen } from '../lib/playerFullscreen';
 
   // The Video page (spec 2026-10-04; before it, Live and History as two
   // panels, spec 2026-09-28): one player, one strip, one sidebar. The mode
@@ -157,6 +158,11 @@
     liveStreamHeld.set(liveWanted);
   });
   $effect(() => () => liveStreamHeld.set(false));
+  // Kept alive behind another page: a fullscreen player would be a black
+  // screen there (#182).
+  $effect(() => {
+    if (!pageVisible) untrack(() => exitPlayerFullscreen());
+  });
   // Another camera while the stream is only kept alive: end it at once; it
   // starts fresh on the new camera when live is on screen again.
   let liveCamera: string | null | undefined;

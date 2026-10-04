@@ -81,6 +81,14 @@ export function clipRuns(events: EventClip[], failed: ReadonlySet<string> = new 
     .sort((a, b) => a.start - b.start);
 }
 
+// Previous/next event from `at` among the clips the filter shows: the next
+// start after it, or the previous one before it (1.5 s in still counts as
+// "this" event, so ⏮ goes to the one before). None at the first/last.
+export function eventStep(clips: ClipRun[], visible: ReadonlySet<string>, at: number, dir: -1 | 1): ClipRun | undefined {
+  const list = clips.filter((c) => visible.has(c.clip.id));
+  return dir > 0 ? list.find((c) => c.start > at + 500) : [...list].reverse().find((c) => c.start < at - 1500);
+}
+
 // One still per second; a few missing seconds still read as one run (the
 // player shows the last good frame).
 export function stillRuns(ts: number[]): Run[] {

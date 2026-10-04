@@ -1,7 +1,7 @@
 // web/src/lib/strip.test.ts
 import { describe, expect, it } from 'vitest';
 import {
-  STRIP_ZOOMS, normalizeZoom, zoomKey, zoomLabel, tickStep, stripTicks, TICK_CHAR_PX, clipRuns, clipStartFromId, inRuns, localDaysBetween, mergeRuns, nextChange, previewRuns, sourceAt, stillRuns, stripSpans, windowAround,
+  STRIP_ZOOMS, normalizeZoom, zoomKey, zoomLabel, tickStep, stripTicks, TICK_CHAR_PX, clipRuns, clipStartFromId, eventStep, inRuns, localDaysBetween, mergeRuns, nextChange, previewRuns, sourceAt, stillRuns, stripSpans, windowAround,
   type Coverage,
 } from './strip';
 import type { EventClip } from './recordings';
@@ -199,5 +199,26 @@ describe('ticks', () => {
         }
       }
     }
+  });
+});
+
+// Previous/next event (HistoryView's step and the fullscreen overlay's ⏮/⏭,
+// review of #185): the visible clip it jumps to, or none at the first/last.
+describe('eventStep', () => {
+  const ev = (id: string, s: number): EventClip => ({ id, start: new Date(s).toISOString(), end: new Date(s + 10_000).toISOString(), durationSec: 10, triggers: ['motion'], sizeSub: 1, sizeMain: 1 });
+  const runs = clipRuns([ev('a', 100_000), ev('b', 200_000), ev('c', 300_000)]);
+  const all = new Set(['a', 'b', 'c']);
+  it('finds the next start after now, the previous before it', () => {
+    expect(eventStep(runs, all, 205_000, 1)?.clip.id).toBe('c');
+    expect(eventStep(runs, all, 205_000, -1)?.clip.id).toBe('b');
+    expect(eventStep(runs, all, 200_500, -1)?.clip.id).toBe('a'); // just after b's start: b is "this" one
+  });
+  it('has none past the last or before the first', () => {
+    expect(eventStep(runs, all, 300_000, 1)).toBeUndefined();
+    expect(eventStep(runs, all, 100_000, -1)).toBeUndefined();
+  });
+  it('skips the events the filter hides', () => {
+    expect(eventStep(runs, new Set(['a', 'b']), 205_000, 1)).toBeUndefined();
+    expect(eventStep(runs, new Set(['a', 'c']), 250_000, -1)?.clip.id).toBe('a'); // b hidden
   });
 });

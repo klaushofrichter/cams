@@ -48,6 +48,9 @@
   --shadow: 0 10px 30px rgba(0, 0, 0, 0.35);
   --grad: linear-gradient(135deg, var(--accent), var(--accent-2));
   --scrim: rgba(3, 8, 18, 0.55);
+  /* Over the picture (the fullscreen controls): dark in either theme. */
+  --player-scrim: rgba(3, 8, 18, 0.62);
+  --player-bg: #000;
   --on-grad: #FFFFFF;
   --radius: 10px;
   /* Where a timeline or an event has no thumbnail (Klaus, 2026-09-27). */
@@ -102,6 +105,9 @@
   --scroll-thumb-hover: #93A4BE;
   --shadow: 0 10px 30px rgba(15, 27, 45, 0.12);
   --scrim: rgba(15, 27, 45, 0.35);
+  /* Over the picture (the fullscreen controls): dark in either theme. */
+  --player-scrim: rgba(3, 8, 18, 0.62);
+  --player-bg: #000;
   --on-grad: #FFFFFF;
 }
 
@@ -147,6 +153,9 @@
     --scroll-thumb-hover: #93A4BE;
     --shadow: 0 10px 30px rgba(15, 27, 45, 0.12);
     --scrim: rgba(15, 27, 45, 0.35);
+    /* Over the picture (the fullscreen controls): dark in either theme. */
+    --player-scrim: rgba(3, 8, 18, 0.62);
+    --player-bg: #000;
     --on-grad: #FFFFFF;
   }
 }

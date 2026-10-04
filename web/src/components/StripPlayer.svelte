@@ -10,7 +10,8 @@
   import { localClock, timeAgo } from '../lib/clock';
   import { previewAt, tileStyle, type PreviewMinute } from '../lib/timeline';
   import { liveUi } from '../lib/liveUi';
-  import { enterFullscreen } from '../lib/fullscreen';
+  import FullscreenOverlay from './FullscreenOverlay.svelte';
+  import { enterPlayerFullscreen, exitPlayerFullscreen, playerFs, type FsAction } from '../lib/playerFullscreen';
   import { clipShown, liveBadge, modeBadge, modeOf, registerPlayer, type PlayerFrame, type RecShown } from '../lib/videoMode';
 
   // History's player (spec 2026-09-27): one clock, `at`. A clip's <video>
@@ -19,7 +20,7 @@
   // so the next clip is loaded 3 s before it starts.
   let {
     cam, coverage, previews, now, at = $bindable(), playing = $bindable(), unavailable = false, onclipfail, onstep,
-    glued = false, live: liveSnippet, onglue, clipStream = 'sub',
+    glued = false, live: liveSnippet, onglue, clipStream = 'sub', stepAvail = { prev: true, next: true },
   }: {
     cam: string;
     coverage: Coverage;
@@ -29,7 +30,8 @@
     playing: boolean;
     unavailable?: boolean;
     onclipfail: (clipId: string) => void;
-    onstep: (dir: -1 | 1) => void;
+    onstep: (dir: -1 | 1) => boolean | void; // true: it jumped to an event
+    stepAvail?: { prev: boolean; next: boolean }; // an event before / after the playhead (fullscreen ⏮ / ⏭)
     glued?: boolean; // the Live panel's playhead is at now: show the live stream
     live?: Snippet; // the live stream; kept mounted while unglued so it resumes at once
     onglue?: () => void; // the REC badge: back to live (spec 2026-10-04)
@@ -257,9 +259,9 @@
   let boxW = $state(0);
   const tile = $derived(source.kind === 'preview' ? previewAt(previews, source.ts) : null);
 
-  // The Video page's snapshot and fullscreen in a recording (spec
-  // 2026-10-04): what is on screen, and the box to put in fullscreen. Live
-  // has its own (the camera's snapshot, LiveBox's fullscreen).
+  // The Video page's snapshot in a recording (spec 2026-10-04): what is on
+  // screen (live has the camera's own snapshot). Fullscreen is this box in
+  // every mode (#182): it holds the picture, the live layer and the badge.
   let boxEl: HTMLDivElement | undefined = $state();
   function frame(): PlayerFrame | null {
     if (glued) return null;
@@ -277,8 +279,12 @@
   }
   $effect(() => registerPlayer({
     frame,
-    fullscreen: () => void enterFullscreen(boxEl, source.kind === 'clip' ? (vids[active] ?? null) : null),
+    fullscreen: () => {
+      if (boxEl) void enterPlayerFullscreen(boxEl);
+    },
   }));
+  // Gone (another camera remounts the player): no fullscreen left behind.
+  $effect(() => () => exitPlayerFullscreen());
   const mode = $derived(modeOf(glued));
   // REC adds what it shows (Klaus, 2026-10-04): SD or 4K for a clip, Still for the stills.
   const shown = $derived<RecShown | null>(source.kind === 'clip' ? clipShown(clipStream) : source.kind === 'still' ? 'Still' : null);
@@ -297,6 +303,7 @@
   }
   // Space plays or pauses; ←/→ step 10 s, Shift+←/→ 1 s (spec: Player / Controls).
   function keydown(e: KeyboardEvent) {
+    if ($playerFs !== 'off') return; // the overlay has the keys (on the window)
     if (e.target instanceof HTMLButtonElement || e.target instanceof HTMLAnchorElement) return;
     if (e.key === ' ') {
       e.preventDefault();
@@ -307,6 +314,25 @@
       const ms = e.shiftKey ? 1000 : 10_000;
       skip(e.key === 'ArrowLeft' ? -ms : ms);
     }
+  }
+  // The fullscreen overlay's buttons, keys and gestures: false where
+  // nothing happens (after now in live, nothing to play).
+  function fsAction(a: FsAction): boolean {
+    if (a.kind === 'skip') {
+      if (glued && a.ms > 0) return false;
+      skip(a.ms);
+      return true;
+    }
+    if (a.kind === 'event') {
+      if (glued && a.dir > 0) return false;
+      return onstep(a.dir) === true;
+    }
+    if (a.kind === 'toggle') {
+      if (glued || source.kind === 'future') return false;
+      toggle();
+      return true;
+    }
+    return false;
   }
   const triggers = $derived(source.kind === 'clip' ? orderTriggers(source.clip.triggers).map((t) => TRIGGER_LABELS[t]).join(', ') : '');
   // The date too: the strip crosses days (Klaus, 2026-09-28).
@@ -320,7 +346,7 @@
 
 <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
 <div class="player" data-testid="strip-player" tabindex="0" onkeydown={keydown}>
-  <div class="box" bind:clientWidth={boxW} bind:this={boxEl}>
+  <div class="box" class:fill={$playerFs === 'fill'} bind:clientWidth={boxW} bind:this={boxEl}>
     {#each [0, 1] as i (i)}
       <video
         bind:this={vids[i]}
@@ -364,6 +390,9 @@
       <span class="mode live" class:on={badge === '● LIVE'} data-testid="mode-badge" data-mode="live" role="status">{badge}</span>
     {:else}
       <button class="mode rec" data-testid="mode-badge" data-mode="rec" title="Back to live" aria-label={`${badge}, back to live`} onclick={() => onglue?.()}>{badge}</button>
+    {/if}
+    {#if $playerFs !== 'off'}
+      <FullscreenOverlay {mode} {playing} kind={$playerFs} canPlay={source.kind !== 'future'} canPrev={stepAvail.prev} canNext={stepAvail.next} onaction={fsAction} onlive={() => onglue?.()} onexit={exitPlayerFullscreen} />
     {/if}
   </div>
   <div class="controls">
@@ -410,10 +439,21 @@
   video, .layer { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; }
   video.hidden { visibility: hidden; }
   .layer.off { visibility: hidden; }
+  /* Fullscreen (#182): the box is the whole screen, the browser's or, where
+     there is none (iPhone), a fixed layer over the page ("fill the screen"). */
+  .box:fullscreen { width: 100%; height: 100%; aspect-ratio: auto; border-radius: 0; }
+  .box.fill {
+    position: fixed; top: 0; left: 0; right: 0; z-index: 50;
+    width: auto; height: 100vh; height: 100dvh; aspect-ratio: auto; border-radius: 0;
+  }
+  /* The live stream's own 16:9 stage fills the screen too, centred. */
+  .box:fullscreen :global(.stage), .box.fill :global(.stage) { position: absolute; inset: 0; aspect-ratio: auto; border-radius: 0; }
+  .box.fill .mode { top: calc(8px + env(safe-area-inset-top, 0px)); right: calc(8px + env(safe-area-inset-right, 0px)); }
+  :global(html.player-fill), :global(html.player-fill body) { overflow: hidden; background: var(--player-bg); }
   .live { color: var(--danger); font-weight: 600; }
   /* The mode badge: top right, clear of the stills badge (top left). */
   .mode {
-    position: absolute; top: 8px; right: 8px; z-index: 2; padding: 3px 9px; border-radius: 7px; border: 0;
+    position: absolute; top: 8px; right: 8px; z-index: 4; padding: 3px 9px; border-radius: 7px; border: 0;
     font: inherit; font-size: 12px; font-weight: 700; letter-spacing: 0.04em; font-variant-numeric: tabular-nums;
     background: var(--scrim); color: var(--on-grad);
   }
