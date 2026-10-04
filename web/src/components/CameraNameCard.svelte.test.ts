@@ -104,6 +104,27 @@ describe('CameraNameCard', () => {
     expect(save().disabled).toBe(true);
   });
 
+  it('says so when the camera kept its old name (the read-back differs)', async () => {
+    render('den');
+    answer = { status: 200, body: { name: 'Den' } };
+    type('Backyard Left');
+    save().click();
+    await settle();
+    expect(q('save-state')!.dataset.state).toBe('error');
+    expect(error()).toBe('The camera kept the name "Den".');
+    expect(input().value).toBe('Den');
+    expect(get(cameras)[0].name).toBe('Den');
+  });
+
+  it('shows a camera_error as the camera refusing the change', async () => {
+    render('den');
+    answer = { status: 502, body: { error: 'camera_error' } };
+    type('Backyard Left');
+    save().click();
+    await settle();
+    expect(error()).toBe('The camera refused the change.');
+  });
+
   it('shows the reason of a refusal under the field and keeps the edit', async () => {
     render('den');
     answer = { status: 400, body: { error: 'invalid_name', reason: 'not allowed: =' } };

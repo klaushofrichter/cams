@@ -29,5 +29,6 @@ export async function renameCamera(id: string, name: string): Promise<RenameResu
   }
   if (res.status === 400) return { ok: false, message: typeof res.body.reason === 'string' && res.body.reason ? res.body.reason : 'The camera refused the name.' };
   if (res.status === 503) return { ok: false, message: 'Camera offline. Try again when it is back.' };
+  if (res.body.error === 'camera_error') return { ok: false, message: 'The camera refused the change.' };
   return failed;
 }

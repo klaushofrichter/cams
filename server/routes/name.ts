@@ -41,6 +41,11 @@ async function viaProxy(id: string, proxy: { url: string; adminToken: string }, 
   const { error, reason } = await errorBody(res);
   if (res.status === 400) return invalid(reason ?? cameraRefusalReason(undefined));
   if (res.status === 503 && (error === 'camera_offline' || error === undefined)) return { status: 503, body: { error: 'camera_offline' } };
+  // Another camera failure behind the proxy (its 502 camera_error).
+  if (res.status === 502 && error === 'camera_error') {
+    logger.warn({ cameraId: id, status: res.status, upstream: error }, 'camera_rename_failed');
+    return { status: 502, body: { error: 'camera_error' } };
+  }
   logger.warn({ cameraId: id, status: res.status, upstream: error }, 'camera_rename_failed');
   return { status: 502, body: { error: 'proxy_unavailable' } };
 }

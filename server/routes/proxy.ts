@@ -2,7 +2,7 @@ import { Router, Request, Response } from 'express';
 import { Readable } from 'stream';
 import { pipeline } from 'stream/promises';
 import { getCamera, proxyActive, setReportedName, type CameraConfig } from '../cameraRegistry';
-import { plausibleName } from '../proxy/names';
+import { forgetProxyName, plausibleName } from '../proxy/names';
 import { logger } from '../logger';
 import { setProxyEnabled } from '../proxyState';
 import { proxyHub, startProxyStream, stopProxyStream } from '../proxy/stream';
@@ -42,7 +42,10 @@ proxyRouter.put('/api/cameras/:id/proxy', async (req: Request, res: Response) =>
   if (typeof enabled !== 'boolean') return bad(res, 'enabled must be true or false');
   await setProxyEnabled(id, enabled);
   if (enabled) startProxyStream(id);
-  else stopProxyStream(id);
+  else {
+    stopProxyStream(id);
+    forgetProxyName(id); // the proxy's name goes with it
+  }
   // Every open browser re-reads the camera list (which cameras use a proxy),
   // and it and the recordings cache reload this camera's events.
   proxyHub.emit('cameras');

@@ -49,9 +49,14 @@
     serverError = null;
     const r = await renameCamera(id, name);
     if (id !== cameraId) return; // switched camera meanwhile
-    if (r.ok) {
+    if (r.ok && r.name === name) {
       draft = base = r.name;
       saveState = 'saved';
+    } else if (r.ok) {
+      // The write was answered, but the camera reads back another name.
+      draft = base = r.name;
+      serverError = `The camera kept the name "${r.name}".`;
+      saveState = 'error';
     } else {
       serverError = r.message;
       saveState = 'error';

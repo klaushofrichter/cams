@@ -52,6 +52,11 @@ describe('renameCamera', () => {
     expect(await renameCamera('den', 'X')).toEqual({ ok: false, message: 'Camera offline. Try again when it is back.' });
   });
 
+  it('says the camera refused the change on a camera_error', async () => {
+    answer(502, { error: 'camera_error' });
+    expect(await renameCamera('den', 'X')).toEqual({ ok: false, message: 'The camera refused the change.' });
+  });
+
   it('says it could not save otherwise', async () => {
     answer(502, { error: 'proxy_unavailable' });
     expect(await renameCamera('den', 'X')).toEqual({ ok: false, message: 'Could not save the name. Try again.' });

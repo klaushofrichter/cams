@@ -7,6 +7,7 @@ import { createApp } from '../server/app';
 import { cameraName, listCameras, setCameras, type CameraConfig } from '../server/cameraRegistry';
 import { cameraNameProblem } from '../server/cameraName';
 import { resetProxyClients } from '../server/proxy/client';
+import { setNameGraceMs } from '../server/proxy/names';
 import { startProxyStreams, stopProxyStreams } from '../server/proxy/stream';
 import { SESSION_COOKIE, signSession } from '../server/session';
 import { FAKE_ADMIN_TOKEN, FAKE_TOKEN, startFakeProxy, type FakeProxy } from './proxy/fakeProxy';
@@ -18,6 +19,7 @@ const auth = `${SESSION_COOKIE}=${signSession('klaus@klaushofrichter.net')}`;
 const cleanup: (() => unknown)[] = [];
 afterEach(async () => {
   for (const f of cleanup.splice(0).reverse()) await f();
+  setNameGraceMs();
 });
 
 async function until(cond: () => boolean, ms = 5000): Promise<void> {
@@ -108,19 +110,57 @@ describe('the shown name', () => {
     expect(cameraName('shed')).toBe('Shed');
   });
 
-  it('goes back to the registry name while the proxy is unreachable', async () => {
+  // A proxy restart or a network blip must not flash the registry name in
+  // every browser (review of #169): the last name stays for a grace period.
+  it('keeps the name through a short outage, without telling browsers anything', async () => {
+    setNameGraceMs(5000);
     const fake = await fakeProxy();
     fake.cameraNames.set('cam1', 'Backyard Left');
     cameras(fake);
     const base = await serve();
     const b = browser(base);
-    await until(() => shown('den') === 'Backyard Left');
+    await until(() => b.named().length === 1);
+    const ups = () => b.frames.filter((f) => f.includes('event: proxy') && f.includes('"up":true')).length;
+    const before = ups();
+    fake.offline = true;
+    fake.dropStreams();
+    await until(() => b.frames.some((f) => f.includes('event: proxy') && f.includes('"up":false')));
+    expect(shown('den')).toBe('Backyard Left');
+    fake.offline = false;
+    await until(() => ups() > before);
+    await new Promise((r) => setTimeout(r, 150));
+    expect(b.named()).toEqual([{ cam: 'den', name: 'Backyard Left' }]);
+  });
+
+  it('falls back to the registry name once after a long outage, and back once on reconnect', async () => {
+    setNameGraceMs(100);
+    const fake = await fakeProxy();
+    fake.cameraNames.set('cam1', 'Backyard Left');
+    cameras(fake);
+    const base = await serve();
+    const b = browser(base);
+    await until(() => b.named().length === 1);
     fake.offline = true;
     fake.dropStreams();
     await until(() => shown('den') === 'Den');
-    await until(() => b.named().some((n) => n.name === 'Den'));
+    await new Promise((r) => setTimeout(r, 300));
     fake.offline = false;
     await until(() => shown('den') === 'Backyard Left', 3000);
+    await new Promise((r) => setTimeout(r, 150));
+    expect(b.named().map((n) => n.name)).toEqual(['Backyard Left', 'Den', 'Backyard Left']);
+  });
+
+  it('shows the registry name at once when the proxy is switched off', async () => {
+    setNameGraceMs(60_000);
+    const fake = await fakeProxy();
+    fake.cameraNames.set('cam1', 'Backyard Left');
+    cameras(fake);
+    const base = await serve();
+    await until(() => shown('den') === 'Backyard Left');
+    const res = await request(base).put('/api/cameras/den/proxy').set('Cookie', auth).send({ enabled: false });
+    cleanup.push(() => request(base).put('/api/cameras/den/proxy').set('Cookie', auth).send({ enabled: true }));
+    expect(res.status).toBe(200);
+    expect(shown('den')).toBe('Den');
   });
 
   it('asks an older proxy (no `camera` stream type) without it', async () => {
@@ -189,6 +229,14 @@ describe('PUT /api/cameras/:id/name through the proxy', () => {
     const res = await put('Backyard Left');
     expect(res.status).toBe(503);
     expect(res.body).toEqual({ error: 'camera_offline' });
+  });
+
+  it("passes on the proxy's 502 camera_error (another camera failure)", async () => {
+    const { fake, put } = await setup();
+    fake.nameOverride = { status: 502, body: { error: 'camera_error' } };
+    const res = await put('Backyard Left');
+    expect(res.status).toBe(502);
+    expect(res.body).toEqual({ error: 'camera_error' });
   });
 
   it('answers 502 when the proxy is unreachable', async () => {
