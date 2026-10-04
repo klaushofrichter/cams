@@ -10,8 +10,11 @@ import { getRecordings } from './service';
 // fails counts as having nothing.
 const TTL_MS = 60_000;
 const MONTHS_BACK = 4;
-const cache = new Map<string, { at: number; oldest: number | null }>();
-const inflight = new Map<string, Promise<{ oldest: number | null }>>();
+// `stills`: the proxy's oldest still alone, where the Timeline's one-second
+// steps stop (issue #159).
+type Extent = { oldest: number | null; stills: number | null };
+const cache = new Map<string, { at: number } & Extent>();
+const inflight = new Map<string, Promise<Extent>>();
 
 export function resetExtentCache(): void {
   cache.clear();
@@ -40,17 +43,19 @@ async function cameraOldest(cameraId: string): Promise<number | null> {
   return null;
 }
 
-async function proxyOldest(cameraId: string): Promise<number | null> {
+const num = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v);
+
+async function proxyOldest(cameraId: string): Promise<{ oldest: number | null; stills: number | null } | null> {
   const client = getProxyClient(cameraId);
   if (!client) return null;
   const e = await client.json<{ clips: number | null; stills: number | null; previews: number | null }>(proxyPath(cameraId, '/extent'));
-  const all = [e.clips, e.stills, e.previews].filter((v): v is number => typeof v === 'number' && Number.isFinite(v));
-  return all.length ? Math.min(...all) : null;
+  const all = [e.clips, e.stills, e.previews].filter(num);
+  return { oldest: all.length ? Math.min(...all) : null, stills: num(e.stills) ? e.stills : null };
 }
 
-export async function extent(cameraId: string): Promise<{ oldest: number | null }> {
+export async function extent(cameraId: string): Promise<Extent> {
   const hit = cache.get(cameraId);
-  if (hit && Date.now() - hit.at < TTL_MS) return { oldest: hit.oldest };
+  if (hit && Date.now() - hit.at < TTL_MS) return { oldest: hit.oldest, stills: hit.stills };
   let work = inflight.get(cameraId);
   if (!work) {
     work = compute(cameraId).finally(() => inflight.delete(cameraId));
@@ -59,15 +64,16 @@ export async function extent(cameraId: string): Promise<{ oldest: number | null 
   return work;
 }
 
-async function compute(cameraId: string): Promise<{ oldest: number | null }> {
-  const settle = (p: Promise<number | null>, side: string) =>
+async function compute(cameraId: string): Promise<Extent> {
+  const settle = <T>(p: Promise<T | null>, side: string) =>
     p.catch((err: unknown) => {
       logger.warn({ cameraId, side, message: (err as Error).message }, 'extent_side_failed');
       return null;
     });
   const [cam, proxy] = await Promise.all([settle(cameraOldest(cameraId), 'camera'), settle(proxyOldest(cameraId), 'proxy')]);
-  const all = [cam, proxy].filter((v): v is number => v !== null);
+  const all = [cam, proxy?.oldest ?? null].filter((v): v is number => v !== null);
   const oldest = all.length ? Math.min(...all) : null;
-  cache.set(cameraId, { at: Date.now(), oldest });
-  return { oldest };
+  const stills = proxy?.stills ?? null;
+  cache.set(cameraId, { at: Date.now(), oldest, stills });
+  return { oldest, stills };
 }
