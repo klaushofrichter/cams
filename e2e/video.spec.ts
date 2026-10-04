@@ -140,3 +140,37 @@ test('the camera card links the name and the proxy, and shows the status', async
   // No model or firmware in the sidebar: they are on Settings.
   await expect(page.getByTestId('live-camera-model')).toHaveCount(0);
 });
+
+// Klaus, 2026-10-04: the popup over the timeline names the clip's types with
+// icons, says Still over the stills, and has one size for both. The pointer
+// rests on the playhead (the bar's centre is `at` at any zoom).
+test('the timeline popup shows the clip’s types, or Still, in one box size', async ({ page }, info) => {
+  test.skip(info.project.name === 'phone', 'hover: desktop only');
+  const hoverCentre = async () => {
+    const bar = (await page.getByTestId('timeline').boundingBox())!;
+    await page.mouse.move(bar.x + bar.width / 2, bar.y + bar.height / 2 + 6);
+    await page.mouse.move(bar.x + bar.width / 2, bar.y + bar.height / 2);
+    await expect(page.getByTestId('scrub-preview')).toBeVisible();
+    await page.waitForTimeout(300); // the picture after its 150 ms rest
+    return (await page.getByTestId('scrub-preview').boundingBox())!;
+  };
+  const clipAt = Date.parse(`${chicagoToday()}T08:15:20-05:00`); // Den's person recording (two person events)
+  await page.goto(`/app/video?cam=cam1&date=${chicagoToday()}&at=${clipAt}`);
+  await expect(badge(page)).toHaveText(/· SD$/);
+  const overClip = await hoverCentre();
+  const person = page.locator('[data-testid="scrub-kind"][data-kind="person"]');
+  await expect(person).toHaveAttribute('aria-label', 'Person 2x');
+  await expect(person).toHaveText('2x');
+  await expect(person.locator('svg')).toBeVisible();
+  await expect(page.getByTestId('scrub-kind').first()).toHaveAttribute('data-kind', 'person'); // person first
+  const stillAt = Math.floor((Date.now() - 3 * 60_000) / 1000) * 1000; // Den's preview tiles: the last ten minutes
+  const stillDay = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Chicago' }).format(new Date(stillAt));
+  await page.goto(`/app/video?cam=cam1&date=${stillDay}&at=${stillAt}`);
+  await expect(page.getByTestId('source-badge')).toHaveText(/Stills 1 FPS|Preview 1 FPS/);
+  const overStill = await hoverCentre();
+  await expect(page.getByTestId('scrub-kind')).toHaveCount(1);
+  await expect(page.getByTestId('scrub-kind')).toHaveAttribute('data-kind', 'still');
+  await expect(page.getByTestId('scrub-kind')).toHaveAttribute('aria-label', 'Still');
+  expect(Math.round(overStill.width)).toBe(Math.round(overClip.width));
+  expect(Math.round(overStill.height)).toBe(Math.round(overClip.height));
+});

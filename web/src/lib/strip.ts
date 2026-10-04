@@ -1,5 +1,5 @@
 // web/src/lib/strip.ts
-import { addDays, localDate, pad2, type EventClip } from './recordings';
+import { addDays, localDate, pad2, tagText, type EventClip } from './recordings';
 import type { PreviewMinute } from './timeline';
 
 // The History strip (spec 2026-09-27-history-strip-design.md): what is at a
@@ -240,4 +240,18 @@ export function localDaysBetween(from: number, to: number): string[] {
   const last = localDate(new Date(to));
   for (let d = localDate(new Date(from)); d <= last; d = addDays(d, 1)) out.push(d);
   return out;
+}
+
+// The hover popup's types (Klaus, 2026-10-04): an icon per type of the clip
+// under the pointer, person, vehicle, pet, motion (two or more events of an
+// AI type with their count), or "Still" over the stills.
+export type HoverKind = 'person' | 'vehicle' | 'pet' | 'motion' | 'still';
+export interface HoverSlot { kind: HoverKind; label: string; count: number }
+const HOVER_ORDER = ['person', 'vehicle', 'pet', 'motion'] as const;
+export const STILL_SLOT: HoverSlot = { kind: 'still', label: 'Still', count: 0 };
+export function hoverKinds(clip: EventClip): HoverSlot[] {
+  return HOVER_ORDER.filter((k) => clip.triggers.includes(k)).map((k) => {
+    const count = k === 'motion' ? 0 : (clip.counts?.[k] ?? 0);
+    return { kind: k, label: tagText(k, clip.counts), count: count >= 2 ? count : 0 };
+  });
 }

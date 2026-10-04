@@ -6,6 +6,7 @@ import Strip from './Strip.svelte';
 import { preferences, type Preferences } from '../lib/preferences';
 import type { Coverage } from '../lib/strip';
 import type { EventClip } from '../lib/recordings';
+import type { PreviewMinute } from '../lib/timeline';
 
 const PREFS: Preferences = { defaultCamera: null, liveQuality: 'sub', eventFilter: ['person', 'vehicle', 'pet', 'motion'], timelineZoom: 1, liveKeepAlive: 60 };
 const T = Date.parse('2026-09-27T12:00:00-05:00');
@@ -261,4 +262,67 @@ describe('Strip', () => {
     expect(onseek).toHaveBeenCalledTimes(1);
     expect(Number(frames[0].dataset.t)).toBe(onseek.mock.calls[0][0]);
   });
+
+  // Klaus, 2026-10-04: the popup over the bar says what the clip is (an icon
+  // per type, person, vehicle, pet, motion), "Still" over the stills, and is
+  // the same size either way.
+  describe('the hover popup', () => {
+    // 1 h window, 600 px: 10 px a minute, the playhead (T) at 300.
+    const clipAt = T - 10 * 60_000; // x 200 to 210
+    const minute = T - 5 * 60_000; // x 250 to 260: a preview minute (stills)
+    const pm: PreviewMinute = { minute, cols: 10, rows: 6, tileW: 160, tileH: 90, intervalS: 1, present: Array(60).fill(true), url: '/p.jpg' };
+    const clip = (triggers: EventClip['triggers'], counts?: EventClip['counts']): EventClip => ({ ...ev('c1', clipAt), triggers, counts });
+    const hoverX = async (bar: HTMLElement, x: number) => {
+      bar.dispatchEvent(new PointerEvent('pointermove', { clientX: x, bubbles: true }));
+      flushSync();
+      await vi.advanceTimersByTimeAsync(200); // the 150 ms rest
+      flushSync();
+    };
+    const kinds = () => [...target!.querySelectorAll('[data-testid="scrub-kind"]')].map((e) => (e as HTMLElement).dataset.kind);
+    afterEach(() => vi.useRealTimers());
+
+    it('shows an icon per type of the clip, person, vehicle, pet, motion, named', async () => {
+      vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+      const bar = render({ events: [clip(['motion', 'pet', 'person', 'vehicle'])], thumbFor: (id: string) => `/t/${id}.jpg` });
+      await hoverX(bar, 205);
+      expect(q('scrub-preview')).not.toBeNull();
+      expect(kinds()).toEqual(['person', 'vehicle', 'pet', 'motion']);
+      const icons = [...target!.querySelectorAll('[data-testid="scrub-kind"]')] as HTMLElement[];
+      expect(icons.map((e) => e.getAttribute('aria-label'))).toEqual(['Person', 'Vehicle', 'Pet', 'Motion']);
+      expect(icons.map((e) => e.getAttribute('title'))).toEqual(['Person', 'Vehicle', 'Pet', 'Motion']);
+      expect(icons.every((e) => e.querySelector('svg path'))).toBe(true);
+    });
+
+    it('counts two or more events of an AI type: "2x"', async () => {
+      vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+      const bar = render({ events: [clip(['person', 'motion'], { person: 2 })], thumbFor: (id: string) => `/t/${id}.jpg` });
+      await hoverX(bar, 205);
+      expect(kinds()).toEqual(['person', 'motion']);
+      const person = target!.querySelector('[data-testid="scrub-kind"][data-kind="person"]') as HTMLElement;
+      expect(person.textContent!.trim()).toBe('2x');
+      expect(person.getAttribute('aria-label')).toBe('Person 2x');
+    });
+
+    it('says Still over the stills, in the same slot, and the box is the same size', async () => {
+      vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+      const bar = render({ events: [clip(['person'])], previews: [pm], thumbFor: (id: string) => `/t/${id}.jpg` });
+      await hoverX(bar, 205);
+      const overClip = q('scrub-preview')!;
+      const clipFrame = (q('scrub-frame') as HTMLElement).getAttribute('style');
+      expect(kinds()).toEqual(['person']);
+      expect(q('scrub-kinds')).not.toBeNull();
+      await hoverX(bar, 255);
+      expect(kinds()).toEqual(['still']);
+      const still = target!.querySelector('[data-testid="scrub-kind"]') as HTMLElement;
+      expect(still.getAttribute('aria-label')).toBe('Still');
+      expect(still.querySelector('svg path')).not.toBeNull();
+      // One box: the frame the same fixed size, the kinds slot, the time.
+      expect((q('scrub-frame') as HTMLElement).getAttribute('style')).toBe(clipFrame);
+      expect(clipFrame).toMatch(/width: ?160px/);
+      expect(clipFrame).toMatch(/height: ?90px/);
+      expect(q('scrub-preview')!.children.length).toBe(overClip.children.length);
+      expect(q('scrub-preview')!.classList.contains('scrub')).toBe(true);
+    });
+  });
+
 });
