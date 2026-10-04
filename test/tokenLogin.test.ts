@@ -141,10 +141,28 @@ describe('POST /auth/token', () => {
     expect(sessionCookie(res)).toBeUndefined();
   });
 
-  it('is 404 when token login is off', async () => {
+  it('with token login off, is exactly an unknown route (no limiter, no JSON of its own)', async () => {
     delete process.env.CAMS_LOGIN_TOKEN;
-    const res = await post();
+    const app = createApp();
+    const res = await post(app);
+    const unknown = await request(app).post('/auth/no-such-route').send({ token: TOKEN });
     expect(res.status).toBe(404);
+    expect(res.status).toBe(unknown.status);
+    expect(res.text).toBe(unknown.text);
+    expect(res.headers['content-type']).toBe(unknown.headers['content-type']);
+    // Not behind the auth or failure limiters either: the same limiter as any unknown path.
+    expect(res.headers['ratelimit-policy']).toBe(unknown.headers['ratelimit-policy']);
+  });
+
+  it('cross-site posts never use up the failure budget', async () => {
+    tokenOnly();
+    const app = createApp();
+    for (let i = 0; i < 15; i++) {
+      const res = await request(app).post('/auth/token').set('Origin', 'https://evil.example').send({ token: 'nope' });
+      expect(res.status).toBe(403);
+    }
+    for (let i = 0; i < 9; i++) expect((await post(app, { token: 'nope' })).status).toBe(401);
+    expect((await post(app)).status).toBe(200);
   });
 
   it('stops an address after 10 failures, but not after successes', async () => {
