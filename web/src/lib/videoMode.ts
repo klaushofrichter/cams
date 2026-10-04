@@ -28,13 +28,19 @@ export function liveBadge(u: Pick<LiveUi, 'playerState' | 'stillsShowing' | 'sta
   return 'Connecting…';
 }
 
-// The badge on the player: "● LIVE", or "REC 14:03:22" (with the day when it
-// isn't today: "REC Oct 3, 14:03:22").
-export function modeBadge(mode: Mode, at: number, now: number = Date.now()): string {
+// What a recording shows (Klaus, 2026-10-04): a clip by the stream that
+// plays (sub SD, main 4K), or the proxy's stills.
+export type RecShown = 'SD' | '4K' | 'Still';
+export const clipShown = (stream: 'sub' | 'main'): RecShown => (stream === 'main' ? '4K' : 'SD');
+
+// The badge on the player: "● LIVE", or "REC 14:03:22 · SD" (with the day
+// when it isn't today: "REC Oct 3, 14:03:22 · Still"); nothing after the
+// time where the player shows neither (preview tiles, a gap).
+export function modeBadge(mode: Mode, at: number, now: number = Date.now(), shown: RecShown | null = null): string {
   if (mode === 'live') return '● LIVE';
   const d = new Date(at);
   const day = localDate(d) === localDate(new Date(now)) ? '' : `${d.toLocaleDateString(undefined, { month: 'short' })} ${d.getDate()}, `;
-  return `REC ${day}${localClock(at)}`;
+  return `REC ${day}${localClock(at)}${shown ? ` · ${shown}` : ''}`;
 }
 
 export { snapshotName, type SnapshotKind } from './download';

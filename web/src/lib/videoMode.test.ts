@@ -27,6 +27,19 @@ describe('mode', () => {
     expect(modeBadge('rec', yesterday, now)).toBe(`REC Oct 3, ${localClock(yesterday)}`);
   });
 
+  // Klaus, 2026-10-04: REC says what it shows: a clip's quality, or the stills.
+  it('adds what a recording shows: SD, 4K or Still', () => {
+    const now = new Date(2026, 9, 4, 15, 0, 0).getTime();
+    const today = new Date(2026, 9, 4, 7, 18, 32).getTime();
+    expect(modeBadge('rec', today, now, 'SD')).toBe(`REC ${localClock(today)} · SD`);
+    expect(modeBadge('rec', today, now, '4K')).toBe(`REC ${localClock(today)} · 4K`);
+    expect(modeBadge('rec', today, now, 'Still')).toBe(`REC ${localClock(today)} · Still`);
+    const yesterday = new Date(2026, 9, 3, 9, 5, 7).getTime();
+    expect(modeBadge('rec', yesterday, now, 'SD')).toBe(`REC Oct 3, ${localClock(yesterday)} · SD`);
+    expect(modeBadge('rec', today, now, null)).toBe(`REC ${localClock(today)}`);
+    expect(modeBadge('live', now, now, 'SD')).toBe('● LIVE');
+  });
+
   // Review of #173: the badge says LIVE only while live video plays.
   it('badges live by what the stream does: LIVE, STILLS, Connecting…, Offline', () => {
     expect(liveBadge({ playerState: 'playing', stillsShowing: false, status: { id: 'c', online: true } })).toBe('● LIVE');
