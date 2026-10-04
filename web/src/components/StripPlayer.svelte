@@ -32,7 +32,7 @@
     live?: Snippet; // the live stream; kept mounted while unglued so it resumes at once
   } = $props();
 
-  // Live has no "after": forward 10 s and next event are off there (#121).
+  // Live has no "after": forward 1 s and 10 s and next event are off there (#121).
   const NOT_LIVE = 'Not available in live view';
 
   // The Timeline needs the camera's cam-proxy (its stills), as does the save
@@ -68,6 +68,10 @@
   let followVideo = false; // true while the active video drives `at`
   const idOf = new Map<string, string>(); // video url → clip id (for errors on either slot)
   const awaitingMeta = [false, false]; // a slot's new src: its position isn't the clip's yet
+  // A step (±1 s, ±10 s) seeks the video even when it moves less than the
+  // drift allowed below: paused, the new frame shows; playing, the video's
+  // own time doesn't undo the step (Klaus, 2026-10-03).
+  let seekNext = false;
 
   function urlOf(id: string) {
     const url = videoUrl(cam, id);
@@ -83,6 +87,8 @@
   $effect(() => {
     const s = source;
     const wantPlay = playing; // read first: every early return below still re-runs on play/pause
+    const forced = seekNext;
+    seekNext = false;
     if (s.kind !== 'clip') {
       followVideo = false;
       vids[active]?.pause();
@@ -109,7 +115,7 @@
     const v = vids[active];
     if (!v || awaitingMeta[active]) return;
     const want = s.offsetMs / 1000;
-    if (!followVideo || Math.abs((v.currentTime || 0) - want) > 1.5) {
+    if (!followVideo || forced || Math.abs((v.currentTime || 0) - want) > 1.5) {
       try {
         v.currentTime = want;
       } catch {
@@ -252,9 +258,10 @@
   // past now the panel says so and the ticker doesn't run.
   function skip(ms: number) {
     if (glued && ms > 0) return; // nothing after live
+    seekNext = true;
     at = Math.max(0, at + ms);
   }
-  // Space plays or pauses; ←/→ step 10 s (spec: Player / Controls).
+  // Space plays or pauses; ←/→ step 10 s, Shift+←/→ 1 s (spec: Player / Controls).
   function keydown(e: KeyboardEvent) {
     if (e.target instanceof HTMLButtonElement || e.target instanceof HTMLAnchorElement) return;
     if (e.key === ' ') {
@@ -262,7 +269,8 @@
       toggle();
     } else if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
       e.preventDefault();
-      skip(e.key === 'ArrowLeft' ? -10_000 : 10_000);
+      const ms = e.shiftKey ? 1000 : 10_000;
+      skip(e.key === 'ArrowLeft' ? -ms : ms);
     }
   }
   const triggers = $derived(source.kind === 'clip' ? orderTriggers(source.clip.triggers).map((t) => TRIGGER_LABELS[t]).join(', ') : '');
@@ -318,11 +326,14 @@
   </div>
   <div class="controls">
     <button data-testid="prev-clip" title="Previous event" onclick={() => onstep(-1)}><Icon name="prev" size={16} /></button>
-    <button data-testid="back-10" title="Back 10 seconds" onclick={() => skip(-10_000)}><Icon name="back10" size={16} /><span>10</span></button>
+    <!-- ⏮ << < ▶ > >> ⏭: 10 s and 1 s steps either side of play (Klaus, 2026-10-03). -->
+    <button data-testid="back-10" title="Back 10 seconds" aria-label="Back 10 seconds" onclick={() => skip(-10_000)}><Icon name="back10" size={16} /></button>
+    <button data-testid="back-1" title="Back 1 second" aria-label="Back 1 second" onclick={() => skip(-1000)}><Icon name="back1" size={16} /></button>
     <button data-testid="play-toggle" class="primary" aria-pressed={playing} title={playing ? 'Pause' : 'Play'} disabled={glued || source.kind === 'future'} onclick={toggle}>
       <Icon name={playing ? 'pause' : 'play'} size={16} />
     </button>
-    <button data-testid="fwd-10" title={glued ? NOT_LIVE : 'Forward 10 seconds'} disabled={glued} onclick={() => skip(10_000)}><span>10</span><Icon name="fwd10" size={16} /></button>
+    <button data-testid="fwd-1" title={glued ? NOT_LIVE : 'Forward 1 second'} aria-label="Forward 1 second" disabled={glued} onclick={() => skip(1000)}><Icon name="fwd1" size={16} /></button>
+    <button data-testid="fwd-10" title={glued ? NOT_LIVE : 'Forward 10 seconds'} aria-label="Forward 10 seconds" disabled={glued} onclick={() => skip(10_000)}><Icon name="fwd10" size={16} /></button>
     <button data-testid="next-clip" title={glued ? NOT_LIVE : 'Next event'} disabled={glued} onclick={() => onstep(1)}><Icon name="next" size={16} /></button>
     <!-- Time, source and why the clip was recorded, in one line (Klaus, 2026-09-28). -->
     <span class="info" data-testid="strip-info">

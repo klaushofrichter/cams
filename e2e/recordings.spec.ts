@@ -92,6 +92,39 @@ test('skip, pause and next/previous recording work', async ({ page }) => {
   await expect(page).toHaveURL(/clip=\d{8}-081510-081535/);
 });
 
+// ⏮ << < ▶ > >> ⏭ (Klaus, 2026-10-03): one-second steps beside the 10 s ones;
+// a step on a paused clip shows that frame. One row on a phone too.
+test('one-second steps move a paused clip, and the bar fits one row', async ({ page }) => {
+  await openEvents(page);
+  await card(page, '081510').click();
+  const video = page.getByTestId('clip-video');
+  await expect.poll(() => video.evaluate((v: HTMLVideoElement) => v.currentTime > 2.5), { timeout: 15_000 }).toBe(true);
+  await page.getByTestId('play-toggle').click();
+  await expect.poll(() => video.evaluate((v: HTMLVideoElement) => v.paused)).toBe(true);
+  const t0 = await video.evaluate((v: HTMLVideoElement) => v.currentTime);
+  await page.getByTestId('back-1').click();
+  await expect.poll(() => video.evaluate((v: HTMLVideoElement) => v.currentTime)).toBeCloseTo(t0 - 1, 0);
+  await page.getByTestId('fwd-1').click();
+  await page.getByTestId('fwd-1').click();
+  await expect.poll(() => video.evaluate((v: HTMLVideoElement) => v.currentTime)).toBeCloseTo(t0 + 1, 0);
+  // the new frame is decoded, not a pending seek
+  await expect.poll(() => video.evaluate((v: HTMLVideoElement) => !v.seeking && v.readyState >= 2)).toBe(true);
+  expect(await video.evaluate((v: HTMLVideoElement) => v.paused)).toBe(true);
+
+  for (const [id, name] of [['back-10', 'Back 10 seconds'], ['back-1', 'Back 1 second'], ['fwd-1', 'Forward 1 second'], ['fwd-10', 'Forward 10 seconds']]) {
+    await expect(page.getByRole('button', { name, exact: true })).toHaveAttribute('data-testid', id);
+  }
+  const ids = ['prev-clip', 'back-10', 'back-1', 'play-toggle', 'fwd-1', 'fwd-10', 'next-clip'];
+  const boxes = await Promise.all(ids.map(async (id) => (await page.getByTestId(id).boundingBox())!));
+  const width = page.viewportSize()!.width;
+  for (let i = 0; i < boxes.length; i++) {
+    expect(Math.abs(boxes[i].y - boxes[0].y)).toBeLessThan(2); // one row
+    expect(boxes[i].x + boxes[i].width).toBeLessThanOrEqual(width);
+    if (i) expect(boxes[i].x).toBeGreaterThan(boxes[i - 1].x); // in this order
+  }
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+});
+
 test('filters narrow the list and an empty filter says so', async ({ page }) => {
   await openEvents(page);
   await page.getByTestId('filter-person').click();
