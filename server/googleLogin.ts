@@ -1,5 +1,6 @@
 import { Request, Response } from 'express';
 import { randomBytes, timingSafeEqual } from 'crypto';
+import { cookieOptions } from './loginConfig';
 
 const GOOGLE_AUTH_ENDPOINT = 'https://accounts.google.com/o/oauth2/v2/auth';
 export const OAUTH_STATE_COOKIE = 'oauth_state';
@@ -47,11 +48,11 @@ export function loginHint(req: Request): string | null {
 
 export function setLoginHint(res: Response, email: string): void {
   if (!HINT_PATTERN.test(email)) return;
-  res.cookie(LOGIN_HINT_COOKIE, email, { httpOnly: true, secure: true, sameSite: 'lax', maxAge: LOGIN_HINT_MAX_AGE_MS });
+  res.cookie(LOGIN_HINT_COOKIE, email, { ...cookieOptions(), maxAge: LOGIN_HINT_MAX_AGE_MS });
 }
 
 export function clearLoginHint(res: Response): void {
-  res.clearCookie(LOGIN_HINT_COOKIE, { httpOnly: true, secure: true, sameSite: 'lax' });
+  res.clearCookie(LOGIN_HINT_COOKIE, cookieOptions());
 }
 
 // Login-CSRF defence: the nonce lives in an httpOnly cookie and travels to
@@ -60,13 +61,8 @@ export function clearLoginHint(res: Response): void {
 function issueNonce(req: Request, res: Response): string {
   const existing = req.cookies?.[OAUTH_STATE_COOKIE];
   const nonce = typeof existing === 'string' && NONCE_PATTERN.test(existing) ? existing : randomBytes(16).toString('hex');
-  res.cookie(OAUTH_STATE_COOKIE, nonce, {
-    httpOnly: true,
-    secure: true,
-    // Lax: the callback arrives as a top-level redirect from Google.
-    sameSite: 'lax',
-    maxAge: STATE_MAX_AGE_MS,
-  });
+  // Lax (cookieOptions): the callback arrives as a top-level redirect from Google.
+  res.cookie(OAUTH_STATE_COOKIE, nonce, { ...cookieOptions(), maxAge: STATE_MAX_AGE_MS });
   return nonce;
 }
 
@@ -94,5 +90,5 @@ export function checkState(req: Request): LoginAttempt | null {
 }
 
 export function clearState(res: Response): void {
-  res.clearCookie(OAUTH_STATE_COOKIE, { httpOnly: true, secure: true, sameSite: 'lax' });
+  res.clearCookie(OAUTH_STATE_COOKIE, cookieOptions());
 }

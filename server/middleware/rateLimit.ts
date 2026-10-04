@@ -38,6 +38,26 @@ export function createAuthRateLimit(): RateLimitRequestHandler {
   return build(AUTH_MAX);
 }
 
+// The token login's failures (POST /auth/token), per address: 10 per 15
+// minutes. Successes don't count (res.locals.tokenOk, set by the handler), so
+// the owner signing in on several browsers never trips it. Per address only,
+// no global cap, which would let anyone on the LAN lock the owner out (spec
+// 2026-10-04-pi-deployment-design). Read per request, so tests can set it.
+export function createTokenFailureLimit(): RateLimitRequestHandler {
+  const store = new MemoryStore();
+  stores.push(store);
+  return rateLimit({
+    windowMs: 15 * 60 * 1000,
+    limit: () => fromEnv('RATE_LIMIT_TOKEN_FAILURES', 10),
+    standardHeaders: true,
+    legacyHeaders: false,
+    store,
+    skipSuccessfulRequests: true,
+    requestWasSuccessful: (_req, res) => res.locals.tokenOk === true,
+    message: { error: 'too_many_attempts' },
+  });
+}
+
 // Skips clip media requests: they get their own, much higher budget below,
 // so a page full of thumbnail requests doesn't eat into the general API's.
 export function createApiRateLimit(): RateLimitRequestHandler {

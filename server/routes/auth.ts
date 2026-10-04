@@ -1,14 +1,18 @@
-import { Router, Request, Response } from 'express';
+import express, { Router, Request, Response } from 'express';
+import { createHash, timingSafeEqual } from 'crypto';
 import { OAuth2Client } from 'google-auth-library';
-import { SESSION_COOKIE, SESSION_MAX_AGE_MS, signSession } from '../session';
+import { expiredSessionKind, SESSION_COOKIE, SESSION_MAX_AGE_MS, signSession, signTokenSession } from '../session';
 import { getAllowedEmails } from '../allowedEmails';
-import { createAuthRateLimit } from '../middleware/rateLimit';
+import { createAuthRateLimit, createTokenFailureLimit } from '../middleware/rateLimit';
 import { RETURN_COOKIE, rememberReturn, safeReturnPath } from '../middleware/requireAuth';
+import { requireSameOrigin } from '../middleware/requireSameOrigin';
 import { checkState, clearLoginHint, clearState, loginHint, redirectToGoogle, setLoginHint } from '../googleLogin';
+import { cookieOptions, googleLoginEnabled, loginToken, tokenFingerprint, tokenLoginEnabled, tokenUser } from '../loginConfig';
+import { logger } from '../logger';
 
 export const authRouter = Router();
 const authRateLimit = createAuthRateLimit();
-const COOKIE_OPTS = { httpOnly: true, secure: true, sameSite: 'lax' as const };
+const tokenFailureLimit = createTokenFailureLimit();
 
 export { safeReturnPath };
 
@@ -19,7 +23,17 @@ export { safeReturnPath };
 // logged out) there is nothing to renew: the start page, as before.
 authRouter.get('/auth/google/login', authRateLimit, (req: Request, res: Response) => {
   rememberReturn(res, req.query.returnTo);
+  // No Google here (the Pi), or the session that ran out came from the token
+  // login: nothing to renew with Google, the start page signs in again.
+  if (!googleLoginEnabled()) {
+    res.redirect(302, '/');
+    return;
+  }
   if (req.query.silent === '1') {
+    if (expiredSessionKind(req.cookies?.[SESSION_COOKIE]) === 'token') {
+      res.redirect(302, '/');
+      return;
+    }
     const hint = loginHint(req);
     if (hint) redirectToGoogle(req, res, 'silent', hint);
     else res.redirect(302, '/');
@@ -29,6 +43,10 @@ authRouter.get('/auth/google/login', authRateLimit, (req: Request, res: Response
 });
 
 authRouter.get('/auth/google/callback', authRateLimit, async (req: Request, res: Response) => {
+  if (!googleLoginEnabled()) {
+    res.redirect(302, '/');
+    return;
+  }
   // The user cancelled at Google (or Google refused, or a silent renewal
   // needs the user: login_required, interaction_required, ...): back to the
   // start page, never a JSON error page. return_to is kept, so the normal
@@ -89,12 +107,65 @@ authRouter.get('/auth/google/callback', authRateLimit, async (req: Request, res:
   }
 
   clearState(res);
-  res.cookie(SESSION_COOKIE, signSession(email), { ...COOKIE_OPTS, maxAge: SESSION_MAX_AGE_MS });
+  res.cookie(SESSION_COOKIE, signSession(email), { ...cookieOptions(), maxAge: SESSION_MAX_AGE_MS });
   setLoginHint(res, email);
   const returnTo = safeReturnPath(req.cookies?.[RETURN_COOKIE]);
-  res.clearCookie(RETURN_COOKIE, COOKIE_OPTS);
+  res.clearCookie(RETURN_COOKIE, cookieOptions());
   res.redirect(302, returnTo ?? '/');
 });
+
+// --- Token login (spec 2026-10-04-pi-deployment-design) ---------------------
+//
+// The Pi demo kit's sign-in: one shared token (CAMS_LOGIN_TOKEN), posted from
+// the start page. Never in a URL; the body is never logged (pino-http logs no
+// bodies, and the lines below carry no token, agent or address). The digests
+// make the comparison constant-time whatever length was sent.
+const MAX_TOKEN_BYTES = 1024;
+const digest = (value: string): Buffer => createHash('sha256').update(value, 'utf8').digest();
+
+function tokenMatches(presented: unknown, expected: string): boolean {
+  const candidate = typeof presented === 'string' && presented.length > 0 && presented.length <= MAX_TOKEN_BYTES ? presented : '';
+  // Always compare, so a missing token takes the same path as a wrong one.
+  const same = timingSafeEqual(digest(candidate), digest(expected));
+  return same && candidate.length > 0;
+}
+
+authRouter.post(
+  '/auth/token',
+  authRateLimit,
+  tokenFailureLimit,
+  requireSameOrigin,
+  express.urlencoded({ extended: false, limit: '4kb' }),
+  (req: Request, res: Response) => {
+    const expected = loginToken();
+    if (!expected || !tokenLoginEnabled()) {
+      res.status(404).json({ error: 'not_found' });
+      return;
+    }
+    const form = !req.is('application/json');
+    if (req.query.token !== undefined) {
+      logger.warn({ kind: 'auth' }, 'token_login_failed');
+      res.status(400).json({ error: 'token_in_url' });
+      return;
+    }
+    if (!tokenMatches((req.body as { token?: unknown } | undefined)?.token, expected)) {
+      logger.warn({ kind: 'auth' }, 'token_login_failed');
+      if (form) res.redirect(303, '/?login=failed');
+      else res.status(401).json({ error: 'invalid_token' });
+      return;
+    }
+    res.locals.tokenOk = true;
+    res.cookie(SESSION_COOKIE, signTokenSession(tokenUser(), tokenFingerprint(expected)), { ...cookieOptions(), maxAge: SESSION_MAX_AGE_MS });
+    // No Google renewal for this browser (it would be for another account).
+    clearLoginHint(res);
+    clearState(res);
+    const returnTo = safeReturnPath(req.cookies?.[RETURN_COOKIE]);
+    if (req.cookies?.[RETURN_COOKIE] !== undefined) res.clearCookie(RETURN_COOKIE, cookieOptions());
+    logger.info({ kind: 'auth' }, 'token_login');
+    if (form) res.redirect(303, returnTo ?? '/');
+    else res.json({ redirect: returnTo ?? '/app/video' });
+  },
+);
 
 // Logout clears exactly the four cookies this app sets (session, return_to,
 // oauth_state, login_hint), with the same attributes they were set with, so the next
@@ -108,8 +179,8 @@ authRouter.get('/auth/google/callback', authRateLimit, async (req: Request, res:
 // Rate-limited like sign-in, as it rewrites the same cookies (CodeQL
 // js/missing-rate-limiting).
 authRouter.get('/auth/logout', authRateLimit, (_req: Request, res: Response) => {
-  res.clearCookie(SESSION_COOKIE, COOKIE_OPTS);
-  res.clearCookie(RETURN_COOKIE, COOKIE_OPTS);
+  res.clearCookie(SESSION_COOKIE, cookieOptions());
+  res.clearCookie(RETURN_COOKIE, cookieOptions());
   clearState(res);
   clearLoginHint(res);
   res.redirect(302, '/');

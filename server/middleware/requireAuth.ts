@@ -1,18 +1,27 @@
 import { NextFunction, Request, Response } from 'express';
 import { getAllowedEmails } from '../allowedEmails';
 import { SESSION_COOKIE, SessionPayload, verifySession } from '../session';
+import { cookieOptions, loginToken, tokenFingerprint, tokenLoginEnabled, tokenUser } from '../loginConfig';
 
 export const RETURN_COOKIE = 'return_to';
 const RETURN_MAX_AGE_MS = 10 * 60 * 1000;
 
 // The single definition of "signed in". The allow-list is re-checked on every
 // request, so removing an address locks that account out immediately rather
-// than when its 7-day cookie expires.
+// than when its 7-day cookie expires. A token session (POST /auth/token)
+// bypasses the allow-list, and only that kind: it must name the current
+// CAMS_TOKEN_USER and carry the current token's fingerprint, so turning the
+// token login off or changing the token ends it at once.
 export function currentUser(req: Request): SessionPayload | null {
   const token = req.cookies?.[SESSION_COOKIE];
   if (typeof token !== 'string') return null;
   const session = verifySession(token);
   if (!session) return null;
+  if (session.via === 'token') {
+    const configured = loginToken();
+    if (!configured || !tokenLoginEnabled()) return null;
+    return session.email === tokenUser() && session.tf === tokenFingerprint(configured) ? session : null;
+  }
   return getAllowedEmails().includes(session.email) ? session : null;
 }
 
@@ -37,7 +46,7 @@ export function safeReturnPath(value: unknown): string | null {
 export function rememberReturn(res: Response, value: unknown): void {
   const path = safeReturnPath(value);
   if (!path) return;
-  res.cookie(RETURN_COOKIE, path, { httpOnly: true, secure: true, sameSite: 'lax', maxAge: RETURN_MAX_AGE_MS });
+  res.cookie(RETURN_COOKIE, path, { ...cookieOptions(), maxAge: RETURN_MAX_AGE_MS });
 }
 
 export function requireAuthPage(req: Request, res: Response, next: NextFunction): void {
