@@ -1,6 +1,6 @@
 // A small stand-in for cam-proxy (github.com/klaushofrichter/cam-proxy),
 // following its openapi.yaml for the routes cams uses: the event stream,
-// clips, stills, previews and SD recordings. Tests set its data and switches
+// clips, stills, previews, SD recordings and the camera name. Tests set its data and switches
 // directly; e2e runs it as a process (bottom of the file).
 import express, { type Response } from 'express';
 import rateLimit from 'express-rate-limit';
@@ -10,6 +10,7 @@ import { createHash, randomBytes } from 'crypto';
 import type { AddressInfo } from 'net';
 import { tmpdir } from 'os';
 import { join } from 'path';
+import { cameraNameProblem } from '../../server/cameraName';
 
 export interface FakeClip { id: number; cam: string; start: number; end: number; stream: string; events: number[]; body: Buffer; snapshot?: Buffer }
 export interface FakeMessage { id: number; ts: number; cam: string; type: string; data: Record<string, unknown> }
@@ -51,6 +52,9 @@ export interface FakeProxy {
   publicUrl: string | null; // what /api/cameras reports as the proxy's web address
   camerasBody?: unknown; // tests: answer /api/cameras with this instead
   loginLinks: number; // one-time admin UI links minted (POST /control/login-links)
+  cameraNames: Map<string, string>; // proxy camera id → the camera's name (in /api/cameras; PUT /control/camera/name)
+  nameOverride: { status: number; body: unknown } | null; // tests: PUT /control/camera/name answers this (after checking the name)
+  nameRequests: { cam: string; name: unknown }[]; // PUT /control/camera/name bodies (its control API is cam1's, like a one-camera proxy)
   compositions: Map<string, { state: 'queued' | 'running' | 'done'; progress: number; durationS: number }>;
   composeRequests: unknown[];
   composeDelayMs: number; // a composition goes running → done over this long
@@ -80,6 +84,7 @@ export interface FakeProxy {
 
 export const FAKE_TOKEN = 'fake-proxy-client-token-'.padEnd(48, 'z');
 export const FAKE_ADMIN_TOKEN = 'fake-proxy-admin-token-'.padEnd(48, 'a');
+
 export const JPEG = Buffer.from([0xff, 0xd8, 0xff, 0xe0, 0, 0x10, 0x4a, 0x46, 0x49, 0x46, 0, 1, 0xff, 0xd9]);
 
 export async function startFakeProxy(opts: { port?: number; token?: string } = {}): Promise<FakeProxy> {
@@ -105,6 +110,9 @@ export async function startFakeProxy(opts: { port?: number; token?: string } = {
     requests: [],
     publicUrl: null,
     loginLinks: 0,
+    cameraNames: new Map([['cam1', 'Den']]),
+    nameOverride: null,
+    nameRequests: [],
     compositions: new Map(),
     composeRequests: [],
     composeDelayMs: 300,
@@ -165,6 +173,22 @@ export async function startFakeProxy(opts: { port?: number; token?: string } = {
   });
   app.get('/health', (_req, res) => void res.json({ ok: true, version: 'fake' }));
   app.post('/control/login-links', (_req, res) => void res.status(201).json({ code: `fake-code-${++fake.loginLinks}`, expiresInS: 60 }));
+  // The camera's name (cam-proxy, design camera-name-design.md "API
+  // contract"): checked with the camera's rules, written, read back; a change
+  // is one `camera` stream message {cam, name}.
+  app.put('/control/camera/name', express.json(), (req, res) => {
+    const cam = 'cam1'; // a real cam-proxy serves one camera
+    const name = (req.body as { name?: unknown } | undefined)?.name;
+    fake.nameRequests.push({ cam, name });
+    const problem = cameraNameProblem(name);
+    if (problem) return void res.status(400).json({ error: 'invalid_name', reason: problem });
+    if (fake.nameOverride) return void res.status(fake.nameOverride.status).json(fake.nameOverride.body);
+    if (fake.cameraNames.get(cam) !== name) {
+      fake.cameraNames.set(cam, name as string);
+      fake.push({ cam, type: 'camera', data: { name } });
+    }
+    res.json({ name: fake.cameraNames.get(cam) });
+  });
 
   app.get('/api/stream', (req, res) => {
     if (fake.streamStatus) return void res.status(fake.streamStatus).json({ error: 'upstream' });
@@ -193,7 +217,7 @@ export async function startFakeProxy(opts: { port?: number; token?: string } = {
   };
   // The camera list, as the real one reports it (only what cams reads).
   app.get('/api/cameras', (_req, res) => {
-    res.json(fake.camerasBody !== undefined ? fake.camerasBody : [{ id: 'cam1', name: 'Den', online: true, lastEventTs: null, stream: null, publicUrl: fake.publicUrl }]);
+    res.json(fake.camerasBody !== undefined ? fake.camerasBody : [...fake.cameraNames].map(([id, name]) => ({ id, name, online: true, lastEventTs: null, stream: null, publicUrl: fake.publicUrl })));
   });
   // Like the real one: the oldest clip, still and preview it holds.
   app.get('/api/cameras/:cam/extent', (req, res) => {

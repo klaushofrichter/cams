@@ -58,9 +58,12 @@ describe('ProxyStream (upstream)', () => {
     await until(() => got.length === 1);
     expect(got[0].type).toBe('camera-event');
     const asks = fake.requests.filter((r) => r.path === '/api/stream').map((r) => String(r.query.types).split(','));
-    expect(asks).toHaveLength(2); // asked once with analysis, once without, no loop
-    expect(asks[0]).toContain('analysis');
+    // Asked with analysis and camera (the camera's name, newer still), then
+    // without each refused type, no loop.
+    expect(asks).toHaveLength(3);
+    expect(asks[0]).toEqual(expect.arrayContaining(['analysis', 'camera']));
     expect(asks[1]).not.toContain('analysis');
+    expect(asks[2]).toEqual(['camera-event', 'camera-status', 'clip']);
   });
 
   it('asks for analyses again after a drop, in case the proxy was upgraded (issue #109)', async () => {
@@ -68,11 +71,12 @@ describe('ProxyStream (upstream)', () => {
     fake.knownTypes = ['camera-event', 'camera-status', 'clip'];
     const { s } = stream(fake);
     await until(() => s.up());
+    const asks = () => fake.requests.filter((r) => r.path === '/api/stream').map((r) => String(r.query.types).split(','));
+    const before = asks().length;
     fake.knownTypes = null; // the proxy restarts as a newer version
     fake.dropStreams();
-    const asks = () => fake.requests.filter((r) => r.path === '/api/stream').map((r) => String(r.query.types).split(','));
-    await until(() => asks().length >= 3 && s.up());
-    expect(asks().at(-1)).toContain('analysis');
+    await until(() => asks().length > before && s.up());
+    expect(asks().at(-1)).toEqual(expect.arrayContaining(['analysis', 'camera']));
   });
 
   it('keeps asking for analyses after a 400 that is not about the type', async () => {

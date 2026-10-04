@@ -13,9 +13,10 @@ import { simCounters } from './sims';
 //
 // Isolation: every test that mutates a camera's settings targets Porch, not
 // Den, and restores what it changed at the end, because the simulator's
-// in-memory state lives for the whole e2e run. Den's OSD name is therefore
+// in-memory state lives for the whole e2e run. Den's name is therefore
 // never written by this file, so the "settings cards load the camera state"
-// test can assert its default value on any project without racing a writer.
+// test can assert its default value on any project without racing a writer
+// (renaming runs in e2e/camera-name.spec.ts, after these projects).
 // The preferences test signs in as PREFS_EMAIL (e2e/env.ts), so the values it
 // writes are never seen by the other spec files, which sign in as the first
 // allowlisted user. The tests that DO mutate Porch (or PREFS_EMAIL's
@@ -35,32 +36,10 @@ test('settings cards load the camera state', async ({ page }) => {
   await page.goto('/app/settings');
   await expect(page.getByTestId('settings-card-detection')).toBeVisible();
   await expect(page.getByTestId('recording-toggle')).toBeChecked();
-  await expect(page.getByTestId('osd-name')).toHaveValue('Den');
+  await expect(page.getByTestId('camera-name-input')).toHaveValue('Den');
+  await expect(page.getByTestId('osd-name-note')).toContainText('camera name');
   await expect(page.getByTestId('device-model')).toHaveText('RLC-1224A');
   await expect(page.getByTestId('device-storage')).toContainText('of 59.6 GB used');
-});
-
-test('saving a camera setting shows the success state and persists', async ({ page }, testInfo) => {
-  test.skip(testInfo.project.name !== 'desktop', 'mutates Porch, which is shared simulated-camera state; avoid racing with other projects');
-  await page.goto('/app/settings');
-  await page.getByTestId('camera-picker').selectOption({ label: 'Porch' });
-  const name = page.getByTestId('osd-name');
-  await expect(name).toBeVisible();
-  await name.fill(`Porch ${Date.now() % 1000}`);
-  const value = await name.inputValue();
-  await page.getByTestId('save-image').click();
-  await expect(page.getByTestId('settings-card-image').getByTestId('save-state')).toHaveAttribute('data-state', 'saved');
-  // Settings has no ?cam= in the URL (unlike Recordings), so a reload goes
-  // back to the default camera (cam1/Den); re-pick Porch to see its
-  // persisted value, proving the change reached the camera rather than just
-  // the in-page edit buffer.
-  await page.reload();
-  await page.getByTestId('camera-picker').selectOption({ label: 'Porch' });
-  await expect(page.getByTestId('osd-name')).toHaveValue(value);
-  // restore, so other tests see the default name
-  await page.getByTestId('osd-name').fill('Porch');
-  await page.getByTestId('save-image').click();
-  await expect(page.getByTestId('settings-card-image').getByTestId('save-state')).toHaveAttribute('data-state', 'saved');
 });
 
 // Klaus, 2026-09-29: the Reolink logo (Osd.watermark) is a setting, and it stays
@@ -127,35 +106,62 @@ test('a rejected field shows the error next to it while the others save', async 
   await expect(card.getByTestId('save-state')).toHaveAttribute('data-state', 'saved');
 });
 
-// Read-only (nothing is saved): Save stays disabled while the name is invalid.
-test('an OSD name over 31 bytes or with invisible characters cannot be saved', async ({ page }) => {
+// Read-only (nothing is saved): the camera's name rules as you type
+// (design camera-name-design.md), Save off while the name is refused.
+test('the camera name field checks the camera rules as you type', async ({ page }) => {
   await page.goto('/app/settings');
-  const name = page.getByTestId('osd-name');
+  const name = page.getByTestId('camera-name-input');
+  const save = page.getByTestId('save-camera-name');
   await expect(name).toHaveValue('Den');
-  await name.fill('門'.repeat(11));
-  await expect(page.getByTestId('osd-name-bytes')).toHaveText('33/31 bytes');
-  await expect(page.getByTestId('osd-name-error')).toContainText('at most 31 bytes');
-  await expect(page.getByTestId('save-image')).toBeDisabled();
-  await name.fill('\u200bDen');
-  await expect(page.getByTestId('osd-name-error')).toContainText('invisible');
-  await expect(page.getByTestId('save-image')).toBeDisabled();
-  await name.fill('Den 2');
-  await expect(page.getByTestId('osd-name-error')).toHaveCount(0);
-  await expect(page.getByTestId('save-image')).toBeEnabled();
+  await expect(save).toBeDisabled();
+  await name.fill('x'.repeat(32));
+  await expect(page.getByTestId('camera-name-count')).toHaveText('32/31');
+  await expect(page.getByTestId('camera-name-error')).toHaveText('Too long: at most 31 characters.');
+  await expect(save).toBeDisabled();
+  await name.fill('x'.repeat(31));
+  await expect(page.getByTestId('camera-name-error')).toHaveCount(0);
+  await expect(save).toBeEnabled();
+  await name.fill('Den_Left');
+  await expect(page.getByTestId('camera-name-error')).toContainText('Not allowed: _');
+  await expect(save).toBeDisabled();
+  await name.fill('Den ');
+  await expect(page.getByTestId('camera-name-error')).toHaveText('No space at the start or end.');
+  await name.fill('');
+  await expect(page.getByTestId('camera-name-error')).toHaveText('Enter a name.');
+  await expect(save).toBeDisabled();
+});
+
+// The PUT is answered by the test, so nothing is renamed.
+test('a refused or offline rename shows why under the field', async ({ page }) => {
+  let answer = { status: 400, json: { error: 'invalid_name', reason: 'not allowed: =' } as object };
+  await page.route('**/api/cameras/*/name', (route) => route.fulfill(answer));
+  await page.goto('/app/settings');
+  const name = page.getByTestId('camera-name-input');
+  await expect(name).toHaveValue('Den');
+  await name.fill('A=B');
+  await page.getByTestId('save-camera-name').click();
+  await expect(page.getByTestId('camera-name-error')).toHaveText('not allowed: =');
+  await expect(name).toHaveValue('A=B');
+  answer = { status: 503, json: { error: 'camera_offline' } };
+  await name.fill('Den Two');
+  await page.getByTestId('save-camera-name').click();
+  await expect(page.getByTestId('camera-name-error')).toContainText('Camera offline');
+  await expect(page.getByTestId('camera-picker').locator('option[value="cam1"]')).toHaveText('Den');
 });
 
 // The PUT is answered by the test, so the camera is never written.
 test('a save refused with 400 keeps the edits', async ({ page }) => {
   await page.route('**/api/cameras/*/settings/image', (route) => route.fulfill({ status: 400, json: { error: 'bad_request', details: [] } }));
   await page.goto('/app/settings');
-  const name = page.getByTestId('osd-name');
-  await expect(name).toHaveValue('Den');
-  await name.fill('Den edited');
+  const mirror = page.getByTestId('flip-mirror');
+  await expect(mirror).toBeVisible();
+  const was = await mirror.isChecked();
+  await mirror.setChecked(!was);
   await page.getByTestId('daynight-select').selectOption('color');
   await page.getByTestId('save-image').click();
   await expect(page.getByTestId('settings-card-image').getByTestId('save-state')).toHaveAttribute('data-state', 'error');
   await page.waitForTimeout(300); // a reload, if one ran, would land by now
-  await expect(name).toHaveValue('Den edited');
+  await expect(mirror).toBeChecked({ checked: !was });
   await expect(page.getByTestId('daynight-select')).toHaveValue('color');
 });
 

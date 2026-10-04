@@ -1,7 +1,9 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { resetSessionState } from './api';
+import { get } from 'svelte/store';
 import { createEventStream, groupPending, prunePending, type EventSourceLike } from './eventStream';
+import { cameras } from './stores';
 
 afterEach(() => vi.useRealTimers());
 
@@ -151,6 +153,36 @@ describe('createEventStream', () => {
     const s = createEventStream({ url: '/api/events/stream', factory: (url) => new FakeSource(url), onCameras });
     FakeSource.last.open();
     FakeSource.last.emit('cameras', {});
+    expect(onCameras).toHaveBeenCalledTimes(1);
+    s.close();
+  });
+
+  // The camera's name (design camera-name-design.md): the picker, titles and
+  // cards switch at once, without a reload.
+  it("switches a camera's shown name on a `camera` message", () => {
+    cameras.set([
+      { id: 'den', name: 'Den', webUiUrl: null, proxy: true },
+      { id: 'shed', name: 'Shed', webUiUrl: null },
+    ]);
+    const s = make();
+    FakeSource.last.open();
+    FakeSource.last.emit('camera', { cam: 'den', name: 'Backyard Left' });
+    expect(get(cameras).map((c) => c.name)).toEqual(['Backyard Left', 'Shed']);
+    expect(get(cameras)[0]).toMatchObject({ id: 'den', proxy: true }); // the id and the rest stay
+    for (const bad of [{ cam: 'den' }, { cam: 'den', name: '' }, { name: 'X' }, 'nope']) FakeSource.last.emit('camera', bad);
+    FakeSource.last.emit('camera', { cam: 'unknown', name: 'X' });
+    expect(get(cameras).map((c) => c.name)).toEqual(['Backyard Left', 'Shed']);
+    s.close();
+    cameras.set([]);
+  });
+
+  it('re-reads the camera list after a reconnect (a rename may have been missed)', () => {
+    const onCameras = vi.fn();
+    const s = createEventStream({ url: '/api/events/stream', factory: (url) => new FakeSource(url), onCameras });
+    FakeSource.last.open();
+    expect(onCameras).not.toHaveBeenCalled();
+    FakeSource.last.fail();
+    FakeSource.last.open();
     expect(onCameras).toHaveBeenCalledTimes(1);
     s.close();
   });

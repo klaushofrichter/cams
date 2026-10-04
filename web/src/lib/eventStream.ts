@@ -2,6 +2,7 @@ import { get, writable, type Readable } from 'svelte/store';
 import { cameras, type CameraSummary } from './stores';
 import { checkSession, getJson } from './api';
 import { preferences } from './preferences';
+import { setCameraName } from './cameraName';
 
 // cams' relay of the cameras' cam-proxy events (GET /api/events/stream,
 // Plan 6). While a camera's proxy is up, pages reload on its changes at once
@@ -77,7 +78,11 @@ export function createEventStream(opts: { url?: string; factory?: (url: string) 
     source.onopen = () => {
       state.update((s) => ({ ...s, connected: true }));
       reopenMs = REOPEN_MIN_MS;
-      if (missed) for (const w of watchers) w.fire();
+      if (missed) {
+        for (const w of watchers) w.fire();
+        // A camera renamed meanwhile: its name comes with the list.
+        (opts.onCameras ?? reloadCameras)();
+      }
       missed = false;
     };
     // The server repeats every camera's state on reconnect.
@@ -99,6 +104,13 @@ export function createEventStream(opts: { url?: string; factory?: (url: string) 
       state.update((s) => ({ ...s, up: { ...s.up, [p.cam as string]: p.up as boolean } }));
     });
     source.addEventListener('cameras', () => (opts.onCameras ?? reloadCameras)());
+    // A camera's name changed (design camera-name-design.md): {cam, name}.
+    // The id never changes; the picker, titles and cards show the new name.
+    source.addEventListener('camera', (e) => {
+      const n = parse(e.data) as { cam?: unknown; name?: unknown } | undefined;
+      if (!n || typeof n.cam !== 'string' || typeof n.name !== 'string' || !n.name) return;
+      setCameraName(n.cam, n.name);
+    });
     source.addEventListener('change', (e) => {
       const c = parse(e.data) as Change | undefined;
       if (!c || typeof c.cam !== 'string') return;
