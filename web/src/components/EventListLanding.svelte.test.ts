@@ -96,6 +96,39 @@ describe('auto-collapse on landing', () => {
     expect(openHours()).toEqual(range(6, 18));
   });
 
+  // Review of #175: a landing belongs to its day.
+  it('another day without a landing of its own uses no old landing', () => {
+    const p = render({ landing: { at: at(12, 30) } });
+    p.date = '2026-10-03';
+    p.events = day('2026-10-03'); // no landing for it (yet)
+    flushSync();
+    expect(openHours()).toEqual(range(0, 23));
+  });
+
+  it('a landing on an empty day is not applied to events of a later day', () => {
+    const p = render({ events: [], landing: { at: at(12, 30) } });
+    p.date = '2026-10-05';
+    flushSync();
+    p.events = day('2026-10-05'); // much later, no new landing
+    flushSync();
+    expect(openHours()).toEqual(range(0, 23));
+  });
+
+  // Review of #175: the collapsed hour holding the playing clip says so.
+  it('marks the collapsed hour holding the playing clip, for eyes and screen readers', () => {
+    const p = render({ landing: { at: at(12, 30) } });
+    p.selectedId = day()[22].id;
+    flushSync();
+    const head = target!.querySelector('[data-hour="22"] [data-testid="hour-toggle"]') as HTMLElement;
+    expect(head.querySelector('[data-testid="hour-playing"]')).not.toBeNull();
+    expect(head.getAttribute('aria-label')).toMatch(/^22:00–23:00, 1 event, playing$/);
+    const other = target!.querySelector('[data-hour="21"] [data-testid="hour-toggle"]') as HTMLElement;
+    expect(other.querySelector('[data-testid="hour-playing"]')).toBeNull();
+    expect(other.hasAttribute('aria-label')).toBe(false);
+    // open: the card itself is marked, the header isn't
+    expect(target!.querySelector('[data-hour="12"] [data-testid="hour-playing"]')).toBeNull();
+  });
+
   it('live (at null) is now, and a new hour arriving later is open', () => {
     vi.useFakeTimers({ now: at(23, 30), toFake: ['Date'] });
     try {

@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { createThumbQueue, lazySrc, resetLazyThumbs, THUMB_CONCURRENCY } from './lazyThumbs';
+import { createThumbQueue, lazySrc, resetLazyThumbs, THUMB_CONCURRENCY, THUMB_ROOT_MARGIN } from './lazyThumbs';
 
 describe('createThumbQueue', () => {
   it('runs at most max at once, the next when one finishes', () => {
@@ -45,6 +45,34 @@ describe('lazySrc', () => {
     resetLazyThumbs();
     FakeIO.all = [];
     vi.unstubAllGlobals();
+  });
+
+  // Review of #175: the margin must apply to the box the cards scroll in
+  // (the desktop sidebar's list), not the window.
+  it('observes within the nearest scroll container, with the margin, one observer per box', () => {
+    vi.stubGlobal('IntersectionObserver', FakeIO);
+    const box = document.createElement('div');
+    box.style.overflowY = 'auto';
+    const inner = document.createElement('div');
+    box.append(inner);
+    document.body.append(box);
+    const a = document.createElement('img');
+    const b = document.createElement('img');
+    inner.append(a, b);
+    lazySrc(a, '/a.jpg');
+    lazySrc(b, '/b.jpg');
+    expect(FakeIO.all).toHaveLength(1);
+    expect(FakeIO.all[0].opts?.root).toBe(box);
+    expect(FakeIO.all[0].opts?.rootMargin).toBe(THUMB_ROOT_MARGIN);
+    expect(THUMB_ROOT_MARGIN).toBe('300px 0px');
+    // Where the page itself scrolls (a phone): the viewport.
+    const loose = document.createElement('img');
+    document.body.append(loose);
+    lazySrc(loose, '/c.jpg');
+    expect(FakeIO.all).toHaveLength(2);
+    expect(FakeIO.all[1].opts?.root ?? null).toBeNull();
+    box.remove();
+    loose.remove();
   });
 
   it('loads eagerly without IntersectionObserver', () => {

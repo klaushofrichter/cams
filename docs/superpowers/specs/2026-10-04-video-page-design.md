@@ -152,17 +152,20 @@ the time plays at once. App keeps the page mounted while `liveStreamHeld`.
     (Timeline, Vision dialog), going live (at now).
   - Never a landing: dragging or scrolling the strip, ±1/10 s, prev/next,
     playing. A selection moving into a collapsed hour no longer opens it; the
-    hour's title is outlined instead.
+    hour's title shows ▶, bold and tinted, and its name ends in ", playing".
   - The viewed hour is always open. Hours the user opened or closed by hand
     (and "Collapse hours" / "Expand hours", unchanged) keep that state
     through later landings until the day or camera changes.
   - Near hours keep the old default: a busy hour (over 10 events) starts
     collapsed unless it holds the selection.
   - A new hour arriving later (today's refresh) gets the rule at the last
-    landing's time, at now while live, so live's new hour is open.
+    landing's time, at now while live, so live's new hour is open. A landing
+    belongs to its day: another day ignores it until it has its own.
 - **Lazy thumbnails** (`lib/lazyThumbs.ts`, `use:lazySrc`): a card's
-  thumbnail is requested once it is within 300 px of the screen
-  (IntersectionObserver), at most 4 at a time; a card scrolled past before
+  thumbnail is requested once it is within 300 px of the visible part of the
+  box it scrolls in (IntersectionObserver rooted at the nearest scroll box:
+  the sidebar's list on a desktop, the page's main area on a phone), at most
+  4 at a time; a card scrolled past before
   its turn is dropped, so a fast scroll is no request storm. Without
   IntersectionObserver every thumbnail loads at once. Collapsed hours render
   no cards, so they load nothing.

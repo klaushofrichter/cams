@@ -72,7 +72,17 @@ test('thumbnails load near the screen only, more as the list scrolls', async ({ 
   await page.waitForTimeout(800);
   const first = thumbs.size;
   expect(first).toBeLessThan(cards / 2);
+  // Review of #175: the margin is the list's own (it scrolls inside the
+  // sidebar): a card just below its visible part already has its thumbnail.
   const list = page.getByTestId('event-scroll');
+  const below = await list.evaluate((el) => {
+    const bottom = el.getBoundingClientRect().bottom;
+    const cards = [...el.querySelectorAll<HTMLElement>('[data-testid="event-card"]')];
+    const c = cards.find((x) => { const t = x.getBoundingClientRect().top; return t > bottom + 100 && t < bottom + 250; });
+    return c?.dataset.clipId ?? null;
+  });
+  expect(below).not.toBeNull();
+  await expect.poll(() => [...thumbs].some((u) => u.includes(`/clips/${below}/thumb.jpg`))).toBe(true);
   await list.evaluate((el) => el.scrollTo(0, el.scrollHeight));
   await expect.poll(() => thumbs.size).toBeGreaterThan(first);
   // Only the open hours' cards were ever asked for.

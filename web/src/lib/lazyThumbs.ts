@@ -48,17 +48,34 @@ export function createThumbQueue(max: number) {
 }
 
 let queue = createThumbQueue(THUMB_CONCURRENCY);
-let observer: IntersectionObserver | null = null;
+// One observer per scroll box: the margin only works on the box the cards
+// scroll in (the desktop sidebar's list; on a phone the page's main area),
+// not the window (review of #175).
+const observers = new Map<Element | null, IntersectionObserver>();
 const watchers = new Map<Element, (visible: boolean) => void>();
+export function scrollRoot(node: Element): Element | null {
+  for (let n = node.parentElement; n && n !== document.body; n = n.parentElement) {
+    const o = getComputedStyle(n).overflowY;
+    // A box that could scroll and has more than it shows (jsdom has no
+    // layout: there, any such box counts).
+    if ((o === 'auto' || o === 'scroll') && (n.scrollHeight > n.clientHeight || n.clientHeight === 0)) return n;
+  }
+  return null;
+}
 function observe(node: Element, onChange: (visible: boolean) => void): () => void {
-  observer ??= new IntersectionObserver((entries) => {
-    for (const e of entries) watchers.get(e.target)?.(e.isIntersecting);
-  }, { rootMargin: THUMB_ROOT_MARGIN });
+  const root = scrollRoot(node);
+  let io = observers.get(root);
+  if (!io) {
+    io = new IntersectionObserver((entries) => {
+      for (const e of entries) watchers.get(e.target)?.(e.isIntersecting);
+    }, { root, rootMargin: THUMB_ROOT_MARGIN });
+    observers.set(root, io);
+  }
   watchers.set(node, onChange);
-  observer.observe(node);
+  io.observe(node);
   return () => {
     watchers.delete(node);
-    observer?.unobserve(node);
+    io.unobserve(node);
   };
 }
 
@@ -114,7 +131,7 @@ export function lazySrc(node: HTMLImageElement, src: string) {
 // Tests only: a fresh observer (for a stubbed IntersectionObserver) and queue.
 export function resetLazyThumbs(): void {
   queue = createThumbQueue(THUMB_CONCURRENCY);
-  observer?.disconnect();
-  observer = null;
+  for (const io of observers.values()) io.disconnect();
+  observers.clear();
   watchers.clear();
 }

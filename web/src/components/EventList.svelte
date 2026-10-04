@@ -98,8 +98,12 @@
   let manualDay = '';
   let lastLanding: typeof landing = undefined;
   let pendingLanding = false;
+  // The day a landing was made on: another day ignores it until its own
+  // (review of #175: an empty day must not hand an old landing to events
+  // arriving much later).
+  let landingDay = '';
   function openFor(g: HourGroup, id: string | null): boolean {
-    if (!landing) return defaultGroupOpen(g, id);
+    if (!landing || landingDay !== `${cameraId}|${date}`) return defaultGroupOpen(g, id);
     return hourOpenAtLanding(g, date, landing.at ?? Date.now(), id, manual[keyOf(g.hour)]);
   }
 
@@ -134,11 +138,15 @@
       if (day !== manualDay) {
         manualDay = day;
         manual = {};
+        pendingLanding = false;
       }
       // A landing applies to every hour once the day's events are there;
       // otherwise only hours not seen yet get a state (a refresh, scrubbing
       // and playing never re-collapse anything).
-      if (landed && l) pendingLanding = true;
+      if (landed && l) {
+        pendingLanding = true;
+        landingDay = day;
+      }
       const applyAll = pendingLanding && gs.length > 0;
       if (applyAll) pendingLanding = false;
       for (const g of gs) {
@@ -262,9 +270,13 @@
   <div class="groups" bind:this={listEl}>
     {#each groups as g (g.hour)}
       {@const open = groupOpen[keyOf(g.hour)] ?? openFor(g, selectedId)}
+      {@const holds = !open && g.events.some((e) => e.id === selectedId)}
+      {@const count = `${g.events.length} ${g.events.length === 1 ? 'event' : 'events'}`}
       <section class="group" data-testid="hour-group" data-hour={g.hour}>
-        <button class="group-head" class:holds={!open && g.events.some((e) => e.id === selectedId)} data-anchor={`hour-${g.hour}`} data-testid="hour-toggle" aria-expanded={open} onclick={() => toggle(g.hour)}>
-          <span class="label">{g.label}</span>
+        <!-- A collapsed hour holding the playing clip says so (review of #175). -->
+        <button class="group-head" class:holds data-anchor={`hour-${g.hour}`} data-testid="hour-toggle" aria-expanded={open}
+          aria-label={holds ? `${g.label}, ${count}, playing` : undefined} onclick={() => toggle(g.hour)}>
+          <span class="label">{#if holds}<span class="playing" data-testid="hour-playing" aria-hidden="true">▶</span>{/if}{g.label}</span>
           <span class="count" data-testid="hour-count">{g.events.length} {g.events.length === 1 ? 'event' : 'events'}</span>
         </button>
         {#if open}
@@ -327,7 +339,9 @@
   }
   .group-head .label { font-weight: 600; }
   /* A collapsed hour holding the playing clip. */
-  .group-head.holds { border-color: var(--accent); }
+  .group-head.holds { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 12%, var(--surface)); }
+  .group-head.holds .label { font-weight: 800; color: var(--accent); }
+  .playing { margin-right: 6px; font-size: 10px; }
   .group-head .count { color: var(--muted); }
   .list { list-style: none; margin: 6px 0 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
   /* One card: the play area and, beside it, the download button. */
