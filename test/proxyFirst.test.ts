@@ -1,7 +1,7 @@
 import { setTimeout as sleep } from 'timers/promises';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import request from 'supertest';
-import { mkdtempSync, rmSync } from 'fs';
+import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
 import type { Server } from 'http';
@@ -220,6 +220,68 @@ describe('proxy first (Plan 7)', () => {
       const r = await thumb(app, c.id);
       expect(r.status).toBe(200);
       expect(Buffer.compare(r.body, STILL)).toBe(0);
+    });
+
+    it('takes a still up to 3 s after the detection, not 4 s', async () => {
+      const app = createApp();
+      const p = await card(app, 'person');
+      const v = await card(app, 'vehicle');
+      fake.events.set('cam1', [event(2, 'person', p.start + 6000), event(3, 'vehicle', v.start + 6000)]);
+      fake.stills.set('cam1', new Map([[p.start + 2000, STILL], [p.start + 8000, DET], [v.start + 2000, STILL], [v.start + 10_000, DET]]));
+      expect(Buffer.compare((await thumb(app, p.id)).body, DET)).toBe(0); // + 2 s
+      expect(Buffer.compare((await thumb(app, v.id)).body, STILL)).toBe(0); // + 4 s: the 2 s rule
+    });
+
+    it('serves the detection still, not a thumbnail cached before it (its own key)', async () => {
+      const app = createApp();
+      const c = await card(app, 'person');
+      writeFileSync(join(cacheDir, `cam1_${c.id}.jpg`), Buffer.concat([JPEG, Buffer.from('old-thumbnail')]));
+      fake.events.set('cam1', [event(2, 'person', c.start + 6000)]);
+      fake.stills.set('cam1', new Map([[c.start + 2000, STILL], [c.start + 6000, DET]]));
+      expect(Buffer.compare((await thumb(app, c.id)).body, DET)).toBe(0);
+    });
+
+    // Review of #163: a fallback is never kept as the detection thumbnail.
+    it('tries the detection again on a later request after a failed lookup', async () => {
+      process.env.DETECTION_RETRY_MS = '0';
+      try {
+        const app = createApp();
+        const c = await card(app, 'person');
+        fake.events.set('cam1', [event(2, 'person', c.start + 6000)]);
+        fake.stills.set('cam1', new Map([[c.start + 2000, STILL], [c.start + 6000, DET]]));
+        fake.eventsStatus = 500;
+        expect(Buffer.compare((await thumb(app, c.id)).body, STILL)).toBe(0);
+        fake.eventsStatus = null;
+        expect(Buffer.compare((await thumb(app, c.id)).body, DET)).toBe(0);
+        expect(existsSync(join(cacheDir, `cam1_${c.id}.det.jpg`))).toBe(true);
+      } finally {
+        delete process.env.DETECTION_RETRY_MS;
+      }
+    });
+
+    it('tries the detection again on a later request when its still was missing', async () => {
+      process.env.DETECTION_RETRY_MS = '0';
+      try {
+        const app = createApp();
+        const c = await card(app, 'person');
+        fake.events.set('cam1', [event(2, 'person', c.start + 6000)]);
+        fake.stills.set('cam1', new Map([[c.start + 2000, STILL]]));
+        expect(Buffer.compare((await thumb(app, c.id)).body, STILL)).toBe(0);
+        expect(existsSync(join(cacheDir, `cam1_${c.id}.det.jpg`))).toBe(false);
+        fake.stills.get('cam1')!.set(c.start + 6000, DET);
+        expect(Buffer.compare((await thumb(app, c.id)).body, DET)).toBe(0);
+      } finally {
+        delete process.env.DETECTION_RETRY_MS;
+      }
+    });
+
+    it('asks again only after a pause: no retry storm while the lookup fails', async () => {
+      const app = createApp();
+      const c = await card(app, 'person');
+      fake.eventsStatus = 500;
+      fake.stills.set('cam1', new Map([[c.start + 2000, STILL]]));
+      for (let i = 0; i < 3; i++) expect(Buffer.compare((await thumb(app, c.id)).body, STILL)).toBe(0);
+      expect(eventLookups()).toBe(1);
     });
 
     it('never looks up events for a motion-only card', async () => {

@@ -60,6 +60,9 @@ const DOWNLOAD_RETRY_DELAY_MS = Number(process.env.DOWNLOAD_RETRY_DELAY_MS) || 1
 const RECENT_WINDOW_MS = 24 * 60 * 60 * 1000;
 // A detection's thumbnail: the still at its second or up to this much later.
 const DETECTION_STILL_MS = 3000;
+// A card whose detection thumbnail failed is tried again after this long.
+const DETECTION_RETRY_MS = () => Number(process.env.DETECTION_RETRY_MS ?? 300_000);
+type ThumbRule = 'detection' | 'start';
 const hasDetection = (triggers: readonly Trigger[]) => triggers.some((t) => t === 'person' || t === 'vehicle' || t === 'pet');
 // The camera Search cache behind cameraPath(): this many camera/day/stream
 // entries, least recently used out first.
@@ -615,54 +618,80 @@ export class RecordingsService {
     }
   }
 
-  // A card the camera's AI flagged (person, vehicle or pet) with a cam-proxy
-  // gets its thumbnail from the detection moment (issue #157), cached under
-  // its own key so a thumbnail made before that is not served for it.
-  private async thumbKey(cameraId: string, clipId: string): Promise<string> {
-    if (!proxyActive(cameraId)) return this.key(cameraId, clipId, 'jpg');
-    const span = await this.eventSpan(cameraId, clipId).catch(() => null);
-    return this.key(cameraId, clipId, span && hasDetection(span.triggers) ? 'det.jpg' : 'jpg');
+  // The proxy's still for a card into `tmp`, and which rule found it:
+  // 'detection', the moment its person, vehicle or pet was detected (issue
+  // #157); 'start', 2 s into the event (Plan 7); null when there is none, or
+  // it isn't a JPEG. At most three at a time per camera, lookups included: a
+  // day's list asks for all its thumbnails at once (issues #38, #76).
+  private async proxyStill(cameraId: string, clipId: string, tmp: string, rule: ThumbRule): Promise<ThumbRule | null> {
+    const used = await this.stillGate(cameraId).run(async () => {
+      const span = await this.eventSpan(cameraId, clipId);
+      if (!span) return null;
+      let ts: number | null = null;
+      if (rule === 'detection') {
+        // One event lookup; a failed one (an older or unreachable proxy) finds nothing.
+        const moments = await proxyDetections(cameraId, span.start, span.end).catch((e: Error) => {
+          logger.warn({ cameraId, clipId, message: e.message }, 'proxy_detection_lookup_failed');
+          return [];
+        });
+        // A still at the second, or within 3 s after it (a gap).
+        for (const m of moments) if ((ts = await findProxyStill(cameraId, m, m + DETECTION_STILL_MS))) break;
+      } else {
+        ts = await findProxyStill(cameraId, span.start + 2000, span.start + 12_000);
+      }
+      if (!ts) return null;
+      await pipeline(await openProxyStill(cameraId, ts), createWriteStream(tmp));
+      return rule;
+    });
+    if (!used) return null;
+    // Only a JPEG becomes a (cached) thumbnail.
+    const head = await fs.readFile(tmp).then((b) => b.subarray(0, 3)).catch(() => Buffer.alloc(0));
+    if (head.length === 3 && head[0] === 0xff && head[1] === 0xd8 && head[2] === 0xff) return used;
+    logger.warn({ cameraId, clipId }, 'proxy_still_not_a_jpeg');
+    return null;
+  }
+
+  // Per card: when its detection thumbnail was last tried without success.
+  // Until DETECTION_RETRY_MS later the card gets its ordinary thumbnail
+  // without asking the proxy again (no retry storm while it fails).
+  private readonly detectionMisses = new Map<string, number>();
+
+  // A card the camera's AI flagged (person, vehicle or pet), on a camera with
+  // a cam-proxy: its detection thumbnail (issue #157), cached under its own
+  // key (<id>.det.jpg) and only when the detection rule found the still; a
+  // thumbnail cached before is never served for it. null: none (yet), the
+  // ordinary thumbnail is served, and the detection is tried again later.
+  private async detectionThumbnail(cameraId: string, clipId: string, key: string): Promise<string | null> {
+    const miss = `${cameraId}|${clipId}`;
+    const at = this.detectionMisses.get(miss);
+    if (at !== undefined && Date.now() - at < DETECTION_RETRY_MS() && !(await this.cache.has(key))) return null;
+    try {
+      const path = await this.cache.fill(key, async (tmp) => {
+        if ((await this.proxyStill(cameraId, clipId, tmp, 'detection')) !== 'detection') throw new Error('no detection still');
+      });
+      this.detectionMisses.delete(miss);
+      return path;
+    } catch (e) {
+      logger.debug({ cameraId, clipId, message: (e as Error).message }, 'detection_thumbnail_unavailable');
+      const now = Date.now();
+      for (const [k, t] of this.detectionMisses) if (now - t >= DETECTION_RETRY_MS()) this.detectionMisses.delete(k);
+      this.detectionMisses.set(miss, now);
+      return null;
+    }
   }
 
   // The mp4 is fetched (via withClip) only when the jpg isn't already
   // cached: DiskCache.fill() checks that internally before ever invoking
   // this producer, so a cached thumbnail is served without touching the
   // camera at all.
-  async thumbnail(cameraId: string, clipId: string, jpgKey?: string): Promise<string> {
-    jpgKey ??= await this.thumbKey(cameraId, clipId);
+  async thumbnail(cameraId: string, clipId: string): Promise<string> {
+    const jpgKey = this.key(cameraId, clipId, 'jpg');
     return this.cache.fill(jpgKey, async (tmp) => {
-      // A camera with a cam-proxy: its still at the moment the person,
-      // vehicle or pet was detected (issue #157), else 2 s into the event
-      // (Plan 7), no clip transfer and no ffmpeg.
+      // A camera with a cam-proxy: its still 2 s into the event (Plan 7),
+      // no clip transfer and no ffmpeg.
       if (proxyActive(cameraId)) {
         try {
-          // At most three at a time per camera, lookups included: a day's
-          // list asked for all its thumbnails at once (issues #38, #76).
-          const got = await this.stillGate(cameraId).run(async () => {
-            const span = await this.eventSpan(cameraId, clipId);
-            if (!span) return false;
-            // One event lookup per flagged card; a failed one (an older or
-            // unreachable proxy) leaves the 2 s rule.
-            const moments = hasDetection(span.triggers)
-              ? await proxyDetections(cameraId, span.start, span.end).catch((e: Error) => {
-                  logger.warn({ cameraId, clipId, message: e.message }, 'proxy_detection_lookup_failed');
-                  return [];
-                })
-              : [];
-            // A still at the second, or within 3 s after it (a gap).
-            let ts: number | null = null;
-            for (const m of moments) if ((ts = await findProxyStill(cameraId, m, m + DETECTION_STILL_MS))) break;
-            ts ??= await findProxyStill(cameraId, span.start + 2000, span.start + 12_000);
-            if (!ts) return false;
-            await pipeline(await openProxyStill(cameraId, ts), createWriteStream(tmp));
-            return true;
-          });
-          if (got) {
-            // Only a JPEG becomes the (cached) thumbnail.
-            const head = await fs.readFile(tmp).then((b) => b.subarray(0, 3)).catch(() => Buffer.alloc(0));
-            if (head.length === 3 && head[0] === 0xff && head[1] === 0xd8 && head[2] === 0xff) return;
-            logger.warn({ cameraId, clipId }, 'proxy_still_not_a_jpeg');
-          }
+          if (await this.proxyStill(cameraId, clipId, tmp, 'start')) return;
         } catch (e) {
           logger.warn({ cameraId, clipId, message: (e as Error).message }, 'proxy_still_failed');
         }
@@ -688,15 +717,27 @@ export class RecordingsService {
   // done, so a concurrent evict() can never remove the file while it's
   // being sent to a client.
   async withThumbnail<T>(cameraId: string, clipId: string, use: (path: string) => Promise<T>): Promise<T> {
-    const jpgKey = await this.thumbKey(cameraId, clipId);
+    const span = proxyActive(cameraId) ? await this.eventSpan(cameraId, clipId).catch(() => null) : null;
+    if (span && hasDetection(span.triggers)) {
+      const detKey = this.key(cameraId, clipId, 'det.jpg');
+      this.cache.pin(detKey);
+      try {
+        const path = await this.detectionThumbnail(cameraId, clipId, detKey);
+        if (path) return await use(path);
+      } finally {
+        this.cache.unpin(detKey);
+      }
+    }
+    const jpgKey = this.key(cameraId, clipId, 'jpg');
     this.cache.pin(jpgKey);
     try {
-      const path = await this.thumbnail(cameraId, clipId, jpgKey);
+      const path = await this.thumbnail(cameraId, clipId);
       return await use(path);
     } finally {
       this.cache.unpin(jpgKey);
     }
   }
+
 
   // The clip download, streamed through (not cached), in the spec 2026-10-02
   // order. Sub: the proxy's recordings API (the camera's own file, so it

@@ -1,6 +1,6 @@
 import { expect, test, type Page } from '@playwright/test';
 import { signIn } from './session';
-import { FAKE_PROXY_PORT, FAKE_PROXY_TOKEN, vehicleDetectionMs } from './fakeProxyData';
+import { FAKE_PROXY_PORT, FAKE_PROXY_TOKEN, motionStillMs, vehicleDetectionMs } from './fakeProxyData';
 
 // The simulated cameras' demo clips (cam-sim DEMO_CLIPS, CAMSIM_SEED_CLIPS=demo):
 // today 08:15:10 person, 09:30:00 vehicle, 12:05:05 motion, 17:45:40 pet;
@@ -45,16 +45,24 @@ test('events list shows today\'s recordings with triggers and thumbnails', async
 
 // Issue #157: a vehicle card's thumbnail is the proxy's still at the second
 // the vehicle was detected (the fake's Den event 6 s in, with a still of its
-// own), not the start of the recording.
-test('a vehicle card shows the still from the moment it was detected', async ({ page }) => {
-  await openEvents(page);
-  const thumb = card(page, '093000').getByTestId('event-thumb');
+// own), not the start of the recording; a motion card keeps the still 2 s in.
+async function thumbBytes(page: Page, hhmmss: string): Promise<Buffer> {
+  const thumb = card(page, hhmmss).getByTestId('event-thumb');
   await thumb.scrollIntoViewIfNeeded(); // lazy
   await expect.poll(() => thumb.evaluate((img: HTMLImageElement) => img.complete && img.naturalWidth > 0)).toBe(true);
-  const src = (await thumb.getAttribute('src'))!;
-  const shown = await (await page.request.get(src)).body();
-  const still = await (await page.request.get(`http://127.0.0.1:${FAKE_PROXY_PORT}/api/cameras/cam1/stills/${vehicleDetectionMs()}.jpg`, { headers: { Authorization: `Bearer ${FAKE_PROXY_TOKEN}` } })).body();
-  expect(Buffer.compare(shown, still)).toBe(0);
+  return (await page.request.get((await thumb.getAttribute('src'))!)).body();
+}
+const proxyStill = async (page: Page, ts: number) =>
+  (await page.request.get(`http://127.0.0.1:${FAKE_PROXY_PORT}/api/cameras/cam1/stills/${ts}.jpg`, { headers: { Authorization: `Bearer ${FAKE_PROXY_TOKEN}` } })).body();
+
+test('a vehicle card shows the still from the moment it was detected', async ({ page }) => {
+  await openEvents(page);
+  expect(Buffer.compare(await thumbBytes(page, '093000'), await proxyStill(page, vehicleDetectionMs()))).toBe(0);
+});
+
+test('a motion card keeps the still 2 s into the recording', async ({ page }) => {
+  await openEvents(page);
+  expect(Buffer.compare(await thumbBytes(page, '120505'), await proxyStill(page, motionStillMs()))).toBe(0);
 });
 
 test('selecting an event plays it and puts it in the URL', async ({ page }) => {
