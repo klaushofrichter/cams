@@ -1,7 +1,7 @@
 import { setTimeout as sleep } from 'timers/promises';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import request from 'supertest';
-import { mkdtempSync, rmSync } from 'fs';
+import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
 import type { Server } from 'http';
@@ -155,5 +155,142 @@ describe('proxy first (Plan 7)', () => {
     expect(Buffer.compare(r.body, STILL)).toBe(0);
     expect(state.downloads).toBe(0);
     expect(fake.requests.some((q) => q.path.includes('/clips/'))).toBe(false);
+  });
+
+  // Issue #157: a person, vehicle or pet card shows the second the camera's
+  // AI saw it (cam-proxy's event start, or Vision's analysed still).
+  describe('thumbnail from the detection moment', () => {
+    const DET = Buffer.concat([JPEG, Buffer.from('still-at-the-detection')]);
+    const ANALYSED = Buffer.concat([JPEG, Buffer.from('still-vision-analysed')]);
+    async function card(app: ReturnType<typeof createApp>, trigger: string) {
+      const body = (await request(app).get(`/api/cameras/cam1/events?date=${today()}`).set('Cookie', auth)).body as { events: { id: string; start: string; end: string; triggers: string[] }[] };
+      const c = body.events.find((e) => e.triggers.includes(trigger))!;
+      return { id: c.id, start: Date.parse(c.start), end: Date.parse(c.end) };
+    }
+    const thumb = (app: ReturnType<typeof createApp>, id: string) => binary(request(app).get(`/api/cameras/cam1/clips/${id}/thumb.jpg`).set('Cookie', auth));
+    const event = (id: number, kind: string, start: number, analysis: unknown = null) => ({ id, kind, source: 'onvif', start, end: start + 5000, endReason: 'state', analysis });
+    const eventLookups = () => fake.requests.filter((q) => q.path === '/api/cameras/cam1/events').length;
+
+    it('uses the still at the first second a person was detected', async () => {
+      const app = createApp();
+      const c = await card(app, 'person');
+      fake.events.set('cam1', [event(1, 'motion', c.start + 1000), event(2, 'person', c.start + 6000)]);
+      fake.stills.set('cam1', new Map([[c.start + 2000, STILL], [c.start + 6000, DET]]));
+      const r = await thumb(app, c.id);
+      expect(r.status).toBe(200);
+      expect(Buffer.compare(r.body, DET)).toBe(0);
+      expect(state.downloads).toBe(0);
+      // Cached: the next request asks the proxy nothing.
+      const before = fake.requests.length;
+      expect(Buffer.compare((await thumb(app, c.id)).body, DET)).toBe(0);
+      expect(fake.requests.length).toBe(before);
+      expect(eventLookups()).toBe(1);
+    });
+
+    it('prefers the still Vision analysed and confirmed the person on', async () => {
+      const app = createApp();
+      const c = await card(app, 'person');
+      const analysis = { provider: 'google-vision', status: 'ok', reason: null, stillTs: c.start + 7000, objects: [], summary: [{ category: 'person', subtype: 'person', score: 0.86, box: { x0: 0, y0: 0, x1: 1, y1: 1 } }] };
+      fake.events.set('cam1', [event(2, 'person', c.start + 6000, analysis)]);
+      fake.stills.set('cam1', new Map([[c.start + 2000, STILL], [c.start + 6000, DET], [c.start + 7000, ANALYSED]]));
+      expect(Buffer.compare((await thumb(app, c.id)).body, ANALYSED)).toBe(0);
+    });
+
+    it('falls back to the still 2 s in when there is none at the detection (a gap)', async () => {
+      const app = createApp();
+      const c = await card(app, 'vehicle');
+      fake.events.set('cam1', [event(3, 'vehicle', c.start + 6000)]);
+      fake.stills.set('cam1', new Map([[c.start + 2000, STILL], [c.start + 20_000, DET]]));
+      expect(Buffer.compare((await thumb(app, c.id)).body, STILL)).toBe(0);
+    });
+
+    it('falls back to the still 2 s in when the proxy has no events for the card (an old event)', async () => {
+      const app = createApp();
+      const c = await card(app, 'pet');
+      fake.stills.set('cam1', new Map([[c.start + 2000, STILL], [c.start + 6000, DET]]));
+      expect(Buffer.compare((await thumb(app, c.id)).body, STILL)).toBe(0);
+    });
+
+    it('falls back to the still 2 s in when the event lookup fails', async () => {
+      const app = createApp();
+      const c = await card(app, 'person');
+      fake.events.set('cam1', [event(2, 'person', c.start + 6000)]);
+      fake.eventsStatus = 500;
+      fake.stills.set('cam1', new Map([[c.start + 2000, STILL], [c.start + 6000, DET]]));
+      const r = await thumb(app, c.id);
+      expect(r.status).toBe(200);
+      expect(Buffer.compare(r.body, STILL)).toBe(0);
+    });
+
+    it('takes a still up to 3 s after the detection, not 4 s', async () => {
+      const app = createApp();
+      const p = await card(app, 'person');
+      const v = await card(app, 'vehicle');
+      fake.events.set('cam1', [event(2, 'person', p.start + 6000), event(3, 'vehicle', v.start + 6000)]);
+      fake.stills.set('cam1', new Map([[p.start + 2000, STILL], [p.start + 8000, DET], [v.start + 2000, STILL], [v.start + 10_000, DET]]));
+      expect(Buffer.compare((await thumb(app, p.id)).body, DET)).toBe(0); // + 2 s
+      expect(Buffer.compare((await thumb(app, v.id)).body, STILL)).toBe(0); // + 4 s: the 2 s rule
+    });
+
+    it('serves the detection still, not a thumbnail cached before it (its own key)', async () => {
+      const app = createApp();
+      const c = await card(app, 'person');
+      writeFileSync(join(cacheDir, `cam1_${c.id}.jpg`), Buffer.concat([JPEG, Buffer.from('old-thumbnail')]));
+      fake.events.set('cam1', [event(2, 'person', c.start + 6000)]);
+      fake.stills.set('cam1', new Map([[c.start + 2000, STILL], [c.start + 6000, DET]]));
+      expect(Buffer.compare((await thumb(app, c.id)).body, DET)).toBe(0);
+    });
+
+    // Review of #163: a fallback is never kept as the detection thumbnail.
+    it('tries the detection again on a later request after a failed lookup', async () => {
+      process.env.DETECTION_RETRY_MS = '0';
+      try {
+        const app = createApp();
+        const c = await card(app, 'person');
+        fake.events.set('cam1', [event(2, 'person', c.start + 6000)]);
+        fake.stills.set('cam1', new Map([[c.start + 2000, STILL], [c.start + 6000, DET]]));
+        fake.eventsStatus = 500;
+        expect(Buffer.compare((await thumb(app, c.id)).body, STILL)).toBe(0);
+        fake.eventsStatus = null;
+        expect(Buffer.compare((await thumb(app, c.id)).body, DET)).toBe(0);
+        expect(existsSync(join(cacheDir, `cam1_${c.id}.det.jpg`))).toBe(true);
+      } finally {
+        delete process.env.DETECTION_RETRY_MS;
+      }
+    });
+
+    it('tries the detection again on a later request when its still was missing', async () => {
+      process.env.DETECTION_RETRY_MS = '0';
+      try {
+        const app = createApp();
+        const c = await card(app, 'person');
+        fake.events.set('cam1', [event(2, 'person', c.start + 6000)]);
+        fake.stills.set('cam1', new Map([[c.start + 2000, STILL]]));
+        expect(Buffer.compare((await thumb(app, c.id)).body, STILL)).toBe(0);
+        expect(existsSync(join(cacheDir, `cam1_${c.id}.det.jpg`))).toBe(false);
+        fake.stills.get('cam1')!.set(c.start + 6000, DET);
+        expect(Buffer.compare((await thumb(app, c.id)).body, DET)).toBe(0);
+      } finally {
+        delete process.env.DETECTION_RETRY_MS;
+      }
+    });
+
+    it('asks again only after a pause: no retry storm while the lookup fails', async () => {
+      const app = createApp();
+      const c = await card(app, 'person');
+      fake.eventsStatus = 500;
+      fake.stills.set('cam1', new Map([[c.start + 2000, STILL]]));
+      for (let i = 0; i < 3; i++) expect(Buffer.compare((await thumb(app, c.id)).body, STILL)).toBe(0);
+      expect(eventLookups()).toBe(1);
+    });
+
+    it('never looks up events for a motion-only card', async () => {
+      const app = createApp();
+      const c = await card(app, 'motion');
+      fake.events.set('cam1', [event(4, 'person', c.start + 6000)]);
+      fake.stills.set('cam1', new Map([[c.start + 2000, STILL], [c.start + 6000, DET]]));
+      expect(Buffer.compare((await thumb(app, c.id)).body, STILL)).toBe(0);
+      expect(eventLookups()).toBe(0);
+    });
   });
 });

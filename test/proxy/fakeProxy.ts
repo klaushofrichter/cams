@@ -16,6 +16,8 @@ export interface FakeMessage { id: number; ts: number; cam: string; type: string
 export interface FakeBox { x0: number; y0: number; x1: number; y1: number }
 // An analysis as cam-proxy stores it (spec 2026-09-30-analytics-in-cams-design):
 // the stream message's shape, plus the full object list.
+// An event as cam-proxy's GET /events lists it (one per AI type and motion).
+export interface FakeEvent { id: number; kind: string; source: string; start: number; end: number | null; endReason: string | null; analysis: unknown }
 export interface FakeAnalysis {
   eventId: number;
   kind: string;
@@ -56,6 +58,8 @@ export interface FakeProxy {
   maxStillsInFlight: number; // the most still images served at once (with stillDelayMs)
   maxStillListsInFlight: number; // the most still lists (GET /stills) answered at once (with stillDelayMs)
   streamStatus: number | null; // tests: /api/stream answers this error status
+  events: Map<string, FakeEvent[]>; // proxy camera id → its events
+  eventsStatus: number | null; // tests: /events answers this error
   analyses: Map<string, FakeAnalysis[]>; // proxy camera id → its analyses
   analysesStatus: number | null; // tests: /analyses answers this error (404: an older proxy)
   analysesDelayMs: number; // tests: /analyses answers this late
@@ -108,6 +112,8 @@ export async function startFakeProxy(opts: { port?: number; token?: string } = {
     maxStillsInFlight: 0,
     maxStillListsInFlight: 0,
     streamStatus: null,
+    events: new Map(),
+    eventsStatus: null,
     analyses: new Map(),
     analysesStatus: null,
     analysesDelayMs: 0,
@@ -271,6 +277,20 @@ export async function startFakeProxy(opts: { port?: number; token?: string } = {
         .filter((a) => a.start >= r[0] && a.start <= r[1])
         .sort((a, b) => a.start - b.start)
         .map(({ objects: _objects, ...a }) => a),
+    );
+  });
+  // Events, newest first, like cam-proxy's (from/to on the start, kind, limit).
+  app.get('/api/cameras/:cam/events', (req, res) => {
+    if (fake.eventsStatus) return void res.status(fake.eventsStatus).json({ error: 'upstream' });
+    const q = req.query;
+    const num = (v: unknown) => (v === undefined ? undefined : /^\d{1,15}$/.test(String(v)) ? Number(v) : NaN);
+    const from = num(q.from), to = num(q.to), limit = num(q.limit);
+    if ([from, to, limit].some((v) => Number.isNaN(v))) return void res.status(400).json({ error: 'invalid' });
+    res.json(
+      (fake.events.get(req.params.cam) ?? [])
+        .filter((e) => (from === undefined || e.start >= from) && (to === undefined || e.start <= to) && (q.kind === undefined || e.kind === q.kind))
+        .sort((a, b) => b.start - a.start || b.id - a.id)
+        .slice(0, Math.min(Math.max(1, limit ?? 1000), 1000)), // clamped, like the real one
     );
   });
   app.get('/api/cameras/:cam/events/:id/analysis', (req, res) => {
