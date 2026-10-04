@@ -18,6 +18,14 @@ const json = (v: unknown) => new Response(JSON.stringify(v), { status: 200, head
 let component: Record<string, unknown> | undefined;
 let target: HTMLDivElement | undefined;
 let stopRouter: (() => void) | undefined;
+// One event an hour, 00:10 to 23:10 (stage 2 tests); none otherwise.
+let dayEvents: ((date: string) => unknown[]) | undefined;
+const hourly = (date: string) =>
+  Array.from({ length: 24 }, (_, h) => {
+    const hh = String(h).padStart(2, '0');
+    const start = new Date(`${date}T${hh}:10:00`).toISOString();
+    return { id: `${date.replace(/-/g, '')}-${hh}1000-${hh}1020`, start, end: start, durationSec: 20, triggers: ['motion'], sizeSub: 1, sizeMain: 1 };
+  });
 
 beforeEach(() => {
   resetDayCache();
@@ -27,8 +35,11 @@ beforeEach(() => {
     // Offline: the page doesn't open a live stream in jsdom.
     if (url.includes('/status')) return json({ id: 'den', online: false, error: 'camera_offline' });
     if (url.includes('/extent')) return json({ oldest: null });
-    if (url.includes('/events?')) return json({ events: [], downloads: 'ok' });
-    if (url.includes('/days?')) return json({ days: [] });
+    if (url.includes('/events?')) {
+      const date = new URL(url, 'http://x').searchParams.get('date')!;
+      return json({ events: dayEvents ? dayEvents(date) : [], downloads: 'ok' });
+    }
+    if (url.includes('/days?')) return json({ days: dayEvents ? ['2026-09-26', '2026-09-27'] : [] });
     return json([]);
   });
   cameras.set([{ id: 'den', name: 'Den', webUiUrl: null }]);
@@ -41,6 +52,7 @@ afterEach(() => {
   component = target = stopRouter = undefined;
   cameras.set([]);
   selectedCameraId.set(null);
+  dayEvents = undefined;
   preferences.set(null);
   vi.unstubAllGlobals();
 });
@@ -140,5 +152,38 @@ describe('Video page wiring', () => {
     await settle();
     expect(badge().dataset.mode).toBe('live');
     expect(here()).toBe('/app/video');
+  });
+
+  // Stage 2 (spec 2026-10-04): landings collapse the far hours.
+  const openHours = () =>
+    [...target!.querySelectorAll<HTMLElement>('[data-testid="hour-group"]')]
+      .filter((g) => g.querySelector('[data-testid="hour-toggle"]')!.getAttribute('aria-expanded') === 'true')
+      .map((g) => Number(g.dataset.hour))
+      .sort((a, b) => a - b);
+  const range = (a: number, b: number) => Array.from({ length: b - a + 1 }, (_, i) => a + i);
+
+  it('a link with a time is a landing there', async () => {
+    dayEvents = hourly;
+    await open(`/app/video?cam=den&date=2026-09-27&at=${new Date(2026, 8, 27, 12, 30).getTime()}`);
+    expect(openHours()).toEqual(range(6, 18));
+  });
+
+  it('a day picked is a landing at its first event; a card click one at the card', async () => {
+    dayEvents = hourly;
+    await open(`/app/video?cam=den&date=2026-09-27&at=${new Date(2026, 8, 27, 12, 30).getTime()}`);
+    click('day-prev');
+    await settle();
+    expect(openHours()).toEqual(range(0, 6));
+    (target!.querySelector('[data-testid="hour-group"][data-hour="6"] [data-testid="event-card"]') as HTMLElement).click();
+    await settle();
+    expect(openHours()).toEqual(range(0, 12));
+  });
+
+  it('dragging back (the playhead moving) is no landing', async () => {
+    dayEvents = hourly;
+    await open(`/app/video?cam=den&date=2026-09-27&at=${new Date(2026, 8, 27, 12, 30).getTime()}`);
+    for (let i = 0; i < 5; i++) click('back-10');
+    await settle();
+    expect(openHours()).toEqual(range(6, 18));
   });
 });
