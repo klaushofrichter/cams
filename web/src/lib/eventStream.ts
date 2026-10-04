@@ -39,6 +39,8 @@ export interface EventStream {
   // Calls onChange (debounced) after changes for the camera cam() names.
   watch(cam: () => string, onChange: () => void, debounceMs?: number): () => void;
   onCameraEvent(fn: (e: CameraEvent) => void): () => void;
+  // Every change as it arrives, undebounced (the Timeline's still checks, cams #179).
+  onChange(fn: (c: Change) => void): () => void;
   close(): void;
 }
 
@@ -67,6 +69,7 @@ export function createEventStream(opts: { url?: string; factory?: (url: string) 
   const state = writable<{ connected: boolean; up: Record<string, boolean> }>({ connected: false, up: {} });
   const watchers = new Set<{ cam: () => string; fire: (after?: number) => void }>();
   const eventListeners = new Set<(e: CameraEvent) => void>();
+  const changeListeners = new Set<(c: Change) => void>();
   let source: EventSourceLike;
   let missed = false; // disconnected since the last open: pages reload once back
   let reopenMs = REOPEN_MIN_MS;
@@ -117,6 +120,7 @@ export function createEventStream(opts: { url?: string; factory?: (url: string) 
       if (c.type === 'camera-event' && c.phase === 'start' && typeof c.kind === 'string' && typeof c.ts === 'number') {
         for (const fn of eventListeners) fn({ cam: c.cam, kind: c.kind, ts: c.ts });
       }
+      for (const fn of changeListeners) fn(c);
       for (const w of watchers) {
         if (c.cam !== w.cam()) continue;
         w.fire();
@@ -158,6 +162,10 @@ export function createEventStream(opts: { url?: string; factory?: (url: string) 
       eventListeners.add(fn);
       return () => eventListeners.delete(fn);
     },
+    onChange(fn) {
+      changeListeners.add(fn);
+      return () => changeListeners.delete(fn);
+    },
     close() {
       closed = true;
       clearTimeout(reopenTimer);
@@ -165,6 +173,7 @@ export function createEventStream(opts: { url?: string; factory?: (url: string) 
       source.close();
       watchers.clear();
       eventListeners.clear();
+      changeListeners.clear();
     },
   };
 }

@@ -11,7 +11,8 @@ export interface CardAnalysis {
   best: Partial<Record<Category, { score: number; subtype: string }>>;
   notConfirmed: Category[];
   // `kind`: the analysed event's kind (issue #113); older servers don't send it.
-  stills: { eventId: number; kind?: string; stillTs: number; summary: SummaryEntry[] }[];
+  // `checkId`: a still check (cams #179), kind "check".
+  stills: { eventId: number; kind?: string; stillTs: number; summary: SummaryEntry[]; checkId?: number }[];
 }
 export type Level = 'high' | 'mid' | 'low';
 export interface Badge { kind: 'agree' | 'not-confirmed' | 'extra'; category: Category; level: Level | null; text: string; title: string; label: string }

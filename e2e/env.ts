@@ -33,6 +33,8 @@ export const E2E_ENV: Record<string, string> = {
   RATE_LIMIT_API_MAX: '10000',
   RATE_LIMIT_MEDIA_MAX: '10000',
   RATE_LIMIT_IMAGE_MAX: '50000',
+  RATE_LIMIT_CHECKS_PER_MIN: '1000',
+  RATE_LIMIT_CHECKS_PER_DAY: '10000',
 };
 
 // The cam-proxy release the e2e runs for Silo (e2e/realProxy.ts): the first
