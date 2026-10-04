@@ -41,12 +41,21 @@ const file = (name: string, v: unknown) => {
   return p;
 };
 const proxy = { url: 'http://127.0.0.1:1', token: 't'.repeat(32) };
-const den = { id: 'den', name: 'Den', host: 'from-proxy', user: 'cams', password: 'pw', proxy };
+const den = { id: 'den', name: 'Den', host: 'from-proxy', tlsServername: 'cam1.example.test', user: 'cams', password: 'pw', proxy };
 
 describe('the cameras file', () => {
   it('takes "host": "from-proxy" for a camera with a proxy', () => {
     const [c] = loadCameras(file('ok.json', [den]));
     expect(c.host).toBe('from-proxy');
+  });
+  // Security review 2026-10-04: an address from the proxy is only trusted
+  // behind a certificate check, so a compromised proxy can't point the
+  // camera login (user, password) at another host.
+  it('requires https and a tlsServername with "from-proxy"', () => {
+    expect(loadCameras(file('def.json', [den]))[0].protocol).toBe('https');
+    expect(() => loadCameras(file('http.json', [{ ...den, protocol: 'http' }]))).toThrow('camera registry entry 0: host "from-proxy" needs protocol "https" and a tlsServername');
+    const { tlsServername: _t, ...noName } = den;
+    expect(() => loadCameras(file('nosni.json', [noName]))).toThrow('camera registry entry 0: host "from-proxy" needs protocol "https" and a tlsServername');
   });
   it('refuses "from-proxy" without a proxy, and still refuses a missing host', () => {
     const { proxy: _p, ...noProxy } = den;
@@ -93,6 +102,17 @@ describe('the reported address', () => {
     const e2 = await getClient('den')!.status().catch((e: unknown) => e);
     expect((e2 as CameraError).code).toBe('camera_auth_failed');
     expect(hits.some((u) => u.includes('cmd=Login'))).toBe(true);
+    // A known address changes to another: the cached client is dropped and
+    // the next request goes to the new address only.
+    const known = getClient('den');
+    expect(getClient('den')).toBe(known); // cached while the address stays
+    setReportedAddress('den', '127.0.0.1:9');
+    const moved = getClient('den');
+    expect(moved).not.toBe(known);
+    const n = hits.length;
+    const e3 = await moved!.status().catch((e: unknown) => e);
+    expect((e3 as CameraError).code).toBe('camera_offline');
+    expect(hits.length).toBe(n);
   });
 });
 

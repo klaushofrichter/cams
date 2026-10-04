@@ -1,7 +1,7 @@
 # Camera address from cam-proxy (Pi demo kit)
 
 2026-10-04. Klaus approved the Pi demo kit's configuration ("Yes to both"):
-on the Pi, one file (`/srv/cam-proxy/.env`) holds the camera's address
+on the Pi, one file (`/srv/cam-proxy/config/.env`; first `/srv/cam-proxy/.env`, moved by the security review) holds the camera's address
 (`CAMERA_HOST`), the Pi's (`PI_ADDRESS`) and the login token, next to
 cam-proxy's secrets. cams no longer carries the camera's address on the Pi: it
 takes it from cam-proxy, which knows it (cam-proxy spec
@@ -13,6 +13,13 @@ cam-proxy's "Find camera" writes the camera's line itself.
 - A camera entry may say `"host": "from-proxy"` when it has a `proxy`; cams
   then uses the address cam-proxy reports. Without a `proxy` that value is
   refused at startup (`camera registry entry 0: host "from-proxy" needs a proxy`).
+- **Ruling (coordinator, security review 2026-10-04): `"from-proxy"` needs
+  `protocol` `https` (the default) and a `tlsServername`**, refused at startup
+  otherwise — why: the address comes from the proxy, so a compromised proxy
+  could point the camera login (user, password) at a host of its choice; with
+  the certificate checked by name, only the real camera completes the TLS
+  handshake — cost if wrong: a camera without a valid certificate can't use
+  `"from-proxy"` (it keeps an explicit `host`).
 - **Ruling: the explicit `"host": "from-proxy"`, not an omitted `host`** —
   why: a `host` forgotten in the cluster's `cams-cameras` Secret keeps failing
   at startup as today instead of silently waiting for a proxy; the marker
@@ -56,17 +63,23 @@ cam-proxy's "Find camera" writes the camera's line itself.
 
 ## 4. Compose and docs
 
-`deploy/pi/compose.cams.yaml`: `env_file: ../.env` (cam-proxy's one file in
-`/srv/cam-proxy/.env`); `COOKIE_SECRET` and `CAMS_LOGIN_TOKEN` come from it, so
-the `${…:?}` interpolations go.
+`deploy/pi/compose.cams.yaml`: no `env_file`. `$CAMS/.env` is a symlink to
+`../config/.env` (the Pi's one settings file), which compose reads only for the
+`${…}` in the compose file; `environment:` lists `CAMS_LOGIN_TOKEN:
+${CAMS_LOGIN_TOKEN:?}`, `COOKIE_SECRET: ${COOKIE_SECRET:?}`,
+`CAMS_TOKEN_USER: ${CAMS_TOKEN_USER:-local}`, and the image tag is
+`${CAMS_TAG:-latest}`.
 
-- **Ruling: `COOKIE_SECRET` moves into the one file too, and cams' own
-  `$CAMS/.env` is no longer needed (only `CAMS_TAG`, if a release is pinned)**
-  — why: "one file" for every secret on the Pi; compose's `${…}` interpolation
-  reads `$CAMS/.env`, not an `env_file`, so leaving the secrets there would
-  need two files kept in step — cost if wrong: cams' container sees
-  cam-proxy's secrets in its environment (the same Pi, the same owner; cams
-  never reads them); moving cams to its own file again is a compose edit.
+- **Ruling (coordinator, security review 2026-10-04): cams gets only its own
+  variables** — why: the first version used `env_file: ../.env`, which handed
+  cams' container every cam-proxy secret; now the one file is kept but only
+  the listed variables reach cams (its proxy tokens and the camera password
+  stay in `cameras.json`) — cost if wrong: a new cams variable on the Pi needs
+  a line in the compose file. Residual: `CAMS_TAG` comes from the file
+  cam-proxy's container can write, so that container could pick another tag
+  of the cams image; it can't change volumes, user or image name.
+- **Ruling: `COOKIE_SECRET` moves into the one file too.** It used to live in
+  `$CAMS/.env`, which is now the link.
 - `deploy/pi/cameras.example.json`: `"host": "from-proxy"`.
 - docs/pi-demo.md: the single `.env` (example without values), the compose
   change, "On the road": Find camera → Use this address → "Point the camera's

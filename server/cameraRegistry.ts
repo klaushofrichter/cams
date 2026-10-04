@@ -87,6 +87,12 @@ export function loadCameras(file: string | undefined = process.env.CAMERAS_FILE)
     if (e.webUiNote !== undefined && !(typeof e.webUiNote === 'string' && e.webUiNote.length > 0 && e.webUiNote.length <= 120)) {
       throw new Error(`camera registry entry ${i}: webUiNote must be a string of 1 to 120 characters`);
     }
+    // An address from the proxy is only trusted behind a certificate check:
+    // a compromised proxy must not point the camera login at another host
+    // (security review 2026-10-04).
+    if (e.host === FROM_PROXY && ((e.protocol ?? 'https') !== 'https' || e.tlsServername === undefined)) {
+      throw new Error(`camera registry entry ${i}: host "${FROM_PROXY}" needs protocol "https" and a tlsServername`);
+    }
     const proxy = e.proxy === undefined ? undefined : proxyOf(e.proxy, i);
     const camera: CameraConfig = {
       id: e.id as string,
