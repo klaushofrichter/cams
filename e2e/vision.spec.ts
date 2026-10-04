@@ -1,5 +1,6 @@
 import { expect, test, type Page } from '@playwright/test';
 import { FAKE_PROXY_PORT } from './fakeProxyData';
+import { expandAllHours } from './hours';
 import { signIn } from './session';
 
 // Vision in cams (spec 2026-09-30-analytics-in-cams-design, in cam-proxy).
@@ -66,6 +67,8 @@ test('live, the event list shows the badge too', async ({ page }) => {
   const { subtype } = await analyse(page, card);
   await page.goto('/app/live');
   await page.getByTestId('camera-picker').selectOption('cam1');
+  // The card's hour may be more than 6 h from now and collapsed (stage 2 auto-collapse).
+  await expandAllHours(page);
   await expect(page.locator('.side').locator(`[data-testid="vision-badge"][data-kind="agree"][title*="${subtype}"]`).first()).toBeVisible();
 });
 
@@ -220,6 +223,8 @@ test('the dialog’s "Open in Video" opens the recording at the analysed second,
   const { stillTs, subtype } = await analyse(page, card);
   await page.goto('/app/live');
   await page.getByTestId('camera-picker').selectOption('cam1');
+  // The card's hour may be more than 6 h from now and collapsed (stage 2 auto-collapse).
+  await expandAllHours(page);
   const live = page.locator('.side').locator(`[data-testid="vision-badge"][data-kind="agree"][title*="${subtype}"]`).first();
   await live.click();
   const dialog = page.getByTestId('vision-dialog');
