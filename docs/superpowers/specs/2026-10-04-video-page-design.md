@@ -1,7 +1,7 @@
 # The Video page: Live and History combined (design)
 
-Status: approved by Klaus (2026-10-04); stage 1 is built in the PR that adds
-this file, stage 2 is a later PR.
+Status: approved by Klaus (2026-10-04); stage 1 shipped in v2026.10.04.2 (#173),
+stage 2 is built in its own PR (see the end).
 Builds on the unified video page (spec 2026-09-28), which already put Live
 and History beside one player and one strip, as two panels behind two menu
 entries and two tab buttons. This design drops the panels: there is one page,
@@ -141,12 +141,36 @@ the time plays at once. App keeps the page mounted while `liveStreamHeld`.
   camera card shows a rename. The specs that used the tabs, `panel=history`
   URLs or the five-list are moved to the event list and the new URLs.
 
-## Stage 2 (a later PR, not built now)
+## Stage 2 (built 2026-10-04, PR "Video page stage 2")
 
-- **Auto-collapse:** hour groups more than 6 h from the viewed time start
-  collapsed, only when landing on a new spot (a day picked, an event card, a
-  link, a time picked), never while scrubbing or playing. A group the user
-  opened or closed keeps the user's choice (user toggles win).
-- **Lazy thumbnails:** the cards' thumbnails load when they scroll into view
-  (IntersectionObserver on the list's scroll box, a small root margin), not
-  all at once for a busy day.
+- **Auto-collapse** (`lib/hourCollapse.ts`, `hourOpenAtLanding`): when the
+  viewer lands on a new spot, hours more than 6 h from the viewed time
+  collapse (the distance to the hour's nearer edge; exactly 6 h stays open).
+  - Landings (Video.svelte, `land()`): the page loading (at its URL position,
+    or live at now), a day picked (at the day's first event, once the day's
+    events are in), an event card, a link or Back/forward with a position
+    (Timeline, Vision dialog), going live (at now).
+  - Never a landing: dragging or scrolling the strip, ±1/10 s, prev/next,
+    playing. A selection moving into a collapsed hour no longer opens it; the
+    hour's title shows ▶, bold and tinted, and its name ends in ", playing".
+  - The viewed hour is always open. Hours the user opened or closed by hand
+    (and "Collapse hours" / "Expand hours", unchanged) keep that state
+    through later landings until the day or camera changes.
+  - Near hours keep the old default: a busy hour (over 10 events) starts
+    collapsed unless it holds the selection.
+  - A new hour arriving later (today's refresh) gets the rule at the last
+    landing's time, at now while live, so live's new hour is open. A landing
+    belongs to its day: another day ignores it until it has its own.
+- **Lazy thumbnails** (`lib/lazyThumbs.ts`, `use:lazySrc`): a card's
+  thumbnail is requested once it is within 300 px of the visible part of the
+  box it scrolls in (IntersectionObserver rooted at the nearest scroll box:
+  the sidebar's list on a desktop, the page's main area on a phone), at most
+  4 at a time; a card scrolled past before
+  its turn is dropped, so a fast scroll is no request storm. Without
+  IntersectionObserver every thumbnail loads at once. Collapsed hours render
+  no cards, so they load nothing.
+- Tests: `hourCollapse.test.ts`, `lazyThumbs.test.ts`,
+  `EventListLanding.svelte.test.ts`, the landing cases in
+  `Video.svelte.test.ts`, and `e2e/video-stage2.spec.ts` (a long day: far
+  hours collapsed, a drag changes nothing, hand toggles survive a card, a day
+  pick applies again; only near thumbnails requested, more on scroll).

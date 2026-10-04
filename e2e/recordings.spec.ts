@@ -1,5 +1,6 @@
 import { expect, test, type Page } from '@playwright/test';
 import { signIn } from './session';
+import { expandAllHours } from './hours';
 import { FAKE_PROXY_PORT, FAKE_PROXY_TOKEN, motionStillMs, vehicleDetectionMs } from './fakeProxyData';
 
 // The simulated cameras' demo clips (cam-sim DEMO_CLIPS, CAMSIM_SEED_CLIPS=demo):
@@ -18,6 +19,7 @@ const card = (page: Page, hhmmss: string) => page.locator(`[data-testid="event-c
 
 async function openEvents(page: Page) {
   await page.goto('/app/recordings?panel=events');
+  await expandAllHours(page);
   await expect(page.getByTestId('event-card')).toHaveCount(4);
 }
 
@@ -40,6 +42,7 @@ test('events list shows today\'s recordings with triggers and thumbnails', async
   await expect(page.getByTestId('event-card').first()).toContainText('17:45:40'); // newest first
   await expect(card(page, '081510')).toContainText('Person');
   const thumb = page.getByTestId('event-thumb').first();
+  await thumb.scrollIntoViewIfNeeded(); // thumbnails load near the screen (stage 2)
   await expect.poll(() => thumb.evaluate((img: HTMLImageElement) => img.complete && img.naturalWidth > 0)).toBe(true);
 });
 
@@ -235,6 +238,8 @@ test('the hours button collapses and expands them all, and offers Collapse hours
 test('previous day shows yesterday\'s recordings; a day without any says so', async ({ page }) => {
   await openEvents(page);
   await page.getByTestId('day-prev').click();
+  await expect(page.getByTestId('day-picker')).not.toHaveValue(new Date().toLocaleDateString('en-CA'));
+  await expandAllHours(page); // the day pick collapsed its far hours
   await expect(page.getByTestId('event-card')).toHaveCount(2);
   // Before the oldest content: History opens on the oldest day instead.
   await page.goto('/app/recordings?date=2001-01-01&panel=events');
@@ -247,6 +252,7 @@ test('downloads return MP4 attachments with readable names', async ({ page }) =>
   // the file's name, so the dialog is told 4K is there.
   await page.route('**/full-quality', (r) => r.fulfill({ json: { available: true } }));
   await page.goto('/app/recordings?panel=history');
+  await expandAllHours(page);
   await page.getByTestId('event-download').first().click();
   await page.getByTestId('compose-size').selectOption('4k');
   const href = await page.getByTestId('compose-save').getAttribute('href');
@@ -264,6 +270,7 @@ test('a camera without a cam-proxy saves 4K straight from the link, asking nothi
     if (req.url().endsWith('/full-quality')) asked++;
   });
   await page.goto(`/app/recordings?cam=porch&date=${chicagoToday()}&panel=history`);
+  await expandAllHours(page);
   await page.getByTestId('event-download').first().click();
   await page.getByTestId('compose-size').selectOption('4k');
   const download = page.waitForEvent('download');
@@ -278,6 +285,7 @@ test('live lists today’s events, newest first, and a card plays one', async ({
   await page.goto('/app/video');
   await expect(page.getByTestId('mode-badge')).toHaveAttribute('data-mode', 'live');
   await expect(page.getByTestId('events-day')).toHaveText("Today's events");
+  await expandAllHours(page);
   const cards = page.getByTestId('event-card');
   await expect(cards).toHaveCount(4);
   const ids = await cards.evaluateAll((els) => els.map((e) => e.getAttribute('data-clip-id')!));
@@ -324,6 +332,7 @@ test('the header picker on Recordings switches the page and does not flip back',
   await expect(page).toHaveURL(/cam=porch.*clip=\d{8}-081510-081535/);
   // wait for the switched camera's own events to load (settles the effects
   // that sync the picker and the URL) and confirm the picker held.
+  await expandAllHours(page);
   await expect(page.getByTestId('event-card')).toHaveCount(4);
   await expect(page.getByTestId('camera-picker')).toHaveValue('porch');
 });
@@ -423,6 +432,7 @@ test.describe('today auto-refresh', () => {
   test('today refreshes on its own and keeps the selection', async ({ page }) => {
     await page.clock.install();
     await page.goto('/app/recordings?cam=porch&panel=events');
+    await expandAllHours(page);
     await expect(page.getByTestId('event-card')).toHaveCount(4);
     await card(page, '093000').click();
     const first = await page.getByTestId('events-updated').textContent();

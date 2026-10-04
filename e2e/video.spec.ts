@@ -1,6 +1,7 @@
 import { readFileSync } from 'fs';
 import { expect, test, type Download, type Page } from '@playwright/test';
 import { signIn } from './session';
+import { eventCount } from './hours';
 
 // The Video page (spec docs/superpowers/specs/2026-10-04-video-page-design.md):
 // Live and History are one page whose mode follows the player. The old URLs
@@ -40,7 +41,7 @@ test('an old link to another day opens that day, and the list is that day’s', 
   await expect(badge(page)).toHaveAttribute('data-mode', 'rec');
   await expect(badge(page)).toHaveText(/^REC [A-Z][a-z]{2} \d{1,2}, /); // another day: with the date
   await expect(page.getByTestId('events-day')).toHaveText(`Events on ${yesterday}`);
-  await expect(page.getByTestId('event-card')).toHaveCount(2); // yesterday's demo clips
+  await expect.poll(() => eventCount(page)).toBe(2); // yesterday's demo clips (22:15 may be collapsed)
 });
 
 test('scrubbing back is REC with light and quality off; ⇥ and the badge are LIVE again', async ({ page }) => {

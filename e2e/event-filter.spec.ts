@@ -1,6 +1,7 @@
 import { expect, test, type Page } from '@playwright/test';
 import { signIn } from './session';
 import { FILTER_EMAILS } from './env';
+import { eventCount, expandAllHours } from './hours';
 
 // The event filter is one preference for live and the recordings (Klaus,
 // 2026-10-03; one Video page since 2026-10-04): a chip changes both, across
@@ -35,60 +36,63 @@ const kindsOf = (page: Page) => page.getByTestId('event-card').evaluateAll((els)
 test('a filter set live is the recordings’ too, after a reload, and back', async ({ page }) => {
   await page.goto('/app/video');
   await expect(page.getByTestId('mode-badge')).toHaveAttribute('data-mode', 'live');
-  await expect(page.getByTestId('event-card')).toHaveCount(4);
+  await expect.poll(() => eventCount(page)).toBe(4);
   await expectChips(page, side(page), ['all']);
 
   await side(page).getByTestId('filter-person').click();
-  await expect(page.getByTestId('event-card')).toHaveCount(1);
+  await expect.poll(() => eventCount(page)).toBe(1);
+  await expandAllHours(page);
   expect(await kindsOf(page)).toEqual(['Person']);
   await expect.poll(() => saved(page)).toEqual(['person']);
 
   await page.getByTestId('back-10').click(); // a recording
   await expect(page.getByTestId('mode-badge')).toHaveAttribute('data-mode', 'rec');
   await expectChips(page, side(page), ['person']);
-  await expect(page.getByTestId('event-card')).toHaveCount(1);
+  await expect.poll(() => eventCount(page)).toBe(1);
 
   await page.reload();
-  await expect(page.getByTestId('event-card')).toHaveCount(1);
+  await expect.poll(() => eventCount(page)).toBe(1);
   await expectChips(page, side(page), ['person']);
 
   // and the other way: the recording's change is live's
   await side(page).getByTestId('filter-vehicle').click();
-  await expect(page.getByTestId('event-card')).toHaveCount(2);
+  await expect.poll(() => eventCount(page)).toBe(2);
   await expect.poll(() => saved(page)).toEqual(['person', 'vehicle']);
   await page.getByTestId('strip-now').click(); // ⇥: live
   await expect(page.getByTestId('mode-badge')).toHaveAttribute('data-mode', 'live');
   await expectChips(page, side(page), ['person', 'vehicle']);
-  await expect(page.getByTestId('event-card')).toHaveCount(2);
+  await expect.poll(() => eventCount(page)).toBe(2);
   await page.reload();
-  await expect(page.getByTestId('event-card')).toHaveCount(2);
+  await expect.poll(() => eventCount(page)).toBe(2);
   await expectChips(page, side(page), ['person', 'vehicle']);
+  await expandAllHours(page);
   expect(await kindsOf(page)).toEqual(['Vehicle', 'Person']); // newest first
 
   // All again: every event
   await side(page).getByTestId('filter-all').click();
-  await expect(page.getByTestId('event-card')).toHaveCount(4);
+  await expect.poll(() => eventCount(page)).toBe(4);
   await expect.poll(() => saved(page)).toEqual(['person', 'vehicle', 'pet', 'motion']);
 });
 
 test('an old link’s filter= is ignored: the saved filter shows, and the URL drops it', async ({ page }) => {
   await setSaved(page, ['pet']);
   await page.goto('/app/recordings?panel=history&cam=cam1&filter=person');
-  await expect(page.getByTestId('event-card')).toHaveCount(1);
+  await expect.poll(() => eventCount(page)).toBe(1);
+  await expandAllHours(page);
   await expect(page.getByTestId('event-card')).toHaveAttribute('data-clip-id', /-174540-/);
   await expectChips(page, side(page), ['pet']);
   await expect(page).not.toHaveURL(/filter=/);
   // with a date and a time too (nothing else rewrites that URL at once)
   await page.goto(`/app/recordings?cam=cam1&date=${await page.evaluate(() => new Date().toLocaleDateString('en-CA'))}&panel=history&filter=all`);
-  await expect(page.getByTestId('event-card')).toHaveCount(1);
+  await expect.poll(() => eventCount(page)).toBe(1);
   await expect(page).not.toHaveURL(/filter=/);
 });
 
 test('the last kind turned off live is All', async ({ page }) => {
   await page.goto('/app/video');
   await side(page).getByTestId('filter-pet').click();
-  await expect(page.getByTestId('event-card')).toHaveCount(1);
+  await expect.poll(() => eventCount(page)).toBe(1);
   await side(page).getByTestId('filter-pet').click();
   await expectChips(page, side(page), ['all']);
-  await expect(page.getByTestId('event-card')).toHaveCount(4);
+  await expect.poll(() => eventCount(page)).toBe(4);
 });

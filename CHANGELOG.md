@@ -8,3 +8,8 @@ published as [GitHub releases](https://github.com/klaushofrichter/cams/releases)
 
 ## [Unreleased]
 
+### Changed
+
+- **Video page, event list:** landing on a new spot (the page loading, a day picked, an event card, a link, going live) collapses the hours more than 6 h from the viewed time; the viewed hour is always open. Scrubbing and playing never change what is collapsed, and hours opened or closed by hand stay so for the day. A collapsed hour holding the playing clip is marked ▶.
+- Event thumbnails load only as their cards come near the screen, a few at a time, instead of all at once on a busy day.
+
