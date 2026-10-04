@@ -541,8 +541,17 @@
   .workspace { display: grid; grid-template-columns: minmax(0, var(--player-max-w)) 370px; gap: 18px; align-items: start; }
   .center.off, .updated.off { visibility: hidden; }
   .main { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+  /* Desktop: the sidebar is a column as tall as the window allows; the tabs,
+     "Collapse hours" and the filter stay at its top and only the event list
+     (cards and hour titles) scrolls (Klaus, 2026-10-03). A panel marks the
+     boxes that give way with side-fill and the list with side-scroll.
+     overflow: auto stays as the fallback for content that can't give way. */
   .side { display: flex; flex-direction: column; gap: 10px; max-height: calc(100vh - 170px); overflow: auto; }
-  .tabrow { display: flex; align-items: center; gap: 6px; }
+  .tabrow { display: flex; align-items: center; gap: 6px; flex: none; }
+  @media (min-width: 1200px) {
+    .side :global(.side-fill) { display: flex; flex-direction: column; flex: 0 1 auto; min-height: 0; }
+    .side :global(.side-scroll) { flex: 0 1 auto; min-height: 0; overflow: auto; }
+  }
   .tabs { display: flex; gap: 6px; }
   .hours { margin-left: auto; padding: 5px 10px; border-radius: 9px; border: 1px solid var(--border); background: transparent; color: var(--muted); font: inherit; font-size: 12px; cursor: pointer; }
   .hours:hover { color: var(--text); border-color: color-mix(in srgb, var(--accent) 40%, var(--border)); }

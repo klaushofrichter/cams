@@ -168,7 +168,11 @@
   }
 </script>
 
+<!-- The filter on top, then the list: on a desktop only the list scrolls
+     (side-fill / side-scroll, Video.svelte; Klaus, 2026-10-03). -->
+<div class="events side-fill">
 <EventFilter {filter} {onfilter} />
+<div class="body side-scroll" data-testid="event-scroll">
 
 <!-- One card per recording in progress (Klaus, 2026-09-30). -->
 {#each groupPending(pending) as p (p.start)}
@@ -233,12 +237,15 @@
     {/each}
   </div>
 {/if}
+</div>
+</div>
 
 {#if saving}
   <ComposeDialog camera={cameraId} clip={saving} {composable} onclose={() => (saving = null)} />
 {/if}
 
 <style>
+  .events, .body { display: flex; flex-direction: column; gap: 10px; }
   .groups { display: flex; flex-direction: column; gap: 10px; }
   .group-head {
     position: sticky; top: 0; z-index: 1; display: flex; align-items: center; justify-content: space-between; gap: 8px;

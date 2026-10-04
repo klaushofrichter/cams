@@ -57,9 +57,8 @@ describe('LivePanel', () => {
 
   it('puts a recording in progress on top, within the five', () => {
     render({ recent: [1, 2, 3, 4, 5].map(evAt), pending: [{ kind: 'person', ts: Date.now() }] });
-    const recent = q('live-recent')!;
-    // the title, the filter, then the recording in progress
-    expect(recent.firstElementChild!.nextElementSibling!.nextElementSibling).toBe(q('live-latest-pending'));
+    // the title, the filter, then the rows: the recording in progress first
+    expect(q('live-scroll')!.firstElementChild).toBe(q('live-latest-pending'));
     expect(q('live-latest-pending')!.textContent).toContain('recording…');
     expect(all('live-latest')).toHaveLength(4);
   });
