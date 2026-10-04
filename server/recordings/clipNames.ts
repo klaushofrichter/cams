@@ -105,6 +105,13 @@ function seconds(s: string): number {
   return Number(s.slice(0, 2)) * 3600 + Number(s.slice(2, 4)) * 60 + Number(s.slice(4, 6));
 }
 
+// A clip id's length in seconds (YYYYMMDD-HHMMSS-HHMMSS, camera-local wall
+// times; an end before the start is past midnight), as clipTimes counts it.
+export function clipSeconds(id: string): number {
+  const d = seconds(id.slice(16, 22)) - seconds(id.slice(9, 15));
+  return d < 0 ? d + 86400 : d;
+}
+
 function nextDay(date: string): string {
   const d = new Date(`${date}T00:00:00Z`);
   d.setUTCDate(d.getUTCDate() + 1);

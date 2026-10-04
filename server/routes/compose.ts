@@ -1,6 +1,7 @@
 import { Router, type Request, type Response } from 'express';
 import { Readable } from 'stream';
 import { pipeline } from 'stream/promises';
+import { generateMaxS, resultLength } from '../clipLimits';
 import { logger } from '../logger';
 import { getProxyClient, proxyPath, ProxyError } from '../proxy/client';
 import { CLIP_ID as EVENT } from '../recordings/clipNames';
@@ -59,14 +60,23 @@ composeRouter.post('/api/cameras/:id/compositions', async (req, res) => {
   const b = (req.body ?? {}) as { eventId?: unknown; preS?: unknown; postS?: unknown; size?: unknown; badge?: unknown; timeZone?: unknown };
   if (typeof b.eventId !== 'string' || !EVENT.test(b.eventId)) return void res.status(400).json({ error: 'invalid', detail: 'eventId is required' });
   try {
-    let clip: { id: number } | null;
+    let clip: { id: number; event: { start: number; end: number } } | null;
     try {
       clip = await getRecordings().proxyClipOf(t.id, b.eventId);
     } catch (err) {
       return void lookupFailed(t.id, err, res);
     }
     if (!clip) return void res.status(404).json({ error: 'no_clip' });
-    const up = await t.client.open(t.base, undefined, { method: 'POST', body: JSON.stringify({ clipId: clip.id, preS: b.preS, postS: b.postS, size: b.size, badge: b.badge, ...(typeof b.timeZone === 'string' ? { timeZone: b.timeZone } : {}) }) });
+    // The dialog's rule and words (server/clipLimits.ts) on the event's own
+    // length; the proxy checks again on the same span (its own words).
+    if (typeof b.preS === 'number' && typeof b.postS === 'number' && typeof b.size === 'string') {
+      const len = resultLength(Math.round((clip.event.end - clip.event.start) / 1000), b.preS, b.postS, generateMaxS(b.size));
+      if (!len.ok) return void res.status(400).json({ error: 'invalid', detail: len.error });
+    }
+    // span: the rolls apply to the event (the SD recording the dialog shows),
+    // not to the proxy's FTP copy, which can be longer (2026-10-04: 114 s,
+    // pre -100, post 30 was 44 s here and 175 s on the proxy).
+    const up = await t.client.open(t.base, undefined, { method: 'POST', body: JSON.stringify({ clipId: clip.id, span: clip.event, preS: b.preS, postS: b.postS, size: b.size, badge: b.badge, ...(typeof b.timeZone === 'string' ? { timeZone: b.timeZone } : {}) }) });
     const text = await up.text();
     if (up.status === 201) {
       const id = (JSON.parse(text) as { id?: unknown }).id;

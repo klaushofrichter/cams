@@ -487,15 +487,17 @@ export class RecordingsService {
     return ev ? { start: Date.parse(ev.start), end: Date.parse(ev.end), triggers: ev.triggers } : null;
   }
 
-  // The proxy's clip for an event (composed clips, cam-proxy spec 2026-09-28):
-  // null when it has none; a failed lookup throws (issue #76).
-  async proxyClipOf(cameraId: string, clipId: string): Promise<{ id: number } | null> {
+  // The proxy's clip for an event (composed clips, cam-proxy spec 2026-09-28),
+  // with the event's own span (unix ms): the proxy's FTP copy can start
+  // earlier or run longer, and a composition's rolls apply to the event
+  // (2026-10-04). null when it has none; a failed lookup throws (issue #76).
+  async proxyClipOf(cameraId: string, clipId: string): Promise<{ id: number; event: { start: number; end: number } } | null> {
     if (!proxyActive(cameraId)) return null;
     const span = await this.eventSpan(cameraId, clipId);
     if (!span) return null;
     const clip = await findProxyClip(cameraId, span.start, span.end);
     if (clip) logger.info({ cameraId, clipId, proxyClip: clip.id }, 'recording_from_proxy');
-    return clip;
+    return clip && { id: clip.id, event: { start: span.start, end: span.end } };
   }
 
   // The proxy's clip for the event, for a camera with a cam-proxy (Plan 7:

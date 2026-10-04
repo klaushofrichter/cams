@@ -130,7 +130,7 @@ describe('ComposeDialog', () => {
     render();
     expect(q('compose-generate')).toBeNull();
     expect(q('compose-save')!.getAttribute('href')).toBe('/api/cameras/den/clips/20260928-140000-140020/download?quality=sub');
-    expect(q('compose-length')!.textContent).toContain('0:20');
+    expect(q('compose-length')!.textContent).toBe('Result: 20 s · at most 600 s (10:00)');
   });
 
   it('offers Generate for a post-roll, and disables Save until the result is ready', async () => {
@@ -148,7 +148,7 @@ describe('ComposeDialog', () => {
     try {
       render();
       set('compose-post', '30');
-      expect(q('compose-length')!.textContent).toContain('0:50');
+      expect(q('compose-length')!.textContent).toBe('Result: 50 s · at most 300 s (5:00)');
       expect(q('compose-save')!.getAttribute('aria-disabled')).toBe('true');
       q('compose-generate')!.click();
       await vi.advanceTimersByTimeAsync(10);
@@ -169,10 +169,89 @@ describe('ComposeDialog', () => {
 
   it('shows the limit instead of Generate when the result would be too long', () => {
     render();
-    set('compose-pre', '60');
-    set('compose-post', '10');
-    expect(q('compose-error')!.textContent).toBe('At most 1:00');
+    set('compose-pre', '270');
+    set('compose-post', '11');
+    expect(q('compose-error')!.textContent).toBe('At most 300 s (5:00)');
     expect(q('compose-generate')).toBeNull();
+  });
+
+  // Klaus, 2026-10-04 (images 15 and 16): a 114 s motion clip.
+  const long = { ...clip, id: '20261004-071650-071844', start: '2026-10-04T07:16:50-05:00', end: '2026-10-04T07:18:44-05:00', durationSec: 114, triggers: ['motion' as const] };
+  it('saves a 114 s clip as it is (image 15), in seconds everywhere', () => {
+    render(vi.fn(), true, long);
+    expect(target!.querySelector('.clip span')!.textContent).toMatch(/ · 114 s \(1:54\) · Motion$/);
+    expect(q('compose-error')).toBeNull();
+    expect(q('compose-length')!.textContent).toBe('Result: 114 s (1:54) · at most 600 s (10:00)');
+    expect(q('compose-save')!.getAttribute('aria-disabled')).toBe('false');
+    expect(q('compose-save')!.getAttribute('href')).toBe('/api/cameras/den/clips/20261004-071650-071844/download?quality=sub');
+  });
+
+  it('generates pre-roll -100, post-roll 30 of it as 44 s (image 16)', () => {
+    render(vi.fn(), true, long);
+    set('compose-pre', '-100');
+    set('compose-post', '30');
+    expect(q('compose-length')!.textContent).toBe('Result: 44 s · at most 300 s (5:00)');
+    expect(q('compose-generate')).not.toBeNull();
+    expect((q('compose-pre-slider') as HTMLInputElement).value).toBe('-100');
+    expect((q('compose-post-slider') as HTMLInputElement).value).toBe('30');
+  });
+
+  it('keeps slider and field in step, and the sliders never past the limit', () => {
+    render(vi.fn(), true, long);
+    const pre = q('compose-pre-slider') as HTMLInputElement;
+    const post = q('compose-post-slider') as HTMLInputElement;
+    expect([pre.min, pre.max, post.min, post.max]).toEqual(['-113', '186', '-113', '186']);
+    set('compose-post-slider', '30');
+    expect((q('compose-post') as HTMLInputElement).value).toBe('30');
+    // The track stays (review of #176): 0 doesn't move to the right end.
+    expect(pre.max).toBe('186');
+    set('compose-pre-slider', '186'); // 114 + 186 + 30 would be 330: clamped
+    expect((q('compose-pre') as HTMLInputElement).value).toBe('156');
+    expect(pre.value).toBe('156');
+    expect(q('compose-length')!.textContent).toBe('Result: 300 s (5:00) · at most 300 s (5:00)');
+    set('compose-post-slider', '100'); // nothing left to add: stays 30
+    expect(post.value).toBe('30');
+    expect((q('compose-post') as HTMLInputElement).value).toBe('30');
+    set('compose-pre', '-100');
+    expect(pre.value).toBe('-100');
+    set('compose-post-slider', '-113'); // 1 s of the clip stays
+    expect((q('compose-post') as HTMLInputElement).value).toBe('-13');
+  });
+
+  it('says why a clip longer than a plain save can\'t be saved without a cam-proxy copy', () => {
+    render(vi.fn(), false, { ...long, id: '20261004-070000-071140', end: '2026-10-04T07:11:40-05:00', durationSec: 700 });
+    expect(q('compose-too-long-note')!.textContent).toBe('This recording is 700 s (11:40). A save as it is can be at most 600 s (10:00), and only a cam-proxy copy can be cut, so it can’t be saved here.');
+    expect(q('compose-error')!.textContent).toBe('At most 600 s (10:00)');
+    expect(q('compose-too-long-note')!.compareDocumentPosition(q('compose-error')!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(q('compose-save')!.getAttribute('aria-disabled')).toBe('true');
+  });
+
+  it('lowers the sliders’ limit at 1080p', () => {
+    render(vi.fn(), true, long);
+    const sel = q('compose-size') as HTMLSelectElement;
+    sel.value = '1080p';
+    sel.dispatchEvent(new Event('change', { bubbles: true }));
+    flushSync();
+    expect((q('compose-pre-slider') as HTMLInputElement).disabled).toBe(true); // no rolls but at SD
+    expect(q('compose-length')!.textContent).toBe('Result: 114 s (1:54) · at most 120 s (2:00)');
+  });
+
+  it('opens a clip longer than a plain save cut at its end to 300 s, and says so', () => {
+    render(vi.fn(), true, { ...long, id: '20261004-070000-071140', end: '2026-10-04T07:11:40-05:00', durationSec: 700 });
+    expect((q('compose-post') as HTMLInputElement).value).toBe('-400');
+    expect((q('compose-post-slider') as HTMLInputElement).value).toBe('-400');
+    expect(q('compose-preset-note')!.textContent).toBe('This recording is 700 s (11:40), longer than a save can be: the post-roll cuts it to 300 s (5:00) at its end.');
+    expect(q('compose-length')!.textContent).toBe('Result: 300 s (5:00) · at most 300 s (5:00)');
+    expect(q('compose-generate')).not.toBeNull();
+  });
+
+  it('refuses a 4K save longer than 600 s', () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response('{"available":true}', { status: 200 })));
+    render(vi.fn(), true, { ...long, id: '20261004-070000-071140', end: '2026-10-04T07:11:40-05:00', durationSec: 700 });
+    set4k();
+    expect(q('compose-error')!.textContent).toBe('At most 600 s (10:00)');
+    expect(q('compose-save')!.getAttribute('aria-disabled')).toBe('true');
+    expect(q('compose-preset-note')).toBeNull();
   });
 
   it('Close cancels a running job and closes', async () => {
@@ -325,7 +404,7 @@ describe('ComposeDialog', () => {
     render();
     set('compose-post', '10');
     expect(q('compose-length')!.getAttribute('role')).toBe('status');
-    set('compose-post', '99');
+    set('compose-post', '281');
     expect(q('compose-error')!.getAttribute('role')).toBe('status');
     set('compose-post', '10');
     q('compose-generate')!.click();
@@ -353,7 +432,7 @@ describe('ComposeDialog', () => {
     expect(q('compose-unavailable')).not.toBeNull();
     expect(q('compose-generate')).toBeNull();
     expect(q('compose-save')!.getAttribute('href')).toContain('quality=sub');
-    expect(q('compose-length')!.textContent).toContain('0:20');
+    expect(q('compose-length')!.textContent).toContain('Result: 20 s');
   });
 
   it('keeps a finished result alive while the dialog is open', async () => {
@@ -485,7 +564,7 @@ describe('ComposeDialog', () => {
       expect(q('compose-generate')).toBeNull();
       expect(q('compose-save')!.getAttribute('href')).toBe(MAIN);
       expect(q('compose-save')!.getAttribute('aria-disabled')).toBe('false');
-      expect(q('compose-length')!.textContent).toContain('0:20');
+      expect(q('compose-length')!.textContent).toContain('Result: 20 s');
     });
 
     // Klaus, 2026-09-29: pre- and post-roll are for SD only.
@@ -508,7 +587,7 @@ describe('ComposeDialog', () => {
         expect((q('compose-pre') as HTMLInputElement).disabled).toBe(true);
         expect((q('compose-post') as HTMLInputElement).disabled).toBe(true);
         expect(q('compose-roll-note')!.textContent).toMatch(/only for SD/i);
-        expect(q('compose-length')!.textContent).toContain('0:20'); // the roll doesn't count
+        expect(q('compose-length')!.textContent).toContain('Result: 20 s'); // the roll doesn't count
       }
       choose('720p');
       q('compose-generate')!.click(); // a resized copy of the clip alone
@@ -517,7 +596,7 @@ describe('ComposeDialog', () => {
       choose('sd');
       expect((q('compose-pre') as HTMLInputElement).disabled).toBe(false);
       expect(q('compose-roll-note')).toBeNull();
-      expect(q('compose-length')!.textContent).toContain('0:30'); // the post-roll counts again
+      expect(q('compose-length')!.textContent).toContain('Result: 30 s'); // the post-roll counts again
     });
 
     // Final review, minor 4: a camera without a cam-proxy saves exactly as on
