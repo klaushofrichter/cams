@@ -8,7 +8,3 @@ published as [GitHub releases](https://github.com/klaushofrichter/cams/releases)
 
 ## [Unreleased]
 
-
-### Fixed
-
-- A still check or a new Vision analysis of a past day now updates that day's cards on the Video page (badge and thumbnail) and on the Timeline right away, also when you come back to the Video page; before, the card kept "Vision: not confirmed" until a browser reload.
