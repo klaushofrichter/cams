@@ -9,10 +9,14 @@
   --surface-2: #16213A;
   --no-thumb: #0C1424;
   --no-thumb-line: #1A2640;
-  --strip-stills: #2B3D63;
-  --strip-empty: #111827;
-  --strip-outside-a: #070A12;
-  --strip-outside-b: #1C2436;
+  /* The strip under the video, darker in dark mode so its clips stand out
+     (Klaus, 2026-10-04): every clip mark at least 3:1 on the bar and the
+     stills (test/stripContrast.test.ts). */
+  --strip-stills: #1A2742;
+  --strip-empty: #05080F;
+  --strip-outside-a: #020409;
+  --strip-outside-b: #121A2B;
+  --strip-motion: #6366F1; /* a motion-only clip: --accent-2, opaque */
   --border: #1C2940;
   --text: #E6EDF7;
   --muted: #9FB0CC;
@@ -69,6 +73,7 @@
   --strip-empty: #C9D2DF;
   --strip-outside-a: #F5F8FC;
   --strip-outside-b: #B8C3D3;
+  --strip-motion: color-mix(in srgb, var(--accent-2) 60%, transparent);
   --border: #D8E1EE;
   --text: #0F1B2D;
   --muted: #55657F;
@@ -113,6 +118,7 @@
     --strip-empty: #C9D2DF;
     --strip-outside-a: #F5F8FC;
     --strip-outside-b: #B8C3D3;
+    --strip-motion: color-mix(in srgb, var(--accent-2) 60%, transparent);
     --border: #D8E1EE;
     --text: #0F1B2D;
     --muted: #55657F;

@@ -262,7 +262,7 @@
   .span.pictures { background: var(--strip-stills); }
   .span.none { background: var(--strip-empty); }
   .span.outside { background: var(--strip-outside-bg); }
-  .seg { position: absolute; top: 8px; height: 18px; border-radius: 4px; background: color-mix(in srgb, var(--accent-2) 60%, transparent); pointer-events: none; }
+  .seg { position: absolute; top: 8px; height: 18px; border-radius: 4px; background: var(--strip-motion); pointer-events: none; }
   .seg.ai { background: var(--accent); }
   .seg.on { outline: 2px solid var(--text); outline-offset: 1px; }
   .seg.dim { opacity: 0.3; }
