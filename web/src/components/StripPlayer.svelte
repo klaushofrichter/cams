@@ -11,7 +11,7 @@
   import { previewAt, tileStyle, type PreviewMinute } from '../lib/timeline';
   import { liveUi } from '../lib/liveUi';
   import { enterFullscreen } from '../lib/fullscreen';
-  import { liveBadge, modeBadge, modeOf, registerPlayer, type PlayerFrame } from '../lib/videoMode';
+  import { clipShown, liveBadge, modeBadge, modeOf, registerPlayer, type PlayerFrame, type RecShown } from '../lib/videoMode';
 
   // History's player (spec 2026-09-27): one clock, `at`. A clip's <video>
   // drives it while a clip plays; otherwise a real-time ticker does, showing
@@ -19,7 +19,7 @@
   // so the next clip is loaded 3 s before it starts.
   let {
     cam, coverage, previews, now, at = $bindable(), playing = $bindable(), unavailable = false, onclipfail, onstep,
-    glued = false, live: liveSnippet, onglue,
+    glued = false, live: liveSnippet, onglue, clipStream = 'sub',
   }: {
     cam: string;
     coverage: Coverage;
@@ -33,6 +33,9 @@
     glued?: boolean; // the Live panel's playhead is at now: show the live stream
     live?: Snippet; // the live stream; kept mounted while unglued so it resumes at once
     onglue?: () => void; // the REC badge: back to live (spec 2026-10-04)
+    // The stream a clip's video plays (HistoryView passes VIDEO_STREAM, the
+    // clip route's: sub, SD); main says 4K.
+    clipStream?: 'sub' | 'main';
   } = $props();
 
   // Live has no "after": forward 1 s and 10 s and next event are off there (#121).
@@ -277,7 +280,9 @@
     fullscreen: () => void enterFullscreen(boxEl, source.kind === 'clip' ? (vids[active] ?? null) : null),
   }));
   const mode = $derived(modeOf(glued));
-  const badge = $derived(mode === 'live' ? liveBadge($liveUi) : modeBadge(mode, at, now));
+  // REC adds what it shows (Klaus, 2026-10-04): SD or 4K for a clip, Still for the stills.
+  const shown = $derived<RecShown | null>(source.kind === 'clip' ? clipShown(clipStream) : source.kind === 'still' ? 'Still' : null);
+  const badge = $derived(mode === 'live' ? liveBadge($liveUi) : modeBadge(mode, at, now, shown));
 
   function toggle() {
     if (source.kind === 'future') return;

@@ -1,5 +1,5 @@
 // web/src/lib/strip.ts
-import { addDays, localDate, pad2, type EventClip } from './recordings';
+import { addDays, localDate, orderTriggers, pad2, tagText, TRIGGER_LABELS, type EventClip } from './recordings';
 import type { PreviewMinute } from './timeline';
 
 // The History strip (spec 2026-09-27-history-strip-design.md): what is at a
@@ -240,4 +240,22 @@ export function localDaysBetween(from: number, to: number): string[] {
   const last = localDate(new Date(to));
   for (let d = localDate(new Date(from)); d <= last; d = addDays(d, 1)) out.push(d);
   return out;
+}
+
+// The hover popup's types (Klaus, 2026-10-04): an icon per type of the clip
+// under the pointer, in the cards' order (orderTriggers: motion, person,
+// vehicle, pet; two or more events of an AI type with their count), or
+// "Still" over the stills. A clip with none of these (a scheduled
+// recording) gets a neutral clip icon, so the slot never looks empty.
+export type HoverKind = 'person' | 'vehicle' | 'pet' | 'motion' | 'still' | 'clip';
+export interface HoverSlot { kind: HoverKind; label: string; count: number }
+const DRAWN = new Set<string>(['person', 'vehicle', 'pet', 'motion']);
+export const STILL_SLOT: HoverSlot = { kind: 'still', label: 'Still', count: 0 };
+export function hoverKinds(clip: EventClip): HoverSlot[] {
+  const slots = orderTriggers(clip.triggers.filter((k) => DRAWN.has(k))).map((k): HoverSlot => {
+    const count = k === 'motion' ? 0 : (clip.counts?.[k as 'person' | 'vehicle' | 'pet'] ?? 0);
+    return { kind: k as HoverKind, label: tagText(k, clip.counts), count: count >= 2 ? count : 0 };
+  });
+  if (slots.length) return slots;
+  return [{ kind: 'clip', label: clip.triggers.length ? clip.triggers.map((t) => TRIGGER_LABELS[t] ?? t).join(', ') : 'Recording', count: 0 }];
 }

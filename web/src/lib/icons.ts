@@ -34,6 +34,13 @@ export const ICONS = {
   calendarNext: 'M9 6l6 6-6 6',
   external: 'M14 4h6v6M20 4l-9 9M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5',
   power: 'M12 3v9M6.3 6.3a8 8 0 1 0 11.4 0',
+  // The event types and the stills, in the Timeline's hover popup (Klaus, 2026-10-04).
+  person: 'M12 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8zM4 21v-1a6 6 0 0 1 6-6h4a6 6 0 0 1 6 6v1',
+  vehicle: 'M5 17V12l2-5h10l2 5v5zm0 0v2m14-2v2M5 12h14M8 14.5h.01M16 14.5h.01',
+  pet: 'M12 20c-3 0-5-1.5-5-3.5S9.5 12 12 12s5 2.5 5 4.5-2 3.5-5 3.5zM5.5 11a1.5 1.5 0 1 0 0-3 1.5 1.5 0 0 0 0 3zm4-3a1.5 1.5 0 1 0 0-3 1.5 1.5 0 0 0 0 3zm5 0a1.5 1.5 0 1 0 0-3 1.5 1.5 0 0 0 0 3zm4 3a1.5 1.5 0 1 0 0-3 1.5 1.5 0 0 0 0 3z',
+  motion: 'M3 8h9M1.5 12H12M3 16h9M16 6l5 6-5 6',
+  clip: 'M4 5h16a1 1 0 0 1 1 1v12a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1zm6 4v6l5-3z',
+  still: 'M4 5h16a1 1 0 0 1 1 1v12a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1zm-1 11 5-5 4 4 3-3 6 6M15.5 10a1.5 1.5 0 1 0 0-3 1.5 1.5 0 0 0 0 3z',
 } as const;
 
 export type IconName = keyof typeof ICONS;

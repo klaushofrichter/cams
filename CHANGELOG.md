@@ -8,8 +8,8 @@ published as [GitHub releases](https://github.com/klaushofrichter/cams/releases)
 
 ## [Unreleased]
 
-- Event cards: a card holding several events of one AI type says how many, e.g. "Person 2x" (Vehicle and Pet likewise; Motion never gets a count).
-- Event cards: the thumbnail is the still of the card's first event Vision confirmed, else the second its first person, vehicle or pet event was detected (not the highest-scoring analysis); it changes when a Vision result arrives later, and a card that got the start-of-recording image because the detection still wasn't available asks again.
-- Save clip: lengths read "1m 43s", "44s", "5m" everywhere in the dialog, and the limit shows only when it matters: for a generated clip (pre-/post-roll or another size) or a recording over 10 minutes ("Result: 1m 43s · at most 5m"), not for a plain save.
-- Save clip: the pre-roll slider runs right to left (filled at the right; moving left starts earlier, right cuts), so with the post-roll slider it reads as the window around the clip. ← is an earlier start; screen readers hear "starts 30 s earlier" or "cuts 20 s".
-
+- Video page: the REC badge says what the player shows: the clip's quality ("REC 07:18:32 AM · SD", or "· 4K" for the main stream) or the stills ("· Still"); screen readers hear it too. The live badges are unchanged.
+- Video page: the timeline under the player is darker in dark mode (bar, stills and the hatched parts), and motion-only clips are drawn solid, so every clip mark has at least 3:1 contrast (motion clips were 2.2:1 on the bar, 1.7:1 over stills; now 4.5:1 and 3.3:1). Light mode is unchanged.
+- Video page: the popup over the timeline names what is under the pointer: an icon per event type of the clip (in the event cards' order: motion, person, vehicle, pet; "2x" where a type has several events; a neutral clip icon for a scheduled recording) or "Still" over the stills, each with its name for screen readers and as a tooltip. The popup has one size for clips and stills, so it no longer jumps along the bar.
+- Video page: with the pointer resting on the timeline while time moves under it (playback, live), the popup follows: its time at once, its types and picture too (a new picture at most once a second). It stops when the pointer leaves the bar or the tab is hidden.
+- Video page: Fullscreen works for live only, so in a recording it is off like Quality and Light (still focusable, "Only in live mode", and a click or tap shows "Quality, light and fullscreen work only in live mode.").

@@ -29,9 +29,27 @@ test('an old History link lands on /app/video at the asked day and time, as a re
   await expect(page).toHaveURL(new RegExp(`/app/video\\?cam=cam1&date=${chicagoToday()}&at=${at}`));
   await expect(page).not.toHaveURL(/panel=/);
   await expect(badge(page)).toHaveAttribute('data-mode', 'rec');
-  await expect(badge(page)).toHaveText(/^REC \d{2}:\d{2}:\d{2}( [AP]M)?$/);
+  await expect(badge(page)).toHaveText(/^REC \d{2}:\d{2}:\d{2}( [AP]M)? · SD$/); // a clip: the sub stream
   await expect(page.locator('[data-testid="event-card"][aria-current="true"]')).toHaveAttribute('data-clip-id', /-120505-120530$/);
   await expect(page.getByTestId('page-title')).toHaveText('Video');
+});
+
+// Klaus, 2026-10-04: REC says what it shows: SD (or 4K) for a clip, Still for the stills.
+test('the REC badge says SD over a clip and Still over the stills', async ({ page }) => {
+  const clipAt = Date.parse(`${chicagoToday()}T12:05:10-05:00`); // Den's 12:05:05 motion clip (CDT)
+  await page.goto(`/app/video?cam=cam1&date=${chicagoToday()}&at=${clipAt}`);
+  await expect(badge(page)).toHaveText(/^REC \d{2}:\d{2}:\d{2}( [AP]M)? · SD$/);
+  await expect(badge(page)).toHaveAttribute('aria-label', /^REC .* · SD, back to live$/);
+  const stillAt = Date.now() - 5 * 60_000; // Barn: a still every second
+  const stillDay = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Chicago' }).format(new Date(stillAt));
+  await page.goto(`/app/video?cam=barn&date=${stillDay}&at=${stillAt}`);
+  await expect(page.getByTestId('source-badge')).toHaveText('Stills 1 FPS');
+  await expect(badge(page)).toHaveText(/^REC \d{2}:\d{2}:\d{2}( [AP]M)? · Still$/);
+  await expect(badge(page)).toHaveAttribute('aria-label', /^REC .* · Still, back to live$/);
+  // Inside the player box, at desktop and phone width.
+  const b = (await badge(page).boundingBox())!;
+  const box = (await page.getByTestId('strip-player').boundingBox())!;
+  expect(b.x + b.width).toBeLessThanOrEqual(box.x + box.width);
 });
 
 test('an old link to another day opens that day, and the list is that day’s', async ({ page }) => {
@@ -62,18 +80,30 @@ test('scrubbing back is REC with light and quality off; ⇥ and the badge are LI
     await expect(quality).toHaveAttribute('aria-disabled', 'true');
     await expect(quality).toHaveAttribute('aria-label', 'Quality — only in live mode');
   }
+  // Fullscreen too: it works for live only (Klaus, 2026-10-04).
+  const fullscreen = page.getByTestId('fullscreen');
+  await expect(fullscreen).toHaveAttribute('aria-disabled', 'true');
+  await expect(fullscreen).toHaveAttribute('title', 'Only in live mode');
+  await expect(page.getByRole('button', { name: 'Fullscreen — only in live mode' })).toBeVisible();
   await expect(page.getByTestId('live-only-note')).toHaveAttribute('data-shown', 'false');
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true); // the hidden note takes no room
+  await fullscreen.click({ force: true });
+  await expect(page.getByTestId('live-only-note')).toBeVisible();
+  expect(await page.evaluate(() => document.fullscreenElement)).toBeNull();
+  await page.getByTestId('back-1').click(); // still a recording; the note stays until live
+  await expect(page.getByTestId('live-only-note')).toBeVisible();
   await light.click({ force: true }); // aria-disabled: Playwright calls it not enabled, a user can still click
   await expect(page.getByTestId('live-only-note')).toBeVisible();
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
-  await expect(page.getByTestId('live-only-note')).toHaveText('Quality and light work only in live mode.');
+  await expect(page.getByTestId('live-only-note')).toHaveText('Quality, light and fullscreen work only in live mode.');
   await expect(light).toHaveAttribute('aria-pressed', 'false'); // nothing switched
   await expect(page.getByTestId('mute-toggle')).toBeEnabled(); // sound stays
   await page.getByTestId('strip-now').click(); // ⇥
   await expect(badge(page)).toHaveAttribute('data-mode', 'live');
   await expect(page).toHaveURL(/\/app\/video$/);
   await expect(light).not.toHaveAttribute('aria-disabled', 'true');
+  await expect(fullscreen).not.toHaveAttribute('aria-disabled', 'true');
+  await expect(fullscreen).toHaveAttribute('aria-label', 'Fullscreen');
   await expect(page.getByTestId('live-only-note')).toHaveCount(0);
   await page.getByTestId('back-10').click();
   await expect(badge(page)).toHaveAttribute('data-mode', 'rec');
@@ -121,4 +151,60 @@ test('the camera card links the name and the proxy, and shows the status', async
   await expect(card.getByTestId('camera-card-proxy')).toHaveCount(0);
   // No model or firmware in the sidebar: they are on Settings.
   await expect(page.getByTestId('live-camera-model')).toHaveCount(0);
+});
+
+// Klaus, 2026-10-04: the popup over the timeline names the clip's types with
+// icons, says Still over the stills, and has one size for both. The pointer
+// rests on the playhead (the bar's centre is `at` at any zoom).
+test('the timeline popup shows the clip’s types, or Still, in one box size', async ({ page }, info) => {
+  test.skip(info.project.name === 'phone', 'hover: desktop only');
+  const hoverCentre = async () => {
+    const bar = (await page.getByTestId('timeline').boundingBox())!;
+    await page.mouse.move(bar.x + bar.width / 2, bar.y + bar.height / 2 + 6);
+    await page.mouse.move(bar.x + bar.width / 2, bar.y + bar.height / 2);
+    await expect(page.getByTestId('scrub-preview')).toBeVisible();
+    await page.waitForTimeout(300); // the picture after its 150 ms rest
+    return (await page.getByTestId('scrub-preview').boundingBox())!;
+  };
+  const clipAt = Date.parse(`${chicagoToday()}T08:15:20-05:00`); // Den's person recording (two person events)
+  await page.goto(`/app/video?cam=cam1&date=${chicagoToday()}&at=${clipAt}`);
+  await expect(badge(page)).toHaveText(/· SD$/);
+  const overClip = await hoverCentre();
+  const person = page.locator('[data-testid="scrub-kind"][data-kind="person"]');
+  await expect(person).toHaveAttribute('aria-label', 'Person 2x');
+  await expect(person).toHaveText('2x');
+  await expect(person.locator('svg')).toBeVisible();
+  await expect(page.getByTestId('scrub-kind').first()).toHaveAttribute('data-kind', 'person'); // its only type
+  const stillAt = Math.floor((Date.now() - 3 * 60_000) / 1000) * 1000; // Den's preview tiles: the last ten minutes
+  const stillDay = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Chicago' }).format(new Date(stillAt));
+  await page.goto(`/app/video?cam=cam1&date=${stillDay}&at=${stillAt}`);
+  await expect(page.getByTestId('source-badge')).toHaveText(/Stills 1 FPS|Preview 1 FPS/);
+  const overStill = await hoverCentre();
+  await expect(page.getByTestId('scrub-kind')).toHaveCount(1);
+  await expect(page.getByTestId('scrub-kind')).toHaveAttribute('data-kind', 'still');
+  await expect(page.getByTestId('scrub-kind')).toHaveAttribute('aria-label', 'Still');
+  expect(Math.round(overStill.width)).toBe(Math.round(overClip.width));
+  expect(Math.round(overStill.height)).toBe(Math.round(overClip.height));
+});
+
+// Klaus, 2026-10-04: with the pointer resting on the timeline while it
+// plays, the popup follows the time moving under it.
+test('the timeline popup follows playback under a resting pointer', async ({ page }, info) => {
+  test.skip(info.project.name === 'phone', 'hover: desktop only');
+  const at = Math.floor((Date.now() - 4 * 60_000) / 1000) * 1000; // Den's preview tiles: the last ten minutes
+  const day = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Chicago' }).format(new Date(at));
+  await page.goto(`/app/video?cam=cam1&date=${day}&at=${at}`);
+  await expect(page.getByTestId('source-badge')).toHaveText(/Stills 1 FPS|Preview 1 FPS/);
+  await page.getByTestId('play-toggle').click();
+  await expect(page.getByTestId('play-toggle')).toHaveAttribute('aria-pressed', 'true');
+  const bar = (await page.getByTestId('timeline').boundingBox())!;
+  await page.mouse.move(bar.x + bar.width / 2 - 1, bar.y + bar.height / 2 + 6);
+  await page.mouse.move(bar.x + bar.width / 2 - 1, bar.y + bar.height / 2);
+  const time = page.getByTestId('scrub-preview').getByTestId('strip-cursor-time');
+  await expect(time).toBeVisible();
+  const first = await time.textContent();
+  await expect.poll(() => time.textContent(), { timeout: 5000 }).not.toBe(first);
+  await expect(page.getByTestId('scrub-kind')).toHaveAttribute('data-kind', 'still');
+  await page.mouse.move(bar.x + bar.width / 2, bar.y - 60); // off the bar: no popup
+  await expect(page.getByTestId('scrub-preview')).toHaveCount(0);
 });

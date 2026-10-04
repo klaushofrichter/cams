@@ -6,7 +6,7 @@
   import StripPlayer from './StripPlayer.svelte';
   import { createStripData, type StripData } from '../lib/stripData';
   import { EMPTY_COVERAGE, windowAround, type Coverage } from '../lib/strip';
-  import { filterEvents, localDate, thumbUrl, type EventClip, type Filter } from '../lib/recordings';
+  import { filterEvents, localDate, thumbUrl, VIDEO_STREAM, type EventClip, type Filter } from '../lib/recordings';
   import type { PreviewMinute } from '../lib/timeline';
   import { zoom } from '../lib/zoomPref';
 
@@ -252,7 +252,7 @@
 </script>
 
 <div class="history">
-  <StripPlayer {cam} {coverage} {previews} {now} bind:at bind:playing {unavailable} {glued} live={liveBox} onglue={live ? glue : undefined}
+  <StripPlayer {cam} {coverage} {previews} {now} bind:at bind:playing {unavailable} {glued} clipStream={VIDEO_STREAM} live={liveBox} onglue={live ? glue : undefined}
     onclipfail={(id) => {
       data.markFailed(id);
       failed = new Set(failed).add(id);

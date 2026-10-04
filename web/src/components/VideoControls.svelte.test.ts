@@ -76,7 +76,7 @@ describe('VideoControls', () => {
     const { calls } = lightServer();
     render({ mode: 'rec' });
     await vi.waitFor(() => expect(q('light-toggle')).not.toBeNull());
-    for (const [id, name] of [['quality-toggle', 'Quality — only in live mode'], ['light-toggle', 'Light — only in live mode']]) {
+    for (const [id, name] of [['quality-toggle', 'Quality — only in live mode'], ['light-toggle', 'Light — only in live mode'], ['fullscreen', 'Fullscreen — only in live mode']]) {
       const b = q(id)!;
       expect(b.disabled, id).toBe(false);
       expect(b.getAttribute('aria-disabled'), id).toBe('true');
@@ -93,11 +93,10 @@ describe('VideoControls', () => {
     expect(calls.filter((c) => c.method === 'PUT')).toEqual([]);
     const note = q('live-only-note')!;
     expect(note.id).toBe('live-only-note');
-    expect(note.textContent).toBe('Quality and light work only in live mode.');
+    expect(note.textContent).toBe('Quality, light and fullscreen work only in live mode.');
     expect(note.dataset.shown).toBe('true');
     expect(note.classList.contains('sr-only')).toBe(false);
     expect(q('snapshot')!.disabled).toBe(false);
-    expect(q('fullscreen')!.disabled).toBe(false);
     expect(q('snapshot')!.title).toBe('Save this frame');
   });
 
@@ -163,20 +162,29 @@ describe('VideoControls', () => {
     stop();
   });
 
-  it('fullscreen is the live box live, and the player in a recording', () => {
+  // Klaus, 2026-10-04: fullscreen works for live only (a recording's is an
+  // issue of its own): off in a recording like quality and light.
+  it('fullscreen is the live box live, and off in a recording, saying why', () => {
     const liveFs = vi.fn();
     const playerFs = vi.fn();
     const stopLive = registerLiveFullscreen(liveFs);
     const stopPlayer = registerPlayer({ frame: () => null, fullscreen: playerFs });
     render();
+    expect(q('fullscreen')!.getAttribute('aria-disabled')).toBeNull();
+    expect(q('fullscreen')!.getAttribute('aria-label')).toBe('Fullscreen');
+    expect(q('fullscreen')!.title).toBe('Fullscreen');
     q('fullscreen')!.click();
     expect(liveFs).toHaveBeenCalledTimes(1);
     unmount(component!);
     target!.remove();
     render({ mode: 'rec' });
+    expect(q('fullscreen')!.getAttribute('aria-disabled')).toBe('true');
+    expect(q('fullscreen')!.disabled).toBe(false); // focusable
     q('fullscreen')!.click();
-    expect(playerFs).toHaveBeenCalledTimes(1);
+    flushSync();
+    expect(playerFs).not.toHaveBeenCalled();
     expect(liveFs).toHaveBeenCalledTimes(1);
+    expect(q('live-only-note')!.dataset.shown).toBe('true');
     stopLive();
     stopPlayer();
   });

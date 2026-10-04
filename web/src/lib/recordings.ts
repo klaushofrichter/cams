@@ -96,6 +96,9 @@ const cam = (id: string) => encodeURIComponent(id);
 export const eventsUrl = (c: string, date: string) => `/api/cameras/${cam(c)}/events?date=${encodeURIComponent(date)}`;
 export const daysUrl = (c: string, month: string) => `/api/cameras/${cam(c)}/days?month=${encodeURIComponent(month)}`;
 export const videoUrl = (c: string, id: string) => `/api/cameras/${cam(c)}/clips/${encodeURIComponent(id)}/video`;
+// The stream videoUrl plays: the server's clip route serves the sub (SD) file
+// (RecordingsService.withClip). The REC badge says so (Klaus, 2026-10-04).
+export const VIDEO_STREAM: 'sub' | 'main' = 'sub';
 export const thumbUrl = (c: string, id: string, version?: string) =>
   `/api/cameras/${cam(c)}/clips/${encodeURIComponent(id)}/thumb.jpg${version ? `?v=${encodeURIComponent(version)}` : ''}`;
 export const downloadUrl = (c: string, id: string, q: 'sub' | 'main') => `/api/cameras/${cam(c)}/clips/${encodeURIComponent(id)}/download?quality=${q}`;

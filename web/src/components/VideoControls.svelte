@@ -3,11 +3,12 @@
   import { liveFullscreen, liveUi, saveSnapshot, toggleMute, toggleQuality } from '../lib/liveUi';
   import { getJson } from '../lib/api';
   import { putJson } from '../lib/settings';
-  import { LIVE_ONLY, currentPlayer, saveRecordingSnapshot, type Mode } from '../lib/videoMode';
+  import { LIVE_ONLY, saveRecordingSnapshot, type Mode } from '../lib/videoMode';
 
   // The Video page's controls (spec 2026-10-04): sound, quality, light,
   // snapshot, fullscreen. Quality and light act on the live stream, so they
-  // are off in a recording ("Only in live mode"). The snapshot is the
+  // are off in a recording ("Only in live mode"); so is fullscreen, which
+  // works for live only (Klaus, 2026-10-04; a recording's is an issue). The snapshot is the
   // camera's full picture live, and the frame on screen in a recording.
   let { cameraId, mode, paused = false }: {
     cameraId: string;
@@ -65,7 +66,7 @@
       lightInFlight--;
     }
   }
-  // A click on quality or light in a recording does nothing but say why, on
+  // A click on quality, light or fullscreen in a recording does nothing but say why, on
   // screen: a phone shows no tooltip (review of #173).
   let noteShown = $state(false);
   $effect(() => {
@@ -78,10 +79,7 @@
   function snapshot() {
     void (live ? saveSnapshot(cameraId) : saveRecordingSnapshot(cameraId));
   }
-  function fullscreen() {
-    if (live) liveFullscreen();
-    else currentPlayer()?.fullscreen();
-  }
+  const fullscreenName = $derived(live ? 'Fullscreen' : 'Fullscreen — only in live mode');
   const muteTip = $derived($liveUi.muted ? 'Muted, click to unmute' : 'Sound on, click to mute');
   const lightTip = $derived(!live ? LIVE_ONLY : light ? 'Light is on, click to turn off' : 'Light is off, click to turn on');
   const qualityTip = $derived(!live ? LIVE_ONLY : $liveUi.quality === 'main' ? 'Switch to SD' : 'Switch to 4K');
@@ -110,9 +108,10 @@
   <button data-testid="snapshot" onclick={snapshot} disabled={$liveUi.snapshotBusy} title={snapTip} aria-label={snapTip}>
     <Icon name="camera" size={18} />
   </button>
-  <button data-testid="fullscreen" onclick={fullscreen} title="Fullscreen" aria-label="Fullscreen"><Icon name="expand" size={18} /></button>
+  <button data-testid="fullscreen" aria-disabled={live ? undefined : 'true'} aria-describedby={live ? undefined : 'live-only-note'}
+    onclick={() => liveOnly(liveFullscreen)} title={live ? 'Fullscreen' : LIVE_ONLY} aria-label={fullscreenName}><Icon name="expand" size={18} /></button>
   <!-- In a recording: what aria-describedby reads; on screen once clicked. -->
-  {#if !live}<p class="note" class:sr-only={!noteShown} id="live-only-note" data-testid="live-only-note" data-shown={noteShown} role="status">Quality and light work only in live mode.</p>{/if}
+  {#if !live}<p class="note" class:sr-only={!noteShown} id="live-only-note" data-testid="live-only-note" data-shown={noteShown} role="status">Quality, light and fullscreen work only in live mode.</p>{/if}
   {#if $liveUi.snapshotError}<p class="snapshot-error" data-testid="snapshot-error" role="alert">{$liveUi.snapshotError}</p>{/if}
 </section>
 

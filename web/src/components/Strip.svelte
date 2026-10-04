@@ -1,6 +1,8 @@
 <!-- web/src/components/Strip.svelte -->
 <script lang="ts">
-  import { stripSpans, stripTicks, windowAround, STRIP_ZOOMS, zoomKey, zoomLabel, zoomWords, type Coverage } from '../lib/strip';
+  import { untrack } from 'svelte';
+  import { hoverKinds, stripSpans, stripTicks, windowAround, STILL_SLOT, STRIP_ZOOMS, zoomKey, zoomLabel, zoomWords, type Coverage, type HoverSlot } from '../lib/strip';
+  import Icon from './Icon.svelte';
   import { zoom, pickZoom } from '../lib/zoomPref';
   import { previewAt, tileStyle, type PreviewMinute } from '../lib/timeline';
   import type { EventClip } from '../lib/recordings';
@@ -79,14 +81,16 @@
       if (!press.moved && Math.abs(dx) >= 4) {
         press.moved = true;
         dragging = true;
-        hover = null;
+        hidePicture();
+        resting = null;
         cursor = null;
         ondrag?.(true);
       }
       if (press.moved) seekTo(press.at - (dx / el.getBoundingClientRect().width) * span);
       return;
     }
-    hoverAt(timeAtX(e, el), e, el);
+    resting = { x: e.clientX, el };
+    hoverAt(e.clientX, el);
   }
   function cancel() {
     if (press?.moved) ondrag?.(false);
@@ -126,35 +130,96 @@
   // Hover: the preview frame of that second, or the event's thumbnail (after
   // a 150 ms rest, as before).
   const REST_MS = 150;
-  let hover = $state<{ left: number; label: string; style: string | null; img?: string } | null>(null);
+  // The popup's picture: one size for a clip's thumbnail and a preview tile,
+  // so the popup doesn't jump along the bar (Klaus, 2026-10-04).
+  const POP_W = 160;
+  const POP_H = 90;
+  let hover = $state<{ left: number; label: string; style: string | null; img?: string; kinds: HoverSlot[]; want: string } | null>(null);
   let rest: ReturnType<typeof setTimeout> | undefined;
   // A line and the time under the pointer, precise where a hand wasn't
   // (Klaus, 2026-09-28); the picture above it only where there is one.
   let cursor = $state<{ left: number; label: string } | null>(null);
-  function hoverAt(t: number, e: PointerEvent, el: HTMLElement) {
+  // The pointer resting on the bar: where it is, so the popup can follow
+  // when time moves under it (Klaus, 2026-10-04). The time follows at once;
+  // a new picture at most once a second (the sprites are per minute and
+  // cached, the thumbnails per clip: no request storm either way).
+  let resting: { x: number; el: HTMLElement } | null = null;
+  const PICTURE_EVERY_MS = 1000;
+  let pictureAt = 0; // when the popup's picture last changed
+  let pictureNext: { style: string | null; img?: string } | null = null;
+  let pictureTimer: ReturnType<typeof setTimeout> | undefined;
+  function showNext() {
+    clearTimeout(pictureTimer);
+    pictureTimer = undefined;
+    // A hidden tab keeps the picture it has (the next move after it shows
+    // again brings the right one).
+    if (typeof document !== 'undefined' && document.hidden) return;
+    if (hover && pictureNext) {
+      hover = { ...hover, ...pictureNext };
+      pictureAt = Date.now();
+    }
+    pictureNext = null;
+  }
+  // Gone: no picture or rest timer left behind (review of #183).
+  $effect(() => () => {
+    clearTimeout(rest);
+    clearTimeout(pictureTimer);
+  });
+  $effect(() => {
+    void at; // the window moves (playback, live, a seek)
+    void spansOf;
+    void previews;
+    untrack(() => {
+      if (!resting || press || (typeof document !== 'undefined' && document.hidden)) return;
+      hoverAt(resting.x, resting.el, true);
+    });
+  });
+  function hoverAt(x: number, el: HTMLElement, follow = false) {
     const r = el.getBoundingClientRect();
-    const left = ((e.clientX - r.left) / r.width) * 100;
+    const left = ((x - r.left) / r.width) * 100;
+    const t = at + ((x - r.left - r.width / 2) / r.width) * span;
     const label = localClock(t);
     cursor = { left, label };
     const p = previewAt(previews, t);
-    const ev = !p && thumbFor ? spansOf.find((x) => t >= x.s && t < x.t)?.e : undefined;
+    const clip = spansOf.find((x) => t >= x.s && t < x.t)?.e;
+    const ev = !p && thumbFor ? clip : undefined;
     if (!p && !ev) return hidePicture();
-    const style = p ? tileStyle(p.minute, p.index, 1) : null;
+    const style = p ? tileStyle(p.minute, p.index, POP_W / p.minute.tileW) : null;
     const img = ev && thumbFor ? thumbFor(ev.id) : undefined;
-    const same = hover && (hover.style === style || (img && hover.img === img));
-    hover = { left, label, style: same ? hover!.style : null, img: same ? hover!.img : undefined };
-    if (same) return;
+    // What is there: the clip's types, else the stills (a preview tile).
+    const kinds = clip ? hoverKinds(clip) : [STILL_SLOT];
+    // The picture wanted here: a preview tile, else the clip's thumbnail.
+    const want = style ?? img ?? '';
+    if (hover && hover.want === want) {
+      hover = { ...hover, left, label, kinds }; // shown, or on its way
+      return;
+    }
+    if (follow && hover && (hover.style || hover.img)) {
+      // Following: the picture shown stays until a second has passed.
+      hover = { ...hover, left, label, kinds, want };
+      pictureNext = { style, img };
+      const wait = pictureAt + PICTURE_EVERY_MS - Date.now();
+      if (wait <= 0) return showNext();
+      pictureTimer ??= setTimeout(showNext, wait);
+      return;
+    }
+    hover = { left, label, style: null, img: undefined, kinds, want };
+    clearTimeout(pictureTimer);
+    pictureTimer = undefined;
+    pictureNext = { style, img };
     clearTimeout(rest);
-    rest = setTimeout(() => {
-      if (hover) hover = { ...hover, style, img };
-    }, REST_MS);
+    rest = setTimeout(showNext, REST_MS);
   }
   function hidePicture() {
     clearTimeout(rest);
+    clearTimeout(pictureTimer);
+    pictureTimer = undefined;
+    pictureNext = null;
     hover = null;
   }
   function leave() {
     hidePicture();
+    resting = null;
     cursor = null;
   }
 
@@ -165,9 +230,17 @@
 
 <div class="wrap">
   {#if hover}
-    <div class="scrub" style={`left: clamp(84px, ${hover.left}%, calc(100% - 84px))`} data-testid="scrub-preview" aria-hidden="true">
-      {#if hover.img}<img class="frame" src={hover.img} alt="" width="160" height="90" onerror={() => hover && (hover = { ...hover, img: undefined })} />
-      {:else}<span class="frame" style={hover.style ?? 'width: 160px; height: 90px'}></span>{/if}
+    <div class="scrub" style={`left: clamp(84px, ${hover.left}%, calc(100% - 84px))`} data-testid="scrub-preview" role="tooltip">
+      <span class="frame-box" data-testid="scrub-frame" style={`width:${POP_W}px;height:${POP_H}px`}>
+        {#if hover.img}<img class="frame" src={hover.img} alt="" width={POP_W} height={POP_H} onerror={() => hover && (hover = { ...hover, img: undefined })} />
+        {:else if hover.style}<span class="frame" style={hover.style}></span>{/if}
+      </span>
+      <!-- The types, or Still: one slot, always there (Klaus, 2026-10-04). -->
+      <span class="kinds" data-testid="scrub-kinds">
+        {#each hover.kinds as k (k.kind)}
+          <span class={`kind ${k.kind}`} data-testid="scrub-kind" data-kind={k.kind} role="img" aria-label={k.label} title={k.label}><Icon name={k.kind} size={14} />{#if k.count}<span class="n">{k.count}x</span>{/if}</span>
+        {/each}
+      </span>
       <span class="when" data-testid="strip-cursor-time">{hover.label}</span>
     </div>
   {/if}
@@ -236,9 +309,17 @@
   .edge button { width: 30px; border-radius: 8px; border: 1px solid var(--border); background: var(--surface-2); color: var(--text); cursor: pointer; font-size: 15px; line-height: 1; padding: 0; }
   .edge button:disabled { opacity: 0.35; cursor: default; }
   .scrub { position: absolute; bottom: calc(100% + 6px); transform: translateX(-50%); z-index: 5; pointer-events: none; display: grid; gap: 2px; padding: 4px; border-radius: 8px; background: var(--surface); border: 1px solid var(--border); box-shadow: var(--shadow); }
-  .frame { display: block; border-radius: 4px; background-color: var(--surface-2); }
-  img.frame { width: 160px; height: 90px; object-fit: cover; }
-  .when { font-size: 11px; color: var(--muted); text-align: center; font-family: var(--mono); }
+  .frame-box { display: block; overflow: hidden; border-radius: 4px; background-color: var(--surface-2); }
+  .frame { display: block; }
+  img.frame { width: 100%; height: 100%; object-fit: cover; }
+  .kinds { display: flex; justify-content: center; align-items: center; gap: 6px; height: 16px; overflow: hidden; }
+  .kind { display: inline-flex; align-items: center; gap: 1px; font-size: 11px; line-height: 1; font-weight: 600; }
+  .kind.person { color: var(--kind-person); }
+  .kind.vehicle { color: var(--kind-vehicle); }
+  .kind.pet { color: var(--kind-pet); }
+  .kind.motion { color: var(--kind-motion); }
+  .kind.still, .kind.clip { color: var(--muted); }
+  .when { font-size: 11px; line-height: 14px; height: 14px; color: var(--muted); text-align: center; font-family: var(--mono); }
   .tools { display: flex; gap: 8px; justify-content: flex-end; flex-wrap: wrap; }
   .zoom { display: flex; gap: 4px; }
   .zoom button { font-size: 12px; padding: 3px 9px; border-radius: 8px; border: 1px solid var(--border); background: transparent; color: var(--muted); cursor: pointer; }
@@ -262,7 +343,7 @@
   .span.pictures { background: var(--strip-stills); }
   .span.none { background: var(--strip-empty); }
   .span.outside { background: var(--strip-outside-bg); }
-  .seg { position: absolute; top: 8px; height: 18px; border-radius: 4px; background: color-mix(in srgb, var(--accent-2) 60%, transparent); pointer-events: none; }
+  .seg { position: absolute; top: 8px; height: 18px; border-radius: 4px; background: var(--strip-motion); pointer-events: none; }
   .seg.ai { background: var(--accent); }
   .seg.on { outline: 2px solid var(--text); outline-offset: 1px; }
   .seg.dim { opacity: 0.3; }
