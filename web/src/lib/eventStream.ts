@@ -3,6 +3,7 @@ import { cameras, type CameraSummary } from './stores';
 import { checkSession, getJson } from './api';
 import { preferences } from './preferences';
 import { setCameraName } from './cameraName';
+import { followDayChanges } from './dayCache';
 
 // cams' relay of the cameras' cam-proxy events (GET /api/events/stream,
 // Plan 6). While a camera's proxy is up, pages reload on its changes at once
@@ -194,6 +195,8 @@ export function eventStream(): EventStream | undefined {
   if (shared) return shared;
   if (!get(cameras).some((c) => c.proxyConfigured ?? c.proxy) || typeof EventSource === 'undefined') return undefined;
   shared = createEventStream();
+  // A new analysis or still check: the day's cards, wherever they are kept.
+  followDayChanges(shared);
   return shared;
 }
 

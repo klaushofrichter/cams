@@ -5,6 +5,7 @@
   import { getJson, HttpError } from '../lib/api';
   import { cameras, cameraById, selectedCameraId } from '../lib/stores';
   import { eventStream } from '../lib/eventStream';
+  import { isDayOrNeighbour, onDayInvalidated } from '../lib/dayCache';
   import { liveEventsOn } from '../lib/preferences';
   import { addDays, DATE, formatClock, localDate, orderTriggers, pad2, TRIGGER_LABELS, type Trigger } from '../lib/recordings';
   import { todayDate } from '../lib/refresh';
@@ -191,6 +192,24 @@
     return () => {
       stop?.();
       stopChecks?.();
+      clearTimeout(timer);
+    };
+  });
+
+  // A new analysis or still check of the day shown or one around it (its
+  // cards come from those three days), past days too: the cards' Vision
+  // badges, reloaded in place like a live change (Klaus, 2026-10-04).
+  $effect(() => {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const off = onDayInvalidated((c, d) => {
+      // Today reloads on every change of the camera already (the watch above).
+      const shown = untrack(() => date);
+      if (c !== untrack(() => camera?.id) || shown === $todayDate || !isDayOrNeighbour(shown, d)) return;
+      clearTimeout(timer);
+      timer = setTimeout(() => refreshTick++, 1000);
+    });
+    return () => {
+      off();
       clearTimeout(timer);
     };
   });

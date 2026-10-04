@@ -1,6 +1,8 @@
 import { expect, test, type Page } from '@playwright/test';
 import { chicagoMs, FAKE_PROXY_PORT, vehicleDetectionMs } from './fakeProxyData';
+import { expandAllHours } from './hours';
 import { signIn } from './session';
+import { CONTROL_TOKEN, SIMS } from './sims';
 
 // Still checks on the Timeline (cams #179, spec 2026-10-04-still-checks-ui-design),
 // against the fake cam-proxy implementing cam-proxy's still checks contract.
@@ -167,4 +169,74 @@ test('a check that finds the card’s label confirms the card like an automatic 
   await expect(card.first()).toBeVisible({ timeout: 15_000 });
   await card.first().locator('[data-testid="vision-badge"][data-kind="agree"]').click();
   await expect(page.getByTestId('vision-dialog-checked')).toContainText('checked by hand');
+});
+
+// A check that confirms a card reaches the Video page without a reload
+// (Klaus, 2026-10-04: a pet card stayed "Vision: not confirmed" after a
+// Timeline check until the browser reloaded). Each test gets a person
+// recording of its own on Barn (a camera with a cam-proxy whose past days no
+// other spec uses), two days ago at a random minute, seeded into cam-sim; a
+// `clip` message makes cams list the day again (and the days next to it, so
+// not today), as cam-proxy's does for a new recording.
+const BARN = `http://127.0.0.1:${SIMS.barn.control}`;
+async function aPersonCard(page: Page): Promise<{ date: string; minute: number; clipId: string }> {
+  await page.context().route('**/api/cameras/barn/extent', (r) => r.fulfill({ json: { oldest: null, stills: null } }));
+  const date = chicagoDate(Date.now() - 2 * 86_400_000);
+  const hh = String(1 + Math.floor(Math.random() * 21)).padStart(2, '0');
+  const mm = String(Math.floor(Math.random() * 60)).padStart(2, '0');
+  const r = await page.request.post(`${BARN}/sim/api/recordings/seed`, { headers: { Authorization: `Bearer ${CONTROL_TOKEN}` }, data: { clips: [{ daysAgo: 2, start: `${hh}${mm}00`, end: `${hh}${mm}40`, triggers: ['person'] }] } });
+  expect(r.status(), await r.text()).toBe(201);
+  const minute = chicagoMs(date, `${hh}:${mm}:00`);
+  expect((await page.request.post(`${HOOKS}/stills-minute`, { data: { cam: 'barn', minute } })).ok()).toBe(true);
+  for (let s = 0; s < 40; s++) {
+    expect((await page.request.post(`${HOOKS}/check-answer`, { data: { cam: 'barn', at: minute + s * 1000, summary: [{ category: 'person', subtype: 'person', score: 0.77, box }], objects: [{ mid: '/m/01g317', name: 'Person', score: 0.77, box }] } })).ok()).toBe(true);
+  }
+  expect((await page.request.post(`${HOOKS}/push`, { data: { cam: 'barn', type: 'clip', data: { ts: minute } } })).ok()).toBe(true);
+  const clipId = `${date.replace(/-/g, '')}-${hh}${mm}00-${hh}${mm}40`;
+  // cams lists it (the message is handled asynchronously).
+  await expect.poll(async () => ((await (await page.request.get(`/api/cameras/barn/events?date=${date}`)).json()) as { events: { id: string }[] }).events.some((e) => e.id === clipId)).toBe(true);
+  return { date, minute, clipId };
+}
+const cardBadge = (page: Page, clipId: string) => page.locator('li', { has: page.locator(`[data-testid="event-card"][data-clip-id="${clipId}"]`) }).locator('[data-testid="vision-badge"][data-kind="agree"]');
+async function menu(page: Page, id: string) {
+  if (await page.getByTestId('hamburger').isVisible()) {
+    await page.getByTestId('hamburger').click();
+    await page.getByTestId('drawer').getByTestId(`nav-${id}`).click();
+  } else await page.getByTestId('sidebar').getByTestId(`nav-${id}`).click();
+}
+
+test('a Timeline check that confirms a card of a past day: back on the Video page by the menu, the card says so, no reload', async ({ page }) => {
+  const c = await aPersonCard(page);
+  await page.goto(`/app/video?cam=barn&date=${c.date}&at=${c.minute + 10_000}`);
+  await expandAllHours(page);
+  await expect(page.locator(`[data-testid="event-card"][data-clip-id="${c.clipId}"]`)).toBeVisible();
+  await expect(cardBadge(page, c.clipId)).toHaveCount(0);
+  await page.evaluate(() => ((window as unknown as { noReload: boolean }).noReload = true));
+  await page.getByTestId('show-in-timeline').click();
+  await expect(page).toHaveURL(/\/app\/timeline\?/);
+  await expect(page.getByTestId('still-check-button')).toHaveText('✧ Check with Vision');
+  await page.getByTestId('still-check-button').click();
+  await expect(page.getByTestId('still-check-result')).toContainText('Person 77%');
+  // The menu opens the Video page on today; the day is picked there (no reload).
+  await menu(page, 'video');
+  await expect(page).toHaveURL(/\/app\/video/);
+  await page.getByTestId('day-picker').fill(c.date);
+  await expect(page.getByTestId('events-day')).toHaveText(`Events on ${c.date}`);
+  await expandAllHours(page); // the day pick collapsed its far hours
+  await expect(cardBadge(page, c.clipId)).toHaveText('✦ Vision 77%', { timeout: 15_000 });
+  expect(await page.evaluate(() => (window as unknown as { noReload?: boolean }).noReload)).toBe(true);
+});
+
+test('a check made in another tab updates the open Video page’s card live', async ({ page, context }) => {
+  const c = await aPersonCard(page);
+  const watcher = await context.newPage();
+  const stream = watcher.waitForResponse((r) => r.url().includes('/api/events/stream'));
+  await watcher.goto(`/app/video?cam=barn&date=${c.date}&at=${c.minute + 5000}`);
+  await stream;
+  await expandAllHours(watcher);
+  await expect(watcher.locator(`[data-testid="event-card"][data-clip-id="${c.clipId}"]`)).toBeVisible();
+  await expect(cardBadge(watcher, c.clipId)).toHaveCount(0);
+  const r = await page.request.post('/api/cameras/barn/still-checks', { data: { at: c.minute + 20_000 } });
+  expect(r.status(), await r.text()).toBe(201);
+  await expect(cardBadge(watcher, c.clipId)).toHaveText('✦ Vision 77%', { timeout: 15_000 });
 });
