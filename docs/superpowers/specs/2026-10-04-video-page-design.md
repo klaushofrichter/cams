@@ -34,9 +34,13 @@ click on the REC badge go back to live.
 | Camera card | The camera's name, linked to its web UI (`webUiUrl`; the `webUiNote` as a tooltip without one), a small right-aligned "Proxy" link when the camera has a cam-proxy (the one-time login-link flow), and a status dot: online, offline, checking. The name comes from the camera store (#169), so a rename shows at once. Offline: the offline message, since when, and Retry, as before |
 | Model, firmware | Only in Settings → Device and maintenance (already there); the sidebar no longer shows model, firmware, simulator or streams |
 | Controls | Sound, quality (SD/4K), light, snapshot, fullscreen. Quality and light are disabled outside live mode, with the tooltip "Only in live mode". Sound stays. Snapshot and fullscreen work in both modes |
-| Snapshot | Live: the camera's full-resolution snapshot, as today. Recording: the frame on screen: a clip's `<video>` frame drawn on a canvas at the clip's own resolution (same origin, so the canvas isn't tainted); a still: the still itself; a preview tile: the tile cut from its sprite. "No recording": nothing to save (disabled, "Nothing to save here"). The file name says which: `cam1-live-…jpg`, `cam1-rec-…jpg`, `cam1-still-…jpg` (the time stamp as before: the moment saved, UTC, `YYYY-MM-DD-HH-MM-SS`) |
+| Snapshot | Live: the camera's full-resolution snapshot, as today. Recording: the frame on screen: a clip's `<video>` frame drawn on a canvas at the clip's own resolution (same origin, so the canvas isn't tainted); a still: the still itself; a preview tile: the tile cut from its sprite. "No recording" (or a frame not loaded yet): the snapshot line says it couldn't be saved. The file name says which: `cam1-live-…jpg`, `cam1-rec-…jpg`, `cam1-still-…jpg` (the time stamp as before: the moment saved, UTC, `YYYY-MM-DD-HH-MM-SS`) |
 | Event list | History's list (hour groups, newest first, "Collapse hours") for the day being viewed. Live: today's list; a new event appears at the top (the "recording…" card, then the event). Another day: nothing moves by itself |
 | Removed | The Live/History tab buttons and the "Most recent events" five-list |
+| ⇥ | Always live, paused or playing (the old History page stayed put on a paused ⇥, 2026-09-28) |
+| The menu | "Video" opens live, like the old Live entry; Back returns to the recording, and a bare old History link restores the session's last position |
+| Strip's live end | A click or drag glues only at the strip's right end (now, or the end of a recording after now from a camera clock ahead), so such recordings stay browseable |
+| Links | "Open in History" (Timeline, Vision dialog) is "Open in Video" |
 | Keep-alive | Leaving live for a recording is like leaving the Live page today: the stream stays open for the keep-alive time, then closes; back to live within it is instant. The same mechanism (`createKeepAlive`, `liveStreamHeld`) |
 
 ## What moves where
