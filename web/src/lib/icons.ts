@@ -26,6 +26,8 @@ export const ICONS = {
   pause: 'M8 5h3v14H8zM13 5h3v14h-3z',
   back10: 'M11 7 6 12l5 5M18 7l-5 5 5 5',
   fwd10: 'M13 7l5 5-5 5M6 7l5 5-5 5',
+  back1: 'M14 7l-5 5 5 5',
+  fwd1: 'M10 7l5 5-5 5',
   prev: 'M7 6v12M18 6l-8 6 8 6z',
   next: 'M17 6v12M6 6l8 6-8 6z',
   calendarPrev: 'M15 6l-6 6 6 6',

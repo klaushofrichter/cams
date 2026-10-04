@@ -70,7 +70,7 @@ test('navigation reaches every page and keeps the URL in sync', async ({ page },
   // panels afterwards no longer rewrites the URL, so those cases keep the
   // plain nav-item href.
   const cases: [string, string | RegExp, string][] = [
-    ['history', /^http:\/\/[^/]+\/app\/recordings\?.*[?&]panel=history(&|$)/, 'Recordings'],
+    ['history', /^http:\/\/[^/]+\/app\/recordings\?.*[?&]panel=history(&|$)/, 'History'],
     ['settings', '/app/settings', 'Settings'],
     ['about', '/app/about', 'About'],
     ['live', '/app/live', 'Live'],

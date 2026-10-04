@@ -13,8 +13,9 @@
   import { clipStartFromId } from '../lib/strip';
   import {
     addDays, cursorSearch, daysUrl, filterEvents, loadCursor, localDate,
-    filterParam, parseCursor, parseFilter, saveCursor, type Cursor, type EventClip, type Filter,
+    ALL_KINDS, filterParam, parseCursor, parseFilter, recentEvents, saveCursor, type Cursor, type EventClip, type Filter,
   } from '../lib/recordings';
+  import { eventFilter, pickEventFilter } from '../lib/eventFilter';
   import { liveEventsOn, preferences } from '../lib/preferences';
   import { createTodayRefresher, todayDate } from '../lib/refresh';
   import { eventStream, prunePending, type Pending } from '../lib/eventStream';
@@ -180,8 +181,8 @@
       saveCursor(cam, c);
       // An old /app/live?at= link (earlier versions wrote them) is replaced,
       // so Back doesn't land on it and bounce here again.
-      if (vroute.params.has('at')) replaceRoute(hrefFor(cam, c, 'history', filter));
-      else navigate(hrefFor(cam, c, 'history', filter));
+      if (vroute.params.has('at')) replaceRoute(hrefFor(cam, c, 'history'));
+      else navigate(hrefFor(cam, c, 'history'));
     });
   });
   // History: ⇥ while playing, or playback catching up with now, is Live.
@@ -229,15 +230,24 @@
   // Likewise, a primitive projection of cursor.date for the events effect.
   const date = $derived(cursor.date);
 
-  // parseCursor already falls back to 'all' when the URL has no filter, so
-  // the stored preference is only applied by overriding that case here.
-  // Reads the preferences store reactively (not the pref() snapshot helper,
-  // which uses get() and would not update this derived value if the
-  // preference arrived or changed after the page mounted).
+  // The event filter is one preference for History and Live (Klaus,
+  // 2026-10-03, lib/eventFilter.ts): a chip on either panel changes both,
+  // across page switches and reloads. URLs carry no filter; an old link's
+  // `filter=` is ignored. All until the preferences have loaded.
   // A string first: the list only changes when the kinds do, not on every
   // URL update (every 2 s while playing), so lists and the strip don't
   // recompute (issue #69).
-  const filterKey = $derived(filterParam(vroute.params.has('filter') ? parsed.filter : parseFilter($preferences?.eventFilter)));
+  const filterKey = $derived(filterParam($eventFilter ?? ALL_KINDS));
+  const setFilter = (f: Filter) => void pickEventFilter(f);
+  // An old link's `filter=` is dropped from the address bar (ignored above).
+  $effect(() => {
+    if (!pageVisible || !vroute.params.has('filter')) return;
+    untrack(() => {
+      const u = new URL(location.href);
+      u.searchParams.delete('filter');
+      replaceRoute(u.pathname + u.search + u.hash);
+    });
+  });
   const filter: Filter = $derived(parseFilter(filterKey === 'all' ? 'all' : filterKey));
   const panel: Panel = $derived(vroute.panel);
   // The Live panel's camera status: checked on opening it and on another
@@ -248,8 +258,9 @@
   });
   const camProxy = $derived(!!$cameraById(cam)?.proxy);
   const camera = $derived($cameraById(cam) ?? null);
-  // The Live panel's recent events: today's, newest first (it shows five).
-  const recent = $derived(date === $todayDate ? [...events].sort((a, b) => Date.parse(b.start) - Date.parse(a.start)) : []);
+  // The Live panel's recent events: today's five newest that match the
+  // filter, newest first (filtered first, not five filtered down).
+  const recent = $derived(date === $todayDate ? recentEvents(events, filter, 5) : []);
   const visible = $derived(filterEvents(events, filter));
   // The strip's first position: the URL's `at`, else an old link's clip and
   // offset, else (null) the day's first event.
@@ -269,21 +280,21 @@
     const c: Cursor = { date: localDate(new Date(at)), clipId, offsetSec: 0, at };
     // Live at now keeps the plain /app/live; playback on the Live panel adds `at`.
     if (panel !== 'live') saveCursor(cam, c);
-    replaceRoute(hrefFor(cam, panel === 'live' && glued ? { ...c, clipId: null, at: null } : c, panel, filter));
+    replaceRoute(hrefFor(cam, panel === 'live' && glued ? { ...c, clipId: null, at: null } : c, panel));
   }
   // The Live panel keeps its own URL; `at` only while it plays back.
-  function hrefFor(c0: string, c: Cursor, p: Panel, f: Filter) {
-    if (p === 'live') return c.at === null ? '/app/live' : `/app/live${cursorSearch(c0, c, p, f)}`;
-    return `/app/recordings${cursorSearch(c0, c, p, f)}`;
+  function hrefFor(c0: string, c: Cursor, p: Panel) {
+    if (p === 'live') return c.at === null ? '/app/live' : `/app/live${cursorSearch(c0, c, p)}`;
+    return `/app/recordings${cursorSearch(c0, c, p)}`;
   }
 
-  function go(next: Partial<Cursor>, opts: { panel?: Panel; filter?: Filter } = {}, mode: 'push' | 'replace' = 'push') {
+  function go(next: Partial<Cursor>, opts: { panel?: Panel } = {}, mode: 'push' | 'replace' = 'push') {
     if (!cam) return;
     const p = opts.panel ?? panel;
     // Opening the Live panel goes to live, at now.
     const c: Cursor = p === 'live' && opts.panel === 'live' ? { ...cursor, ...next, clipId: null, offsetSec: 0, at: null } : { ...cursor, ...next };
     if (p !== 'live') saveCursor(cam, c);
-    const href = hrefFor(cam, c, p, opts.filter ?? filter);
+    const href = hrefFor(cam, c, p);
     if (mode === 'replace') replaceRoute(href);
     else navigate(href);
   }
@@ -293,7 +304,7 @@
   function switchCamera(newCam: string) {
     const c: Cursor = { ...cursor, clipId: null, offsetSec: 0, at: null };
     if (panel !== 'live') saveCursor(newCam, c);
-    navigate(hrefFor(newCam, c, panel, filter));
+    navigate(hrefFor(newCam, c, panel));
   }
 
   // Keep the picker and the page's camera in step, in both directions,
@@ -447,7 +458,7 @@
 <section class="page">
   <header class="head">
     <!-- Not while kept alive behind another page: that page has the title. -->
-    <h1 data-testid={pageVisible ? 'page-title' : undefined}>{panel === 'live' ? 'Live' : 'Recordings'}</h1>
+    <h1 data-testid={pageVisible ? 'page-title' : undefined}>{panel === 'live' ? 'Live' : 'History'}</h1>
     <!-- Kept in place (only hidden) on Live, so the video doesn't move between panels. -->
     <span class="center" class:off={panel === 'live'}>{#if cam}<DayPicker date={cursor.date} {days} today={$todayDate} onchange={(d) => go({ date: d, clipId: null, offsetSec: 0, at: null })} />{/if}</span>
     <!-- Three fixed columns, so the day picker stays centred whether or not
@@ -498,12 +509,13 @@
         {#if panel === 'live'}
           {#if camera}
             <LivePanel {camera} {recent} pending={pendingToday} proxyInfo={proxyInfo} paused={!liveWanted}
-              onplay={(e) => historyView?.jump(Date.parse(e.start), true)} />
+              {filter} onfilter={setFilter}
+            onplay={(e) => historyView?.jump(Date.parse(e.start), true)} />
           {/if}
         {:else}
           <EventList bind:this={eventList} cameraId={cam} events={visible} {filter} date={cursor.date} selectedId={playheadClip} pending={pendingToday}
             onreveal={revealPlayer} onhours={(o) => (hoursOpen = o)}
-            onfilter={(f) => go({}, { filter: f }, 'replace')}
+            onfilter={setFilter}
             onselect={(e) => historyView?.jump(Date.parse(e.start), true)} onthumberror={recheckDownloads} downloadsOk={downloads !== 'unavailable'} />
         {/if}
       </aside>
@@ -535,8 +547,17 @@
   .workspace { display: grid; grid-template-columns: minmax(0, var(--player-max-w)) 370px; gap: 18px; align-items: start; }
   .center.off, .updated.off { visibility: hidden; }
   .main { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+  /* Desktop: the sidebar is a column as tall as the window allows; the tabs,
+     "Collapse hours" and the filter stay at its top and only the event list
+     (cards and hour titles) scrolls (Klaus, 2026-10-03). A panel marks the
+     boxes that give way with side-fill and the list with side-scroll.
+     overflow: auto stays as the fallback for content that can't give way. */
   .side { display: flex; flex-direction: column; gap: 10px; max-height: calc(100vh - 170px); overflow: auto; }
-  .tabrow { display: flex; align-items: center; gap: 6px; }
+  .tabrow { display: flex; align-items: center; gap: 6px; flex: none; }
+  @media (min-width: 1200px) {
+    .side :global(.side-fill) { display: flex; flex-direction: column; flex: 0 1 auto; min-height: 0; }
+    .side :global(.side-scroll) { flex: 0 1 auto; min-height: 0; overflow: auto; }
+  }
   .tabs { display: flex; gap: 6px; }
   .hours { margin-left: auto; padding: 5px 10px; border-radius: 9px; border: 1px solid var(--border); background: transparent; color: var(--muted); font: inherit; font-size: 12px; cursor: pointer; }
   .hours:hover { color: var(--text); border-color: color-mix(in srgb, var(--accent) 40%, var(--border)); }

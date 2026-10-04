@@ -193,10 +193,82 @@ describe('StripPlayer', () => {
     expect(onstep).toHaveBeenCalledWith(1);
   });
 
+  // One-second steps beside the 10 s ones (Klaus, 2026-10-03).
+  it('lays out ⏮ << < ▶ > >> ⏭ with explicit names and titles', () => {
+    render();
+    const ids = [...target!.querySelectorAll('.controls > button')].map((b) => b.getAttribute('data-testid'));
+    expect(ids.slice(0, 7)).toEqual(['prev-clip', 'back-10', 'back-1', 'play-toggle', 'fwd-1', 'fwd-10', 'next-clip']);
+    const names: Record<string, string> = { 'back-10': 'Back 10 seconds', 'back-1': 'Back 1 second', 'fwd-1': 'Forward 1 second', 'fwd-10': 'Forward 10 seconds' };
+    for (const [id, name] of Object.entries(names)) {
+      const b = q(id)!;
+      expect(b.getAttribute('aria-label')).toBe(name);
+      expect(b.title).toBe(name);
+      expect(b.textContent!.trim()).toBe(''); // icons only, no "10"
+    }
+  });
+
+  it('steps 1 s with the buttons and Shift+arrow keys', () => {
+    const p = render({ at: T + 5000 });
+    q('fwd-1')!.click();
+    expect(p.at).toBe(T + 6000);
+    q('back-1')!.click();
+    q('back-1')!.click();
+    expect(p.at).toBe(T + 4000);
+    const box = q('strip-player')!;
+    box.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', shiftKey: true, bubbles: true }));
+    expect(p.at).toBe(T + 5000);
+    box.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowLeft', shiftKey: true, bubbles: true }));
+    expect(p.at).toBe(T + 4000);
+  });
+
+  it('leaves Alt, Ctrl and Meta with an arrow to the browser (Back / Forward)', () => {
+    const p = render({ at: T + 5000 });
+    const box = q('strip-player')!;
+    for (const mod of ['altKey', 'ctrlKey', 'metaKey']) {
+      for (const key of ['ArrowLeft', 'ArrowRight']) {
+        const e = new KeyboardEvent('keydown', { key, [mod]: true, bubbles: true, cancelable: true });
+        box.dispatchEvent(e);
+        expect(e.defaultPrevented).toBe(false);
+      }
+    }
+    expect(p.at).toBe(T + 5000);
+  });
+
+  it('a 1 s step on a paused clip seeks the video, so the new frame shows', async () => {
+    const p = render({ at: T + 12_000 });
+    const v = q('clip-video') as HTMLVideoElement;
+    Object.defineProperty(v, 'currentTime', { configurable: true, writable: true, value: 0 });
+    v.dispatchEvent(new Event('loadedmetadata'));
+    flushSync();
+    expect(v.currentTime).toBe(2);
+    q('fwd-1')!.click();
+    flushSync();
+    expect(p.at).toBe(T + 13_000);
+    expect(v.currentTime).toBe(3);
+    q('back-1')!.click();
+    flushSync();
+    expect(v.currentTime).toBe(2);
+    expect(p.playing).toBe(false);
+  });
+
+  it('a 1 s step while a clip plays is not undone by the video\'s own time', async () => {
+    const p = render({ at: T + 12_000, playing: true });
+    const v = q('clip-video') as HTMLVideoElement;
+    Object.defineProperty(v, 'currentTime', { configurable: true, writable: true, value: 0 });
+    v.dispatchEvent(new Event('loadedmetadata'));
+    flushSync();
+    q('fwd-1')!.click();
+    flushSync();
+    expect(v.currentTime).toBe(3);
+    v.dispatchEvent(new Event('timeupdate'));
+    flushSync();
+    expect(p.at).toBe(T + 13_000);
+  });
+
   it('disables forward 10 s and next event in live view, and the arrow keys do nothing (#121)', () => {
     const onstep = vi.fn();
     const p = render({ glued: true, at: T + 1000, onstep });
-    for (const id of ['fwd-10', 'next-clip']) {
+    for (const id of ['fwd-10', 'fwd-1', 'next-clip']) {
       const b = q(id) as HTMLButtonElement;
       expect(b.disabled).toBe(true);
       expect(b.title).toBe('Not available in live view');
@@ -207,6 +279,7 @@ describe('StripPlayer', () => {
     expect(p.at).toBe(T + 1000);
     // backwards is how live goes to History
     expect((q('back-10') as HTMLButtonElement).disabled).toBe(false);
+    expect((q('back-1') as HTMLButtonElement).disabled).toBe(false);
     expect((q('prev-clip') as HTMLButtonElement).disabled).toBe(false);
   });
 
@@ -215,7 +288,7 @@ describe('StripPlayer', () => {
     expect((q('fwd-10') as HTMLButtonElement).disabled).toBe(true);
     p.glued = false;
     flushSync();
-    for (const id of ['fwd-10', 'next-clip']) {
+    for (const id of ['fwd-10', 'fwd-1', 'next-clip']) {
       const b = q(id) as HTMLButtonElement;
       expect(b.disabled).toBe(false);
       expect(b.title).not.toBe('Not available in live view');

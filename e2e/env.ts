@@ -1,20 +1,32 @@
 // Shared by the web server Playwright starts and by the specs that sign their
 // own session cookie. None of these are real credentials.
+import { tmpdir } from 'os';
+import { join } from 'path';
+
 export const E2E_PORT = 8099;
 // Specs that change preferences sign in as this user: the server keys
 // preferences by email, so spec files running in parallel as the first
 // allowlisted user never see those changes.
 export const PREFS_EMAIL = 'e2e-prefs@klaushofrichter.net';
+// The shared event filter's spec (e2e/event-filter.spec.ts) saves it for real:
+// a user per project, so desktop and phone don't race on one preference.
+export const FILTER_EMAILS = { desktop: 'e2e-filter-desktop@klaushofrichter.net', phone: 'e2e-filter-phone@klaushofrichter.net' } as const;
 export const E2E_ENV: Record<string, string> = {
   PORT: String(E2E_PORT),
   COOKIE_SECRET: 'e2e-cookie-secret-not-used-for-anything-real',
   GOOGLE_CLIENT_ID: 'e2e',
   GOOGLE_CLIENT_SECRET: 'e2e',
   GOOGLE_REDIRECT_URI: `http://localhost:${E2E_PORT}/auth/google/callback`,
-  ALLOWED_EMAILS: `klaus@klaushofrichter.net,${PREFS_EMAIL}`,
+  ALLOWED_EMAILS: `klaus@klaushofrichter.net,${PREFS_EMAIL},${FILTER_EMAILS.desktop},${FILTER_EMAILS.phone}`,
   CAMERAS_FILE: 'e2e/cameras.json',
   PREFS_FILE: '/tmp/cams-e2e-prefs.json',
   PROXY_STATE_FILE: '/tmp/cams-e2e-proxy-state.json',
+  // The run's own clip and thumbnail cache, emptied whenever Playwright starts
+  // the server (playwright.config.ts). The default ($TMPDIR/cams-cache) is
+  // shared with every earlier run and local server: a thumbnail cached there
+  // by older code (a clip frame for today's 12:05:05 motion card, with no
+  // still 2 s in) was served to later runs of the same day (issue #157 e2e).
+  CACHE_DIR: join(tmpdir(), 'cams-e2e-cache'),
   APP_VERSION: 'e2e-test-version',
   LOG_LEVEL: 'silent',
   RATE_LIMIT_MAX: '1000',

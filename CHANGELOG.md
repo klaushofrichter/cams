@@ -8,4 +8,8 @@ published as [GitHub releases](https://github.com/klaushofrichter/cams/releases)
 
 ## [Unreleased]
 
-- Event cards with a person, vehicle or pet show the moment it was detected as their thumbnail: the still Vision analysed and confirmed, or the cam-proxy's still at the second the camera's AI flagged it, instead of the still 2 s into the recording, which was usually the empty pre-record (#157). Motion-only cards, and cards without such a still (a gap, stills off, older events), keep today's thumbnail.
+- Player (History and Live): one-second steps beside the 10-second ones, in the order ⏮ << < ▶ > >> ⏭; the 10-second buttons no longer say "10". Shift+← and Shift+→ step one second (← → still step 10 s; with Alt, Ctrl or Cmd they are left to the browser). A step on a paused clip shows that frame. Forward steps stay off while Live is at now.
+- History: the page heading says "History" instead of "Recordings", as in the menu.
+- Live: the History event filter (All / Person / Vehicle / Pet / Motion) sits above the most recent events, which are then the five newest that match. The filter is one saved preference for both panels: a change on Live shows on History and the other way round, and it is kept across page switches, reloads and devices. Settings' event filter is this same filter now (its label says so), and links no longer carry a `filter=` (an old link's is ignored).
+- History and Live on a desktop: only the event list (with its hour titles) scrolls in the right-hand panel; the Live / History tabs, "Collapse hours" and the filter chips stay at the top, and the page doesn't scroll with it. The phone layout is unchanged.
+

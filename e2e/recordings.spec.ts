@@ -92,11 +92,45 @@ test('skip, pause and next/previous recording work', async ({ page }) => {
   await expect(page).toHaveURL(/clip=\d{8}-081510-081535/);
 });
 
+// ⏮ << < ▶ > >> ⏭ (Klaus, 2026-10-03): one-second steps beside the 10 s ones;
+// a step on a paused clip shows that frame. One row on a phone too.
+test('one-second steps move a paused clip, and the bar fits one row', async ({ page }) => {
+  await openEvents(page);
+  await card(page, '081510').click();
+  const video = page.getByTestId('clip-video');
+  await expect.poll(() => video.evaluate((v: HTMLVideoElement) => v.currentTime > 2.5), { timeout: 15_000 }).toBe(true);
+  await page.getByTestId('play-toggle').click();
+  await expect.poll(() => video.evaluate((v: HTMLVideoElement) => v.paused)).toBe(true);
+  const t0 = await video.evaluate((v: HTMLVideoElement) => v.currentTime);
+  await page.getByTestId('back-1').click();
+  await expect.poll(() => video.evaluate((v: HTMLVideoElement) => v.currentTime)).toBeCloseTo(t0 - 1, 0);
+  await page.getByTestId('fwd-1').click();
+  await page.getByTestId('fwd-1').click();
+  await expect.poll(() => video.evaluate((v: HTMLVideoElement) => v.currentTime)).toBeCloseTo(t0 + 1, 0);
+  // the new frame is decoded, not a pending seek
+  await expect.poll(() => video.evaluate((v: HTMLVideoElement) => !v.seeking && v.readyState >= 2)).toBe(true);
+  expect(await video.evaluate((v: HTMLVideoElement) => v.paused)).toBe(true);
+
+  for (const [id, name] of [['back-10', 'Back 10 seconds'], ['back-1', 'Back 1 second'], ['fwd-1', 'Forward 1 second'], ['fwd-10', 'Forward 10 seconds']]) {
+    await expect(page.getByRole('button', { name, exact: true })).toHaveAttribute('data-testid', id);
+  }
+  const ids = ['prev-clip', 'back-10', 'back-1', 'play-toggle', 'fwd-1', 'fwd-10', 'next-clip'];
+  const boxes = await Promise.all(ids.map(async (id) => (await page.getByTestId(id).boundingBox())!));
+  const width = page.viewportSize()!.width;
+  for (let i = 0; i < boxes.length; i++) {
+    expect(Math.abs(boxes[i].y - boxes[0].y)).toBeLessThan(2); // one row
+    expect(boxes[i].x + boxes[i].width).toBeLessThanOrEqual(width);
+    if (i) expect(boxes[i].x).toBeGreaterThan(boxes[i - 1].x); // in this order
+  }
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+});
+
 test('filters narrow the list and an empty filter says so', async ({ page }) => {
+  await keepPrefsLocal(page);
   await openEvents(page);
   await page.getByTestId('filter-person').click();
   await expect(page.getByTestId('event-card')).toHaveCount(1);
-  await expect(page).toHaveURL(/filter=person/);
+  await expect(page).not.toHaveURL(/filter=/); // the saved preference only (Klaus, 2026-10-03)
   await page.getByTestId('filter-all').click();
   await expect(page.getByTestId('event-card')).toHaveCount(4);
 });
@@ -252,7 +286,7 @@ test('the video stays in place between Live and History', async ({ page }) => {
   await expect(page.getByTestId('live-panel')).toBeVisible();
   const a = await box();
   await page.getByTestId('panel-tab-history').click();
-  await expect(page.getByTestId('page-title')).toHaveText('Recordings');
+  await expect(page.getByTestId('page-title')).toHaveText('History');
   const b = await box();
   expect(b).toEqual(a);
 });
@@ -304,9 +338,10 @@ test('a picker choice made on Live survives navigating through the sidebar', asy
   await expect(page).toHaveURL(/[?&]cam=porch(&|$)/);
 });
 
-// Picking a zoom saves it as a preference; every test here shares one user,
-// so the save is answered in the browser and never reaches the server.
-async function keepZoomLocal(page: import('@playwright/test').Page) {
+// Picking a zoom or an event filter saves it as a preference; every test here
+// shares one user, so the save is answered in the browser and never reaches
+// the server (e2e/event-filter.spec.ts saves the filter for real, as its own users).
+async function keepPrefsLocal(page: import('@playwright/test').Page) {
   const current = await (await page.request.get('/api/preferences')).json();
   await page.route('**/api/preferences', async (route) => {
     if (route.request().method() !== 'PUT') return route.fallback();
@@ -315,7 +350,7 @@ async function keepZoomLocal(page: import('@playwright/test').Page) {
 }
 
 test('zoom is kept when an event card is clicked, and across pages', async ({ page }) => {
-  await keepZoomLocal(page);
+  await keepPrefsLocal(page);
   await openEvents(page);
   await page.getByTestId('zoom-3').click();
   await expect(page.getByTestId('zoom-3')).toHaveAttribute('aria-pressed', 'true');
@@ -424,7 +459,7 @@ test('a stretch with nothing recorded says so', async ({ page }) => {
 });
 
 test('dragging the strip to yesterday changes the date and the list', async ({ page }) => {
-  await keepZoomLocal(page); // the zoom is a shared user's preference
+  await keepPrefsLocal(page); // the zoom is a shared user's preference
   // In the browser's zone (America/Chicago), not the runner's (UTC on CI):
   // between 00:00 and 05:00 UTC they are different days.
   const earlyToday = await page.evaluate(() => { const d = new Date(); return new Date(d.getFullYear(), d.getMonth(), d.getDate(), 0, 30).getTime(); });
@@ -490,7 +525,7 @@ test('an old Downloads link opens History; the menu has no Downloads entry', asy
 // Live events (Klaus, 2026-09-28): the fake proxy sends a person event for
 // Barn (no other test counts Barn's requests, so the reloads it causes are harmless).
 test('a new event shows at once: a top-bar notification and a "recording…" entry', async ({ page }) => {
-  await keepZoomLocal(page); // the zoom change below must not reach the shared user
+  await keepPrefsLocal(page); // the zoom change below must not reach the shared user
   await page.goto('/app/recordings?cam=barn&panel=history');
   await expect(page.getByTestId('timeline')).toBeVisible();
   const push = () => page.request.post(`http://127.0.0.1:${FAKE_PROXY_PORT - 2}/push`, { data: { cam: 'barn', type: 'camera-event', data: { eventId: 99, kind: 'person', phase: 'start', ts: Date.now(), source: 'onvif' } } });
@@ -552,11 +587,13 @@ test('a day that failed to load names no source', async ({ page }) => {
 });
 
 test('filter chips do not add browser history entries', async ({ page }) => {
+  await keepPrefsLocal(page);
   await page.goto('/app/recordings?panel=history&cam=cam1');
   await expect(page.getByTestId('event-card').first()).toBeVisible();
   const before = await page.evaluate(() => history.length);
   await page.getByTestId('filter-person').click();
   await page.getByTestId('filter-vehicle').click();
-  await expect(page).toHaveURL(/filter=person%2Cvehicle/);
+  await expect(page.getByTestId('filter-vehicle')).toHaveAttribute('aria-pressed', 'true');
   expect(await page.evaluate(() => history.length)).toBe(before);
+  await expect(page).not.toHaveURL(/filter=/);
 });

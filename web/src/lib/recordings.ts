@@ -75,6 +75,11 @@ export function addDays(date: string, n: number): string {
 export function filterEvents(events: EventClip[], filter: Filter): EventClip[] {
   return isAllKinds(filter) ? events : events.filter((e) => e.triggers.some((t) => (filter as string[]).includes(t)));
 }
+// The Live panel's most recent events: the newest n that match the filter
+// (filtered first, so a filter never leaves fewer than n when more match).
+export function recentEvents(events: EventClip[], filter: Filter, n: number): EventClip[] {
+  return [...filterEvents(events, filter)].sort((a, b) => Date.parse(b.start) - Date.parse(a.start)).slice(0, n);
+}
 
 // HH:MM:SS, local.
 export function formatClock(t: string | number): string {
@@ -89,7 +94,9 @@ export const videoUrl = (c: string, id: string) => `/api/cameras/${cam(c)}/clips
 export const thumbUrl = (c: string, id: string) => `/api/cameras/${cam(c)}/clips/${encodeURIComponent(id)}/thumb.jpg`;
 export const downloadUrl = (c: string, id: string, q: 'sub' | 'main') => `/api/cameras/${cam(c)}/clips/${encodeURIComponent(id)}/download?quality=${q}`;
 
-export function parseCursor(params: URLSearchParams, today: string): { cam: string | null; cursor: Cursor; filter: Filter } {
+// No event filter: that is the saved preference only (eventFilter.ts); an
+// old link's `filter=` is ignored (Klaus, 2026-10-03).
+export function parseCursor(params: URLSearchParams, today: string): { cam: string | null; cursor: Cursor } {
   const date = params.get('date') ?? '';
   const clip = params.get('clip') ?? '';
   const t = Number(params.get('t'));
@@ -102,17 +109,15 @@ export function parseCursor(params: URLSearchParams, today: string): { cam: stri
       offsetSec: Number.isFinite(t) && t > 0 ? Math.floor(t) : 0,
       at: /^\d{12,14}$/.test(atRaw) ? Number(atRaw) : null,
     },
-    filter: parseFilter(params.get('filter')),
   };
 }
 
-export function cursorSearch(c: string, cursor: Cursor, panel: string, filter: Filter): string {
+export function cursorSearch(c: string, cursor: Cursor, panel: string): string {
   const p = new URLSearchParams({ cam: c, date: cursor.date });
   if (cursor.at !== null) p.set('at', String(Math.floor(cursor.at)));
   if (cursor.clipId) p.set('clip', cursor.clipId);
   if (cursor.at === null) p.set('t', String(Math.floor(cursor.offsetSec)));
   p.set('panel', panel);
-  p.set('filter', filterParam(filter));
   return `?${p.toString()}`;
 }
 

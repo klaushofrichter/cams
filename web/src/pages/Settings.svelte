@@ -253,7 +253,7 @@
         </label>
         <!-- Several kinds at once; All ticks every kind (Klaus, 2026-09-28). -->
         <fieldset class="live-events" data-testid="pref-filter">
-          <legend>Event filter</legend>
+          <legend>Event filter (also set by the chips on Live and History)</legend>
           <div class="types">
             <label class="row">
               <input type="checkbox" data-testid="pref-filter-all" checked={isAllKinds(prefs.eventFilter ?? ALL_KINDS)}
@@ -277,7 +277,7 @@
               </label>
             {/each}
           </div>
-          <small class="muted">What History lists by default; the chips there change it for the moment.</small>
+          <small class="muted">Also set by the filter chips on Live and History: one filter for both, saved for every device.</small>
         </fieldset>
         <label>Timeline zoom
           <select data-testid="pref-zoom" bind:value={prefs.timelineZoom}>
