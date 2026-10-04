@@ -22,27 +22,33 @@ sets these instead:
 
 ## Setup
 
-On the Pi, next to cam-proxy (`/srv/cam-proxy`), cams gets its own directory
-and compose project, so updating one never touches the other:
+On the Pi, cams gets its own directory and compose project next to
+cam-proxy's, so updating one never touches the other. Any directory the admin
+user can write works; ours is `/srv/cam-proxy/cams` (no sudo). Below, `$CAMS`
+stands for it:
 
 ```bash
-sudo mkdir -p /srv/cams/data && sudo chown -R 1000:1000 /srv/cams/data
+ssh <user>@<pi> 'mkdir -p /srv/cam-proxy/cams/data && id -u'
 ```
 
-1. **`/srv/cams/compose.yaml`**: copy [`deploy/pi/compose.cams.yaml`](../deploy/pi/compose.cams.yaml).
+The container runs as uid 1000. If `id -u` printed 1000 (the Pi's first
+user), nothing else is needed; otherwise make `data/` writable for it
+(`sudo chown 1000:1000 $CAMS/data`) and `cameras.json` readable.
+
+1. **`$CAMS/compose.yaml`**: copy [`deploy/pi/compose.cams.yaml`](../deploy/pi/compose.cams.yaml).
    Host networking, like cam-proxy: cams reaches cam-proxy at
    `http://127.0.0.1:8480` and listens on the Pi's port 8080 (cam-proxy uses
    8480, 2121, the FTP passive ports and go2rtc's; 8080 is free).
-2. **`/srv/cams/.env`** (mode 600): two new random secrets, never printed:
+2. **`$CAMS/.env`** (mode 600): two new random secrets, never printed:
 
    ```bash
-   ssh <user>@<pi> 'umask 077; { echo "COOKIE_SECRET=$(openssl rand -hex 32)"; echo "CAMS_LOGIN_TOKEN=$(openssl rand -hex 16)"; } > /srv/cams/.env'
+   ssh <user>@<pi> 'umask 077; { echo "COOKIE_SECRET=$(openssl rand -hex 32)"; echo "CAMS_LOGIN_TOKEN=$(openssl rand -hex 16)"; } > /srv/cam-proxy/cams/.env'
    ```
 
-   Read the token on the Pi when you need it (`grep CAMS_LOGIN_TOKEN /srv/cams/.env`),
+   Read the token on the Pi when you need it (`grep CAMS_LOGIN_TOKEN $CAMS/.env`),
    or keep it in a password manager; the browser's password manager offers to
    save it at the first sign-in.
-3. **`/srv/cams/cameras.json`** (mode 600, owner uid 1000, the container's
+3. **`$CAMS/cameras.json`** (mode 600, readable by uid 1000, the container's
    user): start from [`deploy/pi/cameras.example.json`](../deploy/pi/cameras.example.json).
    - `proxy.url`: `http://127.0.0.1:8480`;
    - `proxy.token`: one of cam-proxy's `CAMPROXY_TOKENS`, and
@@ -51,7 +57,10 @@ sudo mkdir -p /srv/cams/data && sudo chown -R 1000:1000 /srv/cams/data
      renames go through the proxy);
    - `host`, `user`, `password`: the camera's LAN address and its `cams`
      user, for what cams asks the camera directly (settings, the light,
-     reboot, and the fallback when the proxy is down). `tlsServername`
+     reboot, and the fallback when the proxy is down). When the `cams`
+     user's password isn't available on the Pi, cam-proxy's camera user
+     works as well: `user` `proxy` with `CAMPROXY_CAMERA_PASSWORD` from
+     `/srv/cam-proxy/.env`. `tlsServername`
      `cam1.skylar.technology` checks the camera's Let's Encrypt certificate
      by name while it is reached by address.
 
@@ -60,7 +69,7 @@ sudo mkdir -p /srv/cams/data && sudo chown -R 1000:1000 /srv/cams/data
 4. Start it:
 
    ```bash
-   ssh <user>@<pi> 'cd /srv/cams && docker compose pull && docker compose up -d'
+   ssh <user>@<pi> 'cd /srv/cam-proxy/cams && docker compose pull && docker compose up -d'
    curl -s http://<pi>:8080/health     # {"status":"ok","version":"…"}
    ```
 
@@ -77,11 +86,11 @@ LAN only changes addresses in two files:
   `ftp.publicHost` (in `/srv/cam-proxy/data/config.json`) carry it too:
   change them and recreate cam-proxy, or the "Proxy" links and the camera's
   FTP uploads point at the old address.
-- **The camera's address:** `host` in `/srv/cams/cameras.json` and
+- **The camera's address:** `host` in `$CAMS/cameras.json` and
   `camera.host` in cam-proxy's `config.json`, then
 
   ```bash
-  cd /srv/cams && docker compose restart
+  cd /srv/cam-proxy/cams && docker compose restart
   ```
 
 - Without internet the camera's certificate still checks (the chain is
@@ -90,7 +99,7 @@ LAN only changes addresses in two files:
 
 ## Day to day
 
-| Task | Command (in `/srv/cams`) |
+| Task | Command (in `$CAMS`) |
 |---|---|
 | Update to the newest release | `docker compose pull && docker compose up -d` |
 | Pin a release | `CAMS_TAG=v2026.10.05.1` in `.env`, then the same |

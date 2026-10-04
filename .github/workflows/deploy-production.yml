@@ -5,9 +5,8 @@ on:
     branches: [production]
   workflow_dispatch:
 
-permissions:
-  contents: write
-  packages: write
+# Per job below: only `build` writes packages, only `deploy` writes contents.
+permissions: {}
 
 jobs:
   # The image, on a GitHub runner: amd64 for the cluster and arm64 for the Pi
@@ -16,6 +15,9 @@ jobs:
   # of memory).
   build:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
     outputs:
       version: ${{ steps.ver.outputs.version }}
     steps:
@@ -70,6 +72,9 @@ jobs:
   deploy:
     needs: build
     runs-on: [self-hosted, k3s]
+    # The release and the [Unreleased] reset on main; no packages.
+    permissions:
+      contents: write
     steps:
       - name: Refuse to deploy anything but production
         if: github.ref != 'refs/heads/production'
