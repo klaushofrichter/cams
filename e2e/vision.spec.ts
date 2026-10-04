@@ -114,6 +114,59 @@ test('a badge is coloured by its confidence and opens the still with its boxes; 
   await expect(page.getByTestId('timeline-still')).toHaveAttribute('src', new RegExp(`/stills/${stillTs}\\.jpg$`));
 });
 
+// Issue #158: with all objects, the dialog lists them (label and percent); a
+// click or Enter/Space shows only that object's box, again shows all; Plain
+// still shows none.
+test('the dialog lists all objects; one picked shows only its box, Plain still none', async ({ page }) => {
+  const card = await personCard(page);
+  const { subtype } = await analyse(page, card);
+  await page.goto(`/app/recordings?cam=cam1&panel=history&date=${today()}`);
+  const agree = badge(page, card);
+  await expect(agree).toHaveAttribute('title', new RegExp(subtype));
+  await agree.click();
+  const dialog = page.getByTestId('vision-dialog');
+  const rects = dialog.locator('[data-testid="timeline-boxes"] rect');
+  const labels = dialog.getByTestId('timeline-box-label');
+  await expect(rects).toHaveCount(1);
+  await expect(dialog.getByTestId('still-objects')).toHaveCount(0);
+  await dialog.getByTestId('timeline-show-all').check();
+  const rows = dialog.getByTestId('still-object');
+  await expect(rows).toHaveCount(2);
+  await expect(rows.nth(0)).toContainText('Person');
+  await expect(rows.nth(0)).toContainText('84%');
+  await expect(rows.nth(1)).toContainText('Ceiling fan');
+  await expect(rows.nth(1)).toContainText('70%');
+  await expect(rects).toHaveCount(2);
+  await rows.nth(1).click();
+  await expect(rows.nth(1)).toHaveAttribute('aria-pressed', 'true');
+  await expect(rects).toHaveCount(1);
+  await expect(labels).toHaveText(['Ceiling fan 70%']);
+  // The row fits the phone's width: no sideways scrolling in the dialog.
+  expect(await dialog.evaluate((d) => d.scrollWidth <= d.clientWidth)).toBe(true);
+  await rows.nth(1).click();
+  await expect(rects).toHaveCount(2);
+  // The keyboard: Enter picks, Space unpicks.
+  await rows.nth(0).focus();
+  await page.keyboard.press('Enter');
+  await expect(rows.nth(0)).toHaveAttribute('aria-pressed', 'true');
+  await expect(labels).toHaveText(['Person 84%']);
+  await page.keyboard.press('Space');
+  await expect(rows.nth(0)).toHaveAttribute('aria-pressed', 'false');
+  await expect(rects).toHaveCount(2);
+  // Plain still: no boxes, picked or not; Boxes brings the pick back.
+  await rows.nth(0).click();
+  await dialog.getByTestId('still-view-plain').check();
+  await expect(rects).toHaveCount(0);
+  await expect(labels).toHaveCount(0);
+  await dialog.getByTestId('still-view-boxes').check();
+  await expect(labels).toHaveText(['Person 84%']);
+  // All objects off: the findings as before (the dialog may open another
+  // test's still with the same score: the fake keeps state, so no subtype here).
+  await dialog.getByTestId('timeline-show-all').uncheck();
+  await expect(dialog.getByTestId('still-objects')).toHaveCount(0);
+  await expect(dialog).toContainText(/ - 84% Confidence/);
+});
+
 test('Space and Enter on a focused badge open the dialog and it stays open', async ({ page }) => {
   const card = await personCard(page);
   const { subtype } = await analyse(page, card);
