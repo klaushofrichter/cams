@@ -64,6 +64,9 @@
   const maxS = $derived(saveMaxS(size, roll.pre, roll.post));
   const length = $derived(resultLength(clip.durationSec, roll.pre, roll.post, maxS));
   const plain = $derived(isPlain(size, roll.pre, roll.post));
+  // The limit only when it matters (Klaus, 2026-10-04): a generated clip
+  // (300 s, 120 s at 1080p) or a recording longer than a plain save.
+  const showLimit = $derived(!plain || clip.durationSec > PLAIN_MAX_S);
   // The sliders' ranges: each given the other roll, never past the limit.
   const preRange = $derived(rollRange(clip.durationSec, Number(postS) || 0, size));
   const postRange = $derived(rollRange(clip.durationSec, Number(preS) || 0, size));
@@ -266,7 +269,7 @@
     <p class="muted" data-testid="compose-too-long-note">This recording is {formatSeconds(clip.durationSec)}. A save as it is can be at most {formatSeconds(PLAIN_MAX_S)}, and only a cam-proxy copy can be cut, so it can’t be saved here.</p>
   {/if}
   {#if length.ok}
-    <p class="muted" data-testid="compose-length" role="status">Result: {formatSeconds(length.seconds)} · at most {formatSeconds(maxS)}</p>
+    <p class="muted" data-testid="compose-length" role="status">Result: {formatSeconds(length.seconds)}{showLimit ? ` · at most ${formatSeconds(maxS)}` : ''}</p>
   {:else}
     <p class="err" data-testid="compose-error" role="status">{length.error}</p>
   {/if}

@@ -11,7 +11,10 @@ import type { AddressInfo } from 'net';
 import { tmpdir } from 'os';
 import { join } from 'path';
 import { cameraNameProblem } from '../../server/cameraName';
-import { formatSeconds, generateMaxS } from '../../server/clipLimits';
+import { generateMaxS } from '../../server/clipLimits';
+
+// cam-proxy's own wording of a length (src/compose/plan.ts there), not cams's.
+const proxySeconds = (s: number) => (s < 60 ? `${s} s` : `${s} s (${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')})`);
 
 export interface FakeClip { id: number; cam: string; start: number; end: number; stream: string; events: number[]; body: Buffer; snapshot?: Buffer }
 export interface FakeMessage { id: number; ts: number; cam: string; type: string; data: Record<string, unknown> }
@@ -280,7 +283,7 @@ export async function startFakeProxy(opts: { port?: number; token?: string } = {
     if (Math.min(rawEnd, span.end) - Math.max(start, span.start) < 1000) return void res.status(400).json({ error: 'invalid', detail: 'at least 1 s of the clip must remain' });
     const durationS = Math.round((rawEnd - start) / 1000);
     const maxS = generateMaxS(String(b.size));
-    if (durationS > maxS) return void res.status(400).json({ error: 'invalid', detail: `at most ${formatSeconds(maxS)}` });
+    if (durationS > maxS) return void res.status(400).json({ error: 'invalid', detail: `at most ${proxySeconds(maxS)}` });
     const id = randomBytes(16).toString('base64url');
     const job = { state: 'running' as 'queued' | 'running' | 'done', progress: 0, durationS };
     fake.compositions.set(id, job);

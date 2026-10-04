@@ -46,7 +46,7 @@ describe('rollRange and snapRoll', () => {
   it('presets a cut at the end only for a clip longer than a plain save', () => {
     expect(presetRolls(114)).toEqual({ preS: 0, postS: 0, note: '' });
     expect(presetRolls(600)).toEqual({ preS: 0, postS: 0, note: '' });
-    expect(presetRolls(700)).toEqual({ preS: 0, postS: -400, note: 'This recording is 700 s (11:40), longer than a save can be: the post-roll cuts it to 300 s (5:00) at its end.' });
+    expect(presetRolls(700)).toEqual({ preS: 0, postS: -400, note: 'This recording is 11m 40s, longer than a save can be: the post-roll cuts it to 5m at its end.' });
   });
 });
 

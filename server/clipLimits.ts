@@ -24,9 +24,12 @@ export const isPlain = (size: SaveSize, preS: number, postS: number): boolean =>
 export const saveMaxS = (size: SaveSize, preS: number, postS: number): number => (isPlain(size, preS, postS) ? PLAIN_MAX_S : generateMaxS(size));
 
 // Seconds as the dialog shows them, everywhere (header, result, limits,
-// errors): "44 s", and from a minute on "114 s (1:54)".
+// errors; Klaus, 2026-10-04): "44s", "1m 43s", "5m", "10m", "1h 2m 5s";
+// parts that are 0 are left out.
 export function formatSeconds(s: number): string {
-  return s < 60 ? `${s} s` : `${s} s (${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')})`;
+  const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), sec = s % 60;
+  const parts = [h ? `${h}h` : '', m ? `${m}m` : '', sec || (!h && !m) ? `${sec}s` : ''].filter(Boolean);
+  return parts.join(' ');
 }
 
 export type Length = { ok: true; seconds: number } | { ok: false; error: string };

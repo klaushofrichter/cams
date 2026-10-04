@@ -71,8 +71,8 @@ describe('compositions pass-through', () => {
 
   it('checks the length itself, with the dialog\'s rule and words, before asking the proxy', async () => {
     const before = fake.composeRequests.length;
-    expect((await post('den', { eventId: LONG, preS: 187, postS: 0, size: 'sd', badge: true })).body).toEqual({ error: 'invalid', detail: 'At most 300 s (5:00)' });
-    expect((await post('den', { eventId: LONG, preS: 0, postS: 7, size: '1080p', badge: true })).body).toEqual({ error: 'invalid', detail: 'At most 120 s (2:00)' });
+    expect((await post('den', { eventId: LONG, preS: 187, postS: 0, size: 'sd', badge: true })).body).toEqual({ error: 'invalid', detail: 'At most 5m' });
+    expect((await post('den', { eventId: LONG, preS: 0, postS: 7, size: '1080p', badge: true })).body).toEqual({ error: 'invalid', detail: 'At most 2m' });
     expect((await post('den', { eventId: LONG, preS: -114, postS: 0, size: 'sd', badge: true })).body).toEqual({ error: 'invalid', detail: 'At least 1 s of the clip must remain' });
     expect(fake.composeRequests.length).toBe(before);
     expect((await post('den', { eventId: LONG, preS: 186, postS: 0, size: 'sd', badge: true })).body).toMatchObject({ durationS: 300 });
