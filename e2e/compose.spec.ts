@@ -98,3 +98,37 @@ test('the sliders reach the 300 s limit, and that result is generated', async ({
   await page.getByTestId('compose-generate').click();
   await expect(page.getByTestId('compose-player')).toBeVisible({ timeout: 10_000 });
 });
+
+// Klaus, 2026-10-04: the pre-roll slider runs right to left (left = an earlier
+// start), the post-roll slider left to right; dragged to either end, neither
+// passes the 300 s limit. Barn's 08:15:10 card is 25 s.
+test('drags both roll sliders to their ends, never past the limit', async ({ page }) => {
+  await page.goto('/app/recordings?panel=history&cam=barn');
+  await download(page).click();
+  const pre = page.getByTestId('compose-pre-slider');
+  const post = page.getByTestId('compose-post-slider');
+  await expect(pre).toHaveAttribute('dir', 'rtl');
+  const drag = async (slider: typeof pre, side: 'left' | 'right') => {
+    const b = (await slider.boundingBox())!;
+    await page.mouse.move(b.x + b.width / 2, b.y + b.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(side === 'left' ? b.x - 40 : b.x + b.width + 40, b.y + b.height / 2, { steps: 8 });
+    await page.mouse.up();
+  };
+  await drag(pre, 'left'); // all the way to an earlier start: 275 s more, the limit
+  await expect(page.getByTestId('compose-pre')).toHaveValue('275');
+  await expect(pre).toHaveAttribute('aria-valuetext', 'starts 275 s earlier');
+  await expect(page.getByTestId('compose-length')).toHaveText('Result: 5m · at most 5m');
+  await drag(post, 'right'); // nothing left to add
+  await expect(page.getByTestId('compose-post')).toHaveValue('0');
+  await drag(pre, 'right'); // all the way to a cut: 1 s of the clip stays
+  await expect(page.getByTestId('compose-pre')).toHaveValue('-24');
+  await expect(pre).toHaveAttribute('aria-valuetext', 'cuts 24 s');
+  await drag(post, 'right');
+  await expect(page.getByTestId('compose-post')).toHaveValue('275');
+  await expect(page.getByTestId('compose-length')).toHaveText('Result: 4m 36s · at most 5m');
+  // ← on the pre-roll slider is an earlier start.
+  await pre.focus();
+  await page.keyboard.press('ArrowLeft');
+  await expect(page.getByTestId('compose-pre')).toHaveValue('-23');
+});

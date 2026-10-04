@@ -249,6 +249,39 @@ describe('ComposeDialog', () => {
     });
   });
 
+  // Klaus, 2026-10-04: the pre-roll slider is reversed (filled at the right,
+  // left = an earlier start); the post-roll slider is as before.
+  it('runs the pre-roll slider right to left, with keys and spoken values to match', () => {
+    render(vi.fn(), true, long);
+    const pre = q('compose-pre-slider') as HTMLInputElement;
+    const post = q('compose-post-slider') as HTMLInputElement;
+    expect(pre.getAttribute('dir')).toBe('rtl');
+    expect(post.getAttribute('dir')).not.toBe('rtl');
+    expect(pre.getAttribute('aria-valuetext')).toBe('no pre-roll');
+    const key = (el: HTMLElement, k: string) => {
+      el.dispatchEvent(new KeyboardEvent('keydown', { key: k, bubbles: true, cancelable: true }));
+      flushSync();
+    };
+    key(pre, 'ArrowLeft');
+    key(pre, 'ArrowLeft');
+    expect((q('compose-pre') as HTMLInputElement).value).toBe('2');
+    expect(pre.value).toBe('2');
+    expect(pre.getAttribute('aria-valuetext')).toBe('starts 2 s earlier');
+    key(pre, 'ArrowRight');
+    key(pre, 'ArrowRight');
+    key(pre, 'ArrowRight');
+    expect((q('compose-pre') as HTMLInputElement).value).toBe('-1');
+    expect(pre.getAttribute('aria-valuetext')).toBe('cuts 1 s');
+    key(post, 'ArrowRight');
+    expect((q('compose-post') as HTMLInputElement).value).toBe('1');
+    expect(post.getAttribute('aria-valuetext')).toBe('ends 1 s later');
+    // Never past the limit: from 186 + 1 s of post-roll, ← adds nothing.
+    set('compose-pre', '185');
+    key(pre, 'ArrowLeft');
+    expect((q('compose-pre') as HTMLInputElement).value).toBe('185');
+    expect(q('compose-length')!.textContent).toBe('Result: 5m · at most 5m');
+  });
+
   it('says why a clip longer than a plain save can\'t be saved without a cam-proxy copy', () => {
     render(vi.fn(), false, { ...long, id: '20261004-070000-071140', end: '2026-10-04T07:11:40-05:00', durationSec: 700 });
     expect(q('compose-too-long-note')!.textContent).toBe('This recording is 11m 40s. A save as it is can be at most 10m, and only a cam-proxy copy can be cut, so it can’t be saved here.');
