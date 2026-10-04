@@ -267,7 +267,8 @@
     if (e.key === ' ') {
       e.preventDefault();
       toggle();
-    } else if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
+    } else if ((e.key === 'ArrowLeft' || e.key === 'ArrowRight') && !e.altKey && !e.ctrlKey && !e.metaKey) {
+      // Alt / Ctrl / Meta with an arrow are the browser's (Back / Forward).
       e.preventDefault();
       const ms = e.shiftKey ? 1000 : 10_000;
       skip(e.key === 'ArrowLeft' ? -ms : ms);

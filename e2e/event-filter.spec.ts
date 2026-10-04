@@ -69,6 +69,19 @@ test('a filter set on Live is History’s too, after a panel switch and a reload
   await expect.poll(() => saved(page)).toEqual(['person', 'vehicle', 'pet', 'motion']);
 });
 
+test('an old link’s filter= is ignored: the saved filter shows, and the URL drops it', async ({ page }) => {
+  await setSaved(page, ['pet']);
+  await page.goto('/app/recordings?panel=history&cam=cam1&filter=person');
+  await expect(page.getByTestId('event-card')).toHaveCount(1);
+  await expect(page.getByTestId('event-card')).toHaveAttribute('data-clip-id', /-174540-/);
+  await expectChips(page, page.locator('.side'), ['pet']);
+  await expect(page).not.toHaveURL(/filter=/);
+  // with a date and a time too (nothing else rewrites that URL at once)
+  await page.goto(`/app/recordings?cam=cam1&date=${await page.evaluate(() => new Date().toLocaleDateString('en-CA'))}&panel=history&filter=all`);
+  await expect(page.getByTestId('event-card')).toHaveCount(1);
+  await expect(page).not.toHaveURL(/filter=/);
+});
+
 test('the last kind turned off on Live is All, as on History', async ({ page }) => {
   await page.goto('/app/live');
   await live(page).getByTestId('filter-pet').click();

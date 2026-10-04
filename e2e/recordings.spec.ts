@@ -130,7 +130,7 @@ test('filters narrow the list and an empty filter says so', async ({ page }) => 
   await openEvents(page);
   await page.getByTestId('filter-person').click();
   await expect(page.getByTestId('event-card')).toHaveCount(1);
-  await expect(page).toHaveURL(/filter=person/);
+  await expect(page).not.toHaveURL(/filter=/); // the saved preference only (Klaus, 2026-10-03)
   await page.getByTestId('filter-all').click();
   await expect(page.getByTestId('event-card')).toHaveCount(4);
 });
@@ -593,6 +593,7 @@ test('filter chips do not add browser history entries', async ({ page }) => {
   const before = await page.evaluate(() => history.length);
   await page.getByTestId('filter-person').click();
   await page.getByTestId('filter-vehicle').click();
-  await expect(page).toHaveURL(/filter=person%2Cvehicle/);
+  await expect(page.getByTestId('filter-vehicle')).toHaveAttribute('aria-pressed', 'true');
   expect(await page.evaluate(() => history.length)).toBe(before);
+  await expect(page).not.toHaveURL(/filter=/);
 });

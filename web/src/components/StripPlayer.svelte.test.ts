@@ -221,6 +221,19 @@ describe('StripPlayer', () => {
     expect(p.at).toBe(T + 4000);
   });
 
+  it('leaves Alt, Ctrl and Meta with an arrow to the browser (Back / Forward)', () => {
+    const p = render({ at: T + 5000 });
+    const box = q('strip-player')!;
+    for (const mod of ['altKey', 'ctrlKey', 'metaKey']) {
+      for (const key of ['ArrowLeft', 'ArrowRight']) {
+        const e = new KeyboardEvent('keydown', { key, [mod]: true, bubbles: true, cancelable: true });
+        box.dispatchEvent(e);
+        expect(e.defaultPrevented).toBe(false);
+      }
+    }
+    expect(p.at).toBe(T + 5000);
+  });
+
   it('a 1 s step on a paused clip seeks the video, so the new frame shows', async () => {
     const p = render({ at: T + 12_000 });
     const v = q('clip-video') as HTMLVideoElement;

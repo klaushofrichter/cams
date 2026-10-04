@@ -13,7 +13,7 @@
   import { clipStartFromId } from '../lib/strip';
   import {
     addDays, cursorSearch, daysUrl, filterEvents, loadCursor, localDate,
-    filterParam, parseCursor, parseFilter, recentEvents, saveCursor, type Cursor, type EventClip, type Filter,
+    ALL_KINDS, filterParam, parseCursor, parseFilter, recentEvents, saveCursor, type Cursor, type EventClip, type Filter,
   } from '../lib/recordings';
   import { eventFilter, pickEventFilter } from '../lib/eventFilter';
   import { liveEventsOn, preferences } from '../lib/preferences';
@@ -181,8 +181,8 @@
       saveCursor(cam, c);
       // An old /app/live?at= link (earlier versions wrote them) is replaced,
       // so Back doesn't land on it and bounce here again.
-      if (vroute.params.has('at')) replaceRoute(hrefFor(cam, c, 'history', filter));
-      else navigate(hrefFor(cam, c, 'history', filter));
+      if (vroute.params.has('at')) replaceRoute(hrefFor(cam, c, 'history'));
+      else navigate(hrefFor(cam, c, 'history'));
     });
   });
   // History: ⇥ while playing, or playback catching up with now, is Live.
@@ -232,16 +232,22 @@
 
   // The event filter is one preference for History and Live (Klaus,
   // 2026-10-03, lib/eventFilter.ts): a chip on either panel changes both,
-  // across page switches and reloads. The URL's `filter` only mirrors it
-  // (and stands in until the preferences have loaded).
+  // across page switches and reloads. URLs carry no filter; an old link's
+  // `filter=` is ignored. All until the preferences have loaded.
   // A string first: the list only changes when the kinds do, not on every
   // URL update (every 2 s while playing), so lists and the strip don't
   // recompute (issue #69).
-  const filterKey = $derived(filterParam($eventFilter ?? parsed.filter));
-  function setFilter(f: Filter) {
-    void pickEventFilter(f);
-    if (panel !== 'live') go({}, { filter: f }, 'replace');
-  }
+  const filterKey = $derived(filterParam($eventFilter ?? ALL_KINDS));
+  const setFilter = (f: Filter) => void pickEventFilter(f);
+  // An old link's `filter=` is dropped from the address bar (ignored above).
+  $effect(() => {
+    if (!pageVisible || !vroute.params.has('filter')) return;
+    untrack(() => {
+      const u = new URL(location.href);
+      u.searchParams.delete('filter');
+      replaceRoute(u.pathname + u.search + u.hash);
+    });
+  });
   const filter: Filter = $derived(parseFilter(filterKey === 'all' ? 'all' : filterKey));
   const panel: Panel = $derived(vroute.panel);
   // The Live panel's camera status: checked on opening it and on another
@@ -274,21 +280,21 @@
     const c: Cursor = { date: localDate(new Date(at)), clipId, offsetSec: 0, at };
     // Live at now keeps the plain /app/live; playback on the Live panel adds `at`.
     if (panel !== 'live') saveCursor(cam, c);
-    replaceRoute(hrefFor(cam, panel === 'live' && glued ? { ...c, clipId: null, at: null } : c, panel, filter));
+    replaceRoute(hrefFor(cam, panel === 'live' && glued ? { ...c, clipId: null, at: null } : c, panel));
   }
   // The Live panel keeps its own URL; `at` only while it plays back.
-  function hrefFor(c0: string, c: Cursor, p: Panel, f: Filter) {
-    if (p === 'live') return c.at === null ? '/app/live' : `/app/live${cursorSearch(c0, c, p, f)}`;
-    return `/app/recordings${cursorSearch(c0, c, p, f)}`;
+  function hrefFor(c0: string, c: Cursor, p: Panel) {
+    if (p === 'live') return c.at === null ? '/app/live' : `/app/live${cursorSearch(c0, c, p)}`;
+    return `/app/recordings${cursorSearch(c0, c, p)}`;
   }
 
-  function go(next: Partial<Cursor>, opts: { panel?: Panel; filter?: Filter } = {}, mode: 'push' | 'replace' = 'push') {
+  function go(next: Partial<Cursor>, opts: { panel?: Panel } = {}, mode: 'push' | 'replace' = 'push') {
     if (!cam) return;
     const p = opts.panel ?? panel;
     // Opening the Live panel goes to live, at now.
     const c: Cursor = p === 'live' && opts.panel === 'live' ? { ...cursor, ...next, clipId: null, offsetSec: 0, at: null } : { ...cursor, ...next };
     if (p !== 'live') saveCursor(cam, c);
-    const href = hrefFor(cam, c, p, opts.filter ?? filter);
+    const href = hrefFor(cam, c, p);
     if (mode === 'replace') replaceRoute(href);
     else navigate(href);
   }
@@ -298,7 +304,7 @@
   function switchCamera(newCam: string) {
     const c: Cursor = { ...cursor, clipId: null, offsetSec: 0, at: null };
     if (panel !== 'live') saveCursor(newCam, c);
-    navigate(hrefFor(newCam, c, panel, filter));
+    navigate(hrefFor(newCam, c, panel));
   }
 
   // Keep the picker and the page's camera in step, in both directions,

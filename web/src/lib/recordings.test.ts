@@ -84,16 +84,24 @@ describe('recentEvents', () => {
 
 describe('cursor', () => {
   it('parses and serialises the URL cursor', () => {
-    const q = cursorSearch('cam1', { date: DAY, clipId: events[0].id, offsetSec: 12.4, at: null }, 'events', ['person', 'pet']);
-    expect(q).toBe(`?cam=cam1&date=${DAY}&clip=${events[0].id}&t=12&panel=events&filter=person%2Cpet`);
+    const q = cursorSearch('cam1', { date: DAY, clipId: events[0].id, offsetSec: 12.4, at: null }, 'events');
+    expect(q).toBe(`?cam=cam1&date=${DAY}&clip=${events[0].id}&t=12&panel=events`);
     expect(parseCursor(new URLSearchParams(q), '2026-09-26')).toEqual({
-      cam: 'cam1', cursor: { date: DAY, clipId: events[0].id, offsetSec: 12, at: null }, filter: ['person', 'pet'],
+      cam: 'cam1', cursor: { date: DAY, clipId: events[0].id, offsetSec: 12, at: null },
+    });
+  });
+
+  // The event filter is the saved preference only (Klaus, 2026-10-03): the
+  // URL carries none, and an old link's `filter=` is ignored.
+  it('has no filter: an old link\'s is ignored', () => {
+    expect(parseCursor(new URLSearchParams(`?cam=cam1&date=${DAY}&panel=history&filter=person`), '2026-09-26')).toEqual({
+      cam: 'cam1', cursor: { date: DAY, clipId: null, offsetSec: 0, at: null },
     });
   });
 
   it('defaults to today and ignores malformed values', () => {
-    expect(parseCursor(new URLSearchParams('?date=bad&clip=../x&t=-4&filter=zzz'), '2026-09-26')).toEqual({
-      cam: null, cursor: { date: '2026-09-26', clipId: null, offsetSec: 0, at: null }, filter: ALL_KINDS,
+    expect(parseCursor(new URLSearchParams('?date=bad&clip=../x&t=-4'), '2026-09-26')).toEqual({
+      cam: null, cursor: { date: '2026-09-26', clipId: null, offsetSec: 0, at: null },
     });
   });
 
@@ -194,8 +202,8 @@ describe('the strip position in the URL', () => {
   });
 
   it('writes at and the clip under the playhead, no t', () => {
-    const s = cursorSearch('den', { date: '2026-09-27', clipId: '20260927-120505-120530', offsetSec: 0, at: 1790552160000 }, 'history', ALL_KINDS);
-    expect(s).toBe('?cam=den&date=2026-09-27&at=1790552160000&clip=20260927-120505-120530&panel=history&filter=all');
+    const s = cursorSearch('den', { date: '2026-09-27', clipId: '20260927-120505-120530', offsetSec: 0, at: 1790552160000 }, 'history');
+    expect(s).toBe('?cam=den&date=2026-09-27&at=1790552160000&clip=20260927-120505-120530&panel=history');
   });
 });
 
