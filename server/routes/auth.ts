@@ -1,4 +1,4 @@
-import express, { Router, Request, Response } from 'express';
+import express, { NextFunction, Router, Request, Response } from 'express';
 import { createHash, timingSafeEqual } from 'crypto';
 import { OAuth2Client } from 'google-auth-library';
 import { expiredSessionKind, SESSION_COOKIE, SESSION_MAX_AGE_MS, signSession, signTokenSession } from '../session';
@@ -121,6 +121,10 @@ authRouter.get('/auth/google/callback', authRateLimit, async (req: Request, res:
 // bodies, and the lines below carry no token, agent or address). The digests
 // make the comparison constant-time whatever length was sent.
 const MAX_TOKEN_BYTES = 1024;
+// Only if the token file vanished between the two checks; the same answer as the pages router's.
+const next404 = (res: Response): void => {
+  res.status(404).type('text/plain').send('Not found');
+};
 const digest = (value: string): Buffer => createHash('sha256').update(value, 'utf8').digest();
 
 function tokenMatches(presented: unknown, expected: string): boolean {
@@ -130,16 +134,20 @@ function tokenMatches(presented: unknown, expected: string): boolean {
   return same && candidate.length > 0;
 }
 
+// Token login off: the route doesn't exist (the normal unknown-path 404).
+// The same-origin check comes before the failure limiter, so cross-site
+// posts can't use up the owner's tries.
 authRouter.post(
   '/auth/token',
+  (_req: Request, _res: Response, next: NextFunction) => (tokenLoginEnabled() ? next() : next('route')),
   authRateLimit,
-  tokenFailureLimit,
   requireSameOrigin,
+  tokenFailureLimit,
   express.urlencoded({ extended: false, limit: '4kb' }),
   (req: Request, res: Response) => {
     const expected = loginToken();
-    if (!expected || !tokenLoginEnabled()) {
-      res.status(404).json({ error: 'not_found' });
+    if (!expected) {
+      next404(res);
       return;
     }
     const form = !req.is('application/json');

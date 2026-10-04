@@ -38,6 +38,12 @@ same image tags (now multi-arch).
   cluster untouched, as before.
 - The ksvc pins `:<sha>`, now an image index; k3s pulls its amd64 manifest. No
   kube-setup change.
+- Permissions per job, as in cam-proxy's `release.yml`: `build` gets
+  `contents: read` + `packages: write`; `deploy` gets `contents: write` (the
+  release and the CHANGELOG reset) and no `packages`.
+- **Follow-up (needs kube-setup):** pin the ksvc's image by digest (the
+  `build` job's `digest` output) instead of `:<sha>`, as cam-proxy does. Not
+  in this PR: the manifest belongs to kube-setup.
 
 ## 2. Token login
 
@@ -98,11 +104,13 @@ The form posts JSON with `fetch` and, on success, goes where the server says.
   request with `token` in its query string is refused (400) and counts as a
   failure; the body is not logged (pino-http logs no bodies; the handler logs
   `token_login` / `token_login_failed` without token, user agent or address).
-- Order: the auth rate limiter (`RATE_LIMIT_MAX` per window per address, as
-  for Google), then the **failure limiter**: 10 failed attempts per 15 minutes
-  per address (`RATE_LIMIT_TOKEN_FAILURES`), then the same-origin check
-  (`requireSameOrigin`, as for every other cookie-changing POST; 403
-  otherwise).
+- Order: with token login off, the route doesn't exist (it falls through to
+  the normal unknown-path 404, no limiter of its own); then the auth rate
+  limiter (`RATE_LIMIT_MAX` per window per address, as for Google), then the
+  same-origin check (`requireSameOrigin`, as for every other cookie-changing
+  POST; 403 otherwise), then the **failure limiter**: 10 failed attempts per
+  15 minutes per address (`RATE_LIMIT_TOKEN_FAILURES`). Same-origin before
+  the failure limiter, so cross-site posts can't use up the owner's tries.
 - **Ruling: the failure limiter is per address only, no global cap** — why: a
   24+ character random token can't be guessed at 10 tries per 15 minutes, and a
   global cap would let anyone on the LAN lock the owner out of the demo —
@@ -119,7 +127,8 @@ The form posts JSON with `fetch` and, on success, goes where the server says.
   (#155's rules), else `/app/video`: JSON `200 {"redirect": "…"}`; a form
   post gets `303` to the same place.
 - Failure: JSON `401 {"error": "invalid_token"}` (form: `303 /?login=failed`);
-  too many: `429 {"error": "too_many_attempts"}`; token login off: `404`.
+  too many: `429 {"error": "too_many_attempts"}`; token login off: the
+  unknown-path `404`.
 
 **Ruling: rotating the token signs out its sessions** (the `tf` claim must
 match the current token) — why: a leaked token is fixed by changing it,
@@ -174,8 +183,9 @@ still-check limits per user) treats the token user as one more user.
 `docs/pi-demo.md`, `deploy/pi/compose.cams.yaml`,
 `deploy/pi/cameras.example.json`:
 
-- **Ruling: cams gets its own directory `/srv/cams` and compose project, not
-  a service in cam-proxy's `compose.yaml`** — why: cam-proxy's compose file is
+- **Ruling: cams gets its own directory and compose project (on our Pi
+  `/srv/cam-proxy/cams`, any directory the admin user can write, no sudo),
+  not a service in cam-proxy's `compose.yaml`** — why: cam-proxy's compose file is
   that repo's file (its updates copy it over), and the two update on their own
   release cadences — cost if wrong: two `docker compose` commands instead of
   one.
@@ -186,8 +196,10 @@ still-check limits per user) treats the token user as one more user.
   8080 on the Pi must be free (cam-proxy uses 8480, 2121 and go2rtc's ports).
 - The cameras file has the camera with `proxy.url http://127.0.0.1:8480`, the
   proxy's client token and admin token, and the camera's LAN address with the
-  `cams` user for direct access (settings, light, fallback downloads).
-- **Ruling: `CACHE_DIR` and `PREFS_FILE` on a bind mount `/srv/cams/data`,
+  `cams` user for direct access (settings, light, fallback downloads); when
+  the `cams` user's password isn't at hand on the Pi, cam-proxy's camera user
+  (`proxy`, `CAMPROXY_CAMERA_PASSWORD`) works too.
+- **Ruling: `CACHE_DIR` and `PREFS_FILE` on a bind mount `data/` next to the compose file,
   cache capped at 2 GiB** — why: preferences and the proxy switch state
   survive updates, and the SD card is shared with cam-proxy's recordings —
   cost if wrong: a smaller cache means more clip refetches from cam-proxy
@@ -196,7 +208,7 @@ still-check limits per user) treats the token user as one more user.
   file (and in cam-proxy's own config); edit, then `docker compose restart`.
   The browser address is whatever the Pi has on that LAN; nothing in cams
   depends on it (no redirect URI, origin taken from the request).
-- Updating: `docker compose pull && docker compose up -d` in `/srv/cams`.
+- Updating: `docker compose pull && docker compose up -d` in that directory.
 
 ## 5. Tests
 
