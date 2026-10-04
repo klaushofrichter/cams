@@ -16,6 +16,8 @@ describe('zoomPref', () => {
     expect(get(zoom)).toBe(24);
     preferences.set({ ...PREFS, timelineZoom: 3 });
     expect(get(zoom)).toBe(3);
+    preferences.set({ ...PREFS, timelineZoom: 12 as Preferences['timelineZoom'] }); // saved before 12 h went (2026-10-04)
+    expect(get(zoom)).toBe(6);
   });
 
   it('saves picks one after another; the last pick wins', async () => {

@@ -7,7 +7,7 @@ export interface Preferences {
   lastCamera?: string | null;
   liveQuality: 'sub' | 'main';
   eventFilter: ('person' | 'vehicle' | 'pet' | 'motion')[]; // several kinds; all four is All
-  timelineZoom: 24 | 12 | 6 | 3 | 1 | 0.5;
+  timelineZoom: number; // hours: 24, 6, 3, 1, 0.5, 1/6 or 1/60 (lib/strip.ts STRIP_ZOOMS)
   liveKeepAlive: 0 | 30 | 60 | 120 | 300 | 900;
   liveEvents?: boolean; // new events at once, with a notification (default on)
   liveEventTypes?: ('person' | 'vehicle' | 'pet' | 'motion')[]; // which ones notify

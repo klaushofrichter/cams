@@ -38,6 +38,17 @@ describe('filmFrames', () => {
     expect(g.filter((x) => x.tile).length).toBe(20); // missing tiles fall back to a neighbour
   });
 
+  // The 1 min zoom (2026-10-04): a wide film holds more frames than the
+  // minute has tiles (one a second). No two frames show the same second.
+  it('puts frames at least a second apart at the smallest zooms', () => {
+    const m = Math.floor(T0 / 60_000) * 60_000;
+    const win = { start: m, end: m + 60_000 };
+    const f = filmFrames(win, 52 * 100, [minute(m)]); // room for 100 frames
+    expect(f.length).toBe(60);
+    expect(new Set(f.map((x) => x.tile!.index)).size).toBe(60);
+    expect(filmFrames({ start: m, end: m + 600_000 }, 52 * 20, []).length).toBe(20); // 10 min: the width decides
+  });
+
   it('draws nothing without width', () => {
     expect(filmFrames({ start: T0, end: T0 + 3_600_000 }, 0, [])).toEqual([]);
   });

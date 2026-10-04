@@ -6,8 +6,23 @@ import type { PreviewMinute } from './timeline';
 // moment, from the runs of clips, stills and preview tiles a camera has.
 // Times are UTC ms; runs are [start, end).
 
-export type StripZoom = 24 | 12 | 6 | 3 | 1 | 0.5;
-export const STRIP_ZOOMS: StripZoom[] = [24, 12, 6, 3, 1, 0.5];
+// The window's width in hours (the saved preference `timelineZoom`). Klaus,
+// 2026-10-04: no 12 h; 10 min and 1 min added (1/6 and 1/60 of an hour).
+export type StripZoom = number;
+export const STRIP_ZOOMS: readonly StripZoom[] = [24, 6, 3, 1, 0.5, 1 / 6, 1 / 60];
+
+// A saved zoom as one the strip offers: 12 h (gone) is 6 h; anything else
+// unknown is 24 h. A near match (a rounded 1/6) counts.
+export function normalizeZoom(z: unknown): StripZoom {
+  if (z === 12) return 6;
+  if (typeof z !== 'number') return 24;
+  return STRIP_ZOOMS.find((x) => Math.abs(x - z) < 1e-6) ?? 24;
+}
+const minutesOf = (z: StripZoom) => Math.round(z * 60);
+// "30 min", not "0.5 h" (issue #69); the test id the same way: zoom-30m.
+export const zoomKey = (z: StripZoom) => (z >= 1 ? `${z}` : `${minutesOf(z)}m`);
+export const zoomLabel = (z: StripZoom) => (z >= 1 ? `${z} h` : `${minutesOf(z)} min`);
+export const zoomWords = (z: StripZoom) => (z >= 1 ? `${z} hour${z === 1 ? '' : 's'}` : `${minutesOf(z)} minute${minutesOf(z) === 1 ? '' : 's'}`);
 
 export interface Run { start: number; end: number }
 export interface ClipRun extends Run { clip: EventClip }

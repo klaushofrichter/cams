@@ -15,11 +15,11 @@ test('a film frame of a minute being collected is fetched again as it grows', as
   await page.getByTestId('camera-picker').selectOption('cam1');
   // The zoom is the user's saved preference, which other specs rely on: put it back afterwards.
   const before = await page.locator('[data-testid^="zoom-"][aria-pressed="true"]').getAttribute('data-testid');
-  await page.getByTestId('zoom-0.5').click();
+  await page.getByTestId('zoom-30m').click();
   try {
     await film(page, info);
   } finally {
-    if (before && before !== 'zoom-0.5') {
+    if (before && before !== 'zoom-30m') {
       const saved = page.waitForResponse((r) => r.url().endsWith('/api/preferences') && r.request().method() === 'PUT');
       await page.getByTestId(before).click();
       expect((await saved).ok()).toBe(true);

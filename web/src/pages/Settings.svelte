@@ -13,6 +13,7 @@
     type DetectionSettings, type DeviceInfo, type ImageSettings, type SaveResult,
   } from '../lib/settings';
   import { preferences, preferencesFailed, savePreferences, type Preferences } from '../lib/preferences';
+  import { STRIP_ZOOMS, zoomWords } from '../lib/strip';
 
   type State = 'idle' | 'saving' | 'saved' | 'partial' | 'error';
   const AI: { kind: 'person' | 'vehicle' | 'pet'; label: string }[] = [
@@ -280,7 +281,7 @@
         </fieldset>
         <label>Timeline zoom
           <select data-testid="pref-zoom" bind:value={prefs.timelineZoom}>
-            <option value={24}>24 hours</option><option value={12}>12 hours</option><option value={6}>6 hours</option><option value={3}>3 hours</option><option value={1}>1 hour</option><option value={0.5}>30 minutes</option>
+            {#each STRIP_ZOOMS as z (z)}<option value={z}>{zoomWords(z)}</option>{/each}
           </select>
         </label>
         <!-- Live events (Klaus, 2026-09-28). -->

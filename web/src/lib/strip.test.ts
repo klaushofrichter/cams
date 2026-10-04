@@ -1,7 +1,7 @@
 // web/src/lib/strip.test.ts
 import { describe, expect, it } from 'vitest';
 import {
-  STRIP_ZOOMS, clipRuns, clipStartFromId, inRuns, localDaysBetween, mergeRuns, nextChange, previewRuns, sourceAt, stillRuns, stripSpans, windowAround,
+  STRIP_ZOOMS, normalizeZoom, zoomKey, zoomLabel, clipRuns, clipStartFromId, inRuns, localDaysBetween, mergeRuns, nextChange, previewRuns, sourceAt, stillRuns, stripSpans, windowAround,
   type Coverage,
 } from './strip';
 import type { EventClip } from './recordings';
@@ -70,7 +70,19 @@ describe('sourceAt / nextChange', () => {
 describe('window and spans', () => {
   it('has a 30-minute window', () => {
     expect(windowAround(10 * 3_600_000, 0.5)).toEqual({ start: 9.75 * 3_600_000, end: 10.25 * 3_600_000 });
-    expect(STRIP_ZOOMS).toEqual([24, 12, 6, 3, 1, 0.5]);
+    expect(STRIP_ZOOMS).toEqual([24, 6, 3, 1, 0.5, 1 / 6, 1 / 60]);
+  });
+
+  // Klaus, 2026-10-04: 12 h went; a saved 12 h reads as 6 h, anything else unknown as 24 h.
+  it('maps a saved zoom to one it offers, and names each', () => {
+    expect(normalizeZoom(12)).toBe(6);
+    expect(normalizeZoom(1 / 6)).toBe(1 / 6);
+    expect(normalizeZoom(0.1666666667)).toBe(1 / 6);
+    expect(normalizeZoom(5)).toBe(24);
+    expect(normalizeZoom(undefined)).toBe(24);
+    expect(STRIP_ZOOMS.map(zoomKey)).toEqual(['24', '6', '3', '1', '30m', '10m', '1m']);
+    expect(STRIP_ZOOMS.map(zoomLabel)).toEqual(['24 h', '6 h', '3 h', '1 h', '30 min', '10 min', '1 min']);
+    expect(windowAround(10 * 3_600_000, 1 / 60)).toEqual({ start: 10 * 3_600_000 - 30_000, end: 10 * 3_600_000 + 30_000 });
   });
 
   it('centres the window on t', () => {

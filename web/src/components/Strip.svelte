@@ -1,6 +1,6 @@
 <!-- web/src/components/Strip.svelte -->
 <script lang="ts">
-  import { stripSpans, windowAround, STRIP_ZOOMS, type Coverage } from '../lib/strip';
+  import { stripSpans, windowAround, STRIP_ZOOMS, zoomKey, zoomLabel, zoomWords, type Coverage } from '../lib/strip';
   import { zoom, pickZoom } from '../lib/zoomPref';
   import { previewAt, tileStyle, type PreviewMinute } from '../lib/timeline';
   import { addDays, localDate, pad2, type EventClip } from '../lib/recordings';
@@ -44,8 +44,8 @@
   const seekTo = (t: number) => onseek(clampT(t));
   const span = $derived(win.end - win.start);
   // "30 min", not "0.5 h" (issue #69).
-  const span_label = $derived($zoom >= 1 ? `${$zoom} h` : `${$zoom * 60} min`);
-  const span_words = $derived($zoom >= 1 ? `${$zoom} hour${$zoom === 1 ? '' : 's'}` : `${$zoom * 60} minutes`);
+  const span_label = $derived(zoomLabel($zoom));
+  const span_words = $derived(zoomWords($zoom));
   const pct = (t: number) => ((t - win.start) / span) * 100;
   const spans = $derived(stripSpans(coverage, win, now, oldest));
   const segs = $derived(
@@ -57,10 +57,12 @@
 
   // Ticks counted from each local midnight (so they sit on local hours in any
   // time zone), labelled with the wall clock (the repeated hour on the 25-hour
-  // day shows twice); a date at midnight.
+  // day shows twice); a date at midnight. Four to six ticks a window, so the
+  // labels stay apart on a phone: 10 min every 2 minutes, 1 min every 15 s
+  // (with the seconds).
+  const TICK_MS: [number, number][] = [[24, 3 * 3_600_000], [6, 3_600_000], [3, 1_800_000], [1, 900_000], [0.5, 300_000], [1 / 6, 120_000]];
   const ticks = $derived.by(() => {
-    const h = $zoom >= 12 ? 3 : $zoom === 6 ? 1 : $zoom === 3 ? 0.5 : $zoom === 1 ? 0.25 : 5 / 60;
-    const step = h * 3_600_000;
+    const step = TICK_MS.find(([z]) => $zoom >= z - 1e-9)?.[1] ?? 15_000;
     const out: { left: number; label: string }[] = [];
     const times: number[] = [];
     for (let day = localDate(new Date(win.start)); ; day = addDays(day, 1)) {
@@ -68,14 +70,15 @@
       const midnight = new Date(y, m - 1, dd).getTime();
       if (midnight > win.end) break;
       const next = new Date(y, m - 1, dd + 1).getTime();
-      for (let t = midnight; t < next; t += step) if (t >= win.start && t <= win.end) times.push(t);
+      // From the first tick in the window, not from midnight (a 15 s step).
+      for (let t = midnight + Math.max(0, Math.ceil((win.start - midnight) / step)) * step; t < next && t <= win.end; t += step) times.push(t);
     }
     for (const t of times) {
       const d = new Date(t);
       const midnight = d.getHours() === 0 && d.getMinutes() === 0;
       const label = midnight
         ? `${d.toLocaleDateString(undefined, { weekday: 'short' })} ${d.getDate()}`
-        : `${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
+        : `${pad2(d.getHours())}:${pad2(d.getMinutes())}${d.getSeconds() ? `:${pad2(d.getSeconds())}` : ''}`;
       out.push({ left: pct(t), label });
     }
     return out;
@@ -195,7 +198,7 @@
   <div class="tools">
     <div class="zoom" role="group" aria-label="Timeline zoom">
       {#each STRIP_ZOOMS as z (z)}
-        <button data-testid={`zoom-${z}`} aria-pressed={$zoom === z} onclick={() => void pickZoom(z)}>{z >= 1 ? `${z} h` : `${z * 60} min`}</button>
+        <button data-testid={`zoom-${zoomKey(z)}`} aria-pressed={$zoom === z} onclick={() => void pickZoom(z)}>{zoomLabel(z)}</button>
       {/each}
     </div>
   </div>
@@ -264,6 +267,11 @@
   .zoom { display: flex; gap: 4px; }
   .zoom button { font-size: 12px; padding: 3px 9px; border-radius: 8px; border: 1px solid var(--border); background: transparent; color: var(--muted); cursor: pointer; }
   .zoom button[aria-pressed='true'] { background: var(--surface-2); color: var(--text); border-color: var(--accent); }
+  /* Seven zooms on one row at 390 px (2026-10-04). */
+  @media (max-width: 479px) {
+    .zoom { gap: 3px; }
+    .zoom button { padding: 3px 6px; white-space: nowrap; }
+  }
   .bar { position: relative; height: 46px; border-radius: 10px; background: var(--strip-empty); border: 1px solid var(--border); cursor: crosshair; overflow: hidden; touch-action: pan-y; user-select: none; }
   .bar.dragging { cursor: grabbing; }
   .cursor { position: absolute; top: 0; bottom: 0; width: 1px; background: var(--text); opacity: 0.7; pointer-events: none; }

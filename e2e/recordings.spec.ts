@@ -491,6 +491,15 @@ test('on a phone the strip and controls fit the width', async ({ page }, testInf
   await expect(page.getByTestId('timeline')).toBeVisible();
   const overflow = await page.evaluate(() => document.documentElement.scrollWidth - innerWidth);
   expect(overflow).toBeLessThanOrEqual(0);
+  // The seven zooms, 24 h to 1 min, on one row (Klaus, 2026-10-04).
+  const zooms = page.locator('[data-testid^="zoom-"]');
+  await expect(zooms).toHaveText(['24 h', '6 h', '3 h', '1 h', '30 min', '10 min', '1 min']);
+  const boxes = await zooms.evaluateAll((els) => els.map((e) => e.getBoundingClientRect()).map((r) => ({ top: r.top, right: r.right, left: r.left })));
+  for (const b of boxes) {
+    expect(b.top).toBe(boxes[0].top);
+    expect(b.left).toBeGreaterThanOrEqual(0);
+    expect(b.right).toBeLessThanOrEqual(390);
+  }
 });
 
 // Edges and the info line (Klaus, 2026-09-28).
