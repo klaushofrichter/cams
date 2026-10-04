@@ -341,7 +341,12 @@ export async function startFakeProxy(opts: { port?: number; token?: string } = {
       (fake.events.get(req.params.cam) ?? [])
         .filter((e) => (from === undefined || e.start >= from) && (to === undefined || e.start <= to) && (q.kind === undefined || e.kind === q.kind))
         .sort((a, b) => b.start - a.start || b.id - a.id)
-        .slice(0, Math.min(Math.max(1, limit ?? 1000), 1000)), // clamped, like the real one
+        .slice(0, Math.min(Math.max(1, limit ?? 1000), 1000)) // clamped, like the real one
+        .map((e) => {
+          // Like the real one, each event with its latest analysis (one stored by a test hook too).
+          const a = e.analysis ? null : [...(fake.analyses.get(req.params.cam) ?? [])].reverse().find((x) => x.eventId === e.id);
+          return a ? { ...e, analysis: { provider: a.provider, status: a.status, reason: a.reason, stillTs: a.stillTs, objects: a.objects, summary: a.summary } } : e;
+        }),
     );
   });
   app.get('/api/cameras/:cam/events/:id/analysis', (req, res) => {

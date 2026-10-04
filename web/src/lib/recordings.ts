@@ -14,6 +14,8 @@ export interface EventClip {
   sizeSub: number | null;
   sizeMain: number | null;
   analysis?: CardAnalysis; // cam-proxy's Vision results, when it analysed this recording
+  // cam-proxy's person, vehicle and pet events in this recording, per type (Klaus, 2026-10-04).
+  counts?: Partial<Record<'person' | 'vehicle' | 'pet', number>>;
 }
 
 export interface Cursor {
@@ -30,6 +32,12 @@ export const TRIGGER_LABELS: Record<Trigger, string> = {
   motion: 'Motion',
   timer: 'Scheduled',
 };
+// A card's tag: the kind, and from two events of an AI type on how many
+// ("Person 2x", Klaus 2026-10-04). Motion and Scheduled never get a count.
+export function tagText(t: Trigger, counts: EventClip['counts']): string {
+  const n = t === 'person' || t === 'vehicle' || t === 'pet' ? (counts?.[t] ?? 0) : 0;
+  return n >= 2 ? `${TRIGGER_LABELS[t]} ${n}x` : TRIGGER_LABELS[t];
+}
 // The order a card lists its kinds in (Klaus, 2026-10-01): Motion first,
 // then Person, Vehicle, Pet, Scheduled; the camera's own order varies. Only
 // the display: kinds this list doesn't know follow, in their order.

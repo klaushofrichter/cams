@@ -1,6 +1,6 @@
 <script lang="ts">
   import { tick, untrack, type Snippet } from 'svelte';
-  import { orderTriggers, TRIGGER_LABELS, isAllKinds, defaultGroupOpen, formatClock, groupByHour, thumbUrl, type EventClip, type Filter, type HourGroup } from '../lib/recordings';
+  import { orderTriggers, tagText, TRIGGER_LABELS, isAllKinds, defaultGroupOpen, formatClock, groupByHour, thumbUrl, type EventClip, type Filter, type HourGroup } from '../lib/recordings';
   import ComposeDialog from './ComposeDialog.svelte';
   import EventFilter from './EventFilter.svelte';
   import Icon from './Icon.svelte';
@@ -298,13 +298,13 @@
                     {:else}
                       <img class="thumb" data-testid="event-thumb" alt="" use:lazySrc={thumbUrl(cameraId, e.id)} data-broken-key={brokenKey(e.id)} onerror={markBroken} />
                     {/if}
-                    <span class="sr-only">{[formatClock(e.start), `${e.durationSec} s`, ...kinds.map((t) => TRIGGER_LABELS[t])].join(', ')}</span>
+                    <span class="sr-only">{[formatClock(e.start), `${e.durationSec} s`, ...kinds.map((t) => tagText(t, e.counts))].join(', ')}</span>
                   </button>
                   <span class="meta">
                     <strong aria-hidden="true">{formatClock(e.start)}</strong>
                     <span class="dur" aria-hidden="true">{e.durationSec} s</span>
                     <span class="tags">
-                      {#each kinds as t (t)}<span class="tag" class:ai={t !== 'motion' && t !== 'timer'} aria-hidden="true">{TRIGGER_LABELS[t]}</span>{/each}
+                      {#each kinds as t (t)}<span class="tag" class:ai={t !== 'motion' && t !== 'timer'} aria-hidden="true">{tagText(t, e.counts)}</span>{/each}
                       <VisionBadges {cameraId} triggers={e.triggers} analysis={e.analysis} />
                     </span>
                   </span>

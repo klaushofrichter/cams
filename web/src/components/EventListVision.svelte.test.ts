@@ -82,3 +82,13 @@ describe('EventList: Vision badges', () => {
     expect([...li.querySelectorAll('button, [tabindex]')].map((b) => b.getAttribute('data-testid'))).toEqual(['event-card', 'vision-badge', 'vision-badge', 'event-download']);
   });
 });
+
+// Klaus, 2026-10-04: the 05:16:43 card held two person events: "Person 2x".
+describe('EventList: per-type counts', () => {
+  it('shows "Person 2x" and a plain Motion, and says it to a screen reader', () => {
+    const [first] = makeEvents(DATE, 5, 1);
+    const t = mountList([{ ...first, triggers: ['person', 'motion'], counts: { person: 2 } }]);
+    expect([...t.querySelectorAll('[data-testid="hour-group"] .tag')].map((x) => x.textContent)).toEqual(['Motion', 'Person 2x']);
+    expect(t.querySelector('[data-testid="event-card"] .sr-only')!.textContent).toContain('Motion, Person 2x');
+  });
+});

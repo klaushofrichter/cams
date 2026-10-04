@@ -201,3 +201,16 @@ describe('orderTriggers', () => {
     expect(input).toEqual(['face', 'person', 'motion', 'doorbell']);
   });
 });
+
+// Klaus, 2026-10-04: a card with several events of one AI type says "Person 2x".
+describe('tagText', () => {
+  it('adds the count from two events of a type on, never for Motion or Scheduled', async () => {
+    const { tagText } = await import('./recordings');
+    expect(tagText('person', { person: 2 })).toBe('Person 2x');
+    expect(tagText('vehicle', { vehicle: 3, person: 2 })).toBe('Vehicle 3x');
+    expect(tagText('pet', { pet: 1 })).toBe('Pet');
+    expect(tagText('person', undefined)).toBe('Person');
+    expect(tagText('motion', { person: 2 })).toBe('Motion');
+    expect(tagText('timer', {})).toBe('Scheduled');
+  });
+});

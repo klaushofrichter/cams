@@ -8,3 +8,5 @@ published as [GitHub releases](https://github.com/klaushofrichter/cams/releases)
 
 ## [Unreleased]
 
+- Event cards: a card holding several events of one AI type says how many, e.g. "Person 2x" (Vehicle and Pet likewise; Motion never gets a count).
+

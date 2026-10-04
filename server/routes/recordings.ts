@@ -2,6 +2,8 @@ import { Router, Request, Response, NextFunction } from 'express';
 import { getProxyClient } from '../proxy/client';
 import { getAnalysisStore } from '../proxy/analyses';
 import { attachAnalyses } from '../recordings/analysis';
+import { getAiEventStore } from '../proxy/aiEvents';
+import { attachCounts } from '../recordings/detection';
 import { pipeline } from 'stream/promises';
 import { formatSeconds, PLAIN_MAX_S } from '../clipLimits';
 import { clipDate, clipSeconds, CLIP_ID, isRealDate, isRealMonth } from '../recordings/clipNames';
@@ -77,8 +79,13 @@ recordingsRouter.get('/api/cameras/:id/events', async (req, res, next) => {
     const rec = getRecordings();
     const events = await rec.events(id, date, gone.signal);
     rec.probeIfDue(id, events.at(-1)?.id);
-    // cam-proxy's Vision results on the cards (spec 2026-09-30-analytics-in-cams-design).
-    const shown = getProxyClient(id) ? attachAnalyses(events, await getAnalysisStore().forDay(id, date, events)) : events;
+    // cam-proxy's Vision results on the cards (spec 2026-09-30-analytics-in-cams-design),
+    // and how many person, vehicle and pet events each holds (Klaus, 2026-10-04).
+    let shown: typeof events = events;
+    if (getProxyClient(id)) {
+      const [analyses, ai] = await Promise.all([getAnalysisStore().forDay(id, date, events), getAiEventStore().forDay(id, date, events)]);
+      shown = attachCounts(attachAnalyses(events, analyses), ai);
+    }
     res.json({ date, events: shown, downloads: rec.downloadsState(id) });
   } catch (err) {
     fail(err, id, res, next);

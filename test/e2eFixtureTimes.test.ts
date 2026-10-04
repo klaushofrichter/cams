@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { chicagoMs, motionStillMs, vehicleDetectionMs } from '../e2e/fakeProxyData';
+import { chicagoMs, motionStillMs, personDetectionMs, secondPersonMs, vehicleDetectionMs } from '../e2e/fakeProxyData';
 
 // The e2e fake proxy's seeded stills for Den's demo recordings (issue #157)
 // must fall on today's cards in America/Chicago, the cameras' and the
@@ -29,6 +29,8 @@ describe('e2e fixture times', () => {
     vi.setSystemTime(new Date(now));
     expect(chicago(vehicleDetectionMs())).toBe(`${date}T09:30:06`);
     expect(chicago(motionStillMs())).toBe(`${date}T12:05:07`);
+    expect(chicago(personDetectionMs())).toBe(`${date}T08:15:14`);
+    expect(chicago(secondPersonMs())).toBe(`${date}T08:15:24`);
   });
 
   it('turns a Chicago wall-clock time into the instant, in both offsets', () => {

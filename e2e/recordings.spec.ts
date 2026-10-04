@@ -63,6 +63,13 @@ test('a vehicle card shows the still from the moment it was detected', async ({ 
   expect(Buffer.compare(await thumbBytes(page, '093000'), await proxyStill(page, vehicleDetectionMs()))).toBe(0);
 });
 
+// Klaus, 2026-10-04: a card with two person events says "Person 2x".
+test('a card with two person events says "Person 2x"', async ({ page }) => {
+  await openEvents(page);
+  await expect(card(page, '081510').locator('..').locator('.tag')).toHaveText(['Person 2x']);
+  await expect(card(page, '093000').locator('..').locator('.tag')).toHaveText(['Vehicle']);
+});
+
 test('a motion card keeps the still 2 s into the recording', async ({ page }) => {
   await openEvents(page);
   expect(Buffer.compare(await thumbBytes(page, '120505'), await proxyStill(page, motionStillMs()))).toBe(0);

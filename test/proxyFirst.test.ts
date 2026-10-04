@@ -10,6 +10,7 @@ import { createApp } from '../server/app';
 import { setCameras } from '../server/cameraRegistry';
 import { resetClients } from '../server/reolink/clients';
 import { resetProxyClients } from '../server/proxy/client';
+import { resetAiEventStore } from '../server/proxy/aiEvents';
 import { getRecordings, resetRecordings } from '../server/recordings/service';
 import { SESSION_COOKIE, signSession } from '../server/session';
 import { createSimCamera, type SimState } from './camera/sim';
@@ -43,6 +44,7 @@ beforeEach(async () => {
   resetClients();
   resetProxyClients();
   resetRecordings();
+  resetAiEventStore();
 });
 afterEach(async () => {
   await new Promise<void>((r) => cam.close(() => r()));
@@ -169,7 +171,8 @@ describe('proxy first (Plan 7)', () => {
     }
     const thumb = (app: ReturnType<typeof createApp>, id: string) => binary(request(app).get(`/api/cameras/cam1/clips/${id}/thumb.jpg`).set('Cookie', auth));
     const event = (id: number, kind: string, start: number, analysis: unknown = null) => ({ id, kind, source: 'onvif', start, end: start + 5000, endReason: 'state', analysis });
-    const eventLookups = () => fake.requests.filter((q) => q.path === '/api/cameras/cam1/events').length;
+    // The card's own lookup; the day's list asks per AI type (kind=…) for its counts.
+    const eventLookups = () => fake.requests.filter((q) => q.path === '/api/cameras/cam1/events' && q.query.kind === undefined).length;
 
     it('uses the still at the first second a person was detected', async () => {
       const app = createApp();
