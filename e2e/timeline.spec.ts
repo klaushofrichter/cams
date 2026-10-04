@@ -109,7 +109,7 @@ test('the large still steps one second with the buttons and the arrow keys, acro
 test('from Live, the Timeline menu opens the newest minute', async ({ page }, testInfo) => {
   await page.goto('/app/live');
   await page.getByTestId('camera-picker').selectOption('cam1');
-  await expect(page.getByTestId('live-panel')).toBeVisible();
+  await expect(page.getByTestId('mode-badge')).toHaveAttribute('data-mode', 'live');
   await page.waitForTimeout(500);
   if (testInfo.project.name === 'phone') {
     await page.getByTestId('hamburger').click();

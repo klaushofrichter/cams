@@ -61,12 +61,12 @@ test('a new analysis updates the open page without a reload', async ({ page }) =
   await expect(badge(page, card)).toHaveAttribute('title', new RegExp(subtype), { timeout: 15_000 });
 });
 
-test('Live’s recent events show the badge too', async ({ page }) => {
+test('live, the event list shows the badge too', async ({ page }) => {
   const card = await personCard(page);
   const { subtype } = await analyse(page, card);
   await page.goto('/app/live');
   await page.getByTestId('camera-picker').selectOption('cam1');
-  await expect(page.getByTestId('live-recent').locator(`[data-testid="vision-badge"][data-kind="agree"][title*="${subtype}"]`).first()).toBeVisible();
+  await expect(page.locator('.side').locator(`[data-testid="vision-badge"][data-kind="agree"][title*="${subtype}"]`).first()).toBeVisible();
 });
 
 test('the Timeline marks the analysed second and shows its boxes; "Open in History" lands paused', async ({ page }) => {
@@ -213,23 +213,24 @@ test('Tab goes from the card to its badge, then to the download button', async (
   await expect(page.getByTestId('vision-dialog')).toHaveCount(0);
 });
 
-// Klaus, 2026-10-01: the dialog's "Open in History" lands on the analysed second, paused.
-test('the dialog’s "Open in History" opens History at the analysed second, paused', async ({ page }) => {
+// Klaus, 2026-10-01: the dialog's "Open in History" (now "Open in Video",
+// 2026-10-04) lands on the analysed second, paused.
+test('the dialog’s "Open in Video" opens the recording at the analysed second, paused', async ({ page }) => {
   const card = await personCard(page);
   const { stillTs, subtype } = await analyse(page, card);
   await page.goto('/app/live');
   await page.getByTestId('camera-picker').selectOption('cam1');
-  const live = page.getByTestId('live-recent').locator(`[data-testid="vision-badge"][data-kind="agree"][title*="${subtype}"]`).first();
+  const live = page.locator('.side').locator(`[data-testid="vision-badge"][data-kind="agree"][title*="${subtype}"]`).first();
   await live.click();
   const dialog = page.getByTestId('vision-dialog');
   await expect(dialog).toBeVisible();
-  await expect(dialog.getByTestId('vision-dialog-history')).toHaveText('Open in History');
+  await expect(dialog.getByTestId('vision-dialog-history')).toHaveText('Open in Video');
   await dialog.getByTestId('vision-dialog-history').click();
   await expect(page.getByTestId('vision-dialog')).toHaveCount(0);
   await expect.poll(() => new URL(page.url()).searchParams.get('at')).toBe(String(stillTs));
   await expect(page.getByTestId('source-badge')).toBeVisible();
   await expect(page.getByTestId('play-toggle')).toHaveAttribute('aria-pressed', 'false');
-  // From History's own list too, while it plays: it lands paused at the second (review fix).
+  // From the list in a recording too, while it plays: it lands paused at the second (review fix).
   await page.getByTestId('play-toggle').click();
   await expect(page.getByTestId('play-toggle')).toHaveAttribute('aria-pressed', 'true');
   await badge(page, card).click();

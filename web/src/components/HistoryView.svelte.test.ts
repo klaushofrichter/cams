@@ -185,6 +185,30 @@ describe('the live end (glue, spec 2026-09-28)', () => {
     expect(badge()).not.toBeNull();
   });
 
+  // One Video page (spec 2026-10-04): a recording after now (a camera clock
+  // ahead) stays browseable; only the strip's right end is live.
+  it('a click on a recording after now plays it instead of going live', async () => {
+    const AHEAD = { id: '20260927-201000-201030', start: new Date(NOW + 600_000).toISOString(), end: new Date(NOW + 630_000).toISOString(), durationSec: 30, triggers: ['motion'], sizeSub: 1, sizeMain: 1 };
+    vi.stubGlobal('fetch', async (url: string) => {
+      if (url.includes('/extent')) return new Response(JSON.stringify({ oldest: Date.parse(E1.start) }), { status: 200 });
+      const body = url.includes('/events?date=2026-09-27') ? { events: [E1, E2, E3, AHEAD], downloads: 'ok' } : url.includes('/events?') ? { events: [], downloads: 'ok' } : [];
+      return new Response(JSON.stringify(body), { status: 200 });
+    });
+    const { onposition } = await render({ live: true });
+    (target!.querySelector('[data-testid="back-10"]') as HTMLElement).click();
+    await vi.advanceTimersByTimeAsync(10);
+    flushSync();
+    const bar = target!.querySelector('[data-testid="timeline"]') as HTMLElement;
+    bar.getBoundingClientRect = () => ({ left: 0, top: 0, width: 600, height: 46, right: 600, bottom: 46, x: 0, y: 0, toJSON: () => ({}) });
+    // 1 h across 600 px, the playhead (now − 10 s) in the middle: +615 s is x = 402.5.
+    bar.dispatchEvent(new PointerEvent('pointerdown', { clientX: 402.5, bubbles: true }));
+    bar.dispatchEvent(new PointerEvent('pointerup', { clientX: 402.5, bubbles: true }));
+    await vi.advanceTimersByTimeAsync(10);
+    flushSync();
+    expect(badge()).toBeNull();
+    expect(onposition.mock.calls.at(-1)![1]).toBe(AHEAD.id);
+  });
+
   it('a late first load does not pull a glued Live panel out of live (final review)', async () => {
     let release!: () => void;
     const gate = new Promise<void>((r) => (release = r));

@@ -5,15 +5,16 @@
   import EventList from '../components/EventList.svelte';
   import { historySeek, saveViewPoint } from '../lib/timeline';
   import LiveBox from '../components/LiveBox.svelte';
-  import LivePanel from '../components/LivePanel.svelte';
+  import CameraCard from '../components/CameraCard.svelte';
+  import VideoControls from '../components/VideoControls.svelte';
   import { cameras, cameraById, selectedCameraId } from '../lib/stores';
-  import { navigate, replaceRoute, route, type Panel } from '../lib/router';
+  import { VIDEO_PATH, navigate, replaceRoute, route } from '../lib/router';
   import { getJson } from '../lib/api';
   import { loadDay, sourceLabel, type Downloads } from '../lib/dayCache';
   import { clipStartFromId } from '../lib/strip';
   import {
     addDays, cursorSearch, daysUrl, filterEvents, loadCursor, localDate,
-    ALL_KINDS, filterParam, parseCursor, parseFilter, recentEvents, saveCursor, type Cursor, type EventClip, type Filter,
+    ALL_KINDS, filterParam, parseCursor, parseFilter, saveCursor, type Cursor, type EventClip, type Filter,
   } from '../lib/recordings';
   import { eventFilter, pickEventFilter } from '../lib/eventFilter';
   import { liveEventsOn, preferences } from '../lib/preferences';
@@ -22,18 +23,15 @@
   import { formatNow } from '../lib/clock';
   import { createKeepAlive } from '../lib/keepAlive';
   import { checkLiveStatus, liveStreamHeld } from '../lib/liveUi';
+  import { modeOf } from '../lib/videoMode';
 
-  // One page for Live and History (spec 2026-09-28; Downloads joined History
-  // on 2026-09-29, a download button on each card): the player
-  // column never changes, the panel on the right does. On Live the strip's
-  // right end is the live stream. App keeps this page mounted (hidden) while
-  // the live stream is kept alive after leaving it.
+  // The Video page (spec 2026-10-04; before it, Live and History as two
+  // panels, spec 2026-09-28): one player, one strip, one sidebar. The mode
+  // follows the player: glued to now it is live (the strip's right end is
+  // the live stream), anywhere else it plays the recording of that time.
+  // App keeps this page mounted (hidden) while the live stream is kept alive
+  // after leaving it.
   let { pageVisible = true, tabVisible = true }: { pageVisible?: boolean; tabVisible?: boolean } = $props();
-
-  const TABS: { id: Panel; label: string }[] = [
-    { id: 'live', label: 'Live' },
-    { id: 'history', label: 'History' },
-  ];
 
   let events: EventClip[] = $state([]);
   let days: string[] = $state([]);
@@ -119,15 +117,17 @@
   function revealPlayer() {
     if (mainEl && mainEl.getBoundingClientRect().top < 0) mainEl.scrollIntoView({ block: 'start', behavior: 'smooth' });
   }
-  // Glued: the Live panel's playhead is at now and the player shows live.
-  let glued = $state(untrack(() => $route.panel === 'live' && !$route.params.has('at')));
-  // Each navigation to the Live panel without a position (menu, tab,
-  // /app/live) goes to live: an event per route, not a flag that can stay
-  // set (final review).
+  // Glued: the playhead is at now and the player shows live (the mode).
+  let glued = $state(untrack(() => $route.panel === 'live'));
+  const mode = $derived(modeOf(glued));
+  // Each navigation is an event: to a URL without a position (the menu,
+  // /app/video, /app/live, Back) it is live; to one with a position (a day,
+  // a link, Back) a recording, which the jump below places (final review:
+  // an event per route, not a flag that can stay set).
   $effect(() => {
     const r = vroute;
     untrack(() => {
-      if (r.panel === 'live' && !r.params.has('at')) glued = true;
+      glued = r.panel === 'live';
     });
   });
 
@@ -136,7 +136,7 @@
   // shows the picture at once (Klaus, 2026-09-28).
   let liveWanted = $state(false);
   const liveKeep = createKeepAlive(() => (liveWanted = false));
-  const onLive = $derived(glued && vroute.panel === 'live' && pageVisible && tabVisible);
+  const onLive = $derived(glued && pageVisible && tabVisible);
   let leftWith: number | null = null;
   $effect(() => {
     const seconds = $preferences?.liveKeepAlive ?? 60;
@@ -169,27 +169,33 @@
     });
     liveCamera = id;
   });
-  // Live and History are one strip (Klaus, 2026-09-28): leaving live on the
-  // Live panel (strip, ±10 s, an event) is History at that moment, and the
-  // menu and tabs say so. Pushed, so Back returns to Live.
+  // Live and the recordings are one strip (Klaus, 2026-09-28): leaving live
+  // (strip, ±10 s, an event) is a recording at that moment, and the URL
+  // says so. Pushed, so Back returns to live. Never from behind another page
+  // (kept alive): that page owns the URL.
+  // Both follow the player (glued), not the route: a route change sets
+  // glued itself (above) and must not bounce back here.
   $effect(() => {
-    if (panel !== 'live' || glued || !pageVisible || !cam) return;
+    const g = glued;
+    if (g || !pageVisible) return;
     untrack(() => {
+      if (panel !== 'live' || !cam) return;
       const t = historyView?.position() ?? Date.now();
       const c: Cursor = { date: localDate(new Date(t)), clipId: null, offsetSec: 0, at: t };
       reportedAt = Math.floor(t);
       saveCursor(cam, c);
-      // An old /app/live?at= link (earlier versions wrote them) is replaced,
-      // so Back doesn't land on it and bounce here again.
-      if (vroute.params.has('at')) replaceRoute(hrefFor(cam, c, 'history'));
-      else navigate(hrefFor(cam, c, 'history'));
+      navigate(hrefFor(cam, c));
     });
   });
-  // History: ⇥ while playing, or playback catching up with now, is Live.
-  // Never from behind another page (kept alive): that page owns the URL.
-  function toLive() {
-    if (pageVisible) navigate('/app/live');
-  }
+  // And back: ⇥, the REC badge, or playback catching up with now is live
+  // again, at /app/video. Pushed, so Back returns to the recording.
+  $effect(() => {
+    const g = glued;
+    if (!g || !pageVisible) return;
+    untrack(() => {
+      if (panel === 'history') navigate(VIDEO_PATH);
+    });
+  });
 
   let proxyInfo: { reachable: boolean; webUrl: string | null } | null = $state(null);
   $effect(() => {
@@ -227,6 +233,7 @@
   const cam = $derived(parsed.cam && $cameras.some((c) => c.id === parsed.cam) ? parsed.cam : $selectedCameraId);
   const cursor: Cursor = $derived(parsed.cursor);
   const pendingToday = $derived(cursor.date === $todayDate ? [...pending].sort((a, b) => b.ts - a.ts) : []);
+  const isToday = $derived(cursor.date === $todayDate);
   // Likewise, a primitive projection of cursor.date for the events effect.
   const date = $derived(cursor.date);
 
@@ -249,18 +256,16 @@
     });
   });
   const filter: Filter = $derived(parseFilter(filterKey === 'all' ? 'all' : filterKey));
-  const panel: Panel = $derived(vroute.panel);
-  // The Live panel's camera status: checked on opening it and on another
+  // What the URL asks for: live, or a recording ('history'). The mode
+  // itself is `glued`; the two differ only while a switch is under way.
+  const panel = $derived(vroute.panel);
+  // The camera card's status: checked on showing the page and on another
   // camera, whether or not the stream is open.
-  const liveShown = $derived(panel === 'live' && pageVisible);
   $effect(() => {
-    if (cam && liveShown) untrack(() => void checkLiveStatus(cam));
+    if (cam && pageVisible) untrack(() => void checkLiveStatus(cam));
   });
   const camProxy = $derived(!!$cameraById(cam)?.proxy);
   const camera = $derived($cameraById(cam) ?? null);
-  // The Live panel's recent events: today's five newest that match the
-  // filter, newest first (filtered first, not five filtered down).
-  const recent = $derived(date === $todayDate ? recentEvents(events, filter, 5) : []);
   const visible = $derived(filterEvents(events, filter));
   // The strip's first position: the URL's `at`, else an old link's clip and
   // offset, else (null) the day's first event.
@@ -270,41 +275,41 @@
   function onPosition(at: number, clipId: string | null) {
     playheadClip = clipId;
     reportedAt = at;
-    // Leaving live on the Live panel: the effect below moves to History.
-    if (panel === 'live' && !glued) return;
+    // A switch between live and a recording: the effects above push the URL.
+    if (glued !== (panel === 'live')) return;
     // Kept alive behind another page: the URL is that page's.
     if (!cam || !pageVisible) return;
     // The view point the Timeline opens at (Klaus, 2026-09-29): this time,
-    // or "now" while Live is showing.
-    saveViewPoint(cam, panel === 'live' && glued ? null : at);
+    // or "now" while live.
+    saveViewPoint(cam, glued ? null : at);
+    // Live keeps its plain URL.
+    if (glued) return;
     const c: Cursor = { date: localDate(new Date(at)), clipId, offsetSec: 0, at };
-    // Live at now keeps the plain /app/live; playback on the Live panel adds `at`.
-    if (panel !== 'live') saveCursor(cam, c);
-    replaceRoute(hrefFor(cam, panel === 'live' && glued ? { ...c, clipId: null, at: null } : c, panel));
+    saveCursor(cam, c);
+    replaceRoute(hrefFor(cam, c));
   }
-  // The Live panel keeps its own URL; `at` only while it plays back.
-  function hrefFor(c0: string, c: Cursor, p: Panel) {
-    if (p === 'live') return c.at === null ? '/app/live' : `/app/live${cursorSearch(c0, c, p)}`;
-    return `/app/recordings${cursorSearch(c0, c, p)}`;
+  // A recording's URL: /app/video with the camera, the day and the time.
+  function hrefFor(c0: string, c: Cursor) {
+    return `${VIDEO_PATH}${cursorSearch(c0, c)}`;
   }
 
-  function go(next: Partial<Cursor>, opts: { panel?: Panel } = {}, mode: 'push' | 'replace' = 'push') {
+  // A recording at `next` (a day picked; the URL put in its /app/video form).
+  function go(next: Partial<Cursor>, how: 'push' | 'replace' = 'push') {
     if (!cam) return;
-    const p = opts.panel ?? panel;
-    // Opening the Live panel goes to live, at now.
-    const c: Cursor = p === 'live' && opts.panel === 'live' ? { ...cursor, ...next, clipId: null, offsetSec: 0, at: null } : { ...cursor, ...next };
-    if (p !== 'live') saveCursor(cam, c);
-    const href = hrefFor(cam, c, p);
-    if (mode === 'replace') replaceRoute(href);
+    const c: Cursor = { ...cursor, ...next };
+    saveCursor(cam, c);
+    const href = hrefFor(cam, c);
+    if (how === 'replace') replaceRoute(href);
     else navigate(href);
   }
 
-  // Picking a camera in the header should follow this page to it, keeping
-  // the date but starting a fresh clip.
+  // Picking a camera in the header follows this page to it: live stays
+  // live; a recording keeps the day but starts at its first event.
   function switchCamera(newCam: string) {
+    if (glued) return navigate(VIDEO_PATH);
     const c: Cursor = { ...cursor, clipId: null, offsetSec: 0, at: null };
-    if (panel !== 'live') saveCursor(newCam, c);
-    navigate(hrefFor(newCam, c, panel));
+    saveCursor(newCam, c);
+    navigate(hrefFor(newCam, c));
   }
 
   // Keep the picker and the page's camera in step, in both directions,
@@ -339,13 +344,21 @@
     });
   });
 
-  // Entering History without a position (a sidebar link) puts
-  // the restored session cursor into the URL; after that the URL is
-  // canonical. On every entry: the page stays mounted across pages now.
+  // The old URLs (/app/live, /app/recordings, spec 2026-10-04) become their
+  // /app/video form in place: live, or the recording at the asked (or, for
+  // a bare /app/recordings, the session's last) position. After that the
+  // URL is canonical. On every entry: the page stays mounted across pages.
   $effect(() => {
     const c = cam;
     if (!c || !pageVisible) return;
-    if (panel !== 'live' && !vroute.params.has('date') && !vroute.params.has('clip') && !vroute.params.has('at')) untrack(() => go({}, {}, 'replace'));
+    const r = vroute;
+    untrack(() => {
+      if (r.panel === 'live') {
+        if (!r.legacy) return;
+        const asked = r.params.get('cam');
+        replaceRoute(asked ? `${VIDEO_PATH}?cam=${encodeURIComponent(asked)}` : VIDEO_PATH);
+      } else if (r.legacy || (!r.params.has('date') && !r.params.has('clip') && !r.params.has('at'))) go({}, 'replace');
+    });
   });
   // A position from outside (a link, back/forward, a restored cursor) moves
   // the playhead; the page's own reports come back here and are ignored.
@@ -458,24 +471,23 @@
 <section class="page">
   <header class="head">
     <!-- Not while kept alive behind another page: that page has the title. -->
-    <h1 data-testid={pageVisible ? 'page-title' : undefined}>{panel === 'live' ? 'Live' : 'History'}</h1>
-    <!-- Kept in place (only hidden) on Live, so the video doesn't move between panels. -->
-    <span class="center" class:off={panel === 'live'}>{#if cam}<DayPicker date={cursor.date} {days} today={$todayDate} onchange={(d) => go({ date: d, clipId: null, offsetSec: 0, at: null })} />{/if}</span>
+    <h1 data-testid={pageVisible ? 'page-title' : undefined}>Video</h1>
+    <span class="center">{#if cam}<DayPicker date={cursor.date} {days} today={$todayDate} onchange={(d) => go({ date: d, clipId: null, offsetSec: 0, at: null })} />{/if}</span>
     <!-- Three fixed columns, so the day picker stays centred whether or not
          "Updated" is shown (Klaus, 2026-09-27). -->
-    <span class="updated" class:off={panel === 'live'}>{#if cam && date === $todayDate && updatedAt}<span data-testid={panel === 'live' ? undefined : 'events-updated'}>Updated {formatNow(updatedAt)}</span>{/if}</span>
+    <span class="updated">{#if cam && isToday && updatedAt}<span data-testid={pageVisible ? 'events-updated' : undefined}>Updated {formatNow(updatedAt)}</span>{/if}</span>
   </header>
 
   {#if !cam}
     <div class="placeholder">No cameras are configured.</div>
   {:else}
-    <div class="workspace" data-panel={panel}>
+    <div class="workspace" data-mode={mode}>
       <div class="main" bind:this={mainEl}>
         {#key cam}
           <HistoryView bind:this={historyView} {cam} proxy={camProxy}
             date={cursor.date} {initialAt} {filter}
             unavailable={downloads === 'unavailable'} onposition={onPosition} {pending}
-            live={panel === 'live'} bind:glued onlive={panel === 'history' && pageVisible ? toLive : undefined} liveBox={liveWanted ? liveBoxSnippet : undefined} />
+            live bind:glued liveBox={liveWanted ? liveBoxSnippet : undefined} />
         {/key}
         {#if downloads !== 'unavailable' && !loading && !failed}
           <p class="note" data-testid="recordings-source" role="status">Source of recordings and thumbnails: {sourceLabel(downloads)}</p>
@@ -490,34 +502,29 @@
           <div class="bar-skeleton" aria-busy="true"></div>
         {:else if failed}
           <p class="note" role="alert">The recordings could not be loaded. The camera may be offline.</p>
-        {:else if events.length === 0 && panel !== 'live'}
+        {:else if events.length === 0 && !glued}
           <p class="note" data-testid="no-recordings">No recordings on {cursor.date}.</p>
         {/if}
       </div>
 
+      <!-- The sidebar (spec 2026-10-04): the camera, the controls, the filter
+           and the day's events. -->
       <aside class="side">
-        <div class="tabrow">
-          <div class="tabs" role="tablist">
-            {#each TABS as tab (tab.id)}
-              <button role="tab" data-testid={`panel-tab-${tab.id}`} aria-selected={panel === tab.id} class:on={panel === tab.id} onclick={() => go({}, { panel: tab.id })}>{tab.label}</button>
-            {/each}
-          </div>
-          {#if panel === 'history' && visible.length}
-            <button class="hours" data-testid="hours-toggle" onclick={() => eventList?.setAllHours(!hoursOpen)}>{hoursOpen ? 'Collapse hours' : 'Expand hours'}</button>
-          {/if}
-        </div>
-        {#if panel === 'live'}
-          {#if camera}
-            <LivePanel {camera} {recent} pending={pendingToday} proxyInfo={proxyInfo} paused={!liveWanted}
-              {filter} onfilter={setFilter}
-            onplay={(e) => historyView?.jump(Date.parse(e.start), true)} />
-          {/if}
-        {:else}
-          <EventList bind:this={eventList} cameraId={cam} events={visible} {filter} date={cursor.date} selectedId={playheadClip} pending={pendingToday}
-            onreveal={revealPlayer} onhours={(o) => (hoursOpen = o)}
-            onfilter={setFilter}
-            onselect={(e) => historyView?.jump(Date.parse(e.start), true)} onthumberror={recheckDownloads} downloadsOk={downloads !== 'unavailable'} />
-        {/if}
+        <CameraCard cameraId={cam} {proxyInfo} />
+        <VideoControls cameraId={cam} {mode} paused={!pageVisible || !tabVisible} />
+        <EventList bind:this={eventList} cameraId={cam} events={visible} {filter} date={cursor.date} selectedId={playheadClip} pending={pendingToday}
+          onreveal={revealPlayer} onhours={(o) => (hoursOpen = o)}
+          onfilter={setFilter}
+          onselect={(e) => historyView?.jump(Date.parse(e.start), true)} onthumberror={recheckDownloads} downloadsOk={downloads !== 'unavailable'}>
+          {#snippet tools()}
+            <div class="listhead">
+              <span class="day" data-testid="events-day">{isToday ? "Today's events" : `Events on ${cursor.date}`}</span>
+              {#if visible.length}
+                <button class="hours" data-testid="hours-toggle" onclick={() => eventList?.setAllHours(!hoursOpen)}>{hoursOpen ? 'Collapse hours' : 'Expand hours'}</button>
+              {/if}
+            </div>
+          {/snippet}
+        </EventList>
       </aside>
     </div>
   {/if}
@@ -545,24 +552,22 @@
   /* Wide windows centre the whole app (App.svelte), so the columns are just
      the player and the panel (Klaus, 2026-09-28). */
   .workspace { display: grid; grid-template-columns: minmax(0, var(--player-max-w)) 370px; gap: 18px; align-items: start; }
-  .center.off, .updated.off { visibility: hidden; }
   .main { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
-  /* Desktop: the sidebar is a column as tall as the window allows; the tabs,
-     "Collapse hours" and the filter stay at its top and only the event list
+  /* Desktop: the sidebar is a column as tall as the window allows; the
+     camera, the controls, the filter and "Collapse hours" stay at its top and only the event list
      (cards and hour titles) scrolls (Klaus, 2026-10-03). A panel marks the
      boxes that give way with side-fill and the list with side-scroll.
      overflow: auto stays as the fallback for content that can't give way. */
   .side { display: flex; flex-direction: column; gap: 10px; max-height: calc(100vh - 170px); overflow: auto; }
-  .tabrow { display: flex; align-items: center; gap: 6px; flex: none; }
+  .side > :global(*:not(.side-fill)) { flex: none; }
+  .listhead { display: flex; align-items: center; gap: 6px; flex: none; min-height: 28px; }
+  .listhead .day { font-size: 13px; font-weight: 600; color: var(--muted); }
   @media (min-width: 1200px) {
     .side :global(.side-fill) { display: flex; flex-direction: column; flex: 0 1 auto; min-height: 0; }
     .side :global(.side-scroll) { flex: 0 1 auto; min-height: 0; overflow: auto; }
   }
-  .tabs { display: flex; gap: 6px; }
   .hours { margin-left: auto; padding: 5px 10px; border-radius: 9px; border: 1px solid var(--border); background: transparent; color: var(--muted); font: inherit; font-size: 12px; cursor: pointer; }
   .hours:hover { color: var(--text); border-color: color-mix(in srgb, var(--accent) 40%, var(--border)); }
-  .tabs button { padding: 6px 14px; border-radius: 9px; border: 1px solid var(--border); background: transparent; color: var(--muted); cursor: pointer; }
-  .tabs button.on { background: var(--surface-2); color: var(--text); border-color: color-mix(in srgb, var(--accent) 40%, var(--border)); }
   .note { color: var(--muted); margin: 0; }
   .bar-skeleton { height: 46px; border-radius: 10px; background: linear-gradient(90deg, var(--surface-2), var(--surface), var(--surface-2)); background-size: 200% 100%; animation: shimmer 1.2s linear infinite; }
   @keyframes shimmer { from { background-position: 200% 0; } to { background-position: 0 0; } }

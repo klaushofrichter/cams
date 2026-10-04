@@ -236,7 +236,9 @@
   }
   // Drag and wheel: many small moves; reported at most every 2 s.
   function seek(t: number) {
-    if (live && t >= now - LIVE_LAG) return glue();
+    // The strip's right end is live; recordings after now (a camera clock
+    // ahead) stay browseable up to it (one Video page, spec 2026-10-04).
+    if (live && t >= latest - LIVE_LAG) return glue();
     glued = false;
     at = t;
     placed = true;
@@ -250,7 +252,7 @@
 </script>
 
 <div class="history">
-  <StripPlayer {cam} {coverage} {previews} {now} bind:at bind:playing {unavailable} {glued} live={liveBox}
+  <StripPlayer {cam} {coverage} {previews} {now} bind:at bind:playing {unavailable} {glued} live={liveBox} onglue={live ? glue : undefined}
     onclipfail={(id) => {
       data.markFailed(id);
       failed = new Set(failed).add(id);

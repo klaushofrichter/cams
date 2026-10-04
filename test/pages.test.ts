@@ -20,14 +20,14 @@ describe('pages', () => {
     expect(res.text).toContain('LANDING');
   });
 
-  it('sends signed-in visitors from / to /app/live', async () => {
+  it('sends signed-in visitors from / to /app/video', async () => {
     const res = await request(createApp()).get('/').set('Cookie', auth);
     expect(res.status).toBe(302);
-    expect(res.headers.location).toBe('/app/live');
+    expect(res.headers.location).toBe('/app/video');
   });
 
   it('serves the app shell for any /app path when signed in, uncached', async () => {
-    for (const path of ['/app', '/app/live', '/app/recordings?panel=events', '/app/unknown/deep']) {
+    for (const path of ['/app', '/app/video', '/app/live', '/app/recordings?panel=events', '/app/unknown/deep']) {
       const res = await request(createApp()).get(path).set('Cookie', auth);
       expect(res.status, path).toBe(200);
       expect(res.text).toContain('APP');

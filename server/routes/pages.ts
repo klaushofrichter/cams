@@ -23,14 +23,14 @@ export function pagesRouter(dir: string): Router {
     if (currentUser(req)) {
       const back = safeReturnPath(req.cookies?.[RETURN_COOKIE]);
       if (req.cookies?.[RETURN_COOKIE] !== undefined) res.clearCookie(RETURN_COOKIE, { httpOnly: true, secure: true, sameSite: 'lax' });
-      res.redirect(302, back ?? '/app/live');
+      res.redirect(302, back ?? '/app/video');
       return;
     }
     rememberReturn(res, req.query.returnTo);
     res.sendFile(join(dir, 'index.html'));
   });
 
-  // Every /app path gets the SPA; its router picks the page (unknown -> Live).
+  // Every /app path gets the SPA; its router picks the page (unknown -> Video).
   router.get(['/app', '/app/*splat'], noStore, requireAuthPage, (_req: Request, res: Response) => {
     res.sendFile(join(dir, 'app.html'));
   });

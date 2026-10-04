@@ -41,11 +41,11 @@ test.describe.serial('live stream teardown', () => {
 
   test('switching cameras releases the old stream (client and server)', async ({ page }) => {
     await page.goto('/app/live');
-    await expect(page.getByTestId('live-state')).toHaveText('Live', { timeout: 15_000 });
+    await expect(page.getByTestId('live-badge')).toHaveText('● LIVE', { timeout: 15_000 });
     await expect.poll(() => activeStreams(page), { timeout: 10_000 }).toBe(1);
 
     await page.getByTestId('camera-picker').selectOption('porch');
-    await expect(page.getByTestId('live-state')).toHaveText('Live', { timeout: 15_000 });
+    await expect(page.getByTestId('live-badge')).toHaveText('● LIVE', { timeout: 15_000 });
 
     // Must settle back to 1 (the new camera's stream), not stay at 2 (the
     // old one leaked alongside the new one).

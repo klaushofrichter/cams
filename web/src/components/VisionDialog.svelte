@@ -113,7 +113,7 @@
         <p class="muted">Vision found nothing relevant in this still.</p>
       {/if}
       <footer>
-        <a href={historyLink} data-testid="vision-dialog-history" onclick={(e) => go(e, () => openHistory(cameraId, still!.stillTs))}>Open in History</a>
+        <a href={historyLink} data-testid="vision-dialog-history" onclick={(e) => go(e, () => openHistory(cameraId, still!.stillTs))}>Open in Video</a>
         <a href={timelineHref} data-testid="vision-dialog-timeline" onclick={(e) => go(e, () => navigate(timelineHref))}>Open in Timeline</a>
       </footer>
     {:else}

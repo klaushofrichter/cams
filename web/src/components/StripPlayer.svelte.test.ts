@@ -5,6 +5,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import StripPlayer from './StripPlayer.svelte';
 import { clipRuns, type Coverage } from '../lib/strip';
 import type { EventClip } from '../lib/recordings';
+import { currentPlayer } from '../lib/videoMode';
+import { localClock } from '../lib/clock';
 
 const T = Date.parse('2026-09-27T12:00:00-05:00');
 const clip: EventClip = { id: '20260927-120010-120020', start: new Date(T + 10_000).toISOString(), end: new Date(T + 20_000).toISOString(), durationSec: 10, triggers: ['motion'], sizeSub: 1, sizeMain: 1 };
@@ -100,7 +102,7 @@ describe('StripPlayer', () => {
     await tick(10_000);
     expect(p.at).toBe(T + 2000);
     expect(p.playing).toBe(false);
-    expect(q('source-badge')!.textContent).toBe('Live is on the Live page');
+    expect(q('source-badge')!.textContent).toBe('Later than now');
   });
 
   it('does not count time while paused, and a blocked play() leaves it paused', async () => {
@@ -350,5 +352,49 @@ describe('StripPlayer', () => {
     expect(urls.length - before).toBeLessThanOrEqual(8);
     await tick(300); // settled
     expect(q('strip-still')!.getAttribute('src')).toBe(`/api/cameras/den/stills/${T + H4 - 1000}.jpg`);
+  });
+
+  // The Video page (spec 2026-10-04): a badge on the player says the mode.
+  it('badges live as ● LIVE, and a recording as REC with its time', () => {
+    const p = render({ glued: true, now: T + 2000, at: T }) as unknown as { glued: boolean };
+    expect(q('mode-badge')!.textContent!.trim()).toBe('● LIVE');
+    expect(q('mode-badge')!.dataset.mode).toBe('live');
+    p.glued = false;
+    flushSync();
+    expect(q('mode-badge')!.textContent!.trim()).toBe(`REC ${localClock(T)}`);
+    expect(q('mode-badge')!.dataset.mode).toBe('rec');
+  });
+
+  it('a click on the REC badge goes back to live; the LIVE badge is no button', () => {
+    const onglue = vi.fn();
+    const p = render({ onglue }) as unknown as { glued: boolean };
+    expect(q('mode-badge')!.tagName).toBe('BUTTON');
+    expect(q('mode-badge')!.getAttribute('aria-label')).toBe('Back to live');
+    q('mode-badge')!.click();
+    expect(onglue).toHaveBeenCalledTimes(1);
+    p.glued = true;
+    flushSync();
+    expect(q('mode-badge')!.tagName).toBe('SPAN');
+  });
+
+  it('tells the page what it shows: the clip’s video, a still, or nothing', async () => {
+    render({ at: T + 12_000 });
+    await tick(0);
+    const f = currentPlayer()!.frame();
+    expect(f?.kind).toBe('clip');
+    expect(f && f.kind === 'clip' && f.video).toBe(q('clip-video'));
+    unmount(component!);
+    target!.remove();
+    expect(currentPlayer()).toBeNull();
+    render({ at: T + 3000 });
+    expect(currentPlayer()!.frame()).toEqual({ kind: 'still', url: `/api/cameras/den/stills/${T + 3000}.jpg`, at: T + 3000 });
+    unmount(component!);
+    target!.remove();
+    render({ at: T + 40_000 }); // no recording there
+    expect(currentPlayer()!.frame()).toBeNull();
+    unmount(component!);
+    target!.remove();
+    render({ glued: true, now: T + 2000 }); // live: the page saves the camera's own snapshot
+    expect(currentPlayer()!.frame()).toBeNull();
   });
 });

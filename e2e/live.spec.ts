@@ -82,7 +82,7 @@ test('browser supports H.264 + AAC through MSE', async ({ page, browser }) => {
 
 test('live video plays from the camera', async ({ page }) => {
   await page.goto('/app/live');
-  await expect(page.getByTestId('live-state')).toHaveText('Live', { timeout: 15_000 });
+  await expect(page.getByTestId('live-badge')).toHaveText('● LIVE', { timeout: 15_000 });
   const video = page.getByTestId('live-video');
   await expect
     .poll(() => video.evaluate((v: HTMLVideoElement) => v.readyState >= 2 && v.currentTime > 0.5), { timeout: 15_000 })
@@ -122,7 +122,7 @@ test('audio starts muted and can be toggled', async ({ page }) => {
 test('the snapshot button saves a JPEG', async ({ page }) => {
   await page.goto('/app/live');
   const [download] = await Promise.all([page.waitForEvent('download'), page.getByTestId('snapshot').click()]);
-  expect(download.suggestedFilename()).toMatch(/^cam1-\d{4}-\d{2}-\d{2}-\d{2}-\d{2}-\d{2}\.jpg$/);
+  expect(download.suggestedFilename()).toMatch(/^cam1-live-\d{4}-\d{2}-\d{2}-\d{2}-\d{2}-\d{2}\.jpg$/);
   const { readFileSync } = await import('fs');
   const bytes = readFileSync((await download.path())!);
   expect(bytes.subarray(0, 3).toString('hex')).toBe('ffd8ff'); // a JPEG, not an error page
@@ -189,10 +189,10 @@ test('the picker switches between two simulated cameras, each streaming live', a
   await page.goto('/app/live'); // opens on the first camera, Den
   const picker = page.getByTestId('camera-picker');
   await expect(picker.locator('option')).toContainText(['Den', 'Porch']);
-  await expect(page.getByTestId('live-state')).toHaveText('Live', { timeout: 15_000 });
+  await expect(page.getByTestId('live-badge')).toHaveText('● LIVE', { timeout: 15_000 });
   await expect.poll(() => opened('den')).toBeGreaterThan(before.den);
   await picker.selectOption('porch');
-  await expect(page.getByTestId('live-state')).toHaveText('Live', { timeout: 15_000 });
+  await expect(page.getByTestId('live-badge')).toHaveText('● LIVE', { timeout: 15_000 });
   await expect.poll(() => opened('porch')).toBeGreaterThan(before.porch);
 });
 
@@ -261,8 +261,8 @@ test('live view disables forward 1 s, 10 s and next event; history enables them'
     await expect(page.getByTestId(id)).toBeDisabled();
     await expect(page.getByTestId(id)).toHaveAttribute('title', 'Not available in live view');
   }
-  await page.getByTestId('back-10').click(); // playback: History
-  await expect(page).toHaveURL(/panel=history/);
+  await page.getByTestId('back-10').click(); // a recording
+  await expect(page).toHaveURL(/\/app\/video\?.*at=\d+/);
   await expect(page.getByTestId('live-badge')).toHaveCount(0);
   for (const id of ['fwd-1', 'fwd-10', 'next-clip']) await expect(page.getByTestId(id)).toBeEnabled();
   await page.getByTestId('play-toggle').click();

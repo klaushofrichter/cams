@@ -304,7 +304,7 @@ describe('silent renewal and returnTo', () => {
   it('the start page ignores ?returnTo= for a visitor already signed in', async () => {
     const session = `session=${signSession('klaus@klaushofrichter.net')}`;
     const res = await request(createApp()).get('/?returnTo=%2Fapp%2Ftimeline').set('Cookie', session);
-    expect(res.headers.location).toBe('/app/live');
+    expect(res.headers.location).toBe('/app/video');
     expect(cookiesOf(res)).not.toContain('return_to=%2Fapp');
   });
 
@@ -314,6 +314,6 @@ describe('silent renewal and returnTo', () => {
     expect(viaCookie.headers.location).toBe('/app/about');
     expect(cookiesOf(viaCookie)).toMatch(/return_to=;/);
     const unsafe = await request(createApp()).get(`/?returnTo=${encodeURIComponent('https://evil.example')}`).set('Cookie', session);
-    expect(unsafe.headers.location).toBe('/app/live');
+    expect(unsafe.headers.location).toBe('/app/video');
   });
 });

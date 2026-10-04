@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { tick, untrack } from 'svelte';
+  import { tick, untrack, type Snippet } from 'svelte';
   import { orderTriggers, TRIGGER_LABELS, isAllKinds, defaultGroupOpen, formatClock, groupByHour, thumbUrl, type EventClip, type Filter } from '../lib/recordings';
   import ComposeDialog from './ComposeDialog.svelte';
   import EventFilter from './EventFilter.svelte';
@@ -23,6 +23,7 @@
     pending = [],
     onreveal,
     onhours,
+    tools,
   }: {
     cameraId: string;
     events: EventClip[];
@@ -39,6 +40,8 @@
     onreveal?: () => void;
     // Whether any hour group is open, for the "Collapse hours" / "Expand hours" button.
     onhours?: (anyOpen: boolean) => void;
+    // Between the filter and the list: the Video page's "Collapse hours" row (spec 2026-10-04).
+    tools?: Snippet;
   } = $props();
 
   // Keyed by cameraId|id, not just id: a clip id is only unique within its
@@ -172,6 +175,7 @@
      (side-fill / side-scroll, Video.svelte; Klaus, 2026-10-03). -->
 <div class="events side-fill">
 <EventFilter {filter} {onfilter} />
+{@render tools?.()}
 <div class="body side-scroll" data-testid="event-scroll">
 
 <!-- One card per recording in progress (Klaus, 2026-09-30). -->

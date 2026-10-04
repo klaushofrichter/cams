@@ -273,13 +273,13 @@ describe('the Vision dialog', () => {
 
   // Klaus, 2026-10-01: History at the analysed second, paused; the shared
   // cursor moves there as the Timeline's link does.
-  it('"Open in History" goes to that second in-app, saves the shared view point and closes', async () => {
+  it('"Open in Video" goes to that second in-app, saves the shared view point and closes', async () => {
     sessionStorage.clear();
     inCard();
     await open();
     const link = byId('vision-dialog-history') as HTMLAnchorElement;
-    const href = `/app/recordings?cam=cam1&panel=history&at=${T2}`;
-    expect(link.textContent).toBe('Open in History');
+    const href = `/app/video?cam=cam1&at=${T2}`;
+    expect(link.textContent).toBe('Open in Video');
     expect(link.getAttribute('href')).toBe(href);
     link.click();
     flushSync();
