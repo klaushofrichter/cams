@@ -3,7 +3,7 @@
 // dialog, cams's server and the proxy never disagree. A 114 s recording; a
 // number is the result in seconds, a string the refusal.
 import { describe, expect, it } from 'vitest';
-import { formatSeconds, GENERATE_MAX_S, GENERATE_MAX_S_1080P, generateMaxS, isPlain, PLAIN_MAX_S, resultLength, saveMaxS } from '../server/clipLimits';
+import { aroundLength, formatSeconds, GENERATE_MAX_S, GENERATE_MAX_S_1080P, generateMaxS, isPlain, PLAIN_MAX_S, resultLength, saveMaxS } from '../server/clipLimits';
 
 const C = 114;
 const LENGTH_CASES: [string, number, number, number, number | string][] = [
@@ -51,5 +51,27 @@ describe('formatSeconds', () => {
   // Klaus, 2026-10-04: "1m 43s", "44s", "10m", "5m".
   it.each([[0, '0s'], [44, '44s'], [59, '59s'], [60, '1m'], [103, '1m 43s'], [114, '1m 54s'], [300, '5m'], [600, '10m'], [3600, '1h'], [3605, '1h 5s'], [3725, '1h 2m 5s']])('%d → %s', (n, text) => {
     expect(formatSeconds(n)).toBe(text);
+  });
+});
+
+// Around a second (#179 phase 3): the anchor is a 1 s "clip", so the result
+// is pre + 1 + post; cam-proxy's AT_LENGTH_CASES (test/compose-plan.test.ts
+// there) are the same table.
+const AT_LENGTH_CASES: [string, number, number, string, number | string][] = [
+  ['the second alone', 0, 0, 'sd', 1],
+  ['the default, -10/+10', 10, 10, 'sd', 21],
+  ['up to the limit', 149, 150, '720p', 300],
+  ['one second over the limit', 150, 150, 'sd', 'At most 5m'],
+  ['all before', 299, 0, '360p', 300],
+  ['1080p: up to its limit', 60, 59, '1080p', 120],
+  ['1080p: over its limit', 60, 60, '1080p', 'At most 2m'],
+  ['a negative roll', -1, 5, 'sd', 'Whole seconds from 0 to 3600'],
+  ['not whole seconds', 1.5, 0, 'sd', 'Whole seconds from 0 to 3600'],
+  ['over 3600', 0, 3601, 'sd', 'Whole seconds from 0 to 3600'],
+];
+
+describe('aroundLength', () => {
+  it.each(AT_LENGTH_CASES)('%s (pre %d, post %d, %s)', (_name, preS, postS, size, want) => {
+    expect(aroundLength(preS, postS, size)).toEqual(typeof want === 'number' ? { ok: true, seconds: want } : { ok: false, error: want });
   });
 });

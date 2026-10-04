@@ -9,12 +9,12 @@ export const SIZE_LABELS: Record<ComposeSize, string> = {
 // main stream (4K, formerly "Full"), which is saved as it is (Klaus, 2026-09-29).
 export type SaveSize = ComposeSize | '4k';
 export const ORIGINAL_4K_LABEL = '4K 4512×2512 (original)';
-export interface JobView { id: string; state: 'queued' | 'running' | 'done' | 'failed' | 'cancelled'; progress: number; durationS: number; error?: string }
+export interface JobView { id: string; state: 'queued' | 'running' | 'done' | 'failed' | 'cancelled'; progress: number; durationS: number; error?: string; name?: string }
 
 // The limits and the length rule are the server's own module, so the dialog
 // and the server never disagree (Klaus, 2026-10-04: plain save 600 s,
 // generated 300 s, 120 s at 1080p; lengths shown as "44s", "1m 54s", "5m").
-export { formatSeconds, GENERATE_MAX_S, GENERATE_MAX_S_1080P, isPlain, PLAIN_MAX_S, resultLength, saveMaxS } from '../../../server/clipLimits';
+export { aroundLength, formatSeconds, GENERATE_MAX_S, GENERATE_MAX_S_1080P, isPlain, PLAIN_MAX_S, resultLength, saveMaxS } from '../../../server/clipLimits';
 
 // A roll slider's range, given the other roll (clip of clipS seconds, a
 // size's generated limit): at least 1 s of the clip stays and the result
@@ -94,15 +94,70 @@ export async function fullQualityAvailable(cam: string, clipId: string): Promise
   }
 }
 const base = (cam: string) => `/api/cameras/${encodeURIComponent(cam)}/compositions`;
-export async function startJob(cam: string, body: { eventId: string; preS: number; postS: number; size: ComposeSize; badge: boolean; timeZone?: string }): Promise<JobView> {
+type ClipBody = { eventId: string; preS: number; postS: number; size: ComposeSize; badge: boolean; timeZone?: string };
+type AroundBody = { at: number; preS: number; postS: number; size: ComposeSize; badge: boolean; timeZone?: string };
+// The proxy's refusals in the dialog's words; its own reason (`detail`) else.
+const NOTHING_AROUND = 'Nothing is kept around this second (stills and clips are kept 7 days).';
+export async function startJob(cam: string, body: ClipBody | AroundBody): Promise<JobView> {
   const r = await apiFetch(base(cam), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
   const j = (await r.json().catch(() => ({}))) as JobView & { error?: string; detail?: string };
   if (!r.ok) {
     // The proxy's own reason when it gives one (its clip may differ from the event).
     const detail = typeof j.detail === 'string' && j.detail ? j.detail.charAt(0).toUpperCase() + j.detail.slice(1) + '.' : '';
-    throw new Error(j.error === 'busy' ? 'The proxy is busy; try again in a minute.' : j.error === 'no_clip' ? 'The proxy has no copy of this clip.' : detail || 'The clip could not be composed.');
+    throw new Error(
+      j.error === 'busy' ? 'The proxy is busy; try again in a minute.'
+      : j.error === 'no_clip' ? 'The proxy has no copy of this clip.'
+      : j.error === 'nothing_to_compose' ? NOTHING_AROUND
+      : j.error === 'rate_limited' ? 'Too many clips this minute; try again shortly.'
+      : detail || 'The clip could not be composed.',
+    );
   }
   return j;
+}
+
+// "Save clip around this" (#179 phase 3, spec §5): the window around a
+// second must have ended (cam-proxy refuses one that hasn't), so the
+// post-roll stops at the whole seconds already past after the second itself.
+export function secondsPast(at: number, now: number): number {
+  return Math.max(0, Math.floor((now - at) / 1000) - 1);
+}
+// The rolls the dialog opens with: 10 s each side (ruling 21 of the design).
+export function aroundPreset(pastS: number): { preS: number; postS: number } {
+  return { preS: 10, postS: Math.min(10, Math.max(0, pastS)) };
+}
+// The sliders around a second: 0 or more each, the result (pre + 1 + post)
+// within the size's limit, the post-roll within the seconds past. The tracks
+// are fixed by the limit (and the seconds past), like a clip's (review of #176).
+export function aroundRanges(preS: number, postS: number, size: string, pastS: number): { pre: RollRange; post: RollRange; preTrack: { min: number; max: number }; postTrack: { min: number; max: number } } {
+  const top = generateMaxS(size) - 1;
+  return {
+    pre: { min: 0, max: Math.max(0, top - Math.max(0, postS)) },
+    post: { min: 0, max: Math.max(0, Math.min(top - Math.max(0, preS), pastS)) },
+    preTrack: { min: 0, max: top },
+    postTrack: { min: 0, max: Math.max(0, Math.min(top, pastS)) },
+  };
+}
+// What the clip will be made of, from the proxy's dry run (ruling 22).
+export interface AroundPlan { seconds: { clip: number; still: number; card: number }; clips: { start: number; end: number }[] }
+export function madeOf(p: AroundPlan, clock: (t: number) => string): string {
+  const clips = p.clips.map((c) => `${clock(c.start)}–${clock(c.end)}`).join(', ');
+  const ftp = `FTP clip${p.clips.length > 1 ? 's' : ''} ${clips}`;
+  const main = p.seconds.clip && p.seconds.still ? `${ftp} and stills (1 per second)` : p.seconds.clip ? ftp : 'Stills only (1 per second)';
+  return p.seconds.card ? `${main} · ${formatSeconds(p.seconds.card)} without a recording` : main;
+}
+// The dry run: the plan, nothing there (409), or unknown (any other answer:
+// the dialog shows no line and the real request answers).
+export async function planAround(cam: string, q: { at: number; preS: number; postS: number; size: ComposeSize }): Promise<{ kind: 'plan'; plan: AroundPlan } | { kind: 'nothing' } | { kind: 'unknown' }> {
+  try {
+    const r = await apiFetch(base(cam), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...q, badge: true, dryRun: true }) });
+    if (r.status === 409) return { kind: 'nothing' };
+    if (!r.ok) return { kind: 'unknown' };
+    const j = (await r.json()) as Partial<AroundPlan>;
+    if (!j.seconds || !Array.isArray(j.clips)) return { kind: 'unknown' };
+    return { kind: 'plan', plan: { seconds: j.seconds, clips: j.clips } };
+  } catch {
+    return { kind: 'unknown' };
+  }
 }
 // null: the job is gone (404). Other failures throw, so the caller can retry.
 export async function pollJob(cam: string, id: string): Promise<JobView | null> {
