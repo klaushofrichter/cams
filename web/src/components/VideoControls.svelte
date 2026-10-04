@@ -65,6 +65,16 @@
       lightInFlight--;
     }
   }
+  // A click on quality or light in a recording does nothing but say why, on
+  // screen: a phone shows no tooltip (review of #173).
+  let noteShown = $state(false);
+  $effect(() => {
+    if (live) noteShown = false;
+  });
+  function liveOnly(action: () => void) {
+    if (live) action();
+    else noteShown = true;
+  }
   function snapshot() {
     void (live ? saveSnapshot(cameraId) : saveRecordingSnapshot(cameraId));
   }
@@ -75,6 +85,8 @@
   const muteTip = $derived($liveUi.muted ? 'Muted, click to unmute' : 'Sound on, click to mute');
   const lightTip = $derived(!live ? LIVE_ONLY : light ? 'Light is on, click to turn off' : 'Light is off, click to turn on');
   const qualityTip = $derived(!live ? LIVE_ONLY : $liveUi.quality === 'main' ? 'Switch to SD' : 'Switch to 4K');
+  const qualityName = $derived(!live ? 'Quality — only in live mode' : `Quality: ${$liveUi.quality === 'main' ? '4K, switch to SD' : 'SD, switch to 4K'}`);
+  const lightName = $derived(!live ? 'Light — only in live mode' : lightTip);
   const snapTip = $derived($liveUi.snapshotBusy ? 'Saving…' : live ? 'Save a snapshot' : 'Save this frame');
 </script>
 
@@ -84,12 +96,14 @@
     <Icon name={$liveUi.muted ? 'volumeOff' : 'volumeOn'} size={18} />
   </button>
   {#if $liveUi.hevc}
-    <button data-testid="quality-toggle" aria-pressed={$liveUi.quality === 'main'} disabled={!live} onclick={() => toggleQuality()} title={qualityTip}>
+    <button data-testid="quality-toggle" aria-pressed={$liveUi.quality === 'main'} aria-disabled={live ? undefined : 'true'} aria-describedby={live ? undefined : 'live-only-note'}
+      onclick={() => liveOnly(toggleQuality)} title={qualityTip} aria-label={qualityName}>
       {$liveUi.quality === 'main' ? '4K' : 'SD'}
     </button>
   {/if}
   {#if light !== null}
-    <button data-testid="light-toggle" aria-pressed={light} disabled={!live || lightBusy} onclick={toggleLight} title={lightTip} aria-label={lightTip}>
+    <button data-testid="light-toggle" aria-pressed={light} disabled={live && lightBusy} aria-disabled={live ? undefined : 'true'} aria-describedby={live ? undefined : 'live-only-note'}
+      onclick={() => liveOnly(toggleLight)} title={lightTip} aria-label={lightName}>
       <Icon name={light ? 'lightOn' : 'light'} size={18} />
     </button>
   {/if}
@@ -97,6 +111,8 @@
     <Icon name="camera" size={18} />
   </button>
   <button data-testid="fullscreen" onclick={fullscreen} title="Fullscreen" aria-label="Fullscreen"><Icon name="expand" size={18} /></button>
+  <!-- In a recording: what aria-describedby reads; on screen once clicked. -->
+  {#if !live}<p class="note" class:sr-only={!noteShown} id="live-only-note" data-testid="live-only-note" data-shown={noteShown} role="status">Quality and light work only in live mode.</p>{/if}
   {#if $liveUi.snapshotError}<p class="snapshot-error" data-testid="snapshot-error" role="alert">{$liveUi.snapshotError}</p>{/if}
 </section>
 
@@ -110,6 +126,10 @@
   .controls button:hover:not(:disabled) { background: color-mix(in srgb, var(--accent) 14%, var(--surface-2)); }
   .controls button[aria-pressed='true'] { border-color: var(--accent); }
   /* Disabled buttons keep their tooltip: it says why ("Only in live mode"). */
-  .controls button:disabled { opacity: 0.45; cursor: not-allowed; }
+  .controls button:disabled, .controls button[aria-disabled='true'] { opacity: 0.45; cursor: not-allowed; }
+  .controls button[aria-disabled='true']:hover { background: var(--surface-2); }
+  .note { margin: 0; width: 100%; font-size: 13px; color: var(--muted); }
+  /* After .note: its width must not undo the hiding (it overflowed the page). */
+  .note.sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
   .snapshot-error { margin: 0; width: 100%; font-size: 13px; color: var(--danger); }
 </style>

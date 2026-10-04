@@ -6,6 +6,7 @@ import StripPlayer from './StripPlayer.svelte';
 import { clipRuns, type Coverage } from '../lib/strip';
 import type { EventClip } from '../lib/recordings';
 import { currentPlayer } from '../lib/videoMode';
+import { liveUi } from '../lib/liveUi';
 import { localClock } from '../lib/clock';
 
 const T = Date.parse('2026-09-27T12:00:00-05:00');
@@ -356,6 +357,7 @@ describe('StripPlayer', () => {
 
   // The Video page (spec 2026-10-04): a badge on the player says the mode.
   it('badges live as ● LIVE, and a recording as REC with its time', () => {
+    liveUi.update((u) => ({ ...u, playerState: 'playing', stillsShowing: false, status: { id: 'den', online: true } }));
     const p = render({ glued: true, now: T + 2000, at: T }) as unknown as { glued: boolean };
     expect(q('mode-badge')!.textContent!.trim()).toBe('● LIVE');
     expect(q('mode-badge')!.dataset.mode).toBe('live');
@@ -365,11 +367,24 @@ describe('StripPlayer', () => {
     expect(q('mode-badge')!.dataset.mode).toBe('rec');
   });
 
+  // Review of #173: no LIVE before the live video plays.
+  it('does not say LIVE while connecting or offline', () => {
+    liveUi.update((u) => ({ ...u, playerState: 'connecting', stillsShowing: false, status: { id: 'den', online: true } }));
+    render({ glued: true, now: T + 2000, at: T });
+    expect(q('mode-badge')!.textContent!.trim()).toBe('Connecting…');
+    liveUi.update((u) => ({ ...u, status: { id: 'den', online: false } }));
+    flushSync();
+    expect(q('mode-badge')!.textContent!.trim()).toBe('Offline');
+    liveUi.update((u) => ({ ...u, playerState: 'playing', status: { id: 'den', online: true } }));
+    flushSync();
+    expect(q('mode-badge')!.textContent!.trim()).toBe('● LIVE');
+  });
+
   it('a click on the REC badge goes back to live; the LIVE badge is no button', () => {
     const onglue = vi.fn();
     const p = render({ onglue }) as unknown as { glued: boolean };
     expect(q('mode-badge')!.tagName).toBe('BUTTON');
-    expect(q('mode-badge')!.getAttribute('aria-label')).toBe('Back to live');
+    expect(q('mode-badge')!.getAttribute('aria-label')).toBe(`REC ${localClock(T)}, back to live`);
     q('mode-badge')!.click();
     expect(onglue).toHaveBeenCalledTimes(1);
     p.glued = true;

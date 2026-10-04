@@ -271,6 +271,28 @@ test('moving into a recording keeps the live stream for the keep-alive; ⇥ show
   expect(streams.opened.length).toBe(opened);
 });
 
+// Review of #173: with keep-alive off, a recording closes the stream at
+// once, and ⇥ opens a new one.
+test('with keep-alive off, a recording closes the stream and ⇥ opens it again', async ({ page }) => {
+  await setKeepAlive(page, 0);
+  const streams = watchStreams(page);
+  await page.goto('/app/video');
+  const video = page.locator('[data-testid="live-video"]:visible');
+  await expect.poll(() => video.evaluate((v: HTMLVideoElement) => v.readyState >= 2), { timeout: 15_000 }).toBe(true);
+  expect(streams.open()).toBe(1);
+  const opened = streams.opened.length;
+  await page.getByTestId('back-10').click();
+  await expect(page.getByTestId('mode-badge')).toHaveAttribute('data-mode', 'rec');
+  await expect.poll(() => streams.open(), { timeout: 5_000 }).toBe(0);
+  await expect(page.getByTestId('live-video')).toHaveCount(0);
+  await page.getByTestId('strip-now').click();
+  await expect(page.getByTestId('mode-badge')).toHaveAttribute('data-mode', 'live');
+  await expect.poll(() => video.evaluate((v: HTMLVideoElement) => v.readyState >= 2), { timeout: 15_000 }).toBe(true);
+  expect(streams.opened.length).toBe(opened + 1);
+  expect(streams.open()).toBe(1);
+  await setKeepAlive(page, 60); // restore, in case afterAll doesn't run
+});
+
 // Final review: the video page kept alive behind another page must not follow
 // that page's URL (a Timeline day), and the Video menu opens live again.
 test('another page’s URL doesn’t move the kept-alive live view; the Video menu is live', async ({ page }) => {

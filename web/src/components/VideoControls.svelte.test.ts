@@ -69,18 +69,42 @@ describe('VideoControls', () => {
     expect(get(liveUi).muted).toBe(false);
   });
 
-  // Spec 2026-10-04: light and quality act on the live stream only.
-  it('disables quality and light in a recording, saying "Only in live mode"', async () => {
-    lightServer();
+  // Spec 2026-10-04: light and quality act on the live stream only. Review
+  // of #173: they stay focusable (aria-disabled), keep their names, and a
+  // click says why on screen (a phone shows no tooltip).
+  it('marks quality and light "only in live mode" in a recording, still focusable', async () => {
+    const { calls } = lightServer();
     render({ mode: 'rec' });
     await vi.waitFor(() => expect(q('light-toggle')).not.toBeNull());
-    for (const id of ['quality-toggle', 'light-toggle']) {
-      expect(q(id)!.disabled, id).toBe(true);
-      expect(q(id)!.title, id).toBe('Only in live mode');
+    for (const [id, name] of [['quality-toggle', 'Quality — only in live mode'], ['light-toggle', 'Light — only in live mode']]) {
+      const b = q(id)!;
+      expect(b.disabled, id).toBe(false);
+      expect(b.getAttribute('aria-disabled'), id).toBe('true');
+      expect(b.getAttribute('aria-label'), id).toBe(name);
+      expect(b.title, id).toBe('Only in live mode');
+      expect(b.getAttribute('aria-describedby'), id).toBe('live-only-note');
     }
+    expect(q('live-only-note')!.dataset.shown).toBe('false'); // read by screen readers, not on screen yet
+    expect(q('live-only-note')!.classList.contains('sr-only')).toBe(true);
+    q('quality-toggle')!.click();
+    q('light-toggle')!.click();
+    flushSync();
+    expect(get(liveUi).quality).toBe('sub'); // nothing happened
+    expect(calls.filter((c) => c.method === 'PUT')).toEqual([]);
+    const note = q('live-only-note')!;
+    expect(note.id).toBe('live-only-note');
+    expect(note.textContent).toBe('Quality and light work only in live mode.');
+    expect(note.dataset.shown).toBe('true');
+    expect(note.classList.contains('sr-only')).toBe(false);
     expect(q('snapshot')!.disabled).toBe(false);
     expect(q('fullscreen')!.disabled).toBe(false);
     expect(q('snapshot')!.title).toBe('Save this frame');
+  });
+
+  it('names quality for screen readers in live mode too', () => {
+    render();
+    expect(q('quality-toggle')!.getAttribute('aria-label')).toBe('Quality: SD, switch to 4K');
+    expect(q('quality-toggle')!.hasAttribute('aria-disabled')).toBe(false);
   });
 
   it('enables them again back in live mode', async () => {
@@ -91,8 +115,8 @@ describe('VideoControls', () => {
     target!.remove();
     render({ mode: 'live' });
     await vi.waitFor(() => expect(q('light-toggle')).not.toBeNull());
-    expect(q('quality-toggle')!.disabled).toBe(false);
-    expect(q('light-toggle')!.disabled).toBe(false);
+    expect(q('quality-toggle')!.getAttribute('aria-disabled')).toBeNull();
+    expect(q('light-toggle')!.getAttribute('aria-disabled')).toBeNull();
     expect(q('light-toggle')!.title).toBe('Light is off, click to turn on');
   });
 

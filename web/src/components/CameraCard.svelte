@@ -41,6 +41,9 @@
       <!-- A camera without a web page (a simulated one) says why on hover. -->
       <span class="name" data-testid="camera-card-name" title={camera?.webUiNote ?? undefined}>{name}</span>
     {/if}
+    {#if status?.simulator}
+      <span class="sim" data-testid="camera-card-sim" title={`Simulated camera: ${status.simulator}`}>Simulated</span>
+    {/if}
     {#if proxyInfo}
       {#if proxyInfo.reachable && proxyInfo.webUrl}
         <a class="proxy" data-testid="camera-card-proxy" href={proxyInfo.webUrl} target="_blank" rel="noopener noreferrer" title={proxyTip}
@@ -67,6 +70,7 @@
   .head { display: flex; align-items: center; gap: 8px; min-width: 0; }
   .name { font-size: 17px; font-weight: 700; color: var(--text); text-decoration: none; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   a.name:hover { color: var(--accent); text-decoration: underline; }
+  .sim { flex: none; font-size: 11px; padding: 1px 7px; border-radius: 999px; color: var(--muted); border: 1px solid var(--border); cursor: help; }
   .proxy { margin-left: auto; flex: none; display: inline-flex; align-items: center; gap: 3px; font-size: 12px; color: var(--accent); text-decoration: none; }
   .proxy:hover { text-decoration: underline; }
   .proxy.off { color: var(--muted); cursor: help; }

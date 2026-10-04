@@ -19,7 +19,7 @@ test('/app/live lands on /app/video, live, titled Video', async ({ page }) => {
   await expect(page).toHaveURL('/app/video');
   await expect(page.getByTestId('page-title')).toHaveText('Video');
   await expect(badge(page)).toHaveAttribute('data-mode', 'live');
-  await expect(badge(page)).toHaveText('● LIVE');
+  await expect(badge(page)).toHaveText('● LIVE', { timeout: 15_000 }); // once the live video plays
 });
 
 test('an old History link lands on /app/video at the asked day and time, as a recording', async ({ page }) => {
@@ -51,19 +51,29 @@ test('scrubbing back is REC with light and quality off; ⇥ and the badge are LI
   await expect(badge(page)).toHaveAttribute('data-mode', 'rec');
   await expect(badge(page)).toHaveText(/^REC /);
   await expect(page).toHaveURL(/\/app\/video\?.*at=\d+/);
+  // Off but focusable, named, and a click says why on screen (review of #173).
   const light = page.getByTestId('light-toggle');
-  await expect(light).toBeDisabled();
+  await expect(light).toHaveAttribute('aria-disabled', 'true');
   await expect(light).toHaveAttribute('title', 'Only in live mode');
+  await expect(page.getByRole('button', { name: 'Light — only in live mode' })).toBeVisible();
   const quality = page.getByTestId('quality-toggle'); // only where the browser plays H.265
   if (await quality.count()) {
-    await expect(quality).toBeDisabled();
-    await expect(quality).toHaveAttribute('title', 'Only in live mode');
+    await expect(quality).toHaveAttribute('aria-disabled', 'true');
+    await expect(quality).toHaveAttribute('aria-label', 'Quality — only in live mode');
   }
+  await expect(page.getByTestId('live-only-note')).toHaveAttribute('data-shown', 'false');
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true); // the hidden note takes no room
+  await light.click({ force: true }); // aria-disabled: Playwright calls it not enabled, a user can still click
+  await expect(page.getByTestId('live-only-note')).toBeVisible();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+  await expect(page.getByTestId('live-only-note')).toHaveText('Quality and light work only in live mode.');
+  await expect(light).toHaveAttribute('aria-pressed', 'false'); // nothing switched
   await expect(page.getByTestId('mute-toggle')).toBeEnabled(); // sound stays
   await page.getByTestId('strip-now').click(); // ⇥
   await expect(badge(page)).toHaveAttribute('data-mode', 'live');
   await expect(page).toHaveURL(/\/app\/video$/);
-  await expect(light).toBeEnabled();
+  await expect(light).not.toHaveAttribute('aria-disabled', 'true');
+  await expect(page.getByTestId('live-only-note')).toHaveCount(0);
   await page.getByTestId('back-10').click();
   await expect(badge(page)).toHaveAttribute('data-mode', 'rec');
   await badge(page).click(); // the REC badge

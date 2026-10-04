@@ -11,7 +11,7 @@
   import { previewAt, tileStyle, type PreviewMinute } from '../lib/timeline';
   import { liveUi } from '../lib/liveUi';
   import { enterFullscreen } from '../lib/fullscreen';
-  import { modeBadge, modeOf, registerPlayer, type PlayerFrame } from '../lib/videoMode';
+  import { liveBadge, modeBadge, modeOf, registerPlayer, type PlayerFrame } from '../lib/videoMode';
 
   // History's player (spec 2026-09-27): one clock, `at`. A clip's <video>
   // drives it while a clip plays; otherwise a real-time ticker does, showing
@@ -277,7 +277,7 @@
     fullscreen: () => void enterFullscreen(boxEl, source.kind === 'clip' ? (vids[active] ?? null) : null),
   }));
   const mode = $derived(modeOf(glued));
-  const badge = $derived(modeBadge(mode, at, now));
+  const badge = $derived(mode === 'live' ? liveBadge($liveUi) : modeBadge(mode, at, now));
 
   function toggle() {
     if (source.kind === 'future') return;
@@ -356,9 +356,9 @@
     <!-- The mode (spec 2026-10-04): ● LIVE, or REC and the time; REC is a
          button back to live. -->
     {#if glued}
-      <span class="mode live" data-testid="mode-badge" data-mode="live">{badge}</span>
+      <span class="mode live" class:on={badge === '● LIVE'} data-testid="mode-badge" data-mode="live" role="status">{badge}</span>
     {:else}
-      <button class="mode rec" data-testid="mode-badge" data-mode="rec" title="Back to live" aria-label="Back to live" onclick={() => onglue?.()}>{badge}</button>
+      <button class="mode rec" data-testid="mode-badge" data-mode="rec" title="Back to live" aria-label={`${badge}, back to live`} onclick={() => onglue?.()}>{badge}</button>
     {/if}
   </div>
   <div class="controls">
@@ -412,7 +412,7 @@
     font: inherit; font-size: 12px; font-weight: 700; letter-spacing: 0.04em; font-variant-numeric: tabular-nums;
     background: var(--scrim); color: var(--on-grad);
   }
-  .mode.live { color: var(--on-grad); background: var(--danger); }
+  .mode.live.on { background: var(--danger); }
   button.mode { cursor: pointer; }
   button.mode:hover { outline: 2px solid var(--accent); }
   .live.stills { color: var(--warning-ink); }

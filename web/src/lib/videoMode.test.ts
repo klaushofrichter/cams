@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { get } from 'svelte/store';
-import { LIVE_ONLY, currentPlayer, frameBlob, modeBadge, modeOf, registerPlayer, saveRecordingSnapshot, snapshotName, type PlayerFrame } from './videoMode';
+import { LIVE_ONLY, NOTHING_TO_SAVE, currentPlayer, frameBlob, liveBadge, modeBadge, modeOf, registerPlayer, saveRecordingSnapshot, snapshotName, type PlayerFrame } from './videoMode';
 import { liveUi } from './liveUi';
 import { localClock } from './clock';
 
@@ -25,6 +25,15 @@ describe('mode', () => {
     expect(modeBadge('rec', today, now)).toBe(`REC ${localClock(today)}`);
     const yesterday = new Date(2026, 9, 3, 9, 5, 7).getTime();
     expect(modeBadge('rec', yesterday, now)).toBe(`REC Oct 3, ${localClock(yesterday)}`);
+  });
+
+  // Review of #173: the badge says LIVE only while live video plays.
+  it('badges live by what the stream does: LIVE, STILLS, Connecting…, Offline', () => {
+    expect(liveBadge({ playerState: 'playing', stillsShowing: false, status: { id: 'c', online: true } })).toBe('● LIVE');
+    expect(liveBadge({ playerState: 'connecting', stillsShowing: false, status: { id: 'c', online: true } })).toBe('Connecting…');
+    expect(liveBadge({ playerState: 'reconnecting', stillsShowing: false, status: null })).toBe('Connecting…');
+    expect(liveBadge({ playerState: 'connecting', stillsShowing: true, status: { id: 'c', online: true } })).toBe('● STILLS');
+    expect(liveBadge({ playerState: 'connecting', stillsShowing: true, status: { id: 'c', online: false } })).toBe('Offline');
   });
 
   it('explains disabled live-only controls', () => {
@@ -66,6 +75,16 @@ describe('frameBlob', () => {
     await expect(frameBlob({ kind: 'clip', video, at: 1 })).rejects.toThrow();
   });
 
+  it('cuts a preview tile from its sprite', async () => {
+    const { canvas, drawn } = fakeCanvas();
+    const img = { onload: null as null | (() => void), onerror: null, set src(_v: string) { queueMicrotask(() => this.onload?.()); } };
+    vi.stubGlobal('Image', function () { return img; } as unknown as typeof Image);
+    const blob = await frameBlob({ kind: 'tile', url: '/api/cameras/den/previews/1.jpg', sx: 320, sy: 90, w: 160, h: 90, at: 1 });
+    expect(blob.type).toBe('image/jpeg');
+    expect([canvas.width, canvas.height]).toEqual([160, 90]);
+    expect(drawn[0]).toEqual([img, 320, 90, 160, 90, 0, 0, 160, 90]);
+  });
+
   it('fetches a still as it is, and refuses an error page', async () => {
     vi.stubGlobal('fetch', async () => new Response(new Blob(['x'], { type: 'image/jpeg' }), { status: 200, headers: { 'content-type': 'image/jpeg' } }));
     expect((await frameBlob({ kind: 'still', url: '/api/cameras/den/stills/1000.jpg', at: 1000 })).type).toBe('image/jpeg');
@@ -89,16 +108,22 @@ describe('saveRecordingSnapshot', () => {
     vi.stubGlobal('fetch', async () => new Response(new Blob(['x']), { status: 200, headers: { 'content-type': 'image/jpeg' } }));
     frame = { kind: 'still', url: '/s.jpg', at: t };
     await saveRecordingSnapshot('cam1');
-    expect(names).toEqual(['cam1-rec-2026-10-04-14-03-22.jpg', 'cam1-still-2026-10-04-14-03-22.jpg']);
+    const img = { onload: null as null | (() => void), onerror: null, set src(_v: string) { queueMicrotask(() => this.onload?.()); } };
+    vi.stubGlobal('Image', function () { return img; } as unknown as typeof Image);
+    frame = { kind: 'tile', url: '/p.jpg', sx: 0, sy: 0, w: 160, h: 90, at: t + 1000 };
+    await saveRecordingSnapshot('cam1');
+    expect(names).toEqual(['cam1-rec-2026-10-04-14-03-22.jpg', 'cam1-still-2026-10-04-14-03-22.jpg', 'cam1-still-2026-10-04-14-03-23.jpg']);
     expect(get(liveUi).snapshotError).toBe('');
     stop();
     expect(currentPlayer()).toBeNull();
   });
 
-  it('says so when there is nothing to save', async () => {
+  // Review of #173: a gap ("No recording") has nothing to save; say that.
+  it('says "Nothing to save here" where nothing is shown', async () => {
     const stop = registerPlayer({ frame: () => null, fullscreen: () => {} });
     await saveRecordingSnapshot('cam1');
-    expect(get(liveUi).snapshotError).toContain("couldn't be saved");
+    expect(get(liveUi).snapshotError).toBe(NOTHING_TO_SAVE);
+    expect(NOTHING_TO_SAVE).toBe('Nothing to save here.');
     expect(get(liveUi).snapshotBusy).toBe(false);
     stop();
   });

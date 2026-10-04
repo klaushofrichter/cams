@@ -1,7 +1,7 @@
 import { get } from 'svelte/store';
 import { snapshotName, triggerDownload } from './download';
 import { apiFetch } from './api';
-import { liveUi } from './liveUi';
+import { liveUi, type LiveUi } from './liveUi';
 import { localClock } from './clock';
 import { localDate } from './recordings';
 
@@ -14,6 +14,19 @@ export const modeOf = (glued: boolean): Mode => (glued ? 'live' : 'rec');
 
 // Light and quality act on the live stream only.
 export const LIVE_ONLY = 'Only in live mode';
+
+// The snapshot where the player shows nothing (a gap, "No recording").
+export const NOTHING_TO_SAVE = 'Nothing to save here.';
+
+// The badge in live mode says what the stream does: LIVE only while live
+// video plays (review of #173), STILLS over the proxy's stills, else
+// Connecting… or Offline.
+export function liveBadge(u: Pick<LiveUi, 'playerState' | 'stillsShowing' | 'status'>): string {
+  if (u.status && !u.status.online) return 'Offline';
+  if (u.playerState === 'playing') return '● LIVE';
+  if (u.stillsShowing) return '● STILLS';
+  return 'Connecting…';
+}
 
 // The badge on the player: "● LIVE", or "REC 14:03:22" (with the day when it
 // isn't today: "REC Oct 3, 14:03:22").
@@ -98,9 +111,12 @@ export async function frameBlob(frame: PlayerFrame): Promise<Blob> {
 export async function saveRecordingSnapshot(cam: string): Promise<void> {
   if (get(liveUi).snapshotBusy) return;
   const frame = player?.frame() ?? null;
+  if (!frame) {
+    liveUi.update((u) => ({ ...u, snapshotError: NOTHING_TO_SAVE }));
+    return;
+  }
   liveUi.update((u) => ({ ...u, snapshotBusy: true, snapshotError: '' }));
   try {
-    if (!frame) throw new Error('nothing shown');
     const blob = await frameBlob(frame);
     const url = URL.createObjectURL(blob);
     triggerDownload(url, snapshotName(cam, frame.kind === 'clip' ? 'rec' : 'still', frame.at));

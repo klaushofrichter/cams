@@ -65,6 +65,18 @@ export const liveUi = writable<LiveUi>({
   snapshotError: '',
 });
 
+// What the camera is and what it streams (Settings; the Live panel said it
+// before the Video page, review of #173).
+export function cameraKind(s: CameraStatus | null): string {
+  if (!s) return '';
+  return s.simulator ? `Simulated camera (${s.simulator})` : 'Camera';
+}
+export function streamsText(s: CameraStatus | null): string {
+  const one = (label: string, x: StreamInfo | null | undefined) =>
+    x ? `${label} ${x.codec === 'h265' ? 'H.265' : 'H.264'} ${x.width}×${x.height} @${x.fps}` : null;
+  return [one('Main', s?.streams?.main), one('Sub', s?.streams?.sub)].filter(Boolean).join(' · ');
+}
+
 export function badgeOf(playerState: PlayerState, stillsShowing: boolean): string {
   return playerState === 'playing' ? '● LIVE' : stillsShowing ? '● STILLS' : '● …';
 }

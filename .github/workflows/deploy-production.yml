@@ -137,8 +137,8 @@ jobs:
           landing=$(curl -s -o /tmp/landing.html -w "%{http_code}" "$BASE/")
           [ "$landing" = "200" ] || { echo "::error::landing page returned ${landing}"; exit 1; }
           grep -q 'id="root"' /tmp/landing.html || { echo "::error::landing page HTML missing its root element"; exit 1; }
-          app=$(curl -s -o /dev/null -w "%{http_code}" "$BASE/app/live")
-          [ "$app" = "302" ] || { echo "::error::signed-out /app/live returned ${app}, expected 302 (auth not enforced?)"; exit 1; }
+          app=$(curl -s -o /dev/null -w "%{http_code}" "$BASE/app/video")
+          [ "$app" = "302" ] || { echo "::error::signed-out /app/video returned ${app}, expected 302 (auth not enforced?)"; exit 1; }
           api=$(curl -s -o /dev/null -w "%{http_code}" "$BASE/api/me")
           [ "$api" = "401" ] || { echo "::error::signed-out /api/me returned ${api}, expected 401"; exit 1; }
           {
@@ -182,7 +182,7 @@ jobs:
           printf -- '- Rollout: `ksvc/cams` reached Ready\n' >> /tmp/notes.md
           printf -- '- `GET %s/health` -> 200, reported version `%s`, matching this build\n' "$BASE" "$SERVED" >> /tmp/notes.md
           printf -- '- `GET %s/` -> %s (landing page)\n' "$BASE" "$LANDING" >> /tmp/notes.md
-          printf -- '- `GET %s/app/live` signed out -> %s (auth enforced)\n' "$BASE" "$APP" >> /tmp/notes.md
+          printf -- '- `GET %s/app/video` signed out -> %s (auth enforced)\n' "$BASE" "$APP" >> /tmp/notes.md
           printf -- '- `GET %s/api/me` signed out -> %s\n' "$BASE" "$API" >> /tmp/notes.md
           printf -- '- Checked at %s by [run %s](%s/%s/actions/runs/%s)\n' "$CHECKED_AT" "$GITHUB_RUN_ID" "$GITHUB_SERVER_URL" "$GITHUB_REPOSITORY" "$GITHUB_RUN_ID" >> /tmp/notes.md
           printf '\nImage: `ghcr.io/klaushofrichter/cams:%s`\n' "$TAG" >> /tmp/notes.md

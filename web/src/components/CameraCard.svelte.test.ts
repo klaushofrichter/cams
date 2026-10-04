@@ -124,10 +124,19 @@ describe('CameraCard', () => {
     expect(q('offline-banner')).toBeNull();
   });
 
-  it('no longer shows model, firmware, simulator or streams (Settings has them)', () => {
-    liveUi.update((u) => ({ ...u, status: { id: 'cam1', online: true, model: 'RLC-1224A', firmware: 'v3', simulator: 'cam-sim', streams: { main: null, sub: null } } }));
+  it('no longer shows model, firmware or streams (Settings has them)', () => {
+    liveUi.update((u) => ({ ...u, status: { id: 'cam1', online: true, model: 'RLC-1224A', firmware: 'v3', simulator: null, streams: { main: null, sub: null } } }));
     render();
     expect(target!.textContent).not.toContain('RLC-1224A');
-    expect(target!.textContent).not.toContain('cam-sim');
+    expect(q('camera-card-sim')).toBeNull();
+  });
+
+  // Review of #173: a simulated camera says so, its version on hover.
+  it('tags a simulated camera, with the simulator’s version', () => {
+    liveUi.update((u) => ({ ...u, status: { id: 'cam1', online: true, simulator: 'cam-sim 2026.09.29.1' } }));
+    render();
+    const tag = q('camera-card-sim')!;
+    expect(tag.textContent!.trim()).toBe('Simulated');
+    expect(tag.title).toBe('Simulated camera: cam-sim 2026.09.29.1');
   });
 });

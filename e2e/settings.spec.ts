@@ -40,6 +40,9 @@ test('settings cards load the camera state', async ({ page }) => {
   await expect(page.getByTestId('osd-name-note')).toContainText('camera name');
   await expect(page.getByTestId('device-model')).toHaveText('RLC-1224A');
   await expect(page.getByTestId('device-storage')).toContainText('of 59.6 GB used');
+  // What the Live panel said before the Video page (review of #173).
+  await expect(page.getByTestId('device-kind')).toHaveText(/^Simulated camera \(.+\)$/);
+  await expect(page.getByTestId('device-streams')).toContainText(/Main H\.26[45] \d+×\d+ @\d+ · Sub/);
 });
 
 // Klaus, 2026-09-29: the Reolink logo (Osd.watermark) is a setting, and it stays
