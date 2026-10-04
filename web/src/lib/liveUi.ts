@@ -148,18 +148,6 @@ export async function saveSnapshot(id: string): Promise<void> {
   }
 }
 
-// Fullscreen needs the live box: LiveBox registers it while it's mounted.
-let fullscreenHandler: () => void = () => {};
-export function liveFullscreen(): void {
-  fullscreenHandler();
-}
-export function registerLiveFullscreen(fn: () => void): () => void {
-  fullscreenHandler = fn;
-  return () => {
-    if (fullscreenHandler === fn) fullscreenHandler = () => {};
-  };
-}
-
 // True while the video page holds the live stream open (on screen, or kept
 // alive after leaving it): App keeps the page mounted meanwhile.
 export const liveStreamHeld = writable(false);

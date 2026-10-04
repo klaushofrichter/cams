@@ -75,7 +75,7 @@ removed; the Fullscreen button calls the player's.
 | Space | play / pause (recording only) |
 | Esc | leave fullscreen (the browser does it in element fullscreen) |
 
-Alt/Ctrl/Meta with an arrow stay the browser's. The keys are read on the
+Alt/Ctrl/Meta with a key stay the browser's. Entering fullscreen moves the focus to the overlay. The keys are read on the
 window while fullscreen is on (the focus is often still on the Fullscreen
 button in the sidebar, outside the box); the player's own key handler steps
 aside meanwhile, so nothing runs twice.
@@ -114,6 +114,8 @@ system: leave fullscreen, the notification shade).
 - Ruling: Back leaves fill-the-screen: entering it pushes a history entry with the same URL, and the router's back guard (new, `guardBack`) swallows that Back, leaves fill mode and keeps the position on screen (the entry below has an older `at`, which would otherwise jump the player back); Esc and the exit button pop the entry when it is still on top — cost if wrong: after ⇥ in fill mode a Back first leaves fill mode, then goes back normally.
 - Ruling: the viewport meta keeps no `viewport-fit=cover` — it would put the whole app under the iPhone's notch in landscape, which the rest of the layout isn't made for; in fill mode the page background turns black, so the inset strips beside the notch are black too; the overlay still adds `env(safe-area-inset-*)` so it is right if `cover` ever comes — cost if wrong: a few pixels less picture beside the notch in landscape.
 - Ruling: leaving the Video page (it stays mounted, hidden, for the live keep-alive) ends any fullscreen, as LiveBox did for live — a hidden fullscreen element would leave a black screen — cost if wrong: none known.
+- Ruling: Space is always play/pause in fullscreen, also with the focus on one of the overlay's buttons (Enter presses the button), and entering fullscreen moves the focus to the overlay — otherwise Space pressed the sidebar's Fullscreen button (where the focus stayed) or the last overlay button clicked, as video players don't — cost if wrong: a keyboard user presses a focused overlay button with Enter, not Space.
+- Ruling: the fullscreen live picture fills the screen centred (the live player's own 16:9 stage is stretched to the box in fullscreen); before, it sat at the top — cost if wrong: none known.
 - Ruling: no WebKit Playwright project — Playwright's WebKit is desktop WebKit even with an iPhone viewport and has element fullscreen, so it would not run the fill path; the phone project (Chromium, 390×844, touch) runs the fill path with the Fullscreen API stubbed away instead, plus touch gestures — cost if wrong: an iPhone-only layout or gesture problem shows up only on a real phone (see "Not verified").
 
 ## Tests
