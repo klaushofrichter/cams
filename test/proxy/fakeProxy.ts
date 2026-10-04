@@ -753,6 +753,24 @@ if (require.main === module) {
       fake.checkAnswers.set(`${b.cam}|${b.at as number}`, { summary: b.summary as FakeCheck['summary'], objects: b.objects as FakeCheck['objects'] });
       res.json({ ok: true });
     });
+    // e2e only: POST /ftp-clip {cam, start, end} adds an FTP clip (a second
+    // covered by a clip for "Save clip around this", #179 phase 3).
+    hooks.post('/ftp-clip', (req, res) => {
+      const b = req.body as { cam?: unknown; start?: unknown; end?: unknown };
+      if (typeof b.cam !== 'string' || !Number.isSafeInteger(b.start) || !Number.isSafeInteger(b.end) || (b.end as number) <= (b.start as number)) return void res.status(400).json({ error: 'cam, start and end' });
+      const id = Math.max(0, ...fake.clips.map((c) => c.id)) + 1;
+      fake.clips.push({ id, cam: b.cam, start: b.start as number, end: b.end as number, stream: 'sub', events: [], body: Buffer.alloc(16) });
+      res.json({ id });
+    });
+    // e2e only: POST /stills-clear {cam, from, to} deletes the stills in
+    // [from, to) (retention took them: nothing around a second, #179 phase 3).
+    hooks.post('/stills-clear', (req, res) => {
+      const b = req.body as { cam?: unknown; from?: unknown; to?: unknown };
+      if (typeof b.cam !== 'string' || !Number.isSafeInteger(b.from) || !Number.isSafeInteger(b.to)) return void res.status(400).json({ error: 'cam, from and to' });
+      const stills = fake.stills.get(b.cam);
+      for (const t of [...(stills?.keys() ?? [])]) if (t >= (b.from as number) && t < (b.to as number)) stills!.delete(t);
+      res.json({ ok: true });
+    });
     hooks.listen(FAKE_PROXY_PORT - 2, '127.0.0.1');
     process.stdout.write(`fake cam-proxy on ${fake.url} (test hooks on ${FAKE_PROXY_PORT - 2})\n`);
   })();
