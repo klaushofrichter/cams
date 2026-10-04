@@ -22,7 +22,7 @@ describe('the plain save limit', () => {
     for (const q of ['sub', 'main']) {
       const r = await get('20261004-070000-071001', q);
       expect(r.status).toBe(400);
-      expect(r.body).toEqual({ error: 'too_long', detail: 'At most 600 s (10:00)' });
+      expect(r.body).toEqual({ error: 'too_long', detail: 'At most 10m' });
     }
     expect((await get('20261004-235500-000600')).body).toMatchObject({ error: 'too_long' });
   });

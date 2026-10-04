@@ -259,7 +259,7 @@
     }}
     onstep={step} />
   <Strip {oldest} {pending} {coverage} events={allEvents} {visibleIds} failedIds={failed} {at} {now} currentId={current} {previews}
-    thumbFor={unavailable ? undefined : (id) => thumbUrl(cam, id)}
+    thumbFor={unavailable ? undefined : (id) => thumbUrl(cam, id, allEvents.find((e) => e.id === id)?.thumb)}
     onseek={(t) => seek(t)}
     onglue={live ? glue : playing && onlive ? () => { playing = false; onlive(); } : undefined}
     ondrag={(active) => {

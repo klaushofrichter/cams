@@ -15,7 +15,7 @@ import { PriorityGate } from './priorityGate';
 import { makeThumbnail } from './thumbnail';
 import { Semaphore } from '../reolink/semaphore';
 import { findProxyClip, findProxyStill, openProxyClip, openProxyStill } from './proxyClips';
-import { proxyDetections } from './detection';
+import { cardEvents, proxyCardEvents, thumbPlan } from './detection';
 import { RecordingError } from './errors';
 import { fallsBack, headProxyRecording, listProxyDays, listProxyDay, logProxyFailure, openProxyRecording, type ProxyRecording } from './proxyRecordings';
 import { ProxyError } from '../proxy/client';
@@ -632,10 +632,14 @@ export class RecordingsService {
       let ts: number | null = null;
       if (rule === 'detection') {
         // One event lookup; a failed one (an older or unreachable proxy) finds nothing.
-        const moments = await proxyDetections(cameraId, span.start, span.end).catch((e: Error) => {
+        const events = await proxyCardEvents(cameraId, span.start, span.end).catch((e: Error) => {
           logger.warn({ cameraId, clipId, message: e.message }, 'proxy_detection_lookup_failed');
           return [];
         });
+        // The card's own events, as the day's list gives them to cards (its counts, its version).
+        const day = (await this.day(cameraId, clipDate(clipId))).events;
+        const mine = cardEvents(day.map((e) => ({ start: Date.parse(e.start), end: Date.parse(e.end) })), events)[day.findIndex((e) => e.id === clipId)] ?? [];
+        const moments = thumbPlan(mine)?.moments ?? [];
         // A still at the second, or within 3 s after it (a gap).
         for (const m of moments) if ((ts = await findProxyStill(cameraId, m, m + DETECTION_STILL_MS))) break;
       } else {
@@ -663,8 +667,8 @@ export class RecordingsService {
   // key (<id>.det.jpg) and only when the detection rule found the still; a
   // thumbnail cached before is never served for it. null: none (yet), the
   // ordinary thumbnail is served, and the detection is tried again later.
-  private async detectionThumbnail(cameraId: string, clipId: string, key: string): Promise<string | null> {
-    const miss = `${cameraId}|${clipId}`;
+  private async detectionThumbnail(cameraId: string, clipId: string, key: string, version: string): Promise<string | null> {
+    const miss = `${cameraId}|${clipId}|${version}`;
     const at = this.detectionMisses.get(miss);
     if (at !== undefined && Date.now() - at < DETECTION_RETRY_MS() && !(await this.cache.has(key))) return null;
     try {
@@ -680,6 +684,15 @@ export class RecordingsService {
       this.detectionMisses.set(miss, now);
       return null;
     }
+  }
+
+  // The version the day's list gives a card's thumbnail: the planned one
+  // (thumbPlan), and while its detection thumbnail is missing (a lookup
+  // failed, or no still yet) a suffix that changes once per retry pause, so
+  // a page that showed the fallback asks again; it ends once one is found.
+  thumbVersion(cameraId: string, clipId: string, planned: string): string {
+    if (!this.detectionMisses.has(`${cameraId}|${clipId}|${planned}`)) return planned;
+    return `${planned}-r${Math.floor(Date.now() / Math.max(1, DETECTION_RETRY_MS()))}`;
   }
 
   // The mp4 is fetched (via withClip) only when the jpg isn't already
@@ -718,13 +731,21 @@ export class RecordingsService {
   // before thumbnail()'s fill() starts and unpinned only once `use` is
   // done, so a concurrent evict() can never remove the file while it's
   // being sent to a client.
-  async withThumbnail<T>(cameraId: string, clipId: string, use: (path: string) => Promise<T>): Promise<T> {
+  //
+  // `version`: the card's thumbnail as the day's list named it (thumbPlan,
+  // Klaus 2026-10-04): its detection thumbnail is cached under it
+  // (<id>.det-<version>.jpg), so a Vision confirmation arriving later is a
+  // new thumbnail. A retry suffix (-r…, thumbVersion) asks again, under the
+  // same key. Without one (a list from before, or the proxy's events
+  // unknown): <id>.det.jpg, as before.
+  async withThumbnail<T>(cameraId: string, clipId: string, use: (path: string) => Promise<T>, version?: string): Promise<T> {
     const span = proxyActive(cameraId) ? await this.eventSpan(cameraId, clipId).catch(() => null) : null;
     if (span && hasDetection(span.triggers)) {
-      const detKey = this.key(cameraId, clipId, 'det.jpg');
+      const planned = version?.replace(/-r\d+$/, '');
+      const detKey = this.key(cameraId, clipId, planned ? `det-${planned}.jpg` : 'det.jpg');
       this.cache.pin(detKey);
       try {
-        const path = await this.detectionThumbnail(cameraId, clipId, detKey);
+        const path = await this.detectionThumbnail(cameraId, clipId, detKey, planned ?? '');
         if (path) return await use(path);
       } finally {
         this.cache.unpin(detKey);

@@ -8,8 +8,8 @@ published as [GitHub releases](https://github.com/klaushofrichter/cams/releases)
 
 ## [Unreleased]
 
-- Save clip: a plain save (SD or 4K as recorded) is up to 600 s (a 114 s clip was refused at "At most 1:00"); a generated clip (pre-/post-roll, another size) up to 300 s, 120 s at 1080p. One module (`server/clipLimits.ts`) holds the limits and the length rule for the dialog and the server; the server checks a composition before asking the cam-proxy, and the download answers 400 `too_long` past 600 s.
-- Fixed: pre-roll -100 and post-roll 30 on a 114 s clip showed "Result: 0:44" but Generate answered "At most 60 s.". The cam-proxy applied the rolls to its own FTP copy of the recording, which can start earlier or run longer; cams now sends the recording's span with the request (needs cam-proxy with `span` support, cam-proxy PR #140).
-- Save clip: pre- and post-roll have sliders next to their fields (kept in step); each track is fixed by the clip and the limit, and a drag past what the other roll leaves is clamped, so the result never passes the limit or keeps less than 1 s of the clip. A clip longer than a plain save opens with the post-roll cutting it to 300 s at its end, with a line saying so; without a cam-proxy copy, a line says why such a clip can't be saved.
-- Save clip: lengths in seconds everywhere in the dialog ("44 s"; from a minute on "114 s (1:54)"), in the header, the result, the limit and the errors.
+- Event cards: a card holding several events of one AI type says how many, e.g. "Person 2x" (Vehicle and Pet likewise; Motion never gets a count).
+- Event cards: the thumbnail is the still of the card's first event Vision confirmed, else the second its first person, vehicle or pet event was detected (not the highest-scoring analysis); it changes when a Vision result arrives later, and a card that got the start-of-recording image because the detection still wasn't available asks again.
+- Save clip: lengths read "1m 43s", "44s", "5m" everywhere in the dialog, and the limit shows only when it matters: for a generated clip (pre-/post-roll or another size) or a recording over 10 minutes ("Result: 1m 43s · at most 5m"), not for a plain save.
+- Save clip: the pre-roll slider runs right to left (filled at the right; moving left starts earlier, right cuts), so with the post-roll slider it reads as the window around the clip. ← is an earlier start; screen readers hear "starts 30 s earlier" or "cuts 20 s".
 

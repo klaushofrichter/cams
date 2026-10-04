@@ -42,7 +42,7 @@ test('a filter set live is the recordings’ too, after a reload, and back', asy
   await side(page).getByTestId('filter-person').click();
   await expect.poll(() => eventCount(page)).toBe(1);
   await expandAllHours(page);
-  expect(await kindsOf(page)).toEqual(['Person']);
+  expect(await kindsOf(page)).toEqual(['Person 2x']); // two person events (e2e/fakeProxyData.ts)
   await expect.poll(() => saved(page)).toEqual(['person']);
 
   await page.getByTestId('back-10').click(); // a recording
@@ -66,7 +66,7 @@ test('a filter set live is the recordings’ too, after a reload, and back', asy
   await expect.poll(() => eventCount(page)).toBe(2);
   await expectChips(page, side(page), ['person', 'vehicle']);
   await expandAllHours(page);
-  expect(await kindsOf(page)).toEqual(['Vehicle', 'Person']); // newest first
+  expect(await kindsOf(page)).toEqual(['Vehicle', 'Person 2x']); // newest first
 
   // All again: every event
   await side(page).getByTestId('filter-all').click();

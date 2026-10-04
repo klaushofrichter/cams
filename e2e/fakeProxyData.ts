@@ -7,7 +7,10 @@
 // can't reach its camera. Den's vehicle recording of today (cam-sim's demo,
 // 09:30:00 camera time, America/Chicago) has a vehicle event 6 s in, with a
 // still of its own at that second (issue #157: the card's thumbnail), and its
-// motion recording (12:05:05) a still of its own 2 s in (its thumbnail). The
+// motion recording (12:05:05) a still of its own 2 s in (its thumbnail). Its
+// person recording (08:15:10) holds two person events, at 08:15:14 (analysed,
+// not confirmed by Vision) and 08:15:24, like the real 05:16:43 card of
+// 2026-10-04: "Person 2x", and the still at the first one's second. The
 // media are ffmpeg test patterns made at start-up (nothing committed).
 import { execFileSync } from 'child_process';
 import { mkdtempSync, readFileSync } from 'fs';
@@ -18,15 +21,16 @@ import type { FakeProxy } from '../test/proxy/fakeProxy';
 export const FAKE_PROXY_PORT = 8095;
 export const FAKE_PROXY_TOKEN = 'e2e-fake-proxy-token-not-a-secret-000000';
 
-function media(): { jpeg: Buffer; sprite: Buffer; mp4: Buffer; detection: Buffer; motion: Buffer } {
+function media(): { jpeg: Buffer; sprite: Buffer; mp4: Buffer; detection: Buffer; motion: Buffer; person: Buffer } {
   const dir = mkdtempSync(join(tmpdir(), 'cams-e2e-proxy-'));
   const ff = (args: string[]) => execFileSync(process.env.FFMPEG_PATH ?? 'ffmpeg', ['-v', 'error', '-y', ...args]);
   ff(['-f', 'lavfi', '-i', 'testsrc=size=896x512', '-frames:v', '1', join(dir, 'still.jpg')]);
   ff(['-f', 'lavfi', '-i', 'testsrc=size=1600x540', '-frames:v', '1', join(dir, 'sprite.jpg')]);
   ff(['-f', 'lavfi', '-i', 'smptehdbars=size=896x512', '-frames:v', '1', join(dir, 'detection.jpg')]);
   ff(['-f', 'lavfi', '-i', 'rgbtestsrc=size=896x512', '-frames:v', '1', join(dir, 'motion.jpg')]);
+  ff(['-f', 'lavfi', '-i', 'pal75bars=size=896x512', '-frames:v', '1', join(dir, 'person.jpg')]);
   ff(['-f', 'lavfi', '-i', 'testsrc=size=320x180:rate=10', '-t', '4', '-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-movflags', '+faststart', join(dir, 'clip.mp4')]);
-  return { jpeg: readFileSync(join(dir, 'still.jpg')), sprite: readFileSync(join(dir, 'sprite.jpg')), mp4: readFileSync(join(dir, 'clip.mp4')), detection: readFileSync(join(dir, 'detection.jpg')), motion: readFileSync(join(dir, 'motion.jpg')) };
+  return { jpeg: readFileSync(join(dir, 'still.jpg')), sprite: readFileSync(join(dir, 'sprite.jpg')), mp4: readFileSync(join(dir, 'clip.mp4')), detection: readFileSync(join(dir, 'detection.jpg')), motion: readFileSync(join(dir, 'motion.jpg')), person: readFileSync(join(dir, 'person.jpg')) };
 }
 
 // Unix ms of a wall-clock time in America/Chicago on `date` (YYYY-MM-DD).
@@ -40,11 +44,14 @@ export function chicagoMs(date: string, hms: string): number {
 const chicagoToday = () => new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Chicago' }).format(new Date());
 // Den's vehicle detection of today (issue #157).
 export const vehicleDetectionMs = (): number => chicagoMs(chicagoToday(), '09:30:06');
+// Den's two person events of today, in its 08:15:10 recording.
+export const personDetectionMs = (): number => chicagoMs(chicagoToday(), '08:15:14');
+export const secondPersonMs = (): number => chicagoMs(chicagoToday(), '08:15:24');
 // The still 2 s into Den's motion recording of today.
 export const motionStillMs = (): number => chicagoMs(chicagoToday(), '12:05:07');
 
 export function seed(fake: FakeProxy): { jpeg: Buffer; sprite: Buffer } {
-  const { jpeg, sprite, mp4, detection, motion } = media();
+  const { jpeg, sprite, mp4, detection, motion, person } = media();
   const now = Math.floor(Date.now() / 60_000) * 60_000;
   const stills = new Map<number, Buffer>();
   const previews = new Map<number, Buffer>();
@@ -60,7 +67,14 @@ export function seed(fake: FakeProxy): { jpeg: Buffer; sprite: Buffer } {
   const detected = vehicleDetectionMs();
   stills.set(detected, detection);
   stills.set(motionStillMs(), motion);
-  fake.events.set('cam1', [{ id: 1, kind: 'vehicle', source: 'onvif', start: detected, end: detected + 8000, endReason: 'state', analysis: null }]);
+  stills.set(personDetectionMs(), person);
+  stills.set(secondPersonMs(), jpeg);
+  const notConfirmed = { provider: 'google-vision', status: 'ok', reason: null, stillTs: personDetectionMs() + 1000, objects: [], summary: [] };
+  fake.events.set('cam1', [
+    { id: 1, kind: 'vehicle', source: 'onvif', start: detected, end: detected + 8000, endReason: 'state', analysis: null },
+    { id: 2, kind: 'person', source: 'onvif', start: personDetectionMs(), end: personDetectionMs() + 1000, endReason: 'state', analysis: notConfirmed },
+    { id: 3, kind: 'person', source: 'onvif', start: secondPersonMs(), end: secondPersonMs() + 5000, endReason: 'state', analysis: null },
+  ]);
   fake.stills.set('cam1', stills);
   // Barn: a still every 5 s from ten minutes before start-up to an hour after,
   // so the Live fallback always finds a recent one.

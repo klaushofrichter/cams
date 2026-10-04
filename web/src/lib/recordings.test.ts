@@ -59,6 +59,8 @@ describe('URL builders', () => {
   it('escapes ids and dates that contain path-breaking characters', () => {
     expect(videoUrl('cam1', '../etc/passwd')).toBe('/api/cameras/cam1/clips/..%2Fetc%2Fpasswd/video');
     expect(thumbUrl('cam1', 'a/b')).toBe('/api/cameras/cam1/clips/a%2Fb/thumb.jpg');
+    // The card's thumbnail version (which event's still): a new one is a new request.
+    expect(thumbUrl('cam1', 'a/b', 'c930')).toBe('/api/cameras/cam1/clips/a%2Fb/thumb.jpg?v=c930');
     expect(downloadUrl('cam1', '../x', 'sub')).toBe('/api/cameras/cam1/clips/..%2Fx/download?quality=sub');
   });
 });
@@ -199,5 +201,18 @@ describe('orderTriggers', () => {
     const input = ['face', 'person', 'motion', 'doorbell'];
     expect(orderTriggers(input)).toEqual(['motion', 'person', 'face', 'doorbell']);
     expect(input).toEqual(['face', 'person', 'motion', 'doorbell']);
+  });
+});
+
+// Klaus, 2026-10-04: a card with several events of one AI type says "Person 2x".
+describe('tagText', () => {
+  it('adds the count from two events of a type on, never for Motion or Scheduled', async () => {
+    const { tagText } = await import('./recordings');
+    expect(tagText('person', { person: 2 })).toBe('Person 2x');
+    expect(tagText('vehicle', { vehicle: 3, person: 2 })).toBe('Vehicle 3x');
+    expect(tagText('pet', { pet: 1 })).toBe('Pet');
+    expect(tagText('person', undefined)).toBe('Person');
+    expect(tagText('motion', { person: 2 })).toBe('Motion');
+    expect(tagText('timer', {})).toBe('Scheduled');
   });
 });

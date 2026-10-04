@@ -1,6 +1,6 @@
 // web/src/lib/compose.test.ts
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { composedName, isAvailable, presetRolls, rollRange, sliderBounds, snapRoll } from './compose';
+import { composedName, isAvailable, presetRolls, rollKeyStep, rollRange, rollValueText, sliderBounds, snapRoll } from './compose';
 
 describe('compose helpers', () => {
   it('formats file names', () => {
@@ -46,7 +46,7 @@ describe('rollRange and snapRoll', () => {
   it('presets a cut at the end only for a clip longer than a plain save', () => {
     expect(presetRolls(114)).toEqual({ preS: 0, postS: 0, note: '' });
     expect(presetRolls(600)).toEqual({ preS: 0, postS: 0, note: '' });
-    expect(presetRolls(700)).toEqual({ preS: 0, postS: -400, note: 'This recording is 700 s (11:40), longer than a save can be: the post-roll cuts it to 300 s (5:00) at its end.' });
+    expect(presetRolls(700)).toEqual({ preS: 0, postS: -400, note: 'This recording is 11m 40s, longer than a save can be: the post-roll cuts it to 5m at its end.' });
   });
 });
 
@@ -58,5 +58,27 @@ describe('isAvailable', () => {
     expect(await isAvailable('den', '20260928-140000-140020')).toBe(true);
     vi.stubGlobal('fetch', async () => new Response('{"available":false}', { status: 200 }));
     expect(await isAvailable('den', '20260928-140000-140020')).toBe(false);
+  });
+});
+
+// Klaus, 2026-10-04: the pre-roll slider runs right to left, so the two read
+// as the window around the clip: left adds pre-roll (an earlier start), right
+// cuts; the post-roll slider stays left to right.
+describe('the roll sliders’ keys and spoken values', () => {
+  it('← is an earlier start on the pre-roll, a shorter end on the post-roll', () => {
+    expect(rollKeyStep('pre', 'ArrowLeft')).toBe(1);
+    expect(rollKeyStep('pre', 'ArrowRight')).toBe(-1);
+    expect(rollKeyStep('post', 'ArrowLeft')).toBe(-1);
+    expect(rollKeyStep('post', 'ArrowRight')).toBe(1);
+    expect(rollKeyStep('pre', 'ArrowUp')).toBeNull(); // the browser's own: up adds
+    expect(rollKeyStep('pre', 'Home')).toBeNull();
+  });
+  it('says what a value does', () => {
+    expect(rollValueText('pre', 30)).toBe('starts 30 s earlier');
+    expect(rollValueText('pre', -20)).toBe('cuts 20 s');
+    expect(rollValueText('pre', 0)).toBe('no pre-roll');
+    expect(rollValueText('post', 45)).toBe('ends 45 s later');
+    expect(rollValueText('post', -1)).toBe('cuts 1 s');
+    expect(rollValueText('post', 0)).toBe('no post-roll');
   });
 });
