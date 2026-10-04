@@ -7,8 +7,8 @@
   import CameraNameCard from '../components/CameraNameCard.svelte';
   import Icon from '../components/Icon.svelte';
   import { cameras, cameraById, selectedCameraId } from '../lib/stores';
-  import { getJson } from '../lib/api';
-  import { cameraKind, streamsText, type CameraStatus } from '../lib/liveUi';
+  import { getJson, HttpError } from '../lib/api';
+  import { cameraKind, streamsText, WAITING_FOR_PROXY, type CameraStatus } from '../lib/liveUi';
   import {
     diffPatch, FIELD_LABELS, OSD_POSITIONS, postJson, putJson,
     type DetectionSettings, type DeviceInfo, type ImageSettings, type SaveResult,
@@ -102,8 +102,10 @@
         image = s.image;
         imageEdit = structuredClone(s.image);
       })
-      .catch(() => {
-        if (mine === seq) loadError = 'The camera settings could not be loaded. The camera may be offline.';
+      .catch((e: unknown) => {
+        if (mine !== seq) return;
+        // A from-proxy camera before its proxy reported the address (Pi demo kit).
+        loadError = e instanceof HttpError && e.code === 'camera_address_unknown' ? WAITING_FOR_PROXY : 'The camera settings could not be loaded. The camera may be offline.';
       });
     getJson<CameraStatus>(`/api/cameras/${encodeURIComponent(id)}/status`)
       .then((st) => {
