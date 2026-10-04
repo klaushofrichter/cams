@@ -7,7 +7,7 @@ import { resetProxyClients } from '../server/proxy/client';
 import { resetAnalysisStore } from '../server/proxy/analyses';
 import { getCheckStore, parseCheck, parseUsage, resetCheckStore } from '../server/proxy/stillChecks';
 import { proxyHub } from '../server/proxy/stream';
-import { attachAnalyses } from '../server/recordings/analysis';
+import { attachAnalyses, cardHolding } from '../server/recordings/analysis';
 import { getRecordings, type EventClip } from '../server/recordings/service';
 import { SESSION_COOKIE, signSession } from '../server/session';
 import { FAKE_TOKEN, JPEG, startFakeProxy, type FakeAnalysis, type FakeProxy } from './proxy/fakeProxy';
@@ -120,10 +120,34 @@ describe('POST /api/cameras/:id/still-checks', () => {
     expect(anon.status).toBe(401);
   });
 
-  it('limits each user to 6 a minute', async () => {
-    for (let i = 0; i < 6; i++) expect((await post({ at: AT })).status).not.toBe(429);
-    const r = await post({ at: AT });
-    expect([r.status, r.body]).toEqual([429, { error: 'rate_limited' }]);
+  describe('per-user limits', () => {
+    const OTHER = 'someone@example.com';
+    const as = (email: string) => request(app()).post('/api/cameras/den/still-checks').set('Cookie', `${SESSION_COOKIE}=${signSession(email)}`).send({ at: AT });
+    let emails: string | undefined;
+    beforeEach(() => {
+      emails = process.env.ALLOWED_EMAILS;
+      process.env.ALLOWED_EMAILS = `klaus@klaushofrichter.net,${OTHER}`;
+    });
+    afterEach(() => {
+      process.env.ALLOWED_EMAILS = emails;
+      delete process.env.RATE_LIMIT_CHECKS_PER_MIN;
+    });
+
+    it('6 a minute for each user, each with a bucket of their own', async () => {
+      for (let i = 0; i < 6; i++) expect((await post({ at: AT })).status).not.toBe(429);
+      const r = await post({ at: AT });
+      expect([r.status, r.body]).toEqual([429, { error: 'rate_limited' }]);
+      for (let i = 0; i < 6; i++) expect((await as(OTHER)).status).not.toBe(429);
+      expect((await as(OTHER)).status).toBe(429);
+    });
+
+    it('60 a day: the 61st is refused', async () => {
+      process.env.RATE_LIMIT_CHECKS_PER_MIN = '1000'; // only the day's limit counts here
+      for (let i = 0; i < 60; i++) expect((await post({ at: AT })).status).not.toBe(429);
+      const r = await post({ at: AT });
+      expect([r.status, r.body]).toEqual([429, { error: 'rate_limited' }]);
+      expect((await as(OTHER)).status).not.toBe(429);
+    });
   });
 });
 
@@ -202,6 +226,18 @@ describe('checks on the cards (confirm only)', () => {
     expect(c.analysis).toBeUndefined();
     const [m] = attachAnalyses([card(['motion'])], [], [check([])]);
     expect(m.analysis).toBeUndefined();
+  });
+
+  it('of two overlapping cards, confirms the latest that had started (a clip repeating the last one’s end)', () => {
+    const first = card(['person'], T, T + 20_000);
+    const second = { ...card(['person'], T + 16_000, T + 40_000), id: 'd' };
+    const [a, b] = attachAnalyses([first, second], [], [check([pers], T + 18_000)]);
+    expect(a.analysis).toBeUndefined();
+    expect(b.analysis?.best.person?.score).toBe(0.84);
+    const [c, d] = attachAnalyses([first, second], [], [check([pers], T + 10_000)]);
+    expect(c.analysis?.best.person?.score).toBe(0.84);
+    expect(d.analysis).toBeUndefined();
+    expect(cardHolding([{ s: 0, e: 10 }, { s: 5, e: 20 }, { s: 2, e: 30 }], 7)).toBe(1);
   });
 
   it('belongs to the card whose span holds its second, without slack; reused answers (no id) are not checks', () => {

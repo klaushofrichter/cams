@@ -107,7 +107,10 @@ analyses, and `attachAnalyses(cards, analyses, checks)`.
    recordings, not proxy events — cost if wrong: a lookup in the day's cards.
 6. Ruling: per-user limits 6 a minute and 60 a day in cams's memory, keyed by
    the signed-in e-mail — the design's numbers; the proxy's own checks cap
-   (10 a day) is the real budget stop — cost if wrong: two numbers.
+   (10 a day) is the real budget stop — cost if wrong: two numbers. They
+   live in cams's memory (the ksvc runs one replica): a restart or a rollout
+   starts them over, so they only stop a burst; cam-proxy's checks per day
+   (10) and its monthly limit are what bound the spend.
 7. Ruling: a check joins a card's analysis only when the card has one anyway
    or the check confirms one of the card's labels — a "nothing relevant"
    check on an unanalysed card adds no empty Vision state to it — cost if

@@ -56,11 +56,10 @@ export function createImageRateLimit(): RateLimitRequestHandler {
 
 // Still checks (cams #179): each may cost a Vision call. Per signed-in user,
 // 6 a minute and 60 a day (the design's numbers); the proxy's own checks cap
-// is the budget's hard stop. Overridable for the e2e suite.
-const CHECKS_PER_MIN = fromEnv('RATE_LIMIT_CHECKS_PER_MIN', 6);
-const CHECKS_PER_DAY = fromEnv('RATE_LIMIT_CHECKS_PER_DAY', 60);
+// is the budget's hard stop. In memory: a restart starts them over.
+// Overridable for the e2e suite; read per request, so tests can set them.
 export function createCheckRateLimits(): RateLimitRequestHandler[] {
-  return ([[60_000, CHECKS_PER_MIN], [86_400_000, CHECKS_PER_DAY]] as const).map(([windowMs, limit]) => {
+  return ([[60_000, () => fromEnv('RATE_LIMIT_CHECKS_PER_MIN', 6)], [86_400_000, () => fromEnv('RATE_LIMIT_CHECKS_PER_DAY', 60)]] as const).map(([windowMs, limit]) => {
     const store = new MemoryStore();
     stores.push(store);
     return rateLimit({

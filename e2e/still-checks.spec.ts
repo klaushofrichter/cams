@@ -61,6 +61,11 @@ test('check a second: the boxes, the findings, the ✧ mark and a list entry', a
   await page.getByTestId('checks-chip').click();
   await expect(page.locator(`[data-testid="checks-row"][data-ts="${s.at}"]`)).toContainText('Person 84%');
   if (SHOTS) {
+    // The Pi's budget as the design gives it (the fake allows 1000 checks a day for the suite).
+    await page.route('**/api/cameras/cam1/analytics', (r) => r.fulfill({ json: { enabled: true, paused: null, month: { calls: 14, limit: 1000 }, today: { calls: 2, cap: 30 }, checks: { today: 2, cap: 10 } } }));
+    await page.reload();
+    await expect(page.getByTestId('still-check-usage')).toHaveText('14 of 1000 this month · 2 of 10 checks today');
+    await page.getByTestId('checks-chip').click();
     const size = info.project.name === 'phone' ? 'phone' : 'desktop';
     for (const theme of ['light', 'dark'] as const) {
       await page.evaluate((t) => document.documentElement.setAttribute('data-theme', t), theme);
