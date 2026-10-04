@@ -57,7 +57,10 @@ export default defineConfig({
     // The first run pulls the image. Its log (warn and up) shows in the
     // output; SIGTERM lets e2e/realProxy.ts stop the container.
     ...(REAL_PROXY_ON ? [{ command: 'npx tsx e2e/realProxy.ts', url: `http://127.0.0.1:${REAL_PROXY.port}/health`, timeout: 300_000, reuseExistingServer: false, stdout: 'pipe' as const, gracefulShutdown: { signal: 'SIGTERM' as const, timeout: 10_000 } }] : []),
-    { command: 'npm start', port: E2E_PORT, reuseExistingServer: !process.env.CI, env: E2E_ENV },
+    // Each start begins with an empty cache (E2E_ENV.CACHE_DIR): cached thumbnails
+    // and clips never carry over from an earlier run. Not in globalSetup, which
+    // runs after the web servers have started.
+    { command: `node -e "require('fs').rmSync(process.env.CACHE_DIR, { recursive: true, force: true })" && npm start`, port: E2E_PORT, reuseExistingServer: !process.env.CI, env: E2E_ENV },
   ],
   globalSetup: require.resolve('./e2e/global-setup'),
 });
