@@ -1,6 +1,6 @@
 <script lang="ts">
   import { tick, untrack, type Snippet } from 'svelte';
-  import { orderTriggers, TRIGGER_LABELS, isAllKinds, defaultGroupOpen, formatClock, groupByHour, thumbUrl, type EventClip, type Filter } from '../lib/recordings';
+  import { orderTriggers, TRIGGER_LABELS, isAllKinds, defaultGroupOpen, formatClock, groupByHour, thumbUrl, type EventClip, type Filter, type HourGroup } from '../lib/recordings';
   import ComposeDialog from './ComposeDialog.svelte';
   import EventFilter from './EventFilter.svelte';
   import Icon from './Icon.svelte';
@@ -9,6 +9,8 @@
   import { groupPending } from '../lib/eventStream';
   import { cameraById } from '../lib/stores';
   import { localClock } from '../lib/clock';
+  import { hourOpenAtLanding } from '../lib/hourCollapse';
+  import { lazySrc } from '../lib/lazyThumbs';
 
   let {
     cameraId,
@@ -24,6 +26,7 @@
     onreveal,
     onhours,
     tools,
+    landing,
   }: {
     cameraId: string;
     events: EventClip[];
@@ -42,6 +45,10 @@
     onhours?: (anyOpen: boolean) => void;
     // Between the filter and the list: the Video page's "Collapse hours" row (spec 2026-10-04).
     tools?: Snippet;
+    // The viewer landed on a new spot (stage 2, spec 2026-10-04): a new
+    // object each time; `at` is the viewed time, null for now (live). Hours
+    // more than 6 h from it collapse then, and only then.
+    landing?: { at: number | null };
   } = $props();
 
   // Keyed by cameraId|id, not just id: a clip id is only unique within its
@@ -84,6 +91,17 @@
   // keys get a default computed for them.
   let groupOpen: Record<string, boolean> = $state({});
   const keyOf = (hour: number) => `${cameraId}|${date}|${hour}`;
+  // Hours the user opened or closed by hand this day: a landing keeps them
+  // (all but the viewed hour, which a landing always opens). Cleared with
+  // another day or camera.
+  let manual: Record<string, boolean> = {};
+  let manualDay = '';
+  let lastLanding: typeof landing = undefined;
+  let pendingLanding = false;
+  function openFor(g: HourGroup, id: string | null): boolean {
+    if (!landing) return defaultGroupOpen(g, id);
+    return hourOpenAtLanding(g, date, landing.at ?? Date.now(), id, manual[keyOf(g.hour)]);
+  }
 
   let listEl: HTMLElement | undefined = $state();
   // The id a click inside this list just selected, so the effect below can
@@ -103,27 +121,33 @@
   $effect(() => {
     const gs = groups;
     const id = selectedId;
+    const l = landing;
+    const landed = l !== lastLanding;
+    lastLanding = l;
     const changed = id !== prevSelected;
     prevSelected = id;
     const wasClicked = id !== null && id === clickedId;
     clickedId = null;
     const updates: Record<string, boolean> = {};
     untrack(() => {
+      const day = `${cameraId}|${date}`;
+      if (day !== manualDay) {
+        manualDay = day;
+        manual = {};
+      }
+      // A landing applies to every hour once the day's events are there;
+      // otherwise only hours not seen yet get a state (a refresh, scrubbing
+      // and playing never re-collapse anything).
+      if (landed && l) pendingLanding = true;
+      const applyAll = pendingLanding && gs.length > 0;
+      if (applyAll) pendingLanding = false;
       for (const g of gs) {
         const key = keyOf(g.hour);
-        if (!(key in groupOpen)) updates[key] = defaultGroupOpen(g, id);
+        if (applyAll || !(key in groupOpen)) updates[key] = openFor(g, id);
       }
-      // The selection moved (via prev/next, the timeline or a deep link) into
-      // a group that's collapsed: open it. A click inside this list can't
-      // land on a hidden card, so this only ever fires for an outside move.
-      if (changed && id) {
-        const g = gs.find((g) => g.events.some((e) => e.id === id));
-        if (g) {
-          const key = keyOf(g.hour);
-          const willBeOpen = key in updates ? updates[key] : groupOpen[key];
-          if (willBeOpen === false) updates[key] = true;
-        }
-      }
+      // A selection moving into a collapsed hour (scrubbing, playing,
+      // prev/next) no longer opens it (stage 2, spec 2026-10-04): only a
+      // landing changes what is collapsed; the hour's title marks it.
     });
     if (Object.keys(updates).length) groupOpen = { ...groupOpen, ...updates };
 
@@ -145,6 +169,12 @@
       // should scroll -- a later, now-stale one must see pendingScroll
       // already cleared and do nothing.
       if (pendingScroll !== target) return;
+      // In a collapsed hour: nothing to scroll to (its title is marked).
+      const g = groups.find((x) => x.events.some((e) => e.id === target));
+      if (g && groupOpen[keyOf(g.hour)] === false) {
+        pendingScroll = null;
+        return;
+      }
       const el = listEl?.querySelector<HTMLElement>(`[data-testid="event-card"][data-clip-id="${CSS.escape(target)}"]`);
       if (!el) return;
       scrollIntoContainer(el, el.closest('aside')); // the sidebar's own scroll area only, never the page
@@ -187,15 +217,19 @@
 
   // "Collapse hours" / "Expand hours" (Klaus, 2026-09-29). The button offers
   // "Expand hours" only when every hour is collapsed.
-  const anyOpen = $derived(groups.some((g) => groupOpen[keyOf(g.hour)] ?? defaultGroupOpen(g, selectedId)));
+  const anyOpen = $derived(groups.some((g) => groupOpen[keyOf(g.hour)] ?? openFor(g, selectedId)));
   $effect(() => onhours?.(anyOpen));
   export function setAllHours(open: boolean): void {
     groupOpen = { ...groupOpen, ...Object.fromEntries(groups.map((g) => [keyOf(g.hour), open])) };
+    for (const g of groups) manual[keyOf(g.hour)] = open;
   }
 
   function toggle(hour: number) {
     const key = keyOf(hour);
-    groupOpen = { ...groupOpen, [key]: !groupOpen[key] };
+    const g = groups.find((x) => x.hour === hour);
+    const now = groupOpen[key] ?? (g ? openFor(g, selectedId) : true);
+    manual[key] = !now;
+    groupOpen = { ...groupOpen, [key]: !now };
   }
 
   function select(e: EventClip) {
@@ -227,9 +261,9 @@
 {:else}
   <div class="groups" bind:this={listEl}>
     {#each groups as g (g.hour)}
-      {@const open = groupOpen[keyOf(g.hour)] ?? defaultGroupOpen(g, selectedId)}
+      {@const open = groupOpen[keyOf(g.hour)] ?? openFor(g, selectedId)}
       <section class="group" data-testid="hour-group" data-hour={g.hour}>
-        <button class="group-head" data-anchor={`hour-${g.hour}`} data-testid="hour-toggle" aria-expanded={open} onclick={() => toggle(g.hour)}>
+        <button class="group-head" class:holds={!open && g.events.some((e) => e.id === selectedId)} data-anchor={`hour-${g.hour}`} data-testid="hour-toggle" aria-expanded={open} onclick={() => toggle(g.hour)}>
           <span class="label">{g.label}</span>
           <span class="count" data-testid="hour-count">{g.events.length} {g.events.length === 1 ? 'event' : 'events'}</span>
         </button>
@@ -250,7 +284,7 @@
                     {#if broken.has(brokenKey(e.id))}
                       <span class="thumb placeholder" data-testid="event-thumb"></span>
                     {:else}
-                      <img class="thumb" data-testid="event-thumb" loading="lazy" alt="" src={thumbUrl(cameraId, e.id)} data-broken-key={brokenKey(e.id)} onerror={markBroken} />
+                      <img class="thumb" data-testid="event-thumb" alt="" use:lazySrc={thumbUrl(cameraId, e.id)} data-broken-key={brokenKey(e.id)} onerror={markBroken} />
                     {/if}
                     <span class="sr-only">{[formatClock(e.start), `${e.durationSec} s`, ...kinds.map((t) => TRIGGER_LABELS[t])].join(', ')}</span>
                   </button>
@@ -292,6 +326,8 @@
     color: var(--text); font-size: 12px; cursor: pointer;
   }
   .group-head .label { font-weight: 600; }
+  /* A collapsed hour holding the playing clip. */
+  .group-head.holds { border-color: var(--accent); }
   .group-head .count { color: var(--muted); }
   .list { list-style: none; margin: 6px 0 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
   /* One card: the play area and, beside it, the download button. */
