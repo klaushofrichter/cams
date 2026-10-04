@@ -75,7 +75,11 @@ export function seed(fake: FakeProxy): { jpeg: Buffer; sprite: Buffer } {
     { id: 2, kind: 'person', source: 'onvif', start: personDetectionMs(), end: personDetectionMs() + 1000, endReason: 'state', analysis: notConfirmed },
     { id: 3, kind: 'person', source: 'onvif', start: secondPersonMs(), end: secondPersonMs() + 5000, endReason: 'state', analysis: null },
   ]);
+  // Still checks (cams #179): room for every spec's checks in one run (no
+  // daily cap, 1000 checks a day).
   fake.stills.set('cam1', stills);
+  fake.analytics.today.cap = 0;
+  fake.analytics.checks.cap = 1000;
   // Barn: a still every 5 s from ten minutes before start-up to an hour after,
   // so the Live fallback always finds a recent one.
   const barn = new Map<number, Buffer>();

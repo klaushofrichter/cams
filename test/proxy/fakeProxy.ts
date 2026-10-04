@@ -1,6 +1,6 @@
 // A small stand-in for cam-proxy (github.com/klaushofrichter/cam-proxy),
 // following its openapi.yaml for the routes cams uses: the event stream,
-// clips, stills, previews, SD recordings and the camera name. Tests set its data and switches
+// clips, stills, previews, SD recordings, still checks and the camera name. Tests set its data and switches
 // directly; e2e runs it as a process (bottom of the file).
 import express, { type Response } from 'express';
 import rateLimit from 'express-rate-limit';
@@ -34,6 +34,28 @@ export interface FakeAnalysis {
   stillTs: number | null;
   summary: { category: string; subtype: string; score: number; box: FakeBox }[];
   objects: { name: string; score: number; box: FakeBox }[];
+}
+
+// A still check (cams #179, cam-proxy's still checks API): Vision on a second
+// picked by hand. `image` is the analysed JPEG, copied when it was made.
+export interface FakeCheck {
+  id: number;
+  stillTs: number;
+  provider: string;
+  summary: { category: string; subtype: string; score: number; box: FakeBox }[];
+  objects: { mid?: string; name: string; score: number; box: FakeBox }[];
+  requestedAt: number;
+  tookMs: number;
+  image: Buffer | null;
+}
+// What GET /analytics answers (the budget; `noKey`/`checksOff` say why it is off).
+export interface FakeAnalytics {
+  enabled: boolean;
+  noKey: boolean;
+  paused: { reason: 'bad_key' | 'quota'; until: number | null } | null;
+  month: { calls: number; limit: number };
+  today: { calls: number; cap: number };
+  checks: { today: number; cap: number };
 }
 
 // An SD-card recording as cam-proxy's recordings API lists it (cam-proxy spec
@@ -80,6 +102,13 @@ export interface FakeProxy {
   recordingStallAfter: number | null; // tests: a file sends its headers and this many bytes, then nothing (the connection stays open)
   recordingDelayMs: number; // tests: a file's headers wait this long (the real proxy queues downloads per camera)
   recordingFetches: string[]; // ids of the files served by GET (not HEAD)
+  checks: Map<string, FakeCheck[]>; // proxy camera id → its still checks
+  analytics: FakeAnalytics; // every camera's budget (a real proxy has one camera)
+  analyticsStatus: number | null; // tests: GET /analytics and the still-check routes answer this (404: an older proxy)
+  checkAnswers: Map<string, { summary: FakeCheck['summary']; objects: FakeCheck['objects'] }>; // `${cam}|${at}` → Vision's answer (default: nothing relevant, a ceiling fan)
+  checkFailure: { status: number; body: unknown } | null; // tests: the next new check's call fails like this (counted, nothing stored)
+  checkDelayMs: number; // tests: a new check's Vision call takes this long
+  checkCalls: number; // Vision calls made for checks
   streamConnections(): number;
   push(m: Omit<FakeMessage, 'id' | 'ts'> & { ts?: number }): FakeMessage;
   dropStreams(): void; // ends every open stream (a proxy restart)
@@ -138,6 +167,13 @@ export async function startFakeProxy(opts: { port?: number; token?: string } = {
     recordingStallAfter: null,
     recordingDelayMs: 0,
     recordingFetches: [],
+    checks: new Map(),
+    analytics: { enabled: true, noKey: false, paused: null, month: { calls: 14, limit: 1000 }, today: { calls: 2, cap: 30 }, checks: { today: 0, cap: 10 } },
+    analyticsStatus: null,
+    checkAnswers: new Map(),
+    checkFailure: null,
+    checkDelayMs: 0,
+    checkCalls: 0,
     streamConnections: () => streams.size,
     push(m) {
       const msg: FakeMessage = { id: nextId++, ts: m.ts ?? Date.now(), cam: m.cam, type: m.type, data: m.data };
@@ -358,6 +394,103 @@ export async function startFakeProxy(opts: { port?: number; token?: string } = {
     res.json({ eventId: a.eventId, provider: a.provider, status: a.status, reason: a.reason, stillTs: a.stillTs, requestedAt: a.start, tookMs: 300, objects: a.objects, summary: a.summary, raw: { secret: 'raw' } });
   });
 
+  // Still checks (cams #179), cam-proxy's contract: POST checks a second
+  // (reused when stored or analysed with its event), GET lists a range, one
+  // in full, its image; GET /analytics is the budget. The linked events are
+  // computed on every read, like the real one.
+  const checkLinks = (cam: string, ts: number, summary: { category: string }[]) =>
+    (fake.events.get(cam) ?? [])
+      .filter((e) => e.start <= ts && ts <= (e.end ?? e.start + 30 * 60_000))
+      .sort((a, b) => a.start - b.start || a.id - b.id)
+      .map((e) => ({ id: e.id, kind: e.kind, confirmed: ['person', 'vehicle', 'pet'].includes(e.kind) && summary.some((x) => x.category === e.kind) }));
+  const checkOut = (cam: string, c: FakeCheck, full: boolean) => ({
+    id: c.id,
+    stillTs: c.stillTs,
+    provider: c.provider,
+    summary: c.summary,
+    ...(full ? { objects: c.objects } : {}),
+    events: checkLinks(cam, c.stillTs, c.summary),
+    imageUrl: c.image ? `/api/cameras/${cam}/still-checks/${c.id}.jpg` : null,
+    ...(full ? { requestedAt: c.requestedAt, tookMs: c.tookMs } : {}),
+  });
+  let checkRunning: number | null = null;
+  let nextCheckId = 1;
+  app.get('/api/cameras/:cam/analytics', (req, res) => {
+    if (fake.analyticsStatus) return void res.status(fake.analyticsStatus).json({ error: 'not_found' });
+    const a = fake.analytics;
+    res.json({ enabled: a.enabled && !a.noKey, paused: a.paused, month: a.month, today: a.today, checks: a.checks });
+  });
+  app.post('/api/cameras/:cam/still-checks', express.json(), async (req, res) => {
+    if (fake.analyticsStatus) return void res.status(fake.analyticsStatus).json({ error: 'not_found' });
+    const cam = req.params.cam;
+    const at = (req.body as { at?: unknown } | undefined)?.at;
+    if (at === undefined) return void res.status(400).json({ error: 'invalid', detail: 'at (unix ms) is required' });
+    if (typeof at !== 'number' || !Number.isSafeInteger(at) || at < 0) return void res.status(400).json({ error: 'invalid', detail: 'at is a whole number (unix ms)' });
+    if (at % 1000 !== 0) return void res.status(400).json({ error: 'invalid', detail: 'at is a whole second' });
+    if (at > Date.now()) return void res.status(400).json({ error: 'invalid', detail: 'at is in the future' });
+    if (at < Date.now() - 8 * 86_400_000) return void res.status(400).json({ error: 'invalid', detail: 'at is older than the stills kept (7 days)' });
+    const stored = (fake.checks.get(cam) ?? []).find((c) => c.stillTs === at);
+    if (stored) return void res.json({ reused: true, source: 'check', check: checkOut(cam, stored, true) });
+    const auto = (fake.analyses.get(cam) ?? []).find((a) => a.stillTs === at && a.status === 'ok');
+    if (auto) {
+      return void res.json({
+        reused: true,
+        source: 'event',
+        check: { id: null, eventId: auto.eventId, stillTs: at, provider: auto.provider, summary: auto.summary, objects: auto.objects, events: checkLinks(cam, at, auto.summary), imageUrl: `/api/cameras/${cam}/events/${auto.eventId}/analysis.jpg`, requestedAt: auto.start, tookMs: 300 },
+      });
+    }
+    const a = fake.analytics;
+    if (!a.enabled || a.noKey || a.checks.cap === 0) return void res.status(409).json({ error: 'analytics_off', reason: !a.enabled ? 'off' : a.noKey ? 'no_key' : 'checks_off' });
+    const still = fake.stills.get(cam)?.get(at);
+    if (!still) return void res.status(404).json({ error: 'no_still' });
+    if (checkRunning !== null) return void res.status(429).json({ error: 'busy' });
+    if (a.paused) return void res.status(503).json({ error: 'analytics_paused', reason: a.paused.reason, until: a.paused.until });
+    if (a.month.calls >= a.month.limit) return void res.status(429).json({ error: 'limit', reason: 'month' });
+    if (a.today.cap > 0 && a.today.calls >= a.today.cap) return void res.status(429).json({ error: 'limit', reason: 'day' });
+    if (a.checks.today >= a.checks.cap) return void res.status(429).json({ error: 'limit', reason: 'checks' });
+    checkRunning = at;
+    try {
+      if (fake.checkDelayMs) await new Promise((r) => setTimeout(r, fake.checkDelayMs));
+      fake.checkCalls++;
+      a.month.calls++;
+      a.today.calls++;
+      a.checks.today++;
+      const failure = fake.checkFailure;
+      if (failure) {
+        fake.checkFailure = null;
+        return void res.status(failure.status).json(failure.body);
+      }
+      const answer = fake.checkAnswers.get(`${cam}|${at}`) ?? { summary: [], objects: [{ mid: '/m/0fan', name: 'Ceiling fan', score: 0.6, box: { x0: 0, y0: 0, x1: 0.2, y1: 0.2 } }] };
+      const check: FakeCheck = { id: nextCheckId++, stillTs: at, provider: 'google-vision', summary: answer.summary, objects: answer.objects, requestedAt: Date.now(), tookMs: 597, image: still };
+      fake.checks.set(cam, [...(fake.checks.get(cam) ?? []), check]);
+      const body = checkOut(cam, check, true);
+      fake.push({ cam, type: 'still-check', data: body });
+      res.status(201).json({ reused: false, check: body });
+    } finally {
+      checkRunning = null;
+    }
+  });
+  app.get('/api/cameras/:cam/still-checks', (req, res) => {
+    if (fake.analyticsStatus) return void res.status(fake.analyticsStatus).json({ error: 'not_found' });
+    const r = range(req.query);
+    if (!r) return void res.status(400).json({ error: 'invalid', detail: 'from and to (unix ms) are required' });
+    if (r[1] - r[0] > 31 * 86_400_000) return void res.status(400).json({ error: 'invalid', detail: 'at most 31 days per request' });
+    const cam = req.params.cam;
+    res.json((fake.checks.get(cam) ?? []).filter((c) => c.stillTs >= r[0] && c.stillTs <= r[1]).sort((a, b) => a.stillTs - b.stillTs).map((c) => checkOut(cam, c, false)));
+  });
+  app.get('/api/cameras/:cam/still-checks/:file', (req, res) => {
+    if (fake.analyticsStatus) return void res.status(fake.analyticsStatus).json({ error: 'not_found' });
+    const m = /^(\d{1,12})(\.jpg)?$/.exec(req.params.file);
+    if (!m) return void res.status(400).json({ error: 'invalid', detail: 'a check is <id>, its image <id>.jpg' });
+    const cam = req.params.cam;
+    const c = (fake.checks.get(cam) ?? []).find((x) => x.id === Number(m[1]));
+    if (!c) return void res.status(404).json({ error: 'not_found' });
+    if (!m[2]) return void res.json({ ...checkOut(cam, c, true), raw: { secret: 'raw' } });
+    if (!c.image) return void res.status(404).json({ error: 'not_found' });
+    res.type('image/jpeg').setHeader('Cache-Control', 'private, max-age=604800, immutable');
+    res.send(c.image);
+  });
+
   let inFlight = 0;
   let listsInFlight = 0;
   const images = (kind: 'stills' | 'previews') => {
@@ -555,6 +688,28 @@ if (require.main === module) {
         previews.set(minute, media.sprite);
         fake.previews.set(b.cam, previews);
       }
+      res.json({ ok: true });
+    });
+    // e2e only: POST /stills-minute {cam, minute} gives a minute one still
+    // per second and a sprite (a second to check, cams #179).
+    hooks.post('/stills-minute', (req, res) => {
+      const b = req.body as { cam?: unknown; minute?: unknown };
+      if (typeof b.cam !== 'string' || !Number.isSafeInteger(b.minute) || (b.minute as number) % 60_000 !== 0) return void res.status(400).json({ error: 'cam and minute' });
+      const minute = b.minute as number;
+      const stills = fake.stills.get(b.cam) ?? new Map<number, Buffer>();
+      for (let s = 0; s < 60; s++) if (!stills.has(minute + s * 1000)) stills.set(minute + s * 1000, media.jpeg);
+      fake.stills.set(b.cam, stills);
+      const previews = fake.previews.get(b.cam) ?? new Map<number, Buffer>();
+      previews.set(minute, media.sprite);
+      fake.previews.set(b.cam, previews);
+      res.json({ ok: true });
+    });
+    // e2e only: POST /check-answer {cam, at, summary, objects}: what Vision
+    // answers when that second is checked.
+    hooks.post('/check-answer', (req, res) => {
+      const b = req.body as { cam?: unknown; at?: unknown; summary?: unknown; objects?: unknown };
+      if (typeof b.cam !== 'string' || !Number.isSafeInteger(b.at) || !Array.isArray(b.summary) || !Array.isArray(b.objects)) return void res.status(400).json({ error: 'cam, at, summary and objects' });
+      fake.checkAnswers.set(`${b.cam}|${b.at as number}`, { summary: b.summary as FakeCheck['summary'], objects: b.objects as FakeCheck['objects'] });
       res.json({ ok: true });
     });
     hooks.listen(FAKE_PROXY_PORT - 2, '127.0.0.1');

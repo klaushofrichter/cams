@@ -58,12 +58,35 @@ describe('ProxyStream (upstream)', () => {
     await until(() => got.length === 1);
     expect(got[0].type).toBe('camera-event');
     const asks = fake.requests.filter((r) => r.path === '/api/stream').map((r) => String(r.query.types).split(','));
-    // Asked with analysis and camera (the camera's name, newer still), then
-    // without each refused type, no loop.
-    expect(asks).toHaveLength(3);
-    expect(asks[0]).toEqual(expect.arrayContaining(['analysis', 'camera']));
+    // Asked with analysis, camera (the camera's name, newer still) and
+    // still-check (cams #179), then without each refused type, no loop.
+    expect(asks).toHaveLength(4);
+    expect(asks[0]).toEqual(expect.arrayContaining(['analysis', 'camera', 'still-check']));
     expect(asks[1]).not.toContain('analysis');
-    expect(asks[2]).toEqual(['camera-event', 'camera-status', 'clip']);
+    expect(asks[3]).toEqual(['camera-event', 'camera-status', 'clip']);
+  });
+
+  it('asks for still checks, and without them from a proxy that has only analyses (cams #179)', async () => {
+    const fake = await fakeProxy();
+    fake.knownTypes = ['camera-event', 'camera-status', 'clip', 'analysis', 'camera'];
+    const { s, got } = stream(fake);
+    await until(() => s.up());
+    const asks = fake.requests.filter((r) => r.path === '/api/stream').map((r) => String(r.query.types).split(','));
+    expect(asks).toHaveLength(2);
+    expect(asks[0]).toContain('still-check');
+    expect(asks[1]).toEqual(['camera-event', 'camera-status', 'clip', 'analysis', 'camera']);
+    fake.knownTypes = null;
+    fake.push({ cam: 'den', type: 'analysis', data: { eventId: 5, kind: 'person', start: 1000, summary: [] } });
+    await until(() => got.length === 1);
+  });
+
+  it('passes on still-check messages', async () => {
+    const fake = await fakeProxy();
+    const { s, got } = stream(fake);
+    await until(() => s.up());
+    fake.push({ cam: 'den', type: 'still-check', data: { id: 17, stillTs: 5000, summary: [], events: [] } });
+    await until(() => got.length === 1);
+    expect(got[0]).toMatchObject({ type: 'still-check', data: { id: 17, stillTs: 5000 } });
   });
 
   it('asks for analyses again after a drop, in case the proxy was upgraded (issue #109)', async () => {
@@ -207,6 +230,18 @@ describe('GET /api/events/stream (to browsers)', () => {
     expect(c.frames.join('\n')).not.toContain('Fan'); // the objects stay on the server
     const got = await getAnalysisStore().forDay('den', '2026-09-30', [{ start: '2026-09-30T15:48:24-05:00', end: '2026-09-30T15:48:40-05:00' }], start);
     expect(got.map((x) => x.eventId)).toEqual([9]);
+  });
+
+  it('tells browsers about a new still check, at its second (cams #179)', async () => {
+    const fake = await fakeProxy();
+    const base = await app(fake);
+    const c = open(base, auth);
+    await until(() => c.frames.some((f) => f.includes('event: proxy') && f.includes('"up":true')));
+    fake.push({ cam: 'den', type: 'still-check', data: { id: 17, stillTs: 1791130800000, provider: 'google-vision', summary: [], objects: [{ name: 'Fan', score: 0.9 }], events: [] } });
+    await until(() => c.frames.some((f) => f.startsWith('event: change')));
+    const change = c.frames.find((f) => f.startsWith('event: change'))!;
+    expect(JSON.parse(change.split('data: ')[1])).toEqual({ cam: 'den', type: 'still-check', ts: 1791130800000 });
+    expect(c.frames.join('\n')).not.toContain('Fan');
   });
 
   async function app(fake: FakeProxy) {

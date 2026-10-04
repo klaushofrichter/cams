@@ -39,12 +39,14 @@
   const step = (d: -1 | 1) => (index = (at + d + stills.length) % stills.length);
 
   const enc = encodeURIComponent;
-  const src = $derived(still ? `/api/cameras/${enc(cameraId)}/stills/${still.stillTs}.jpg` : '');
+  // A still check's own JPEG (cams #179): it outlives the 7-day stills.
+  const src = $derived(still ? (still.checkId !== undefined ? `/api/cameras/${enc(cameraId)}/still-checks/${still.checkId}.jpg` : `/api/cameras/${enc(cameraId)}/stills/${still.stillTs}.jpg`) : '');
   const timelineHref = $derived(still ? `/app/timeline?cam=${enc(cameraId)}&date=${localDate(new Date(still.stillTs))}&t=${still.stillTs}` : '');
   const entries = $derived(still ? [...still.summary].sort((a, b) => b.score - a.score) : []);
   function loadAll(): Promise<StillObject[]> {
-    const id = still!.eventId;
-    return getJson<{ objects: StillObject[] }>(`/api/cameras/${enc(cameraId)}/analyses/${id}`).then((r) => r.objects);
+    const s = still!;
+    const path = s.checkId !== undefined ? `still-checks/${s.checkId}` : `analyses/${s.eventId}`;
+    return getJson<{ objects: StillObject[] }>(`/api/cameras/${enc(cameraId)}/${path}`).then((r) => r.objects);
   }
 
   // Focus: into the dialog on open and kept there by Tab (one stop per radio group, its checked one), and brought back
@@ -91,7 +93,7 @@
   <div class="backdrop" role="presentation" data-testid="vision-dialog-backdrop" onclick={close}></div>
   <div class="dialog" role="dialog" aria-modal="true" aria-label={`Vision: ${LABEL[category]}`} data-testid="vision-dialog" tabindex="-1" bind:this={dialogEl} onkeydown={trap}>
     <header>
-      <h2>✦ Vision · {LABEL[category]}{#if still}<span class="time">{clock(still.stillTs)}</span>{/if}</h2>
+      <h2>✦ Vision · {LABEL[category]}{#if still}<span class="time">{clock(still.stillTs)}</span>{#if still.checkId !== undefined}<span class="time" data-testid="vision-dialog-checked">✧ checked by hand</span>{/if}{/if}</h2>
       <button class="x" aria-label="Close" data-testid="vision-dialog-close" onclick={close}>✕</button>
     </header>
     {#if still}

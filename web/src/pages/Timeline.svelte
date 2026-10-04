@@ -11,6 +11,9 @@
   import { localClock, now as clockNow } from '../lib/clock';
   import type { StillObject } from '../lib/vision';
   import TimelineStill from '../components/TimelineStill.svelte';
+  import StillCheck from '../components/StillCheck.svelte';
+  import ChecksList from '../components/ChecksList.svelte';
+  import { checkedMinutes, checkSeconds, loadCheckObjects, loadChecks, loadUsage, stepCheck, withCheck, type CheckResult, type DayCheck, type UsageState } from '../lib/stillChecks';
   import {
     analysedSeconds, blankMinute, cardKind, cardsInMinute, timelineSearch, dayRange, historyHref, hourGroups, loadViewPoint, minuteIndex, minuteOf, nearestMinute, secondStamp, seenStills, shareViewPoint,
     secondKinds, splitRange, stepMinute, stepSecond, stillIndex, tileStyle, timelineCursor, type PreviewMinute, type SeenStill, type TimelineCard,
@@ -43,6 +46,18 @@
     const ts = still?.ts;
     return ts === undefined ? null : (seenStills(cards).find((x) => x.stillTs === ts) ?? null);
   });
+  // Still checks (cams #179): the day's, the budget, the list open or not, and
+  // an answer from an event's analysis (no check of its own) for the open second.
+  let checks = $state<DayCheck[]>([]);
+  let usage = $state<UsageState>({ kind: 'unknown' });
+  let showChecks = $state(false);
+  let eventAnswer = $state<DayCheck | null>(null);
+  const checkHere = $derived.by(() => {
+    const ts = still?.ts;
+    if (ts === undefined) return null;
+    return checks.find((c) => c.stillTs === ts) ?? (eventAnswer?.stillTs === ts ? eventAnswer : null);
+  });
+  const minutesChecked = $derived(checkedMinutes(checks));
   let pickMessage = $state(''); // in the minute view, next to its seconds (issue #109)
   let refreshTick = $state(0);
   let pickSeq = 0;
@@ -85,6 +100,8 @@
     ++loadSeq;
     minutes = [];
     cards = [];
+    checks = [];
+    eventAnswer = null;
     open = null;
     still = null;
     newPick(); // a still still loading for the day before is dropped
@@ -93,6 +110,7 @@
     message = 'Loading…';
     let stale = false;
     const b = base;
+    void reloadChecks(b, d, () => stale);
     fetchDay(b, d).then(
       ({ m, ev }) => {
         if (stale) return;
@@ -154,9 +172,68 @@
   $effect(() => {
     void $cameras;
     void $liveEventsOn; // follow the setting (off: no live refresh)
-    const stop = eventStream()?.watch(() => camera?.id ?? '', () => { if (date === $todayDate) refreshTick++; }, 5000);
-    return () => stop?.();
+    const stream = eventStream();
+    const stop = stream?.watch(() => camera?.id ?? '', () => { if (date === $todayDate) refreshTick++; }, 5000);
+    // A new still check, on any day (ruling 9): the day's checks and the budget.
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const stopChecks = stream?.onChange?.((c) => {
+      if (c.type !== 'still-check' || c.cam !== untrack(() => camera?.id)) return;
+      clearTimeout(timer);
+      timer = setTimeout(() => {
+        const [b, d] = untrack(() => [base, date] as const);
+        void reloadChecks(b, d);
+        void refreshUsage();
+      }, 300);
+    });
+    return () => {
+      stop?.();
+      stopChecks?.();
+      clearTimeout(timer);
+    };
   });
+
+  // The day's checks (a failed read: none shown, nothing else changes).
+  let checksSeq = 0;
+  async function reloadChecks(b: string, d: string, stale: () => boolean = () => false) {
+    const seq = ++checksSeq;
+    const [from, to] = dayRange(d);
+    try {
+      const list = await loadChecks(b, from, to);
+      if (!stale() && seq === checksSeq && b === base && d === date) checks = list;
+    } catch {
+      // the list stays as it was
+    }
+  }
+
+  // The budget for the button, per camera.
+  async function refreshUsage() {
+    const b = base;
+    const u = b ? await loadUsage(b) : ({ kind: 'unknown' } as const);
+    if (b === base) usage = u;
+  }
+  $effect(() => {
+    const cam = camera;
+    usage = { kind: 'unknown' };
+    showChecks = false;
+    if (cam?.proxy) untrack(() => void refreshUsage());
+  });
+
+  // A check made here: into the day's list (an event's answer stays with its second).
+  function onCheck(r: CheckResult) {
+    if (r.check.id === null) eventAnswer = r.check;
+    else if (localDate(new Date(r.check.stillTs)) === date) checks = withCheck(checks, r.check);
+  }
+
+  // ◀ ✧ ▶ and Shift+←/→ (ruling 3): the previous or next check of the day.
+  function stepToCheck(dir: -1 | 1) {
+    const from = still?.ts ?? (dir > 0 ? -Infinity : Infinity);
+    const c = stepCheck(checks, from, dir);
+    if (c) openCheck(c.stillTs);
+  }
+  function openCheck(ts: number) {
+    newPick();
+    void goSecond(ts);
+  }
 
   // The large still is the shared cursor: History and the Timeline continue
   // from it (Klaus, 2026-09-29).
@@ -204,11 +281,11 @@
     }
   }
 
-  function openSecond(m: PreviewMinute, i: number, seen: SeenStill | null) {
-    if (seen) {
+  function openSecond(m: PreviewMinute, i: number, seen: SeenStill | null, checked: DayCheck | null = null) {
+    if (seen || checked) {
       newPick();
       pickMessage = '';
-      still = { ts: seen.stillTs };
+      still = { ts: (seen ?? checked)!.stillTs };
       return;
     }
     void pick(m, m.minute + i * m.intervalS * 1000);
@@ -230,9 +307,18 @@
   }
   function onkey(e: KeyboardEvent) {
     // Modified keys are the browser's (Alt+← is Back); fields keep their keys.
-    if (!open || e.altKey || e.metaKey || e.ctrlKey) return;
+    if (e.altKey || e.metaKey || e.ctrlKey) return;
     const el = e.target as HTMLElement | null;
     if (el && (['INPUT', 'TEXTAREA', 'SELECT'].includes(el.tagName) || el.isContentEditable)) return;
+    // Shift+arrows: the previous or next still check of the day (cams #179,
+    // ruling 3), also before a minute is open.
+    if (e.shiftKey && (e.key === 'ArrowLeft' || e.key === 'ArrowRight')) {
+      if (!checks.length) return;
+      stepToCheck(e.key === 'ArrowLeft' ? -1 : 1);
+      e.preventDefault();
+      return;
+    }
+    if (!open) return;
     // With the large still open the arrows step its second, else the minute (issue #159).
     if (e.key === 'ArrowLeft') (still ? stepStill(-1) : step(-1));
     else if (e.key === 'ArrowRight') (still ? stepStill(1) : step(1));
@@ -415,6 +501,9 @@
   <header>
     <h1>Timeline</h1>
     <input type="date" bind:value={date} max={$todayDate} data-testid="timeline-day" aria-label="Day" />
+    {#if camera?.proxy}
+      <button class="chip" aria-pressed={showChecks} aria-expanded={showChecks} onclick={() => (showChecks = !showChecks)} data-testid="checks-chip">✧ Checks ({checks.length})</button>
+    {/if}
   </header>
 
   {#if !camera}
@@ -423,7 +512,8 @@
     <p class="muted" data-testid="timeline-no-proxy">{camera.name} has no camera gateway (cam-proxy), so there are no stills to show.</p>
   {:else}
     {#if message}<p class="muted" data-testid="timeline-message">{message}</p>{/if}
-    <p class="muted small">One tile per minute; a coloured edge marks a recording, a purple one what Vision found. Click a minute for its seconds, then a second for its still.</p>
+    <p class="muted small">One tile per minute; a coloured edge marks a recording, a purple one what Vision found (✦), a dotted purple corner a still checked by hand (✧). Click a minute for its seconds, then a second for its still.</p>
+    {#if showChecks}<ChecksList {checks} current={still?.ts ?? null} onopen={openCheck} />{/if}
     {#each hours as h (h.minutes[0].minute)}
       <div class="hour" data-testid="timeline-hour">
         <div class="label mono">{pad2(h.hour)}:00</div>
@@ -432,7 +522,7 @@
             {#each h.minutes as m (m.minute)}
               {@const info = index.get(m.minute)}
               {@const list = info?.cards ?? []}
-              <button class="tile {info?.kind ? `ev-${info.kind}` : ''}" class:active={open?.minute === m.minute} class:analysed={info?.analysed}
+              <button class="tile {info?.kind ? `ev-${info.kind}` : ''}" class:active={open?.minute === m.minute} class:analysed={info?.analysed} class:checked={minutesChecked.has(m.minute)}
                 title={clock(m.minute) + (list.length ? ` · ${list.map(labels).join(' · ')}` : '')}
                 aria-label={`${clock(m.minute)}${list.length ? `, ${list.map(labels).join('; ')}` : ''}`} aria-expanded={open?.minute === m.minute}
                 onclick={() => toggleMinute(m)} data-testid="timeline-minute" data-minute={m.minute}>
@@ -446,6 +536,7 @@
             {@const evs = index.get(m.minute)?.cards ?? cardsInMinute(m, cards)}
             {@const kinds = secondKinds(m, cards)}
             {@const seen = analysedSeconds(m, cards)}
+            {@const marks = checkSeconds(m, checks)}
             <div class="detail" data-testid="timeline-minute-view">
               <div class="bar">
                 <strong class="mono">{clock(m.minute)}</strong>
@@ -463,33 +554,43 @@
               <div class="seconds">
                 {#each m.present as ok, i (i)}
                   {@const ts = m.minute + i * m.intervalS * 1000}
-                  <button class="second {kinds[i] ? `ev-${kinds[i]}` : ''}" class:missing={!ok} class:analysed={seen[i] !== null}
+                  <button class="second {kinds[i] ? `ev-${kinds[i]}` : ''}" class:missing={!ok && !marks[i]} class:analysed={seen[i] !== null} class:checked={marks[i] !== null && !seen[i]}
                     class:active={still !== null && still.ts >= ts && still.ts < ts + m.intervalS * 1000}
-                    disabled={!ok && !seen[i]} style={tileStyle(m, i, 0.6)} title={clock(ts, true)} aria-label={`${clock(ts, true)}${seen[i] ? ', analysed by Vision' : ''}`}
-                    onclick={() => openSecond(m, i, seen[i])} data-testid="timeline-second" data-ts={ts}>{#if seen[i]}<span class="spark">✦</span>{/if}</button>
+                    disabled={!ok && !seen[i] && !marks[i]} style={tileStyle(m, i, 0.6)} title={clock(ts, true)} aria-label={`${clock(ts, true)}${seen[i] ? ', analysed by Vision' : marks[i] ? ', checked by Vision' : ''}`}
+                    onclick={() => openSecond(m, i, seen[i], marks[i])} data-testid="timeline-second" data-ts={ts}>{#if seen[i]}<span class="spark">✦</span>{:else if marks[i]}<span class="spark" data-testid="timeline-check-mark">✧</span>{/if}</button>
                 {/each}
               </div>
               {#if still}
                 {@const s = still}
+                {@const k = seenStill ? null : checkHere}
                 <div class="large" data-testid="timeline-large">
-                  {#if s.gap}
+                  {#if s.gap && !k}
                     <!-- A second without a still (an outage, issue #149): said so, and the steps go on (issue #159). -->
                     <div class="gap" style={`aspect-ratio:${m.tileW}/${m.tileH}`} data-testid="timeline-gap" role="status">
                       <span>{secondStamp(s.ts)} not available as snapshot</span>
                     </div>
                   {:else}
-                    <TimelineStill src={`${base}/stills/${s.ts}.jpg`} alt={`${camera.name} at ${clock(s.ts, true)}`} summary={seenStill?.summary ?? null} loadAll={seenStill ? loadAll(seenStill.eventId) : undefined} />
+                    {#if k}
+                      <!-- A checked second: the image Vision saw, its boxes and object list (cams #179). -->
+                      <TimelineStill src={k.imageUrl ?? `${base}/stills/${s.ts}.jpg`} alt={`${camera.name} at ${clock(s.ts, true)}, checked by Vision`} summary={k.summary} loadAll={() => loadCheckObjects(base, k)} objectList />
+                    {:else}
+                      <TimelineStill src={`${base}/stills/${s.ts}.jpg`} alt={`${camera.name} at ${clock(s.ts, true)}`} summary={seenStill?.summary ?? null} loadAll={seenStill ? loadAll(seenStill.eventId) : undefined} />
+                    {/if}
                   {/if}
                   <div class="bar">
                     <!-- One second back or forward, across minutes, hours and days (issue #159). -->
                     <button class="sec" data-testid="timeline-second-prev" title="One second back (←)" aria-label="One second back" disabled={!canStep(-1, s.ts, $clockNow.getTime() + 999)} onclick={() => stepStill(-1)}>◀ 1 s</button>
                     <span class="mono" data-testid="timeline-large-time">{clock(s.ts, true)}</span>
                     <button class="sec" data-testid="timeline-second-next" title="One second forward (→)" aria-label="One second forward" disabled={!canStep(1, s.ts, $clockNow.getTime() + 999)} onclick={() => stepStill(1)}>1 s ▶</button>
+                    <!-- The previous / next still check of the day (cams #179). -->
+                    <button class="chk" data-testid="timeline-check-prev" title="Previous check (Shift+←)" aria-label="Previous check" disabled={!stepCheck(checks, s.ts, -1)} onclick={() => stepToCheck(-1)}>◀ ✧</button>
+                    <button class="chk" data-testid="timeline-check-next" title="Next check (Shift+→)" aria-label="Next check" disabled={!stepCheck(checks, s.ts, 1)} onclick={() => stepToCheck(1)}>✧ ▶</button>
                     <span class="spacer"></span>
                     <!-- History at this second, paused, without boxes (Klaus, 2026-09-30). -->
                     <a data-testid="timeline-open-history" href={historyHref(camera.id, s.ts)}
                       onclick={(e) => { if (e.button === 0 && !e.metaKey && !e.ctrlKey && !e.shiftKey) { e.preventDefault(); navigate((e.currentTarget as HTMLAnchorElement).getAttribute('href')!); } }}>Open in Video</a>
                   </div>
+                  <StillCheck {base} ts={s.ts} gap={!!s.gap} check={k} analysed={seenStill !== null} {usage} onresult={onCheck} ondone={() => void refreshUsage()} />
                 </div>
               {/if}
             </div>
@@ -516,6 +617,11 @@
   .tile:hover, .second:hover:not(:disabled) { border-color: var(--accent); }
   .tile.active { outline: 3px solid var(--accent); outline-offset: 1px; }
   .tile.analysed { box-shadow: 0 0 0 2px var(--vision-mark); }
+  /* A minute with a still check: a dotted purple corner (cams #179). */
+  .tile.checked::after { content: ''; position: absolute; top: -2px; right: -2px; width: 14px; height: 14px; border-top: 3px dotted var(--vision-mark); border-right: 3px dotted var(--vision-mark); border-top-right-radius: 4px; pointer-events: none; }
+  .second.checked { outline: 2px dotted var(--vision-mark); outline-offset: 1px; }
+  .chip { font: inherit; font-size: 13px; color: var(--text); background: var(--surface-2); border: 1px dashed var(--vision-mark); border-radius: 999px; padding: 4px 12px; cursor: pointer; }
+  .chip[aria-pressed='true'] { background: color-mix(in srgb, var(--vision-mark) 18%, var(--surface-2)); border-style: solid; }
   .second.analysed { outline: 2px solid var(--vision-mark); outline-offset: 1px; }
   .second.active { outline: 3px solid var(--accent); outline-offset: 1px; }
   .second.missing { opacity: 0.25; }
@@ -533,10 +639,12 @@
   .gap { display: grid; place-items: center; width: min(100%, 896px); max-height: 60vh; padding: 16px; box-sizing: border-box; text-align: center; color: var(--muted); background: var(--surface-2); border: 1px dashed var(--border); border-radius: 8px; }
   .gap span { font-family: var(--mono); font-size: 14px; line-height: 1.4; }
   .bar button.sec { min-width: 64px; min-height: 36px; font-variant-numeric: tabular-nums; }
+  .bar button.chk { min-height: 36px; color: var(--vision-mark); }
   .bar button:disabled { opacity: 0.45; cursor: default; }
   .ev-motion { border-color: var(--kind-motion); } .ev-person { border-color: var(--kind-person); } .ev-vehicle { border-color: var(--kind-vehicle); } .ev-pet { border-color: var(--kind-pet); } .ev-timer { border-color: var(--muted); }
   @media (max-width: 600px) {
     .hour { grid-template-columns: 1fr; }
     .bar button.sec { min-width: 76px; min-height: 44px; }
+    .bar button.chk { min-height: 44px; }
   }
 </style>

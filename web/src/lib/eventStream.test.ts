@@ -200,6 +200,18 @@ describe('createEventStream', () => {
     expect(seen).toEqual([{ cam: 'den', kind: 'person', ts: 5 }]);
     s.close();
   });
+
+  it('hands every change to onChange listeners at once, a still check included (cams #179)', () => {
+    const s = make();
+    FakeSource.last.open();
+    const seen: unknown[] = [];
+    const stop = s.onChange((c) => seen.push(c));
+    FakeSource.last.emit('change', { cam: 'den', type: 'still-check', ts: 7000 });
+    stop();
+    FakeSource.last.emit('change', { cam: 'den', type: 'still-check', ts: 8000 });
+    expect(seen).toEqual([{ cam: 'den', type: 'still-check', ts: 7000 }]);
+    s.close();
+  });
 });
 
 
