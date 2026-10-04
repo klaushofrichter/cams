@@ -1,0 +1,33 @@
+# cams on the cam-proxy Raspberry Pi: the demo kit (docs/pi-demo.md).
+# Its own directory and compose project, next to cam-proxy's:
+#   /srv/cams/compose.yaml   this file
+#   /srv/cams/.env           COOKIE_SECRET and CAMS_LOGIN_TOKEN (mode 600)
+#   /srv/cams/cameras.json   the camera (deploy/pi/cameras.example.json; mode 600, owner uid 1000)
+#   /srv/cams/data/          preferences, the proxy switch and the clip cache (owner uid 1000)
+# Update: docker compose pull && docker compose up -d
+#
+# Host networking, like cam-proxy: cams reaches cam-proxy at
+# http://127.0.0.1:8480 and listens on the Pi's port 8080 itself
+# (http://<pi>:8080 on the LAN, http://127.0.0.1:8080 on the Pi).
+services:
+  cams:
+    image: ghcr.io/klaushofrichter/cams:${CAMS_TAG:-latest}
+    restart: unless-stopped
+    network_mode: host
+    environment:
+      PORT: "8080"
+      # Token sign-in only: no GOOGLE_* variables on the Pi.
+      CAMS_LOGIN_TOKEN: ${CAMS_LOGIN_TOKEN:?set in .env}
+      CAMS_TOKEN_USER: ${CAMS_TOKEN_USER:-local}
+      COOKIE_SECRET: ${COOKIE_SECRET:?set in .env}
+      # Plain http on the LAN: session cookies without Secure (a startup warning says so).
+      COOKIE_SECURE: "false"
+      CAMERAS_FILE: /config/cameras.json
+      PREFS_FILE: /data/preferences.json
+      PROXY_STATE_FILE: /data/proxy-state.json
+      CACHE_DIR: /data/cache
+      # 2 GiB: the SD card is shared with cam-proxy's recordings.
+      CACHE_MAX_BYTES: "2147483648"
+    volumes:
+      - ./cameras.json:/config/cameras.json:ro
+      - ./data:/data

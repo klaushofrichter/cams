@@ -1,0 +1,103 @@
+# cams on the Pi: the demo kit
+
+The cam-proxy Raspberry Pi and the camera, nothing else: cams runs on the Pi
+next to cam-proxy, and a browser on the same LAN opens `http://<pi>:8080`
+(at home `http://192.168.1.220:8080`), or the Pi's own browser
+`http://127.0.0.1:8080`. Sign-in is a **login token** instead of Google, so
+no internet and no public address are needed. Design and rulings:
+[2026-10-04-pi-deployment-design](superpowers/specs/2026-10-04-pi-deployment-design.md).
+
+The image is the same as the cluster's (`ghcr.io/klaushofrichter/cams`,
+amd64 and arm64). The cluster keeps Google sign-in and Secure cookies; the Pi
+sets these instead:
+
+| Variable | On the Pi | |
+|---|---|---|
+| `CAMS_LOGIN_TOKEN` (or `CAMS_LOGIN_TOKEN_FILE`) | required | 24+ characters; shorter refuses to start. Rotating it signs its sessions out |
+| `CAMS_TOKEN_USER` | `local` (default) | the identity of a token session (preferences are kept per identity) |
+| `COOKIE_SECRET` | required | signs the session cookie |
+| `COOKIE_SECURE` | `false` | the session cookie works over plain http; logged as `cookie_secure_off` at startup |
+| `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `GOOGLE_REDIRECT_URI`, `ALLOWED_EMAILS` | unset | without them only the token form shows |
+| `CAMERAS_FILE`, `PREFS_FILE`, `PROXY_STATE_FILE`, `CACHE_DIR`, `CACHE_MAX_BYTES` | see the compose file | |
+
+## Setup
+
+On the Pi, next to cam-proxy (`/srv/cam-proxy`), cams gets its own directory
+and compose project, so updating one never touches the other:
+
+```bash
+sudo mkdir -p /srv/cams/data && sudo chown -R 1000:1000 /srv/cams/data
+```
+
+1. **`/srv/cams/compose.yaml`**: copy [`deploy/pi/compose.cams.yaml`](../deploy/pi/compose.cams.yaml).
+   Host networking, like cam-proxy: cams reaches cam-proxy at
+   `http://127.0.0.1:8480` and listens on the Pi's port 8080 (cam-proxy uses
+   8480, 2121, the FTP passive ports and go2rtc's; 8080 is free).
+2. **`/srv/cams/.env`** (mode 600): two new random secrets, never printed:
+
+   ```bash
+   ssh <user>@<pi> 'umask 077; { echo "COOKIE_SECRET=$(openssl rand -hex 32)"; echo "CAMS_LOGIN_TOKEN=$(openssl rand -hex 16)"; } > /srv/cams/.env'
+   ```
+
+   Read the token on the Pi when you need it (`grep CAMS_LOGIN_TOKEN /srv/cams/.env`),
+   or keep it in a password manager; the browser's password manager offers to
+   save it at the first sign-in.
+3. **`/srv/cams/cameras.json`** (mode 600, owner uid 1000, the container's
+   user): start from [`deploy/pi/cameras.example.json`](../deploy/pi/cameras.example.json).
+   - `proxy.url`: `http://127.0.0.1:8480`;
+   - `proxy.token`: one of cam-proxy's `CAMPROXY_TOKENS`, and
+     `proxy.adminToken`: its `CAMPROXY_ADMIN_TOKEN` (both in
+     `/srv/cam-proxy/.env`; the admin token lets "Proxy" links sign in and
+     renames go through the proxy);
+   - `host`, `user`, `password`: the camera's LAN address and its `cams`
+     user, for what cams asks the camera directly (settings, the light,
+     reboot, and the fallback when the proxy is down). `tlsServername`
+     `cam1.skylar.technology` checks the camera's Let's Encrypt certificate
+     by name while it is reached by address.
+
+   Copy the secrets over without printing them, for example with `jq` on the
+   Pi reading `/srv/cam-proxy/.env`, or write the file locally and `scp` it.
+4. Start it:
+
+   ```bash
+   ssh <user>@<pi> 'cd /srv/cams && docker compose pull && docker compose up -d'
+   curl -s http://<pi>:8080/health     # {"status":"ok","version":"…"}
+   ```
+
+Open `http://<pi>:8080`, enter the token, and the Video page opens.
+
+## On the road
+
+Nothing in cams depends on the browser's address (there is no redirect URI,
+and the same-origin check uses the address the browser asked for), so a new
+LAN only changes addresses in two files:
+
+- **The Pi's address:** whatever the new LAN gives it. Browse to
+  `http://<new pi address>:8080`. cam-proxy's `server.publicUrl` and
+  `ftp.publicHost` (in `/srv/cam-proxy/data/config.json`) carry it too:
+  change them and recreate cam-proxy, or the "Proxy" links and the camera's
+  FTP uploads point at the old address.
+- **The camera's address:** `host` in `/srv/cams/cameras.json` and
+  `camera.host` in cam-proxy's `config.json`, then
+
+  ```bash
+  cd /srv/cams && docker compose restart
+  ```
+
+- Without internet the camera's certificate still checks (the chain is
+  verified offline), as long as it hasn't expired: the cluster's CronJob
+  renews it at home only.
+
+## Day to day
+
+| Task | Command (in `/srv/cams`) |
+|---|---|
+| Update to the newest release | `docker compose pull && docker compose up -d` |
+| Pin a release | `CAMS_TAG=v2026.10.05.1` in `.env`, then the same |
+| Restart (after editing `cameras.json` or `.env`) | `docker compose restart` (`up -d --force-recreate` after `.env`) |
+| Logs | `docker compose logs -f --tail 50` |
+| Change the token | edit `CAMS_LOGIN_TOKEN` in `.env`, `docker compose up -d --force-recreate`; every browser signs in again |
+| Stop | `docker compose down` (cam-proxy keeps running) |
+
+A token session lasts 7 days, like a Google one; then the start page asks for
+the token again and returns to the page you were on.

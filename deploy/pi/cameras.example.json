@@ -1,0 +1,16 @@
+[
+  {
+    "id": "cam1",
+    "name": "Den",
+    "host": "<camera-lan-address>",
+    "protocol": "https",
+    "tlsServername": "cam1.skylar.technology",
+    "user": "cams",
+    "password": "<the camera's cams user password>",
+    "proxy": {
+      "url": "http://127.0.0.1:8480",
+      "token": "<one of cam-proxy's CAMPROXY_TOKENS, 32+ characters>",
+      "adminToken": "<cam-proxy's CAMPROXY_ADMIN_TOKEN>"
+    }
+  }
+]
