@@ -357,7 +357,7 @@
       <button data-testid="compose-generate" disabled={starting} onclick={generate}>{starting ? 'Starting…' : ready ? 'Generate again' : 'Generate'}</button>
     {/if}
     <a data-testid="compose-save" class="primary" download onclick={onSave}
-      href={fullMissing ? undefined : plain ? (length.ok ? downloadUrl(camera, clip.id, is4k ? 'main' : 'sub') : undefined) : ready && job ? videoUrl(camera, job.id, false, name) : undefined}
+      href={fullMissing ? undefined : plain ? (length.ok ? downloadUrl(camera, clip!.id, is4k ? 'main' : 'sub') : undefined) : ready && job ? videoUrl(camera, job.id, false, name) : undefined}
       aria-disabled={!fullMissing && ((plain && length.ok) || ready) ? 'false' : 'true'}>Save</a>
   </footer>
 </div>
