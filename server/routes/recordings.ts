@@ -1,6 +1,7 @@
 import { Router, Request, Response, NextFunction } from 'express';
 import { getProxyClient } from '../proxy/client';
 import { getAnalysisStore } from '../proxy/analyses';
+import { getCheckStore } from '../proxy/stillChecks';
 import { attachAnalyses } from '../recordings/analysis';
 import { getAiEventStore } from '../proxy/aiEvents';
 import { attachAiEvents } from '../recordings/detection';
@@ -83,8 +84,8 @@ recordingsRouter.get('/api/cameras/:id/events', async (req, res, next) => {
     // and how many person, vehicle and pet events each holds (Klaus, 2026-10-04).
     let shown: typeof events = events;
     if (getProxyClient(id)) {
-      const [analyses, ai] = await Promise.all([getAnalysisStore().forDay(id, date, events), getAiEventStore().forDay(id, date, events)]);
-      shown = attachAiEvents(attachAnalyses(events, analyses), ai, (clipId, v) => rec.thumbVersion(id, clipId, v));
+      const [analyses, ai, checks] = await Promise.all([getAnalysisStore().forDay(id, date, events), getAiEventStore().forDay(id, date, events), getCheckStore().forDay(id, date, events)]);
+      shown = attachAiEvents(attachAnalyses(events, analyses, checks), ai, (clipId, v) => rec.thumbVersion(id, clipId, v));
     }
     res.json({ date, events: shown, downloads: rec.downloadsState(id) });
   } catch (err) {

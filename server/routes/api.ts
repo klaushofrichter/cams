@@ -12,6 +12,7 @@ import { eventsRouter } from './events';
 import { proxyRouter } from './proxy';
 import { composeRouter } from './compose';
 import { nameRouter } from './name';
+import { stillChecksRouter } from './stillChecks';
 
 export const apiRouter = Router();
 
@@ -33,6 +34,7 @@ apiRouter.use(eventsRouter);
 apiRouter.use(proxyRouter);
 apiRouter.use(composeRouter);
 apiRouter.use(nameRouter);
+apiRouter.use(stillChecksRouter);
 
 // Last on /api: an unknown API path is JSON, never the SPA's HTML.
 apiRouter.use('/api', (_req: Request, res: Response) => {

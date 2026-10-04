@@ -3,6 +3,7 @@ import { getRecordings } from '../recordings/service';
 import { proxyHub, proxyStates } from '../proxy/stream';
 import { nameEvents } from '../cameraRegistry';
 import '../proxy/names'; // keeps the cameras' names from their cam-proxies
+import '../proxy/stillChecks'; // drops a camera's cached checks on a new one
 
 // The cam-proxy relay to browsers (Plan 6): the proxy's events, as a hint
 // to reload through the usual APIs. No URLs or tokens travel here.
@@ -27,7 +28,7 @@ interface ProxyMessage {
 }
 
 const tsOf = (m: ProxyMessage): number | null => {
-  const v = m.data.ts ?? m.data.start;
+  const v = m.data.ts ?? m.data.start ?? m.data.stillTs;
   return typeof v === 'number' ? v : null;
 };
 
@@ -54,8 +55,10 @@ eventsRouter.get('/api/events/stream', (req: Request, res: Response) => {
   for (const s of proxyStates()) send('proxy', s);
   const onState = (s: { cam: string; up: boolean }) => send('proxy', s);
   const onMessage = (m: ProxyMessage) => {
-    // A new analysis (Vision): pages reload the day, and its cards get their badge.
-    if (m.type === 'camera-event' || m.type === 'clip' || m.type === 'reset' || m.type === 'camera-status' || m.type === 'analysis') {
+    // A new analysis (Vision): pages reload the day, and its cards get their
+    // badge. A new still check (cams #179): the Timeline's marks and list, and
+    // the cards it confirms.
+    if (m.type === 'camera-event' || m.type === 'clip' || m.type === 'reset' || m.type === 'camera-status' || m.type === 'analysis' || m.type === 'still-check') {
       // A camera event also says what (person, motion, …) and whether it
       // started or ended: the browser's live notification (Klaus, 2026-09-28).
       const extra =
