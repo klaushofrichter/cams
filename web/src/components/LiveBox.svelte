@@ -1,13 +1,12 @@
 <script lang="ts">
-  import { onDestroy, onMount } from 'svelte';
+  import { onDestroy } from 'svelte';
   import LivePlayer from './LivePlayer.svelte';
   import LiveStill from './LiveStill.svelte';
   import LiveConnecting from './LiveConnecting.svelte';
   import { cameraById } from '../lib/stores';
   import type { PlayerState } from '../lib/liveSession';
-  import { enterFullscreen } from '../lib/fullscreen';
   import { deriveStatus, liveStatus } from '../lib/liveStatus';
-  import { badgeOf, liveUi, offlineReason, registerLiveFullscreen } from '../lib/liveUi';
+  import { badgeOf, liveUi, offlineReason } from '../lib/liveUi';
 
   const UNAVAILABLE_AFTER_MS = 30_000; // Klaus, 2026-10-03: no spinner forever
 
@@ -19,7 +18,6 @@
   // whether anybody can hear it (another page or a hidden tab: no).
   let { cameraId, visible, audible, proxy }: { cameraId: string; visible: boolean; audible: boolean; proxy: boolean } = $props();
 
-  let box: HTMLDivElement | undefined = $state();
   const camera = $derived($cameraById(cameraId) ?? null);
   // Narrowed: LivePlayer restarts its stream when these change, and reading
   // the whole store in its props would restart it on every state report.
@@ -62,19 +60,9 @@
     return () => clearTimeout(t);
   });
 
-  function fullscreen() {
-    const video = box?.querySelector<HTMLVideoElement>('[data-testid="live-video"]') ?? null;
-    void enterFullscreen(box, video);
-  }
-  // Leaving the live view while it's fullscreen would leave a black
-  // fullscreen screen behind: exit it as soon as the stream is off screen.
-  $effect(() => {
-    if (!visible && box && document.fullscreenElement && box.contains(document.fullscreenElement)) {
-      void document.exitFullscreen().catch(() => {});
-    }
-  });
+  // Fullscreen is the player box's (StripPlayer), in every mode (#182): this
+  // box alone left the mode badge out.
 
-  onMount(() => registerLiveFullscreen(fullscreen));
   // Closing the stream leaves no player state behind for the Live panel.
   onDestroy(() => liveUi.update((u) => ({ ...u, playerState: 'connecting', stillsShowing: false, badge: badgeOf('connecting', false) })));
 
@@ -96,7 +84,7 @@
   onDestroy(() => liveStatus.set(deriveStatus({ mounted: false, cameraName: null, online: null, offlineReason: null, player: null })));
 </script>
 
-<div class="livebox" bind:this={box}>
+<div class="livebox">
   {#if $liveUi.status?.online}
     <!-- Muted here, not by changing `muted`, so the user's choice comes back
          once it is on screen again. -->
@@ -112,5 +100,4 @@
 
 <style>
   .livebox { position: absolute; inset: 0; background: #000; }
-  .livebox:fullscreen { background: #000; }
 </style>

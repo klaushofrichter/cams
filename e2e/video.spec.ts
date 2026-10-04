@@ -80,29 +80,26 @@ test('scrubbing back is REC with light and quality off; ⇥ and the badge are LI
     await expect(quality).toHaveAttribute('aria-disabled', 'true');
     await expect(quality).toHaveAttribute('aria-label', 'Quality — only in live mode');
   }
-  // Fullscreen too: it works for live only (Klaus, 2026-10-04).
+  // Fullscreen works in both modes (#182, e2e/fullscreen.spec.ts).
   const fullscreen = page.getByTestId('fullscreen');
-  await expect(fullscreen).toHaveAttribute('aria-disabled', 'true');
-  await expect(fullscreen).toHaveAttribute('title', 'Only in live mode');
-  await expect(page.getByRole('button', { name: 'Fullscreen — only in live mode' })).toBeVisible();
+  await expect(fullscreen).not.toHaveAttribute('aria-disabled', 'true');
+  await expect(fullscreen).toHaveAttribute('aria-label', 'Fullscreen');
   await expect(page.getByTestId('live-only-note')).toHaveAttribute('data-shown', 'false');
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true); // the hidden note takes no room
-  await fullscreen.click({ force: true });
+  await light.click({ force: true });
   await expect(page.getByTestId('live-only-note')).toBeVisible();
-  expect(await page.evaluate(() => document.fullscreenElement)).toBeNull();
   await page.getByTestId('back-1').click(); // still a recording; the note stays until live
   await expect(page.getByTestId('live-only-note')).toBeVisible();
   await light.click({ force: true }); // aria-disabled: Playwright calls it not enabled, a user can still click
   await expect(page.getByTestId('live-only-note')).toBeVisible();
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
-  await expect(page.getByTestId('live-only-note')).toHaveText('Quality, light and fullscreen work only in live mode.');
+  await expect(page.getByTestId('live-only-note')).toHaveText('Quality and light work only in live mode.');
   await expect(light).toHaveAttribute('aria-pressed', 'false'); // nothing switched
   await expect(page.getByTestId('mute-toggle')).toBeEnabled(); // sound stays
   await page.getByTestId('strip-now').click(); // ⇥
   await expect(badge(page)).toHaveAttribute('data-mode', 'live');
   await expect(page).toHaveURL(/\/app\/video$/);
   await expect(light).not.toHaveAttribute('aria-disabled', 'true');
-  await expect(fullscreen).not.toHaveAttribute('aria-disabled', 'true');
   await expect(fullscreen).toHaveAttribute('aria-label', 'Fullscreen');
   await expect(page.getByTestId('live-only-note')).toHaveCount(0);
   await page.getByTestId('back-10').click();
