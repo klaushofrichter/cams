@@ -10,7 +10,7 @@
   import { cameras, cameraById, selectedCameraId } from '../lib/stores';
   import { VIDEO_PATH, navigate, replaceRoute, route } from '../lib/router';
   import { getJson } from '../lib/api';
-  import { loadDay, sourceLabel, type Downloads } from '../lib/dayCache';
+  import { loadDay, onDayInvalidated, sourceLabel, type Downloads } from '../lib/dayCache';
   import { clipStartFromId } from '../lib/strip';
   import {
     addDays, cursorSearch, daysUrl, filterEvents, loadCursor, localDate,
@@ -61,6 +61,7 @@
     if (recheckTimer) clearTimeout(recheckTimer);
   });
   let eventsRequest = 0;
+  let rawEvents: EventClip[] | null = null; // the cache's array behind `events`
   let refreshTick = $state(0);
   let updatedAt: Date | null = $state(null);
   let lastKey = '';
@@ -463,7 +464,10 @@
     Promise.all([loadDay(c, d, { force: isRefresh }), getJson<{ days: string[] }>(daysUrl(c, month)), neighbours])
       .then(([e, d0, nb]) => {
         if (seq !== eventsRequest) return;
-        events = e.events;
+        // A refresh that changed nothing keeps the list as it is (no redraw
+        // of the list or the strip under a drag).
+        if (!isRefresh || e.events !== rawEvents) events = e.events;
+        rawEvents = e.events;
         eventsFor = key;
         downloads = e.downloads;
         days = [...new Set([...d0.days, ...nb])].sort();
@@ -502,6 +506,29 @@
     return () => {
       r.stop();
       stopWatch?.();
+    };
+  });
+
+  // A new analysis or still check of the day shown, past days too (Klaus,
+  // 2026-10-04): reload it in place (debounced), so its cards get their
+  // Vision badge and thumbnail; the selection and scroll stay. While a load
+  // is in flight, after it.
+  $effect(() => {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const fire = () => {
+      clearTimeout(timer);
+      timer = setTimeout(() => {
+        if (loading) fire();
+        else refreshTick++;
+      }, 1000);
+    };
+    // Today reloads on every change of the camera already (the watch above).
+    const off = onDayInvalidated((c, d) => {
+      if (c === untrack(() => cam) && d === untrack(() => date) && d !== $todayDate) fire();
+    });
+    return () => {
+      off();
+      clearTimeout(timer);
     };
   });
 
