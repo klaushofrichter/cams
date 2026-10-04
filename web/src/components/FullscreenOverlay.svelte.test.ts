@@ -19,19 +19,31 @@ afterEach(() => {
   component = target = undefined;
   vi.useRealTimers();
 });
-function render(extra: Record<string, unknown> = {}) {
+// The page around the player: a sidebar and the strip beside the box.
+let page: HTMLDivElement | undefined;
+afterEach(() => {
+  page?.remove();
+  page = undefined;
+});
+function render(extra: Record<string, unknown> = {}, inPage = false) {
   const acts: FsAction[] = [];
   const props = $state({
-    mode: 'rec' as Mode, playing: false, kind: 'element' as 'element' | 'fill',
+    mode: 'rec' as Mode, playing: false, kind: 'element' as 'element' | 'fill', canPrev: true, canNext: true,
     onaction: vi.fn((a: FsAction) => { acts.push(a); return true; }), onlive: vi.fn(), onexit: vi.fn(), ...extra,
   });
   target = document.createElement('div');
-  document.body.appendChild(target);
+  if (inPage) {
+    page = document.createElement('div');
+    page.innerHTML = '<aside><button data-testid="outside">Fullscreen</button><div data-testid="was-inert" inert></div></aside><div class="player"><div class="strip"><button data-testid="strip-btn">x</button></div></div>';
+    page.querySelector('.player')!.prepend(target);
+    document.body.appendChild(page);
+    (page.querySelector('[data-testid="outside"]') as HTMLElement).focus();
+  } else document.body.appendChild(target);
   component = mount(FullscreenOverlay, { target, props });
   flushSync();
   return { props, acts };
 }
-const q = (id: string) => target!.querySelector(`[data-testid="${id}"]`) as HTMLButtonElement | null;
+const q = (id: string) => (page ?? target!).querySelector(`[data-testid="${id}"]`) as HTMLButtonElement | null;
 const shown = () => q('fs-overlay')!.dataset.shown;
 const tick = (ms: number) => {
   vi.advanceTimersByTime(ms);
@@ -116,7 +128,7 @@ describe('FullscreenOverlay', () => {
     expect(shown()).toBe('true');
     expect(q('fs-hint')!.textContent).toBe('+10 s');
     tick(800);
-    expect(q('fs-hint')).toBeNull();
+    expect(q('fs-hint')!.textContent).toBe('');
   });
 
   it('touch: the first tap while hidden only shows the controls; then the thirds act', () => {
@@ -159,5 +171,83 @@ describe('FullscreenOverlay', () => {
     stroke(layer, 100, 100, 80, 'mouse');
     expect(acts).toEqual([{ kind: 'toggle' }]);
     expect(q('fs-hint')!.textContent).toBe('▶');
+  });
+
+  // Review of #185.
+  it('takes the focus, and gives it back on leaving', () => {
+    render({}, true);
+    expect(document.activeElement).toBe(q('fs-overlay'));
+    unmount(component!);
+    component = undefined;
+    expect(document.activeElement).toBe(q('outside'));
+  });
+
+  it('makes the page outside the player box inert while fullscreen, and only that', () => {
+    render({}, true);
+    expect(q('outside')!.closest('aside')!.hasAttribute('inert')).toBe(true);
+    expect(q('strip-btn')!.closest('.strip')!.hasAttribute('inert')).toBe(true);
+    expect(target!.hasAttribute('inert')).toBe(false);
+    expect(target!.closest('.player')!.hasAttribute('inert')).toBe(false);
+    unmount(component!);
+    component = undefined;
+    expect(q('outside')!.closest('aside')!.hasAttribute('inert')).toBe(false);
+    expect(q('strip-btn')!.closest('.strip')!.hasAttribute('inert')).toBe(false);
+    expect(q('was-inert')!.hasAttribute('inert')).toBe(true); // inert before: stays so
+  });
+
+  it('one action per key: a key aimed outside the box is not the overlay\'s', () => {
+    const { acts } = render({}, true);
+    q('strip-btn')!.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true, cancelable: true }));
+    flushSync();
+    expect(acts).toEqual([]);
+    q('fs-overlay')!.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true, cancelable: true }));
+    flushSync();
+    expect(acts).toEqual([{ kind: 'skip', ms: 10_000 }]);
+  });
+
+  it('keeps the hint\'s live region mounted, so each hint is announced', () => {
+    render();
+    const region = q('fs-hint')!;
+    expect(region.getAttribute('role')).toBe('status');
+    expect(region.textContent).toBe('');
+    key('ArrowLeft');
+    expect(q('fs-hint')).toBe(region);
+    expect(region.textContent).toBe('−10 s');
+    tick(800);
+    expect(q('fs-hint')).toBe(region);
+    expect(region.textContent).toBe('');
+  });
+
+  it('turns ⏮ / ⏭ off at the first / last event, and no hint where nothing jumped', () => {
+    const { props } = render({ canPrev: false, canNext: true, onaction: vi.fn(() => false) });
+    expect(q('fs-prev-event')!.disabled).toBe(true);
+    expect(q('fs-next-event')!.disabled).toBe(false);
+    key(']');
+    expect(props.onaction).toHaveBeenCalledWith({ kind: 'event', dir: 1 });
+    expect(q('fs-hint')!.textContent).toBe('');
+    props.canPrev = true;
+    props.canNext = false;
+    flushSync();
+    expect(q('fs-prev-event')!.disabled).toBe(false);
+    expect(q('fs-next-event')!.disabled).toBe(true);
+  });
+
+  it('Tab goes round inside the player box', () => {
+    render({ mode: 'live' }, true);
+    const tab = (shiftKey = false) => {
+      const e = new KeyboardEvent('keydown', { key: 'Tab', shiftKey, bubbles: true, cancelable: true });
+      (document.activeElement ?? window).dispatchEvent(e);
+      flushSync();
+      return e.defaultPrevented;
+    };
+    expect(tab()).toBe(true); // from the overlay itself: the first button
+    expect(document.activeElement).toBe(q('fs-prev-event'));
+    q('fs-exit')!.focus();
+    expect(tab()).toBe(true); // the last: round to the first
+    expect(document.activeElement).toBe(q('fs-prev-event'));
+    expect(tab(true)).toBe(true); // and back
+    expect(document.activeElement).toBe(q('fs-exit'));
+    q('fs-back-10')!.focus();
+    expect(tab()).toBe(false); // in between: the browser's own Tab
   });
 });

@@ -68,7 +68,10 @@ function listen() {
   // The browser's own exit (Esc, Android's Back) ends element fullscreen.
   const onChange = () => {
     const d = document as Document & { webkitFullscreenElement?: Element | null };
-    if (!(document.fullscreenElement ?? d.webkitFullscreenElement) && get(state) === 'element') state.set('off');
+    if (!(document.fullscreenElement ?? d.webkitFullscreenElement) && get(state) === 'element') {
+      state.set('off');
+      restoreFocus();
+    }
   };
   document.addEventListener('fullscreenchange', onChange);
   document.addEventListener('webkitfullscreenchange', onChange);
@@ -93,12 +96,31 @@ function enterFill() {
 function leaveFill() {
   document.documentElement.classList.remove(FILL_CLASS);
   state.set('off');
+  restoreFocus();
   stopGuard?.();
   stopGuard = null;
 }
 
+// Where the focus was when fullscreen was asked for (the Fullscreen
+// button): given back once fullscreen has ended (review of #185). Not
+// before: while an element is fullscreen the browser won't focus anything
+// outside it.
+let focusBefore: Element | null = null;
+export function focusBeforeFullscreen(): Element | null {
+  return focusBefore;
+}
+function restoreFocus() {
+  const el = focusBefore;
+  focusBefore = null;
+  // After the overlay is gone (it un-inerts the page) and the browser has left fullscreen.
+  setTimeout(() => {
+    if (el instanceof HTMLElement && el.isConnected && document.activeElement !== el) el.focus({ preventScroll: true });
+  }, 0);
+}
+
 export async function enterPlayerFullscreen(el: HTMLElement): Promise<'element' | 'fill'> {
   if (get(state) !== 'off') return get(state) as 'element' | 'fill';
+  focusBefore = document.activeElement;
   listen();
   if (canElementFullscreen(el)) {
     const e = el as FsElement;
@@ -119,7 +141,8 @@ export function exitPlayerFullscreen(): void {
   const s = get(state);
   if (s === 'element') {
     state.set('off');
-    if (document.fullscreenElement) void document.exitFullscreen().catch(() => {});
+    if (document.fullscreenElement) void document.exitFullscreen().then(restoreFocus, restoreFocus);
+    else restoreFocus();
   } else if (s === 'fill') {
     const ours = !!(history.state as { cvFill?: boolean } | null)?.cvFill;
     if (ours) {

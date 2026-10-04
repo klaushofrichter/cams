@@ -2,7 +2,7 @@
 <script lang="ts">
   import { onDestroy, onMount } from 'svelte';
   import Icon from './Icon.svelte';
-  import { fsKey, hintFor, type FsAction } from '../lib/playerFullscreen';
+  import { focusBeforeFullscreen, fsKey, hintFor, type FsAction } from '../lib/playerFullscreen';
   import { classifyStroke, gestureAction } from '../lib/gestures';
   import type { Mode } from '../lib/videoMode';
 
@@ -11,11 +11,13 @@
   // input, the keys, the phone gestures and a short hint. Mounted only while
   // the player is fullscreen; the player does what `onaction` asks and says
   // whether it did anything (nothing after now in live).
-  let { mode, playing, kind, canPlay = true, onaction, onlive, onexit }: {
+  let { mode, playing, kind, canPlay = true, canPrev = true, canNext = true, onaction, onlive, onexit }: {
     mode: Mode;
     playing: boolean;
     kind: 'element' | 'fill';
     canPlay?: boolean; // false: "Later than now", nothing to play
+    canPrev?: boolean; // false: at the first (shown) event
+    canNext?: boolean; // false: at the last (shown) event
     onaction: (a: FsAction) => boolean;
     onlive: () => void;
     onexit: () => void;
@@ -35,9 +37,29 @@
   show();
 
   // The focus comes along (it was on the sidebar's Fullscreen button, where
-  // Space would press that button instead of playing).
+  // Space would press that button instead of playing), and goes back there
+  // on leaving. Meanwhile everything outside the player box is inert: Tab
+  // stays inside, and no other key handler (the strip's ←/→) runs as well
+  // (review of #185). Elements already inert stay so.
   let root: HTMLDivElement | undefined = $state();
-  onMount(() => root?.focus({ preventScroll: true }));
+  let madeInert: Element[] = [];
+  onMount(() => {
+    const before = focusBeforeFullscreen() ?? document.activeElement;
+    const box = root?.parentElement;
+    for (let el: Element | null | undefined = box; el && el !== document.documentElement; el = el.parentElement) {
+      for (const sib of el.parentElement?.children ?? []) {
+        if (sib === el || sib.hasAttribute('inert') || sib instanceof HTMLScriptElement) continue;
+        sib.setAttribute('inert', '');
+        madeInert.push(sib);
+      }
+    }
+    root?.focus({ preventScroll: true });
+    return () => {
+      for (const el of madeInert) el.removeAttribute('inert');
+      madeInert = [];
+      if (before instanceof HTMLElement && before.isConnected && document.activeElement !== before) before.focus({ preventScroll: true });
+    };
+  });
 
   let hint = $state('');
   let hintTimer: ReturnType<typeof setTimeout> | undefined;
@@ -51,7 +73,7 @@
     if (a.kind === 'exit') return onexit();
     const before = playing;
     if (!onaction(a)) return;
-    hint = hintFor(a, a.kind === 'toggle' ? !before : before);
+    hint = hintFor(a, a.kind === 'toggle' ? !before : before); // only once it did something (an event jump at the last: nothing)
     clearTimeout(hintTimer);
     hintTimer = setTimeout(() => (hint = ''), HINT_MS);
   }
@@ -62,6 +84,21 @@
   function keydown(e: KeyboardEvent) {
     const t = e.target;
     if (t instanceof HTMLInputElement || t instanceof HTMLTextAreaElement || t instanceof HTMLSelectElement) return;
+    // Aimed at something outside the player box (not one of its ancestors,
+    // such as the player itself): that element's own handler has it.
+    const box = root?.parentElement;
+    if (t instanceof Element && box && !box.contains(t) && !t.contains(box)) return;
+    // Tab goes round inside the player (not out to the browser's bar).
+    if (e.key === 'Tab' && box && !e.altKey && !e.ctrlKey && !e.metaKey) {
+      const all = [...box.querySelectorAll<HTMLElement>('button, a[href], [tabindex]')].filter((el) => el.tabIndex >= 0 && !(el as HTMLButtonElement).disabled);
+      if (!all.length) return;
+      const i = all.indexOf(document.activeElement as HTMLElement);
+      if (e.shiftKey ? i <= 0 : i === -1 || i === all.length - 1) {
+        e.preventDefault();
+        all[e.shiftKey ? all.length - 1 : 0].focus();
+      }
+      return;
+    }
     const a = fsKey(e);
     if (!a) return;
     e.preventDefault();
@@ -106,16 +143,17 @@
 <!-- svelte-ignore a11y_no_static_element_interactions -->
 <div class="fs" class:hidden={!shown} bind:this={root} tabindex="-1" data-testid="fs-overlay" data-shown={shown} data-kind={kind} onpointermove={move}>
   <div class="gestures" data-testid="fs-gestures" bind:this={layer} onpointerdown={down} onpointerup={up} onpointercancel={() => (start = null)}></div>
-  {#if hint}<div class="hint" data-testid="fs-hint" role="status">{hint}</div>{/if}
+  <!-- Always mounted (only its text changes), so screen readers announce each hint. -->
+  <div class="hint" class:on={hint !== ''} data-testid="fs-hint" role="status">{hint}</div>
   <div class="bar" data-testid="fs-bar" aria-hidden={!shown}>
-    <button data-testid="fs-prev-event" title="Previous event" aria-label="Previous event" tabindex={shown ? 0 : -1} onclick={() => act({ kind: 'event', dir: -1 })}><Icon name="prev" size={18} /></button>
+    <button data-testid="fs-prev-event" title="Previous event" aria-label="Previous event" tabindex={shown ? 0 : -1} disabled={!canPrev} onclick={() => act({ kind: 'event', dir: -1 })}><Icon name="prev" size={18} /></button>
     <button data-testid="fs-back-10" title="Back 10 seconds" aria-label="Back 10 seconds" tabindex={shown ? 0 : -1} onclick={() => act({ kind: 'skip', ms: -10_000 })}><Icon name="back10" size={18} /></button>
     <button data-testid="fs-back-1" title="Back 1 second" aria-label="Back 1 second" tabindex={shown ? 0 : -1} onclick={() => act({ kind: 'skip', ms: -1000 })}><Icon name="back1" size={18} /></button>
     <button data-testid="fs-play" class="primary" aria-pressed={playing} title={playing ? 'Pause' : 'Play'} aria-label={playing ? 'Pause' : 'Play'} tabindex={shown ? 0 : -1}
       disabled={live || !canPlay} onclick={() => act({ kind: 'toggle' })}><Icon name={playing ? 'pause' : 'play'} size={18} /></button>
     <button data-testid="fs-fwd-1" title="Forward 1 second" aria-label="Forward 1 second" tabindex={shown ? 0 : -1} disabled={live} onclick={() => act({ kind: 'skip', ms: 1000 })}><Icon name="fwd1" size={18} /></button>
     <button data-testid="fs-fwd-10" title="Forward 10 seconds" aria-label="Forward 10 seconds" tabindex={shown ? 0 : -1} disabled={live} onclick={() => act({ kind: 'skip', ms: 10_000 })}><Icon name="fwd10" size={18} /></button>
-    <button data-testid="fs-next-event" title="Next event" aria-label="Next event" tabindex={shown ? 0 : -1} disabled={live} onclick={() => act({ kind: 'event', dir: 1 })}><Icon name="next" size={18} /></button>
+    <button data-testid="fs-next-event" title="Next event" aria-label="Next event" tabindex={shown ? 0 : -1} disabled={live || !canNext} onclick={() => act({ kind: 'event', dir: 1 })}><Icon name="next" size={18} /></button>
     <span class="gap"></span>
     <button data-testid="fs-live" title="Back to live" aria-label="Back to live" tabindex={shown ? 0 : -1} disabled={live} onclick={() => { show(); onlive(); }}>⇥<span class="word">&nbsp;Live</span></button>
     <button data-testid="fs-exit" title="Leave fullscreen (Esc)" aria-label="Leave fullscreen" tabindex={shown ? 0 : -1} onclick={() => act({ kind: 'exit' })}><Icon name="shrink" size={18} /></button>
@@ -132,6 +170,7 @@
     padding: 10px 18px; border-radius: 12px; font-size: 22px; font-weight: 700; font-variant-numeric: tabular-nums;
     background: var(--player-scrim); color: var(--on-grad);
   }
+  .hint:not(.on) { opacity: 0; }
   /* Centred at the bottom, as wide as its buttons (one row down to a phone
      in portrait), clear of the safe areas. */
   .bar {

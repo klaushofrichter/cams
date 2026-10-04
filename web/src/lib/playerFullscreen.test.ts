@@ -113,4 +113,18 @@ describe('enterPlayerFullscreen', () => {
     expect(get(playerFs)).toBe('off');
     expect(location.search).toBe('?cam=cam1&at=5000'); // not jumped back
   });
+
+  it('gives the focus back to where it was once fullscreen ends (review of #185)', async () => {
+    Object.defineProperty(document, 'fullscreenEnabled', { configurable: true, value: false });
+    const button = document.createElement('button');
+    document.body.appendChild(button);
+    button.focus();
+    await enterPlayerFullscreen(document.createElement('div'));
+    document.body.focus();
+    (document.activeElement as HTMLElement | null)?.blur();
+    exitPlayerFullscreen();
+    await new Promise((r) => setTimeout(r, 0));
+    expect(document.activeElement).toBe(button);
+    button.remove();
+  });
 });

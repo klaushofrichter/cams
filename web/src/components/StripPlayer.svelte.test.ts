@@ -521,9 +521,33 @@ describe('StripPlayer fullscreen', () => {
     flushSync();
     expect(p.at).toBe(T);
     expect(onstep).not.toHaveBeenCalled();
-    expect(q('fs-hint')).toBeNull();
+    expect(q('fs-hint')!.textContent).toBe('');
     window.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowLeft' }));
     flushSync();
     expect(p.at).toBe(T - 10_000);
+  });
+
+  // Review of #185: ⏭ Event only when it jumped; ⏮/⏭ off at the ends.
+  it('hints an event jump only when there was one, and passes the ends on', async () => {
+    fsEnabled(false);
+    let jumped = false;
+    const onstep = vi.fn(() => jumped);
+    const p = render({ at: T, onstep, stepAvail: { prev: false, next: true } }) as unknown as { stepAvail: { prev: boolean; next: boolean } };
+    currentPlayer()!.fullscreen();
+    await tick(0);
+    expect((q('fs-prev-event') as HTMLButtonElement).disabled).toBe(true);
+    expect((q('fs-next-event') as HTMLButtonElement).disabled).toBe(false);
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: ']' }));
+    flushSync();
+    expect(onstep).toHaveBeenCalledWith(1);
+    expect(q('fs-hint')!.textContent).toBe('');
+    jumped = true;
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: ']' }));
+    flushSync();
+    expect(q('fs-hint')!.textContent).toBe('⏭ Event');
+    p.stepAvail = { prev: true, next: false };
+    flushSync();
+    expect((q('fs-prev-event') as HTMLButtonElement).disabled).toBe(false);
+    expect((q('fs-next-event') as HTMLButtonElement).disabled).toBe(true);
   });
 });

@@ -20,7 +20,7 @@
   // so the next clip is loaded 3 s before it starts.
   let {
     cam, coverage, previews, now, at = $bindable(), playing = $bindable(), unavailable = false, onclipfail, onstep,
-    glued = false, live: liveSnippet, onglue, clipStream = 'sub',
+    glued = false, live: liveSnippet, onglue, clipStream = 'sub', stepAvail = { prev: true, next: true },
   }: {
     cam: string;
     coverage: Coverage;
@@ -30,7 +30,8 @@
     playing: boolean;
     unavailable?: boolean;
     onclipfail: (clipId: string) => void;
-    onstep: (dir: -1 | 1) => void;
+    onstep: (dir: -1 | 1) => boolean | void; // true: it jumped to an event
+    stepAvail?: { prev: boolean; next: boolean }; // an event before / after the playhead (fullscreen ⏮ / ⏭)
     glued?: boolean; // the Live panel's playhead is at now: show the live stream
     live?: Snippet; // the live stream; kept mounted while unglued so it resumes at once
     onglue?: () => void; // the REC badge: back to live (spec 2026-10-04)
@@ -324,8 +325,7 @@
     }
     if (a.kind === 'event') {
       if (glued && a.dir > 0) return false;
-      onstep(a.dir);
-      return true;
+      return onstep(a.dir) === true;
     }
     if (a.kind === 'toggle') {
       if (glued || source.kind === 'future') return false;
@@ -392,7 +392,7 @@
       <button class="mode rec" data-testid="mode-badge" data-mode="rec" title="Back to live" aria-label={`${badge}, back to live`} onclick={() => onglue?.()}>{badge}</button>
     {/if}
     {#if $playerFs !== 'off'}
-      <FullscreenOverlay {mode} {playing} kind={$playerFs} canPlay={source.kind !== 'future'} onaction={fsAction} onlive={() => onglue?.()} onexit={exitPlayerFullscreen} />
+      <FullscreenOverlay {mode} {playing} kind={$playerFs} canPlay={source.kind !== 'future'} canPrev={stepAvail.prev} canNext={stepAvail.next} onaction={fsAction} onlive={() => onglue?.()} onexit={exitPlayerFullscreen} />
     {/if}
   </div>
   <div class="controls">

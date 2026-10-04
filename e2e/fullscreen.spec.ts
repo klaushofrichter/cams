@@ -143,6 +143,33 @@ test('Space plays at once after entering fullscreen (the focus leaves the sideba
   await expect(page.getByTestId('fs-play')).toHaveAttribute('aria-pressed', 'false');
 });
 
+// Review of #185: the page outside the player is inert while fullscreen,
+// so Tab stays in the player and a key does one thing; leaving gives the
+// focus back to the Fullscreen button.
+test('Tab stays in the fullscreen player, one key is one step, and the focus comes back', async ({ page }) => {
+  test.skip(test.info().project.name !== 'desktop', 'keys: the desktop');
+  const at = clipAt();
+  await page.goto(`/app/video?cam=cam1&date=${chicagoToday()}&at=${at}`);
+  await expect(badge(page)).toHaveText(/^REC .* · SD$/);
+  await page.getByTestId('fullscreen').click();
+  await expect(page.getByTestId('fs-overlay')).toBeFocused();
+  expect(await page.getByTestId('strip-now').evaluate((el) => !!el.closest('[inert]'))).toBe(true);
+  for (let i = 0; i < 14; i++) {
+    await page.keyboard.press('Tab');
+    expect(await page.evaluate(() => !!document.fullscreenElement?.contains(document.activeElement))).toBe(true);
+  }
+  await page.getByTestId('fs-overlay').focus();
+  await page.keyboard.press('ArrowRight');
+  await near(page, at + 10_000);
+  await page.waitForTimeout(500);
+  await near(page, at + 10_000); // not 20 s, not another event
+  await expect(current(page)).toHaveAttribute('data-clip-id', /-120505-/);
+  await page.getByTestId('fs-exit').click();
+  await expect.poll(() => page.evaluate(() => !!document.fullscreenElement)).toBe(false);
+  await expect(page.getByTestId('fullscreen')).toBeFocused();
+  expect(await page.getByTestId('strip-now').evaluate((el) => !!el.closest('[inert]'))).toBe(false);
+});
+
 test('without element fullscreen the player fills the screen: live with its badge, Back leaves', async ({ page }) => {
   await withoutElementFullscreen(page);
   await page.goto('/app/video');
@@ -226,5 +253,6 @@ test('fill the screen, a recording on a phone: taps by third, swipes, Back keeps
   await expect(overlay).toHaveAttribute('data-kind', 'fill');
   await page.getByTestId('fs-exit').click();
   await expect(overlay).toHaveCount(0);
+  await expect(page.getByTestId('fullscreen')).toBeFocused(); // the focus comes back
   await near(page, at + 10_000);
 });

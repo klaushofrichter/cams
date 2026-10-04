@@ -5,7 +5,7 @@
   import { getJson } from '../lib/api';
   import StripPlayer from './StripPlayer.svelte';
   import { createStripData, type StripData } from '../lib/stripData';
-  import { EMPTY_COVERAGE, windowAround, type Coverage } from '../lib/strip';
+  import { EMPTY_COVERAGE, eventStep, windowAround, type Coverage } from '../lib/strip';
   import { filterEvents, localDate, thumbUrl, VIDEO_STREAM, type EventClip, type Filter } from '../lib/recordings';
   import type { PreviewMinute } from '../lib/timeline';
   import { zoom } from '../lib/zoomPref';
@@ -244,11 +244,14 @@
     placed = true;
     report(false);
   }
-  function step(dir: -1 | 1) {
-    const list = coverage.clips.filter((c) => visibleIds.has(c.clip.id));
-    const target = dir > 0 ? list.find((c) => c.start > at + 500) : [...list].reverse().find((c) => c.start < at - 1500);
+  // Whether it jumped: the fullscreen overlay hints only a real jump.
+  function step(dir: -1 | 1): boolean {
+    const target = eventStep(coverage.clips, visibleIds, at, dir);
     if (target) jump(target.start, playing);
+    return !!target;
   }
+  // ⏮ / ⏭ in fullscreen are off at the first / last shown event.
+  const stepAvail = $derived({ prev: !!eventStep(coverage.clips, visibleIds, at, -1), next: !!eventStep(coverage.clips, visibleIds, at, 1) });
 </script>
 
 <div class="history">
@@ -257,7 +260,7 @@
       data.markFailed(id);
       failed = new Set(failed).add(id);
     }}
-    onstep={step} />
+    onstep={step} {stepAvail} />
   <Strip {oldest} {pending} {coverage} events={allEvents} {visibleIds} failedIds={failed} {at} {now} currentId={current} {previews}
     thumbFor={unavailable ? undefined : (id) => thumbUrl(cam, id, allEvents.find((e) => e.id === id)?.thumb)}
     onseek={(t) => seek(t)}
