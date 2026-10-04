@@ -1,7 +1,23 @@
 import express, { Router, Request, Response } from 'express';
 import { join, resolve } from 'path';
+import { readFile } from 'fs/promises';
 import { currentUser, noStore, rememberReturn, requireAuthPage, RETURN_COOKIE, safeReturnPath } from '../middleware/requireAuth';
 import { createApiRateLimit } from '../middleware/rateLimit';
+import { cookieOptions, loginMethods } from '../loginConfig';
+
+// The start page, told which sign-ins this server has (spec
+// 2026-10-04-pi-deployment-design): the build ships
+// <meta name="cams-login" content="google">, rewritten here to
+// "google", "token" or "google token". Read per request (a 1 kB file).
+const LOGIN_META = /<meta name="cams-login" content="[^"]*"\s*\/?>/;
+function sendLanding(file: string, res: Response): void {
+  readFile(file, 'utf8')
+    .then((html) => {
+      const methods = loginMethods().join(' ');
+      res.type('html').send(html.replace(LOGIN_META, `<meta name="cams-login" content="${methods}" />`));
+    })
+    .catch(() => res.status(404).type('text/plain').send('Not found'));
+}
 
 // dist/server/routes -> dist/web in the image; tests point WEB_DIST at fixtures.
 export function webDir(): string {
@@ -22,12 +38,12 @@ export function pagesRouter(dir: string): Router {
   router.get('/', (req: Request, res: Response) => {
     if (currentUser(req)) {
       const back = safeReturnPath(req.cookies?.[RETURN_COOKIE]);
-      if (req.cookies?.[RETURN_COOKIE] !== undefined) res.clearCookie(RETURN_COOKIE, { httpOnly: true, secure: true, sameSite: 'lax' });
+      if (req.cookies?.[RETURN_COOKIE] !== undefined) res.clearCookie(RETURN_COOKIE, cookieOptions());
       res.redirect(302, back ?? '/app/video');
       return;
     }
     rememberReturn(res, req.query.returnTo);
-    res.sendFile(join(dir, 'index.html'));
+    sendLanding(join(dir, 'index.html'), res);
   });
 
   // Every /app path gets the SPA; its router picks the page (unknown -> Video).
