@@ -153,6 +153,8 @@ describe('a check', () => {
     expect((q('timeline-still') as HTMLImageElement).getAttribute('src')).toBe('/api/cameras/den/still-checks/17.jpg');
     expect(q('still-check-result')?.textContent).toContain('✧ Vision: Person 84%');
     expect(q('still-check-confirms')?.textContent).toContain('Confirms the Person event');
+    // Klaus 2026-10-04: a spaced dash between the parts (whitespace at an element's edge used to vanish).
+    expect(q('still-check-result')?.textContent).toContain('✧ Vision: Person 84% — Confirms the Person event');
     expect(button().textContent).toMatch(/✧ Checked/);
     expect(button().disabled).toBe(true);
     expect(q('still-check-usage')?.textContent).toContain('3 of 10 checks today');
