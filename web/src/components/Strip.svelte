@@ -1,5 +1,6 @@
 <!-- web/src/components/Strip.svelte -->
 <script lang="ts">
+  import { untrack } from 'svelte';
   import { hoverKinds, stripSpans, stripTicks, windowAround, STILL_SLOT, STRIP_ZOOMS, zoomKey, zoomLabel, zoomWords, type Coverage, type HoverSlot } from '../lib/strip';
   import Icon from './Icon.svelte';
   import { zoom, pickZoom } from '../lib/zoomPref';
@@ -80,14 +81,16 @@
       if (!press.moved && Math.abs(dx) >= 4) {
         press.moved = true;
         dragging = true;
-        hover = null;
+        hidePicture();
+        resting = null;
         cursor = null;
         ondrag?.(true);
       }
       if (press.moved) seekTo(press.at - (dx / el.getBoundingClientRect().width) * span);
       return;
     }
-    hoverAt(timeAtX(e, el), e, el);
+    resting = { x: e.clientX, el };
+    hoverAt(e.clientX, el);
   }
   function cancel() {
     if (press?.moved) ondrag?.(false);
@@ -131,14 +134,42 @@
   // so the popup doesn't jump along the bar (Klaus, 2026-10-04).
   const POP_W = 160;
   const POP_H = 90;
-  let hover = $state<{ left: number; label: string; style: string | null; img?: string; kinds: HoverSlot[] } | null>(null);
+  let hover = $state<{ left: number; label: string; style: string | null; img?: string; kinds: HoverSlot[]; want: string } | null>(null);
   let rest: ReturnType<typeof setTimeout> | undefined;
   // A line and the time under the pointer, precise where a hand wasn't
   // (Klaus, 2026-09-28); the picture above it only where there is one.
   let cursor = $state<{ left: number; label: string } | null>(null);
-  function hoverAt(t: number, e: PointerEvent, el: HTMLElement) {
+  // The pointer resting on the bar: where it is, so the popup can follow
+  // when time moves under it (Klaus, 2026-10-04). The time follows at once;
+  // a new picture at most once a second (the sprites are per minute and
+  // cached, the thumbnails per clip: no request storm either way).
+  let resting: { x: number; el: HTMLElement } | null = null;
+  const PICTURE_EVERY_MS = 1000;
+  let pictureAt = 0; // when the popup's picture last changed
+  let pictureNext: { style: string | null; img?: string } | null = null;
+  let pictureTimer: ReturnType<typeof setTimeout> | undefined;
+  function showNext() {
+    clearTimeout(pictureTimer);
+    pictureTimer = undefined;
+    if (hover && pictureNext) {
+      hover = { ...hover, ...pictureNext };
+      pictureAt = Date.now();
+    }
+    pictureNext = null;
+  }
+  $effect(() => {
+    void at; // the window moves (playback, live, a seek)
+    void spansOf;
+    void previews;
+    untrack(() => {
+      if (!resting || press || (typeof document !== 'undefined' && document.hidden)) return;
+      hoverAt(resting.x, resting.el, true);
+    });
+  });
+  function hoverAt(x: number, el: HTMLElement, follow = false) {
     const r = el.getBoundingClientRect();
-    const left = ((e.clientX - r.left) / r.width) * 100;
+    const left = ((x - r.left) / r.width) * 100;
+    const t = at + ((x - r.left - r.width / 2) / r.width) * span;
     const label = localClock(t);
     cursor = { left, label };
     const p = previewAt(previews, t);
@@ -149,20 +180,38 @@
     const img = ev && thumbFor ? thumbFor(ev.id) : undefined;
     // What is there: the clip's types, else the stills (a preview tile).
     const kinds = clip ? hoverKinds(clip) : [STILL_SLOT];
-    const same = hover && (hover.style === style || (img && hover.img === img));
-    hover = { left, label, style: same ? hover!.style : null, img: same ? hover!.img : undefined, kinds };
-    if (same) return;
+    // The picture wanted here: a preview tile, else the clip's thumbnail.
+    const want = style ?? img ?? '';
+    if (hover && hover.want === want) {
+      hover = { ...hover, left, label, kinds }; // shown, or on its way
+      return;
+    }
+    if (follow && hover && (hover.style || hover.img)) {
+      // Following: the picture shown stays until a second has passed.
+      hover = { ...hover, left, label, kinds, want };
+      pictureNext = { style, img };
+      const wait = pictureAt + PICTURE_EVERY_MS - Date.now();
+      if (wait <= 0) return showNext();
+      pictureTimer ??= setTimeout(showNext, wait);
+      return;
+    }
+    hover = { left, label, style: null, img: undefined, kinds, want };
+    clearTimeout(pictureTimer);
+    pictureTimer = undefined;
+    pictureNext = { style, img };
     clearTimeout(rest);
-    rest = setTimeout(() => {
-      if (hover) hover = { ...hover, style, img };
-    }, REST_MS);
+    rest = setTimeout(showNext, REST_MS);
   }
   function hidePicture() {
     clearTimeout(rest);
+    clearTimeout(pictureTimer);
+    pictureTimer = undefined;
+    pictureNext = null;
     hover = null;
   }
   function leave() {
     hidePicture();
+    resting = null;
     cursor = null;
   }
 

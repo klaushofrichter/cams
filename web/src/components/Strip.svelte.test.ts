@@ -7,6 +7,7 @@ import { preferences, type Preferences } from '../lib/preferences';
 import type { Coverage } from '../lib/strip';
 import type { EventClip } from '../lib/recordings';
 import type { PreviewMinute } from '../lib/timeline';
+import { localClock } from '../lib/clock';
 
 const PREFS: Preferences = { defaultCamera: null, liveQuality: 'sub', eventFilter: ['person', 'vehicle', 'pet', 'motion'], timelineZoom: 1, liveKeepAlive: 60 };
 const T = Date.parse('2026-09-27T12:00:00-05:00');
@@ -322,6 +323,127 @@ describe('Strip', () => {
       expect(clipFrame).toMatch(/height: ?90px/);
       expect(q('scrub-preview')!.children.length).toBe(overClip.children.length);
       expect(q('scrub-preview')!.classList.contains('scrub')).toBe(true);
+    });
+  });
+
+
+  // Klaus, 2026-10-04: with the pointer resting on the bar and time moving
+  // under it (playback, live), the popup follows: its time at once, its
+  // picture at most once a second; not after the pointer left, nor in a
+  // hidden tab.
+  describe('the popup over a moving window', () => {
+    const minute = T - 5 * 60_000;
+    const pm: PreviewMinute = { minute, cols: 10, rows: 6, tileW: 160, tileH: 90, intervalS: 1, present: Array(60).fill(true), url: '/p.jpg' };
+    // Pointer at 255 px: 45 px left of the playhead, 270 s before `at` (1 h, 600 px).
+    const X = 255;
+    function renderMoving() {
+      const props = $state({ coverage: cov, events: [] as EventClip[], visibleIds: new Set<string>(), failedIds: new Set<string>(), at: T, now: T + 1_800_000, currentId: null, previews: [pm], onseek: () => undefined });
+      preferences.set(PREFS);
+      target = document.createElement('div');
+      document.body.appendChild(target);
+      component = mount(Strip, { target, props });
+      flushSync();
+      const bar = target.querySelector('[data-testid="timeline"]') as HTMLElement;
+      bar.getBoundingClientRect = () => ({ left: 0, top: 0, width: 600, height: 46, right: 600, bottom: 46, x: 0, y: 0, toJSON: () => ({}) });
+      return { bar, props };
+    }
+    const tick = async (ms: number) => {
+      await vi.advanceTimersByTimeAsync(ms);
+      flushSync();
+    };
+    const when = () => target!.querySelector('[data-testid="scrub-preview"] [data-testid="strip-cursor-time"]')?.textContent;
+    const pos = () => (q('scrub-frame')!.querySelector('.frame') as HTMLElement | null)?.style.backgroundPosition;
+    const px = (n: number) => (n ? `-${n}px` : '0px');
+    const posOf = (i: number) => `${px((i % 10) * 160)} ${px(Math.floor(i / 10) * 90)}`;
+    afterEach(() => {
+      vi.useRealTimers();
+      Object.defineProperty(document, 'hidden', { configurable: true, get: () => false });
+    });
+
+    it('follows the window: the time at once, the picture within a second', async () => {
+      vi.useFakeTimers({ now: T, toFake: ['Date', 'setTimeout', 'clearTimeout'] });
+      const { bar, props } = renderMoving();
+      bar.dispatchEvent(new PointerEvent('pointermove', { clientX: X, bubbles: true }));
+      flushSync();
+      await tick(200);
+      expect(when()).toBe(localClock(T - 270_000));
+      expect(pos()).toBe(posOf(30));
+      await tick(1000);
+      props.at = T + 2000; // the window moved two seconds; the pointer didn't
+      flushSync();
+      expect(when()).toBe(localClock(T - 268_000));
+      expect(pos()).toBe(posOf(32)); // a second since the last picture: at once
+      expect(q('strip-cursor')).not.toBeNull();
+    });
+
+    it('changes the picture at most once a second, the time every step', async () => {
+      vi.useFakeTimers({ now: T, toFake: ['Date', 'setTimeout', 'clearTimeout'] });
+      const { bar, props } = renderMoving();
+      bar.dispatchEvent(new PointerEvent('pointermove', { clientX: X, bubbles: true }));
+      flushSync();
+      await tick(200);
+      const pictures: string[] = [pos()!];
+      for (let k = 1; k <= 12; k++) { // three seconds of playback, 250 ms a step
+        props.at = T + k * 250;
+        flushSync();
+        expect(when()).toBe(localClock(T - 270_000 + k * 250));
+        await tick(250);
+        if (pos() !== pictures.at(-1)) pictures.push(pos()!);
+      }
+      expect(pictures.length - 1).toBeLessThanOrEqual(3);
+      expect(pictures.length - 1).toBeGreaterThanOrEqual(2);
+      expect(pictures.at(-1)).toBe(posOf(33)); // where the pointer is now (T - 267 s)
+    });
+
+    it('moves from one clip to the next: its types and its thumbnail', async () => {
+      vi.useFakeTimers({ now: T, toFake: ['Date', 'setTimeout', 'clearTimeout'] });
+      const { bar, props } = renderMoving();
+      props.previews = [];
+      const a: EventClip = { ...ev('a', T - 272_000, 4), triggers: ['person'] };
+      const b: EventClip = { ...ev('b', T - 268_000, 4), triggers: ['vehicle', 'motion'] };
+      props.events = [a, b];
+      (props as Record<string, unknown>).thumbFor = (id: string) => `/t/${id}.jpg`;
+      flushSync();
+      bar.dispatchEvent(new PointerEvent('pointermove', { clientX: X, bubbles: true })); // T - 270 s: clip a
+      flushSync();
+      await tick(1200);
+      const img = () => q('scrub-frame')!.querySelector('img')?.getAttribute('src');
+      const kinds = () => [...target!.querySelectorAll('[data-testid="scrub-kind"]')].map((e) => (e as HTMLElement).dataset.kind);
+      expect(img()).toBe('/t/a.jpg');
+      expect(kinds()).toEqual(['person']);
+      props.at = T + 3000; // the pointer is over b now
+      flushSync();
+      expect(kinds()).toEqual(['vehicle', 'motion']);
+      expect(img()).toBe('/t/b.jpg');
+    });
+
+    it('stops when the pointer has left the bar', async () => {
+      vi.useFakeTimers({ now: T, toFake: ['Date', 'setTimeout', 'clearTimeout'] });
+      const { bar, props } = renderMoving();
+      bar.dispatchEvent(new PointerEvent('pointermove', { clientX: X, bubbles: true }));
+      flushSync();
+      await tick(200);
+      bar.dispatchEvent(new PointerEvent('pointerleave', { bubbles: false }));
+      flushSync();
+      props.at = T + 2000;
+      flushSync();
+      await tick(1500);
+      expect(q('scrub-preview')).toBeNull();
+      expect(q('strip-cursor')).toBeNull();
+    });
+
+    it('does not follow in a hidden tab', async () => {
+      vi.useFakeTimers({ now: T, toFake: ['Date', 'setTimeout', 'clearTimeout'] });
+      const { bar, props } = renderMoving();
+      bar.dispatchEvent(new PointerEvent('pointermove', { clientX: X, bubbles: true }));
+      flushSync();
+      await tick(1200);
+      Object.defineProperty(document, 'hidden', { configurable: true, get: () => true });
+      props.at = T + 5000;
+      flushSync();
+      await tick(1500);
+      expect(when()).toBe(localClock(T - 270_000));
+      expect(pos()).toBe(posOf(30));
     });
   });
 

@@ -174,3 +174,25 @@ test('the timeline popup shows the clip’s types, or Still, in one box size', a
   expect(Math.round(overStill.width)).toBe(Math.round(overClip.width));
   expect(Math.round(overStill.height)).toBe(Math.round(overClip.height));
 });
+
+// Klaus, 2026-10-04: with the pointer resting on the timeline while it
+// plays, the popup follows the time moving under it.
+test('the timeline popup follows playback under a resting pointer', async ({ page }, info) => {
+  test.skip(info.project.name === 'phone', 'hover: desktop only');
+  const at = Math.floor((Date.now() - 4 * 60_000) / 1000) * 1000; // Den's preview tiles: the last ten minutes
+  const day = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Chicago' }).format(new Date(at));
+  await page.goto(`/app/video?cam=cam1&date=${day}&at=${at}`);
+  await expect(page.getByTestId('source-badge')).toHaveText(/Stills 1 FPS|Preview 1 FPS/);
+  await page.getByTestId('play-toggle').click();
+  await expect(page.getByTestId('play-toggle')).toHaveAttribute('aria-pressed', 'true');
+  const bar = (await page.getByTestId('timeline').boundingBox())!;
+  await page.mouse.move(bar.x + bar.width / 2 - 1, bar.y + bar.height / 2 + 6);
+  await page.mouse.move(bar.x + bar.width / 2 - 1, bar.y + bar.height / 2);
+  const time = page.getByTestId('scrub-preview').getByTestId('strip-cursor-time');
+  await expect(time).toBeVisible();
+  const first = await time.textContent();
+  await expect.poll(() => time.textContent(), { timeout: 5000 }).not.toBe(first);
+  await expect(page.getByTestId('scrub-kind')).toHaveAttribute('data-kind', 'still');
+  await page.mouse.move(bar.x + bar.width / 2, bar.y - 60); // off the bar: no popup
+  await expect(page.getByTestId('scrub-preview')).toHaveCount(0);
+});
