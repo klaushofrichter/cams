@@ -1,7 +1,8 @@
 import { Router, Request, Response } from 'express';
 import { Readable } from 'stream';
 import { pipeline } from 'stream/promises';
-import { getCamera, type CameraConfig } from '../cameraRegistry';
+import { getCamera, proxyActive, setReportedName, type CameraConfig } from '../cameraRegistry';
+import { forgetProxyName, plausibleName } from '../proxy/names';
 import { logger } from '../logger';
 import { setProxyEnabled } from '../proxyState';
 import { proxyHub, startProxyStream, stopProxyStream } from '../proxy/stream';
@@ -41,7 +42,10 @@ proxyRouter.put('/api/cameras/:id/proxy', async (req: Request, res: Response) =>
   if (typeof enabled !== 'boolean') return bad(res, 'enabled must be true or false');
   await setProxyEnabled(id, enabled);
   if (enabled) startProxyStream(id);
-  else stopProxyStream(id);
+  else {
+    stopProxyStream(id);
+    forgetProxyName(id); // the proxy's name goes with it
+  }
   // Every open browser re-reads the camera list (which cameras use a proxy),
   // and it and the recordings cache reload this camera's events.
   proxyHub.emit('cameras');
@@ -62,7 +66,9 @@ async function proxyInfo(id: string, proxy: { url: string; token: string }): Pro
     return { reachable: false, webUrl: null };
   }
   // It answered: reachable. A link only for this camera's own entry.
-  const mine = Array.isArray(list) ? (list as { id?: unknown; publicUrl?: unknown }[]).find((c) => c?.id === proxyCameraId(id)) : undefined;
+  const mine = Array.isArray(list) ? (list as { id?: unknown; name?: unknown; publicUrl?: unknown }[]).find((c) => c?.id === proxyCameraId(id)) : undefined;
+  // The camera's name, while cams uses this proxy (design camera-name-design.md).
+  if (proxyActive(id) && plausibleName(mine?.name)) setReportedName(id, mine.name);
   const url = mine?.publicUrl;
   return { reachable: true, webUrl: typeof url === 'string' && /^https?:\/\/[^\s]+$/.test(url) ? url : null };
 }

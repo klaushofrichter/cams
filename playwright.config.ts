@@ -18,25 +18,39 @@ export default defineConfig({
   projects: [
     {
       name: 'desktop',
-      testIgnore: /live-teardown\.spec\.ts/,
+      testIgnore: /live-teardown\.spec\.ts|camera-name\.spec\.ts/,
       use: { ...devices['Desktop Chrome'], channel: 'chrome', viewport: { width: 1440, height: 900 } },
     },
     {
       name: 'phone',
-      testIgnore: /live-teardown\.spec\.ts/,
+      testIgnore: /live-teardown\.spec\.ts|camera-name\.spec\.ts/,
+      use: { ...devices['Desktop Chrome'], channel: 'chrome', viewport: { width: 390, height: 844 }, hasTouch: true },
+    },
+    // e2e/camera-name.spec.ts renames Den, whose name the other specs check:
+    // after them, one size at a time.
+    {
+      name: 'camera-name-desktop',
+      testMatch: /camera-name\.spec\.ts/,
+      dependencies: ['desktop', 'phone'],
+      use: { ...devices['Desktop Chrome'], channel: 'chrome', viewport: { width: 1440, height: 900 } },
+    },
+    {
+      name: 'camera-name-phone',
+      testMatch: /camera-name\.spec\.ts/,
+      dependencies: ['camera-name-desktop'],
       use: { ...devices['Desktop Chrome'], channel: 'chrome', viewport: { width: 390, height: 844 }, hasTouch: true },
     },
     // e2e/live-teardown.spec.ts reads the simulators' shared counters, so it
     // can only run once no other spec file is mid-stream against a simulator.
-    // `dependencies` makes Playwright finish every test in `desktop` and
-    // `phone` (across all spec files) before this project starts any of its
+    // `dependencies` makes Playwright finish every test in `desktop`, `phone`
+    // and the camera-name projects (across all spec files) before this project starts any of its
     // own; `fullyParallel: false` keeps this file from racing itself. See the
     // isolation comment at the top of that file for the full reasoning.
     {
       name: 'live-teardown',
       testMatch: /live-teardown\.spec\.ts/,
       fullyParallel: false,
-      dependencies: ['desktop', 'phone'],
+      dependencies: ['desktop', 'phone', 'camera-name-phone'],
       use: { ...devices['Desktop Chrome'], channel: 'chrome', viewport: { width: 1440, height: 900 } },
     },
   ],

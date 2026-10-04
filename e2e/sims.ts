@@ -5,34 +5,34 @@ import type { Page } from '@playwright/test';
 
 export const CONTROL_TOKEN = 'e2e-control-token-not-a-secret';
 
-type Sim = { http: number; https: number; control: number; onvif: number; rtsp: number; baichuan: number; faults: object[] };
+type Sim = { name: string; http: number; https: number; control: number; onvif: number; rtsp: number; baichuan: number; faults: object[] };
 
 // A partial write's resets show at once (the firmware waits for a reboot).
 const STRICT = { name: 'settings.strictPartial' };
 
 export const SIMS: Record<'den' | 'porch' | 'shed' | 'barn' | 'silo', Sim> = {
-  den: { http: 8098, https: 8198, control: 8298, onvif: 8398, rtsp: 8498, baichuan: 8598, faults: [STRICT] },
+  den: { name: 'Den', http: 8098, https: 8198, control: 8298, onvif: 8398, rtsp: 8498, baichuan: 8598, faults: [STRICT] },
   // Porch always rejects SetWhiteLed, so settings.spec.ts can exercise a
   // partial save without making Den unreliable for the live specs.
-  porch: { http: 8097, https: 8197, control: 8297, onvif: 8397, rtsp: 8497, baichuan: 8597, faults: [STRICT, { name: 'settings.fail', cmds: ['SetWhiteLed'] }] },
+  porch: { name: 'Porch', http: 8097, https: 8197, control: 8297, onvif: 8397, rtsp: 8497, baichuan: 8597, faults: [STRICT, { name: 'settings.fail', cmds: ['SetWhiteLed'] }] },
   // Shed refuses every recording download, like the real RLC-1224A since
   // 2026-09-26 (Plan 5 breaker and banner).
-  shed: { http: 8096, https: 8196, control: 8296, onvif: 8396, rtsp: 8496, baichuan: 8596, faults: [STRICT, { name: 'downloads.refuse' }] },
+  shed: { name: 'Shed', http: 8096, https: 8196, control: 8296, onvif: 8396, rtsp: 8496, baichuan: 8596, faults: [STRICT, { name: 'downloads.refuse' }] },
   // Barn refuses downloads too, but has a cam-proxy (Plan 6, the fake in
   // test/proxy/fakeProxy.ts) whose clip plays instead; its live stream always
   // resets, so Live shows the gateway's stills (Plan 7).
-  barn: { http: 8094, https: 8194, control: 8294, onvif: 8394, rtsp: 8494, baichuan: 8594, faults: [STRICT, { name: 'downloads.refuse' }, { name: 'flv.reset' }] },
+  barn: { name: 'Barn', http: 8094, https: 8194, control: 8294, onvif: 8394, rtsp: 8494, baichuan: 8594, faults: [STRICT, { name: 'downloads.refuse' }, { name: 'flv.reset' }] },
   // Silo refuses HTTP Download like the real camera since 2026-10-01, and has
   // the real cam-proxy (e2e/realProxy.ts), which fetches its recordings over
   // Baichuan (spec 2026-10-02-recordings-via-proxy-design).
-  silo: { http: 8090, https: 8190, control: 8290, onvif: 8390, rtsp: 8490, baichuan: 8590, faults: [STRICT, { name: 'downloads.refuse' }] },
+  silo: { name: 'Silo', http: 8090, https: 8190, control: 8290, onvif: 8390, rtsp: 8490, baichuan: 8590, faults: [STRICT, { name: 'downloads.refuse' }] },
 };
 
 export function simEnv(s: Sim): Record<string, string> {
   return {
     CAMSIM_USERS: 'e2e:admin:e2e-not-a-real-password',
     CAMSIM_CONTROL_TOKEN: CONTROL_TOKEN,
-    CAMSIM_NAME: 'Den', // the on-screen name, for every camera
+    CAMSIM_NAME: s.name, // the camera's name (also its on-screen text), as e2e/cameras.json names it
     CAMSIM_SEED_CLIPS: 'demo',
     CAMSIM_SD_MB: '61047', // the real camera's 64 GB card
     CAMSIM_HTTP_PORT: String(s.http),

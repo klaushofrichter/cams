@@ -3,6 +3,8 @@ import { pipeline } from 'stream/promises';
 import { getClient } from '../reolink/clients';
 import { CameraError } from '../reolink/client';
 import { logger } from '../logger';
+import { proxyActive, setReportedName } from '../cameraRegistry';
+import { plausibleName } from '../proxy/names';
 import { knownCamera, sendCameraError } from './common';
 
 export const MAX_LIVE_PER_CAMERA = 4;
@@ -30,8 +32,11 @@ camerasRouter.get('/api/cameras/:id/status', async (req: Request, res: Response,
   const id = knownCamera(req, res);
   if (!id) return;
   try {
-    const status = await getClient(id)!.status();
+    const { name, ...status } = await getClient(id)!.status();
     offlineSince.delete(id);
+    // A camera without a cam-proxy in use: cams reads its name itself (the
+    // page shows it from /api/cameras and the event stream).
+    if (!proxyActive(id) && plausibleName(name)) setReportedName(id, name);
     res.json({ id, online: true, ...status });
   } catch (err) {
     if (!(err instanceof CameraError)) return next(err);

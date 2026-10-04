@@ -60,7 +60,7 @@ describe('settings API', () => {
   // Review focus 3.
   it('reports a partial failure per field and keeps the fields that saved', async () => {
     await start({ settingsFailures: ['SetWhiteLed'] });
-    const res = await put('image', { dayNight: 'color', spotlight: { mode: 'off' }, osd: { name: 'Porch' } });
+    const res = await put('image', { dayNight: 'color', spotlight: { mode: 'off' }, osd: { namePosition: 'Upper Left' } });
     expect(res.status).toBe(207);
     expect(res.body.fields).toEqual({ dayNight: { ok: true }, spotlight: { ok: false, error: 'camera_rejected' }, osd: { ok: true } });
     expect(res.body.settings.dayNight).toBe('color');
@@ -79,8 +79,7 @@ describe('settings API', () => {
   it.each([
     ['detection', { motionSensitivity: 99 }],
     ['detection', { ai: { cat: {} } }],
-    ['image', { osd: { name: 'x'.repeat(40) } }],
-    ['image', { osd: { name: '門'.repeat(11) } }],
+    ['image', { osd: { name: 'Porch' } }], // the name: only through PUT name
     ['image', { osd: { name: '\u200bDen' } }],
     ['image', { dayNight: 'Purple' }],
     ['image', { extra: 1 }],
@@ -178,13 +177,13 @@ describe('settings API', () => {
   it('keeps keys it was not asked to change (rotation, watermark, stay_time, schedules)', async () => {
     const before = JSON.parse(JSON.stringify(state.settings));
     expect((await put('image', { dayNight: 'color' })).status).toBe(200);
-    expect((await put('image', { osd: { name: 'Porch' } })).status).toBe(200);
+    expect((await put('image', { osd: { namePosition: 'Upper Left' } })).status).toBe(200);
     expect((await put('image', { spotlight: { brightness: 40 } })).status).toBe(200);
     expect((await put('detection', { ai: { person: { sensitivity: 80 } } })).status).toBe(200);
     expect((await put('detection', { recording: false })).status).toBe(200);
     const S = state.settings;
     expect(S.Isp).toEqual({ ...before.Isp, dayNight: 'Color' });
-    expect(S.Osd).toEqual({ ...before.Osd, osdChannel: { ...before.Osd.osdChannel, name: 'Porch' } });
+    expect(S.Osd).toEqual({ ...before.Osd, osdChannel: { ...before.Osd.osdChannel, pos: 'Upper Left' } });
     expect(S.WhiteLed).toEqual({ ...before.WhiteLed, bright: 40 });
     expect(S.AiAlarm.people).toEqual({ ...before.AiAlarm.people, sensitivity: 80 });
     expect(S.AiAlarm.vehicle).toEqual(before.AiAlarm.vehicle);

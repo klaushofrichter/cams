@@ -66,9 +66,7 @@ describe('validating patches', () => {
       ok: true,
       patch: { recording: false, motionSensitivity: 50, ai: { pet: { sensitivity: 0, record: 'off' } } },
     });
-    expect(validateImagePatch({ spotlight: { brightness: 0 }, osd: { name: 'Front door' } }).ok).toBe(true);
-    expect(validateImagePatch({ osd: { name: 'x'.repeat(31) } }).ok).toBe(true);
-    expect(validateImagePatch({ osd: { name: '門'.repeat(10) } }).ok).toBe(true); // 30 bytes
+    expect(validateImagePatch({ spotlight: { brightness: 0 }, osd: { showName: false } }).ok).toBe(true);
   });
 
   // Review focus 2.
@@ -94,14 +92,9 @@ describe('validating patches', () => {
     [{ irLights: 'on' }],
     [{ spotlight: { mode: 'disco' } }],
     [{ spotlight: { brightness: 101 } }],
+    // The OSD text is the camera's name: only PUT /api/cameras/:id/name writes it.
+    [{ osd: { name: 'Front door' } }],
     [{ osd: { name: '' } }],
-    [{ osd: { name: 'x'.repeat(32) } }],
-    [{ osd: { name: 'bad\nname' } }],
-    [{ osd: { name: '門'.repeat(11) } }], // 11 characters, but 33 bytes
-    [{ osd: { name: '\u200bDen' } }], // zero-width space
-    [{ osd: { name: 'Den\u202e' } }], // bidi override
-    [{ osd: { name: 'Den\u0085' } }], // C1 control
-    [{ osd: { name: '   ' } }],
     [{ osd: { namePosition: 'Middle' } }],
     [{ osd: { extra: true } }],
   ])('rejects image patch %j', (body) => {
@@ -129,13 +122,13 @@ describe('building commands', () => {
   };
 
   it('writes the complete current object with only the changed keys replaced', () => {
-    expect(imageCommands({ dayNight: 'color', osd: { name: 'Porch' }, spotlight: { brightness: 40 } }, FULL)).toEqual([
+    expect(imageCommands({ dayNight: 'color', osd: { namePosition: 'Upper Left' }, spotlight: { brightness: 40 } }, FULL)).toEqual([
       { fields: ['dayNight'], cmd: 'SetIsp', param: { Isp: { ...FULL.isp.Isp, dayNight: 'Color' } } },
       { fields: ['spotlight'], cmd: 'SetWhiteLed', param: { WhiteLed: { ...FULL.wl.WhiteLed, bright: 40 } } },
       {
         fields: ['osd'],
         cmd: 'SetOsd',
-        param: { Osd: { ...FULL.osd.Osd, osdChannel: { enable: 1, name: 'Porch', pos: 'Lower Right' } } },
+        param: { Osd: { ...FULL.osd.Osd, osdChannel: { enable: 1, name: 'Den', pos: 'Upper Left' } } },
       },
     ]);
     expect(detectionCommands({ motionSensitivity: 50, ai: { person: { sensitivity: 80 } } }, FULL)).toEqual([
@@ -197,7 +190,7 @@ describe('building commands', () => {
     expect(patchApplied('motionSensitivity', { motionSensitivity: 20 }, reread)).toBe(false);
     expect(patchApplied('ai.person.record', { ai: { person: { record: 'on' } } }, reread)).toBe(true);
     const img = imageFrom(REAL);
-    expect(patchApplied('osd', { osd: { name: 'Den' } }, img)).toBe(true);
+    expect(patchApplied('osd', { osd: { showName: img.osd.showName } }, img)).toBe(true);
     expect(patchApplied('spotlight', { spotlight: { mode: 'off' } }, img)).toBe(false);
   });
 });

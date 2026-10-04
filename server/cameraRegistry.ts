@@ -1,3 +1,4 @@
+import { EventEmitter } from 'events';
 import { existsSync, readFileSync } from 'fs';
 import { basename } from 'path';
 import { logger } from './logger';
@@ -132,10 +133,34 @@ function proxyOf(v: unknown, i: number): { url: string; token: string; adminToke
 
 export function setCameras(list: CameraConfig[]): void {
   cameras = list;
+  reported.clear();
+}
+
+// The camera's own name (design camera-name-design.md): the camera stores
+// it; cams shows what the camera (through its cam-proxy, or read directly)
+// last reported, and the registry name until then. The id never changes.
+const reported = new Map<string, string>();
+// 'name' {cam, name}: a camera's shown name changed (the browser relay).
+export const nameEvents = new EventEmitter();
+nameEvents.setMaxListeners(0);
+
+export function cameraName(id: string): string {
+  return reported.get(id) ?? getCamera(id)?.name ?? id;
+}
+
+// What the camera reported (null: nothing now, e.g. its proxy is
+// unreachable, so the registry name again). Announced only on a change.
+export function setReportedName(id: string, name: string | null): void {
+  if (!getCamera(id)) return;
+  const before = cameraName(id);
+  if (name === null) reported.delete(id);
+  else reported.set(id, name);
+  const now = cameraName(id);
+  if (now !== before) nameEvents.emit('name', { cam: id, name: now });
 }
 
 export function listCameras(): CameraSummary[] {
-  return cameras.map((c) => ({ id: c.id, name: c.name, ...webUiOf(c), proxy: proxyActive(c.id), proxyConfigured: !!c.proxy }));
+  return cameras.map((c) => ({ id: c.id, name: cameraName(c.id), ...webUiOf(c), proxy: proxyActive(c.id), proxyConfigured: !!c.proxy }));
 }
 
 // Ids of the cameras whose cam-proxy is in use.
