@@ -7,7 +7,9 @@ import { proxyEnabled } from './proxyState';
 export interface CameraConfig {
   id: string;
   name: string;
-  host: string; // IP or hostname, optionally with :port
+  // IP or hostname, optionally with :port; or "from-proxy" (with a proxy):
+  // the address its cam-proxy reports (spec 2026-10-04-camera-address-from-proxy-design).
+  host: string;
   protocol: 'https' | 'http';
   // When set, the camera's TLS certificate is verified against this name
   // (the camera is reached by IP, but its certificate is for a hostname).
@@ -71,6 +73,7 @@ export function loadCameras(file: string | undefined = process.env.CAMERAS_FILE)
       throw new Error(`camera registry entry ${i}: id must match ${ID_PATTERN}`);
     }
     if (seen.has(e.id as string)) throw new Error(`camera registry: duplicate id "${e.id}"`);
+    if (e.host === FROM_PROXY && e.proxy === undefined) throw new Error(`camera registry entry ${i}: host "${FROM_PROXY}" needs a proxy`);
     seen.add(e.id as string);
     if (e.protocol !== undefined && e.protocol !== 'https' && e.protocol !== 'http') {
       throw new Error(`camera registry entry ${i}: protocol must be "https" or "http"`);
@@ -83,6 +86,12 @@ export function loadCameras(file: string | undefined = process.env.CAMERAS_FILE)
     }
     if (e.webUiNote !== undefined && !(typeof e.webUiNote === 'string' && e.webUiNote.length > 0 && e.webUiNote.length <= 120)) {
       throw new Error(`camera registry entry ${i}: webUiNote must be a string of 1 to 120 characters`);
+    }
+    // An address from the proxy is only trusted behind a certificate check:
+    // a compromised proxy must not point the camera login at another host
+    // (security review 2026-10-04).
+    if (e.host === FROM_PROXY && ((e.protocol ?? 'https') !== 'https' || e.tlsServername === undefined)) {
+      throw new Error(`camera registry entry ${i}: host "${FROM_PROXY}" needs protocol "https" and a tlsServername`);
     }
     const proxy = e.proxy === undefined ? undefined : proxyOf(e.proxy, i);
     const camera: CameraConfig = {
@@ -134,6 +143,49 @@ function proxyOf(v: unknown, i: number): { url: string; token: string; adminToke
 export function setCameras(list: CameraConfig[]): void {
   cameras = list;
   reported.clear();
+  reportedAddress.clear();
+}
+
+// A camera whose address comes from its cam-proxy (spec
+// 2026-10-04-camera-address-from-proxy-design): `"host": "from-proxy"`.
+export const FROM_PROXY = 'from-proxy';
+const reportedAddress = new Map<string, string>();
+// 'address' {cam, address}: a from-proxy camera's address changed (the
+// direct client is built again for it).
+export const addressEvents = new EventEmitter();
+addressEvents.setMaxListeners(0);
+
+// An address or name with an optional :port (1-65535), as cam-proxy's
+// camera.host from CAMERA_HOST.
+export function validCameraAddress(v: unknown): v is string {
+  if (typeof v !== 'string') return false;
+  const m = /^([A-Za-z0-9][A-Za-z0-9.-]{0,252})(?::([0-9]{1,5}))?$/.exec(v);
+  return !!m && (m[2] === undefined || (Number(m[2]) >= 1 && Number(m[2]) <= 65535));
+}
+
+export const hostFromProxy = (cam: CameraConfig | undefined): boolean => cam?.host === FROM_PROXY;
+
+// Where cams reaches the camera directly: the configured host, or for a
+// from-proxy camera the address its proxy last reported (undefined until
+// then). It stays while the proxy is away: the direct features need it most then.
+export function cameraHost(id: string): string | undefined {
+  const cam = getCamera(id);
+  if (!cam) return undefined;
+  return hostFromProxy(cam) ? reportedAddress.get(id) : cam.host;
+}
+
+// What the proxy reported; anything but an address is ignored. Announced
+// only on a change, and only for a from-proxy camera.
+export function setReportedAddress(id: string, address: unknown): void {
+  if (!hostFromProxy(getCamera(id))) return;
+  if (!validCameraAddress(address)) {
+    if (address !== undefined) logger.debug({ cameraId: id }, 'proxy_address_ignored');
+    return;
+  }
+  if (reportedAddress.get(id) === address) return;
+  reportedAddress.set(id, address);
+  logger.info({ cameraId: id, address }, 'camera_address_from_proxy');
+  addressEvents.emit('address', { cam: id, address });
 }
 
 // The camera's own name (design camera-name-design.md): the camera stores
@@ -186,7 +238,10 @@ export function webUiOf(cam: CameraConfig): { webUiUrl: string | null; webUiNote
 
 // The camera's own web UI, by LAN address: it's reachable from the home
 // network only (docs/reolink-api.md, "Camera authentication").
-function webUiUrlOf(cam: CameraConfig): string {
-  const host = cam.host.startsWith('[') ? cam.host.slice(0, cam.host.indexOf(']') + 1) : cam.host.split(':')[0];
+// A from-proxy camera has none until its address is known.
+function webUiUrlOf(cam: CameraConfig): string | null {
+  const h = cameraHost(cam.id) ?? (hostFromProxy(cam) ? undefined : cam.host);
+  if (!h) return null;
+  const host = h.startsWith('[') ? h.slice(0, h.indexOf(']') + 1) : h.split(':')[0];
   return `https://${host}/`;
 }

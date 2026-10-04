@@ -1,4 +1,4 @@
-import { getCamera, setReportedName } from '../cameraRegistry';
+import { getCamera, setReportedAddress, setReportedName } from '../cameraRegistry';
 import { logger } from '../logger';
 import { getProxyClient, proxyCameraId } from './client';
 import { proxyHub, proxyStates } from './stream';
@@ -29,24 +29,33 @@ export function forgetProxyName(id: string): void {
 // Shown as text only; still bounded, and without control characters.
 export const plausibleName = (v: unknown): v is string => typeof v === 'string' && v.length > 0 && v.length <= 64 && !/\p{C}/u.test(v);
 
-// The name in the proxy's camera list, or undefined (no answer, no entry).
-export async function readProxyName(id: string, timeoutMs = 5000): Promise<string | undefined> {
+// The camera's entry in the proxy's camera list (no answer, no entry: undefined).
+async function readProxyEntry(id: string, timeoutMs: number): Promise<{ name?: unknown; address?: unknown } | undefined> {
   const client = getProxyClient(id);
   if (!client) return undefined;
   try {
     const list = await client.json<unknown>('/api/cameras', undefined, { timeoutMs });
-    const mine = Array.isArray(list) ? (list as { id?: unknown; name?: unknown }[]).find((c) => c?.id === proxyCameraId(id)) : undefined;
-    return plausibleName(mine?.name) ? mine.name : undefined;
+    return Array.isArray(list) ? (list as { id?: unknown; name?: unknown; address?: unknown }[]).find((c) => c?.id === proxyCameraId(id)) : undefined;
   } catch (err) {
     logger.debug({ cameraId: id, message: (err as Error).message }, 'proxy_name_unread');
     return undefined;
   }
 }
 
+// The name in the proxy's camera list, or undefined (no answer, no entry).
+export async function readProxyName(id: string, timeoutMs = 5000): Promise<string | undefined> {
+  const mine = await readProxyEntry(id, timeoutMs);
+  return plausibleName(mine?.name) ? mine.name : undefined;
+}
+
+// The name and, for a "from-proxy" camera, its address (spec
+// 2026-10-04-camera-address-from-proxy-design): read when the stream comes up.
 export async function refreshProxyName(id: string): Promise<void> {
-  const name = await readProxyName(id);
+  const mine = await readProxyEntry(id, 5000);
   // The stream may have gone down (or the proxy been switched off) meanwhile.
-  if (name !== undefined && proxyStates().some((s) => s.cam === id && s.up)) setReportedName(id, name);
+  if (!mine || !proxyStates().some((s) => s.cam === id && s.up)) return;
+  if (plausibleName(mine.name)) setReportedName(id, mine.name);
+  setReportedAddress(id, mine.address);
 }
 
 proxyHub.on('state', (s: { cam: string; up: boolean }) => {
@@ -63,5 +72,8 @@ proxyHub.on('state', (s: { cam: string; up: boolean }) => {
 });
 
 proxyHub.on('message', (m: { cam: string; type: string; data: Record<string, unknown> }) => {
-  if (m.type === 'camera' && plausibleName(m.data.name)) setReportedName(m.cam, m.data.name);
+  if (m.type !== 'camera') return;
+  if (plausibleName(m.data.name)) setReportedName(m.cam, m.data.name);
+  // cam-proxy's `camera` message carries the address too (it may carry only that).
+  if (m.data.address !== undefined) setReportedAddress(m.cam, m.data.address);
 });

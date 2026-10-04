@@ -11,6 +11,7 @@ describe('liveUi helpers', () => {
   });
   it('explains each offline code', () => {
     expect(offlineReason('camera_offline')).toBe('The camera could not be reached.');
+    expect(offlineReason('camera_address_unknown')).toBe("Waiting for the proxy to report the camera's address.");
     expect(offlineReason('camera_auth_failed')).toBe('Signing in to the camera failed.');
     expect(offlineReason('unreachable')).toBe("cams couldn't check the camera (network or server problem).");
     expect(offlineReason('other')).toMatch(/server logs/);

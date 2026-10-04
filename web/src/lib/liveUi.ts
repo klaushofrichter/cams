@@ -81,12 +81,17 @@ export function badgeOf(playerState: PlayerState, stillsShowing: boolean): strin
   return playerState === 'playing' ? '● LIVE' : stillsShowing ? '● STILLS' : '● …';
 }
 
+// A camera whose address comes from its cam-proxy (Pi demo kit), before the
+// proxy reported it.
+export const WAITING_FOR_PROXY = "Waiting for the proxy to report the camera's address.";
+
 // One explanation per error code: camera_error covers things re-trying
 // won't fix (a certificate problem, an unexpected answer), so it points at
 // the server logs instead of suggesting the camera is simply unreachable.
 export function offlineReason(code: string | undefined): string {
   if (code === 'camera_offline') return 'The camera could not be reached.';
   if (code === 'camera_auth_failed') return 'Signing in to the camera failed.';
+  if (code === 'camera_address_unknown') return WAITING_FOR_PROXY;
   if (code === 'unreachable') return "cams couldn't check the camera (network or server problem).";
   return 'The camera answered with an error (for example a certificate problem). Check the server logs.';
 }
