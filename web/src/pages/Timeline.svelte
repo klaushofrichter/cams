@@ -8,12 +8,12 @@
   import { liveEventsOn } from '../lib/preferences';
   import { addDays, DATE, formatClock, localDate, orderTriggers, pad2, TRIGGER_LABELS, type Trigger } from '../lib/recordings';
   import { todayDate } from '../lib/refresh';
-  import { localClock } from '../lib/clock';
+  import { localClock, now as clockNow } from '../lib/clock';
   import type { StillObject } from '../lib/vision';
   import TimelineStill from '../components/TimelineStill.svelte';
   import {
-    analysedSeconds, cardKind, cardsInMinute, timelineSearch, dayRange, historyHref, hourGroups, loadViewPoint, minuteIndex, nearestMinute, seenStills, shareViewPoint,
-    secondKinds, splitRange, stepMinute, stillIndex, tileStyle, timelineCursor, type PreviewMinute, type SeenStill, type TimelineCard,
+    analysedSeconds, blankMinute, cardKind, cardsInMinute, timelineSearch, dayRange, historyHref, hourGroups, loadViewPoint, minuteIndex, minuteOf, nearestMinute, secondStamp, seenStills, shareViewPoint,
+    secondKinds, splitRange, stepMinute, stepSecond, stillIndex, tileStyle, timelineCursor, type PreviewMinute, type SeenStill, type TimelineCard,
   } from '../lib/timeline';
 
   // A day of the camera's cam-proxy stills (Plan 6) on cam-proxy's model (spec
@@ -35,7 +35,8 @@
   let cards = $state<TimelineCard[]>([]);
   let message = $state('');
   let open = $state<PreviewMinute | null>(null); // the minute view
-  let still = $state<{ ts: number } | null>(null); // the large still
+  // The large still; `gap`: a second without one, stepped into (issue #159).
+  let still = $state<{ ts: number; gap?: true } | null>(null);
   // Vision's analysis of the large still, from the cards: one that arrives
   // with a live refresh shows on a still already open (issue #109).
   const seenStill = $derived.by(() => {
@@ -52,7 +53,10 @@
 
   const camera = $derived($cameraById($selectedCameraId) ?? null);
   const base = $derived(camera ? `/api/cameras/${encodeURIComponent(camera.id)}` : '');
-  const hours = $derived(hourGroups(minutes));
+  // A minute without a sprite that a one-second step opened (issue #159)
+  // joins the grid while it is open.
+  const shown = $derived(open && !minutes.some((x) => x.minute === open!.minute) ? [...minutes, open].sort((a, b) => a.minute - b.minute) : minutes);
+  const hours = $derived(hourGroups(shown));
   // Per minute of the day: its cards, count, colour and Vision mark, once (issue #109).
   const index = $derived(minuteIndex(minutes, cards));
   const firstTile = (m: PreviewMinute) => Math.max(0, m.present.indexOf(true));
@@ -83,7 +87,7 @@
     cards = [];
     open = null;
     still = null;
-    ++pickSeq; // a still still loading for the day before is dropped
+    newPick(); // a still still loading for the day before is dropped
     message = '';
     if (!cam?.proxy || !DATE.test(d)) return;
     message = 'Loading…';
@@ -96,7 +100,15 @@
         cards = ev;
         message = m.length ? '' : 'No stills for this day.';
         const t = wantT;
+        const exact = wantExact;
         wantT = null;
+        wantExact = false;
+        // A one-second step into this day: that very second (issue #159).
+        if (exact && t !== null) {
+          void goSecond(t);
+          void reveal();
+          return;
+        }
         // The minute holding the time, else the nearest one (for now: the newest).
         const target = t === null ? null : nearestMinute(m, t);
         if (target && t !== null) {
@@ -168,7 +180,7 @@
   }
 
   function openMinute(m: PreviewMinute) {
-    ++pickSeq; // a still still loading for the minute before is dropped
+    newPick(); // a still still loading for the minute before is dropped
     open = m;
     still = null;
     pickMessage = '';
@@ -179,10 +191,11 @@
   // The still for a second: the proxy's still at or after it in that minute
   // (the sprite has a tile per second; the proxy may keep fewer stills).
   async function pick(m: PreviewMinute, target: number) {
-    const seq = ++pickSeq;
+    const seq = newPick();
     pickMessage = '';
     try {
       const stills = await getJson<number[]>(`${base}/stills?from=${m.minute}&to=${m.minute + 59_999}`);
+      remember(base, m.minute, stills);
       if (seq !== pickSeq) return;
       if (!stills.length) pickMessage = 'No still for that second.';
       else still = { ts: stills[stillIndex(stills, target, 1)] };
@@ -193,7 +206,7 @@
 
   function openSecond(m: PreviewMinute, i: number, seen: SeenStill | null) {
     if (seen) {
-      ++pickSeq;
+      newPick();
       pickMessage = '';
       still = { ts: seen.stillTs };
       return;
@@ -210,7 +223,7 @@
     if (m) openMinute(m);
   }
   function close() {
-    ++pickSeq;
+    newPick();
     open = null;
     still = null;
     pickMessage = '';
@@ -220,16 +233,120 @@
     if (!open || e.altKey || e.metaKey || e.ctrlKey) return;
     const el = e.target as HTMLElement | null;
     if (el && (['INPUT', 'TEXTAREA', 'SELECT'].includes(el.tagName) || el.isContentEditable)) return;
-    if (e.key === 'ArrowLeft') step(-1);
-    else if (e.key === 'ArrowRight') step(1);
+    // With the large still open the arrows step its second, else the minute (issue #159).
+    if (e.key === 'ArrowLeft') (still ? stepStill(-1) : step(-1));
+    else if (e.key === 'ArrowRight') (still ? stepStill(1) : step(1));
     else if (e.key === 'Escape') {
       if (still) {
-        ++pickSeq; // a still still loading is dropped too
+        newPick(); // a still still loading is dropped too
         still = null;
       } else close();
     } else return;
     e.preventDefault();
   }
+
+  // One second back or forward from the large still (issue #159). The steps
+  // go through the same selection (open, still) and the same pickSeq guard as
+  // a click, so a late still for an earlier second never shows.
+  let wantExact = false; // wantT is a step's very second, not "the nearest still"
+  let oldestStill = $state<number | null>(null);
+  $effect(() => {
+    const cam = camera;
+    oldestStill = null;
+    if (!cam?.proxy) return;
+    let stale = false;
+    getJson<{ oldest?: number | null; stills?: number | null }>(`/api/cameras/${encodeURIComponent(cam.id)}/extent`).then(
+      (x) => { if (!stale) oldestStill = typeof x.stills === 'number' ? x.stills : null; },
+      () => undefined, // no lower bound then
+    );
+    return () => (stale = true);
+  });
+  const bounds = () => ({ oldest: oldestStill, now: Date.now() });
+
+  // A minute's still list, kept for steps through it: a minute that was
+  // complete when asked keeps its list, a recent one for two seconds.
+  const lists = new Map<string, { at: number; list: Promise<number[]> }>();
+  function remember(b: string, minute: number, list: number[]) {
+    lists.set(`${b}|${minute}`, { at: Date.now(), list: Promise.resolve(list) });
+  }
+  function stillsIn(b: string, minute: number): Promise<number[]> {
+    const key = `${b}|${minute}`;
+    const hit = lists.get(key);
+    if (hit && (hit.at > minute + 65_000 || Date.now() - hit.at < 2000)) return hit.list;
+    const list = getJson<number[]>(`${b}/stills?from=${minute}&to=${minute + 59_999}`);
+    list.catch(() => lists.delete(key));
+    lists.delete(key);
+    lists.set(key, { at: Date.now(), list });
+    if (lists.size > 120) lists.delete(lists.keys().next().value!);
+    return list;
+  }
+
+  // Quick presses (a held arrow key) coalesce: the first shows at once, then
+  // at most one every STEP_MS, always the latest second asked for.
+  const STEP_MS = 150;
+  let stepTo: number | null = null; // the second the presses aim at, until it shows
+  let stepDir: -1 | 1 = 1;
+  let stepTimer: ReturnType<typeof setTimeout> | undefined;
+  let stepDirty = false;
+  // Any other pick: steps still pending are dropped with its still.
+  function newPick(): number {
+    clearTimeout(stepTimer);
+    stepTimer = undefined;
+    stepTo = null;
+    stepDirty = false;
+    return ++pickSeq;
+  }
+  function stepStill(dir: -1 | 1) {
+    const from = stepTo ?? still?.ts;
+    if (from === undefined) return;
+    const next = stepSecond(from, dir, bounds());
+    if (!next) return;
+    stepTo = next.ts;
+    stepDir = dir;
+    if (stepTimer) {
+      stepDirty = true;
+      return;
+    }
+    void goSecond(next.ts);
+    const flush = () => {
+      stepTimer = undefined;
+      if (!stepDirty || stepTo === null) return;
+      stepDirty = false;
+      void goSecond(stepTo);
+      stepTimer = setTimeout(flush, STEP_MS);
+    };
+    stepTimer = setTimeout(flush, STEP_MS);
+  }
+
+  // Show a second: its still, or the gap overlay when it has none. Another
+  // day loads first (its very second, through wantT).
+  async function goSecond(ts: number) {
+    const seq = ++pickSeq;
+    pickMessage = '';
+    const day = localDate(new Date(ts));
+    if (day !== date) {
+      wantT = ts;
+      wantExact = true;
+      date = day; // the load effect drops this pick and comes back here
+      return;
+    }
+    const minute = minuteOf(ts);
+    if (open?.minute !== minute) open = minutes.find((x) => x.minute === minute) ?? blankMinute(minute, minutes[0]);
+    const b = base;
+    try {
+      const list = await stillsIn(b, minute);
+      if (seq !== pickSeq) return;
+      const hit = list.find((t) => Math.floor(t / 1000) * 1000 === ts);
+      still = hit === undefined ? { ts, gap: true } : { ts: hit };
+      if (stepTo === ts && !stepDirty) stepTo = null;
+      // The next still the same way, so a further step finds it cached.
+      const ahead = list.find((t) => Math.floor(t / 1000) * 1000 === ts + stepDir * 1000);
+      if (ahead !== undefined) new Image().src = `${b}/stills/${ahead}.jpg`;
+    } catch {
+      if (seq === pickSeq) pickMessage = 'Could not load that still.';
+    }
+  }
+  const canStep = (dir: -1 | 1, ts: number, nowMs: number) => stepSecond(ts, dir, { oldest: oldestStill, now: nowMs }) !== null;
 
   const loadAll = (eventId: number) => async (): Promise<StillObject[]> => (await getJson<{ objects: StillObject[] }>(`${base}/analyses/${eventId}`)).objects;
 
@@ -244,6 +361,7 @@
     let gone = false;
     let timer: ReturnType<typeof setTimeout> | undefined;
     const load = (want: { style: string; url: string }, attempt: number) => {
+      if (!want.url) return void node.setAttribute('style', want.style); // a minute without a sprite
       const img = new Image();
       img.onload = () => {
         if (!gone && current.url === want.url) node.setAttribute('style', current.style);
@@ -344,9 +462,20 @@
               {#if still}
                 {@const s = still}
                 <div class="large" data-testid="timeline-large">
-                  <TimelineStill src={`${base}/stills/${s.ts}.jpg`} alt={`${camera.name} at ${clock(s.ts, true)}`} summary={seenStill?.summary ?? null} loadAll={seenStill ? loadAll(seenStill.eventId) : undefined} />
+                  {#if s.gap}
+                    <!-- A second without a still (an outage, issue #149): said so, and the steps go on (issue #159). -->
+                    <div class="gap" style={`aspect-ratio:${m.tileW}/${m.tileH}`} data-testid="timeline-gap" role="status">
+                      <span>{secondStamp(s.ts)} not available as snapshot</span>
+                    </div>
+                  {:else}
+                    <TimelineStill src={`${base}/stills/${s.ts}.jpg`} alt={`${camera.name} at ${clock(s.ts, true)}`} summary={seenStill?.summary ?? null} loadAll={seenStill ? loadAll(seenStill.eventId) : undefined} />
+                  {/if}
                   <div class="bar">
-                    <span class="mono">{clock(s.ts, true)}</span>
+                    <!-- One second back or forward, across minutes, hours and days (issue #159). -->
+                    <button class="sec" data-testid="timeline-second-prev" title="One second back (←)" aria-label="One second back" disabled={!canStep(-1, s.ts, $clockNow.getTime() + 999)} onclick={() => stepStill(-1)}>◀ 1 s</button>
+                    <span class="mono" data-testid="timeline-large-time">{clock(s.ts, true)}</span>
+                    <button class="sec" data-testid="timeline-second-next" title="One second forward (→)" aria-label="One second forward" disabled={!canStep(1, s.ts, $clockNow.getTime() + 999)} onclick={() => stepStill(1)}>1 s ▶</button>
+                    <span class="spacer"></span>
                     <!-- History at this second, paused, without boxes (Klaus, 2026-09-30). -->
                     <a data-testid="timeline-open-history" href={historyHref(camera.id, s.ts)}
                       onclick={(e) => { if (e.button === 0 && !e.metaKey && !e.ctrlKey && !e.shiftKey) { e.preventDefault(); navigate((e.currentTarget as HTMLAnchorElement).getAttribute('href')!); } }}>Open in History</a>
@@ -391,8 +520,13 @@
   .spacer { flex: 1; }
   .evtag { display: inline-block; margin-right: 10px; padding-left: 6px; border-left: 4px solid; }
   .large { display: grid; gap: 6px; }
+  .gap { display: grid; place-items: center; width: min(100%, 896px); max-height: 60vh; padding: 16px; box-sizing: border-box; text-align: center; color: var(--muted); background: var(--surface-2); border: 1px dashed var(--border); border-radius: 8px; }
+  .gap span { font-family: var(--mono); font-size: 14px; line-height: 1.4; }
+  .bar button.sec { min-width: 64px; min-height: 36px; font-variant-numeric: tabular-nums; }
+  .bar button:disabled { opacity: 0.45; cursor: default; }
   .ev-motion { border-color: var(--kind-motion); } .ev-person { border-color: var(--kind-person); } .ev-vehicle { border-color: var(--kind-vehicle); } .ev-pet { border-color: var(--kind-pet); } .ev-timer { border-color: var(--muted); }
   @media (max-width: 600px) {
     .hour { grid-template-columns: 1fr; }
+    .bar button.sec { min-width: 76px; min-height: 44px; }
   }
 </style>

@@ -1,7 +1,7 @@
 // The Timeline page's arithmetic (Plan 6). cam-proxy works in UTC ms; the
 // page shows the browser's local day.
 import { writable } from 'svelte/store';
-import { DATE, localDate, saveCursor } from './recordings';
+import { DATE, localDate, pad2, saveCursor } from './recordings';
 import { navigate } from './router';
 import type { SummaryEntry } from './vision';
 
@@ -30,7 +30,9 @@ export function tileIndex(m: PreviewMinute, ts: number): number {
 
 export function tileStyle(m: PreviewMinute, i: number, scale: number): string {
   return (
-    `background-image:url('${m.url}');background-size:${m.cols * m.tileW * scale}px ${m.rows * m.tileH * scale}px;` +
+    // A minute without a sprite (blankMinute) has no image to ask for.
+    (m.url ? `background-image:url('${m.url}');` : '') +
+    `background-size:${m.cols * m.tileW * scale}px ${m.rows * m.tileH * scale}px;` +
     `background-position:-${(i % m.cols) * m.tileW * scale}px -${Math.floor(i / m.cols) * m.tileH * scale}px;width:${m.tileW * scale}px;height:${m.tileH * scale}px`
   );
 }
@@ -251,4 +253,43 @@ export function analysedSeconds(m: { minute: number; intervalS: number; present:
     const from = m.minute + i * m.intervalS * 1000;
     return stills.find((s) => s.stillTs >= from && s.stillTs < from + m.intervalS * 1000) ?? null;
   });
+}
+
+// One second back or forward from the large still (issue #159). Plain unix
+// ms, so a minute, hour, day or DST change is just the next second: back
+// from a minute's first second is the last second of the minute before,
+// forward from its last the first of the next. `crossed` says what changed
+// (local time: a day, an hour, a minute, or only the second). Null past now
+// or before the oldest still.
+export interface SecondStep { ts: number; date: string; minute: number; crossed: 'second' | 'minute' | 'hour' | 'day' }
+export function stepSecond(from: number, dir: -1 | 1, bounds: { oldest: number | null; now: number }): SecondStep | null {
+  const ts = Math.floor(from / 1000) * 1000 + dir * 1000;
+  if (ts > bounds.now) return null;
+  if (bounds.oldest !== null && ts < Math.floor(bounds.oldest / 1000) * 1000) return null;
+  const date = localDate(new Date(ts));
+  const minute = minuteOf(ts);
+  const before = Math.floor(from / 1000) * 1000;
+  // The local hour's first minute, from the minute (the fall-back hour that
+  // repeats 01:00 is another hour, with another start).
+  const hourStart = (t: number) => minuteOf(t) - new Date(t).getMinutes() * MINUTE;
+  const crossed =
+    date !== localDate(new Date(before)) ? 'day'
+    : hourStart(ts) !== hourStart(before) ? 'hour'
+    : minute !== minuteOf(before) ? 'minute'
+    : 'second';
+  return { ts, date, minute, crossed };
+}
+
+// A second as the gap overlay writes it: local YYYY-MM-DD HH:MM:SS.
+export function secondStamp(ts: number): string {
+  const d = new Date(ts);
+  return `${localDate(d)} ${pad2(d.getHours())}:${pad2(d.getMinutes())}:${pad2(d.getSeconds())}`;
+}
+
+// A minute without a sprite (an outage, issue #149), for stepping into it:
+// every second missing, shaped like its neighbours.
+export function blankMinute(minute: number, like?: PreviewMinute): PreviewMinute {
+  const cols = like?.cols ?? 10;
+  const rows = like?.rows ?? 6;
+  return { minute, cols, rows, tileW: like?.tileW ?? 160, tileH: like?.tileH ?? 90, intervalS: like?.intervalS ?? 1, present: Array(cols * rows).fill(false), url: '' };
 }

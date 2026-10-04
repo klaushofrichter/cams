@@ -47,7 +47,8 @@ recordingsRouter.get('/api/cameras/:id/days', async (req, res, next) => {
   }
 });
 
-// How far back the camera's content goes (the History strip's left edge).
+// How far back the camera's content goes (the History strip's left edge),
+// and its oldest still (the Timeline's one-second steps, issue #159).
 recordingsRouter.get('/api/cameras/:id/extent', async (req, res, next) => {
   const id = knownCamera(req, res);
   if (!id) return;

@@ -251,7 +251,7 @@ describe('Timeline', () => {
     // opts.missing: tiles missing from every sprite; opts.hold: awaited before each /stills answer;
     // opts.holdDay: awaited before each /previews answer; opts.stills: the /stills answer ('fail': a 502).
     const calls: string[] = [];
-    async function open(vp?: number | null, sprites: number[] = [m0, minute], events: unknown[] = [], opts: { missing?: number[]; hold?: () => Promise<void>; holdDay?: () => Promise<void>; stills?: number[] | 'fail' } = {}) {
+    async function open(vp?: number | null, sprites: number[] = [m0, minute], events: unknown[] = [], opts: { missing?: number[]; hold?: () => Promise<void>; holdDay?: () => Promise<void>; stills?: number[] | 'fail'; extent?: { oldest: number | null; stills: number | null } } = {}) {
       calls.length = 0;
       sessionStorage.clear();
       history.replaceState(null, '', '/app/timeline');
@@ -261,7 +261,9 @@ describe('Timeline', () => {
         calls.push(url);
         if (url.includes('/previews?')) {
           await opts.holdDay?.();
-          return json(sprites.map(sprite).map((x) => ({ ...x, present: x.present.map((p, i) => p && !opts.missing?.includes(i)) })));
+          const q = new URL(url, 'http://x').searchParams;
+          const [from, to] = [Number(q.get('from')), Number(q.get('to'))];
+          return json(sprites.filter((x) => x >= from && x <= to).map(sprite).map((x) => ({ ...x, present: x.present.map((p, i) => p && !opts.missing?.includes(i)) })));
         }
         if (url.includes('/stills?')) {
           await opts.hold?.();
@@ -272,6 +274,7 @@ describe('Timeline', () => {
         }
         // The cards on their own day only (the page also asks for its neighbours).
         if (url.includes('/events?')) return json({ events: new URL(url, 'http://x').searchParams.get('date') === localDate(new Date(sprites[0])) ? events : [] });
+        if (url.endsWith('/extent')) return json(opts.extent ?? { oldest: null, stills: null });
         return json({});
       });
       cameras.set([{ id: 'den', name: 'Den', webUiUrl: null, proxy: true }]);
@@ -327,13 +330,15 @@ describe('Timeline', () => {
       expect(loadCursor()?.cursor.at).toBe(m0 + 18_000);
     });
 
-    it('the arrow keys step the minute within its hour only', async () => {
+    it('without a large still, the arrow keys step the minute within its hour only', async () => {
       const h = new Date();
       h.setHours(10, 58, 0, 0);
       const a = h.getTime();
       await open(a + 5000, [a, a + 60_000, a + 120_000]); // 10:58, 10:59, 11:00
       const active = () => q('[data-testid="timeline-minute"].active')?.getAttribute('data-minute');
       expect(active()).toBe(String(a));
+      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' })); // with the still open they step its second (issue #159)
+      flushSync();
       window.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', altKey: true })); // Alt+→ is the browser's
       window.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', metaKey: true }));
       flushSync();
@@ -542,6 +547,169 @@ describe('Timeline', () => {
       await settle();
       expect(view().querySelector('[data-testid="timeline-pick-message"]')?.textContent).toBe('Could not load that still.');
       expect(view().querySelector('[data-testid="timeline-pick-message"]')?.getAttribute('role')).toBe('status');
+    });
+
+    // Issue #159: one second back or forward under the large still.
+    describe('one-second steps', () => {
+      const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
+      // A step and its still: past the coalescing window, then settled.
+      const press = async (k: string) => {
+        key(k);
+        await wait(170);
+        await settle();
+      };
+      const click = async (id: string) => {
+        (q(`[data-testid="${id}"]`) as HTMLButtonElement).click();
+        await wait(170);
+        await settle();
+      };
+      const active = () => q('[data-testid="timeline-minute"].active')?.getAttribute('data-minute');
+      const gap = () => q('[data-testid="timeline-gap"]')?.textContent?.trim() ?? null;
+      const stamp = (t: number) => {
+        const d = new Date(t);
+        const p = (n: number) => String(n).padStart(2, '0');
+        return `${localDate(d)} ${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`;
+      };
+
+      it('the buttons under the large still step one second inside the minute', async () => {
+        await open(m0 + 5000);
+        await click('timeline-second-next');
+        expect(still()).toBe(`/api/cameras/den/stills/${m0 + 6000}.jpg`);
+        expect(q('[data-testid="timeline-second"].active')?.getAttribute('data-ts')).toBe(String(m0 + 6000));
+        await click('timeline-second-prev');
+        await click('timeline-second-prev');
+        expect(still()).toBe(`/api/cameras/den/stills/${m0 + 4000}.jpg`);
+        expect(active()).toBe(String(m0));
+        expect(loadViewPoint('den')).toEqual({ at: m0 + 4000 }); // the shared cursor follows
+      });
+
+      it('the arrow keys cross into the next minute at its first second, back at the last', async () => {
+        await open(m0 + 59_000);
+        await press('ArrowRight');
+        expect(still()).toBe(`/api/cameras/den/stills/${minute}.jpg`);
+        expect(active()).toBe(String(minute)); // the grid's selection moved
+        await press('ArrowLeft');
+        expect(still()).toBe(`/api/cameras/den/stills/${m0 + 59_000}.jpg`);
+        expect(active()).toBe(String(m0));
+        key('ArrowRight', { altKey: true }); // Alt+→ stays the browser's
+        await wait(170);
+        await settle();
+        expect(still()).toBe(`/api/cameras/den/stills/${m0 + 59_000}.jpg`);
+      });
+
+      it('crossing an hour switches the view to that hour, at its first or last minute', async () => {
+        const h = new Date();
+        h.setHours(10, 58, 0, 0);
+        const a = h.getTime();
+        await open(a + 60_000 + 59_000, [a, a + 60_000, a + 120_000]); // 10:59:59
+        const hourOfView = () => q('[data-testid="timeline-minute-view"]')!.closest('[data-testid="timeline-hour"]')!.querySelector('.label')!.textContent;
+        expect(hourOfView()).toBe('10:00');
+        await press('ArrowRight');
+        expect(still()).toBe(`/api/cameras/den/stills/${a + 120_000}.jpg`);
+        expect(hourOfView()).toBe('11:00');
+        expect(active()).toBe(String(a + 120_000));
+        await press('ArrowLeft');
+        expect(hourOfView()).toBe('10:00');
+        expect(active()).toBe(String(a + 60_000));
+        expect(still()).toBe(`/api/cameras/den/stills/${a + 60_000 + 59_000}.jpg`);
+      });
+
+      it('crossing midnight loads the other day at its first or last second', async () => {
+        const d = new Date(2026, 8, 27).getTime(); // 2026-09-27 00:00 local
+        await open(d - 1000, [d - 60_000, d]);
+        const day = () => (q('[data-testid="timeline-day"]') as HTMLInputElement).value;
+        expect(day()).toBe('2026-09-26');
+        expect(still()).toBe(`/api/cameras/den/stills/${d - 1000}.jpg`);
+        await press('ArrowRight');
+        await settle();
+        expect(day()).toBe('2026-09-27');
+        expect(still()).toBe(`/api/cameras/den/stills/${d}.jpg`);
+        expect(active()).toBe(String(d));
+        await press('ArrowLeft');
+        await settle();
+        expect(day()).toBe('2026-09-26');
+        expect(still()).toBe(`/api/cameras/den/stills/${d - 1000}.jpg`);
+      });
+
+      it('a second without a still shows the gap, and the steps go on from there', async () => {
+        await open(m0 + 5000, [m0, minute], [], { stills: [m0 + 5000, m0 + 8000] });
+        await press('ArrowRight');
+        expect(still()).toBeNull();
+        expect(gap()).toBe(`${stamp(m0 + 6000)} not available as snapshot`);
+        expect(q('[data-testid="timeline-second"].active')?.getAttribute('data-ts')).toBe(String(m0 + 6000));
+        await press('ArrowRight');
+        expect(gap()).toBe(`${stamp(m0 + 7000)} not available as snapshot`);
+        await click('timeline-second-next');
+        expect(gap()).toBeNull();
+        expect(still()).toBe(`/api/cameras/den/stills/${m0 + 8000}.jpg`);
+        expect(new URLSearchParams(location.search).get('t')).toBe(String(m0 + 8000));
+      });
+
+      it('steps into a minute without a sprite, shown blank in the grid', async () => {
+        await open(m0 - 60_000 + 59_000, [m0 - 60_000, minute], [], { stills: [m0 - 60_000 + 59_000] });
+        await press('ArrowRight');
+        expect(active()).toBe(String(m0)); // a blank tile for the open minute
+        expect(gap()).toBe(`${stamp(m0)} not available as snapshot`);
+        expect(qa('[data-testid="timeline-second"]').every((x) => (x as HTMLButtonElement).disabled)).toBe(true);
+        await press('ArrowLeft');
+        expect(still()).toBe(`/api/cameras/den/stills/${m0 - 60_000 + 59_000}.jpg`);
+        expect(qa('[data-testid="timeline-minute"]').map((x) => Number(x.getAttribute('data-minute')))).toEqual([m0 - 60_000, minute]); // gone again
+      });
+
+      it('never steps before the oldest still', async () => {
+        await open(m0 + 5000, [m0, minute], [], { extent: { oldest: m0 - 86_400_000, stills: m0 + 5000 } });
+        expect((q('[data-testid="timeline-second-prev"]') as HTMLButtonElement).disabled).toBe(true);
+        await press('ArrowLeft');
+        expect(still()).toBe(`/api/cameras/den/stills/${m0 + 5000}.jpg`);
+        expect((q('[data-testid="timeline-second-next"]') as HTMLButtonElement).disabled).toBe(false);
+      });
+
+      it('never steps past now', async () => {
+        const nowSec = Math.floor(Date.now() / 1000) * 1000;
+        const nowMin = Math.floor(nowSec / 60_000) * 60_000;
+        vi.useFakeTimers({ toFake: ['Date'], now: nowSec + 300 });
+        try {
+          await open(nowSec, [m0, minute, nowMin]);
+          expect(still()).toBe(`/api/cameras/den/stills/${nowSec}.jpg`);
+          expect((q('[data-testid="timeline-second-next"]') as HTMLButtonElement).disabled).toBe(true);
+          await press('ArrowRight');
+          expect(still()).toBe(`/api/cameras/den/stills/${nowSec}.jpg`);
+        } finally {
+          vi.useRealTimers();
+        }
+      });
+
+      it('coalesces quick presses: the first shows at once, then only the latest', async () => {
+        await open(m0 + 5000);
+        const shown: (string | null)[] = [];
+        for (let i = 0; i < 5; i++) {
+          key('ArrowRight');
+          await settle();
+          shown.push(still());
+        }
+        expect(shown.every((x) => x === `/api/cameras/den/stills/${m0 + 6000}.jpg`)).toBe(true);
+        await wait(170);
+        await settle();
+        expect(still()).toBe(`/api/cameras/den/stills/${m0 + 10_000}.jpg`);
+        expect(calls.filter((u) => u.includes('/stills?')).length).toBeLessThanOrEqual(2); // the minute's list, kept
+      });
+
+      it('drops a late still for an earlier second when the minute changes meanwhile', async () => {
+        let n = 0;
+        let release: (() => void) | undefined;
+        const held = new Promise<void>((r) => (release = r));
+        await open(m0 + 59_000, [m0, minute], [], { hold: () => (++n === 1 ? Promise.resolve() : held) });
+        key('ArrowRight'); // into the next minute: its list is held
+        await settle();
+        qa('[data-testid="timeline-minute"]')[0].click(); // another pick meanwhile
+        flushSync();
+        release!();
+        await wait(170);
+        await settle();
+        expect(still()).toBeNull();
+        expect(gap()).toBeNull();
+        expect(active()).toBe(String(m0));
+      });
     });
   });
 });
