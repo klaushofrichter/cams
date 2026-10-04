@@ -29,9 +29,27 @@ test('an old History link lands on /app/video at the asked day and time, as a re
   await expect(page).toHaveURL(new RegExp(`/app/video\\?cam=cam1&date=${chicagoToday()}&at=${at}`));
   await expect(page).not.toHaveURL(/panel=/);
   await expect(badge(page)).toHaveAttribute('data-mode', 'rec');
-  await expect(badge(page)).toHaveText(/^REC \d{2}:\d{2}:\d{2}( [AP]M)?$/);
+  await expect(badge(page)).toHaveText(/^REC \d{2}:\d{2}:\d{2}( [AP]M)? · SD$/); // a clip: the sub stream
   await expect(page.locator('[data-testid="event-card"][aria-current="true"]')).toHaveAttribute('data-clip-id', /-120505-120530$/);
   await expect(page.getByTestId('page-title')).toHaveText('Video');
+});
+
+// Klaus, 2026-10-04: REC says what it shows: SD (or 4K) for a clip, Still for the stills.
+test('the REC badge says SD over a clip and Still over the stills', async ({ page }) => {
+  const clipAt = Date.parse(`${chicagoToday()}T12:05:10-05:00`); // Den's 12:05:05 motion clip (CDT)
+  await page.goto(`/app/video?cam=cam1&date=${chicagoToday()}&at=${clipAt}`);
+  await expect(badge(page)).toHaveText(/^REC \d{2}:\d{2}:\d{2}( [AP]M)? · SD$/);
+  await expect(badge(page)).toHaveAttribute('aria-label', /^REC .* · SD, back to live$/);
+  const stillAt = Date.now() - 5 * 60_000; // Barn: a still every second
+  const stillDay = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Chicago' }).format(new Date(stillAt));
+  await page.goto(`/app/video?cam=barn&date=${stillDay}&at=${stillAt}`);
+  await expect(page.getByTestId('source-badge')).toHaveText('Stills 1 FPS');
+  await expect(badge(page)).toHaveText(/^REC \d{2}:\d{2}:\d{2}( [AP]M)? · Still$/);
+  await expect(badge(page)).toHaveAttribute('aria-label', /^REC .* · Still, back to live$/);
+  // Inside the player box, at desktop and phone width.
+  const b = (await badge(page).boundingBox())!;
+  const box = (await page.getByTestId('strip-player').boundingBox())!;
+  expect(b.x + b.width).toBeLessThanOrEqual(box.x + box.width);
 });
 
 test('an old link to another day opens that day, and the list is that day’s', async ({ page }) => {

@@ -8,3 +8,4 @@ published as [GitHub releases](https://github.com/klaushofrichter/cams/releases)
 
 ## [Unreleased]
 
+- Video page: the REC badge says what the player shows: the clip's quality ("REC 07:18:32 AM · SD", or "· 4K" for the main stream) or the stills ("· Still"); screen readers hear it too. The live badges are unchanged.

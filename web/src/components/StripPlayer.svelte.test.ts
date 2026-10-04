@@ -363,7 +363,7 @@ describe('StripPlayer', () => {
     expect(q('mode-badge')!.dataset.mode).toBe('live');
     p.glued = false;
     flushSync();
-    expect(q('mode-badge')!.textContent!.trim()).toBe(`REC ${localClock(T)}`);
+    expect(q('mode-badge')!.textContent!.trim()).toBe(`REC ${localClock(T)} · Still`);
     expect(q('mode-badge')!.dataset.mode).toBe('rec');
   });
 
@@ -380,11 +380,42 @@ describe('StripPlayer', () => {
     expect(q('mode-badge')!.textContent!.trim()).toBe('● LIVE');
   });
 
+  // Klaus, 2026-10-04: REC says what it shows (the clip's stream: sub SD, main 4K; the stills: Still).
+  it('adds SD, 4K or Still to the REC badge, and its aria-label', async () => {
+    const p = render({ at: T + 12_000 }) as unknown as { at: number; clipStream: 'sub' | 'main' };
+    await tick(0);
+    expect(q('mode-badge')!.textContent!.trim()).toBe(`REC ${localClock(T + 12_000)} · SD`);
+    expect(q('mode-badge')!.getAttribute('aria-label')).toBe(`REC ${localClock(T + 12_000)} · SD, back to live`);
+    p.clipStream = 'main';
+    flushSync();
+    expect(q('mode-badge')!.textContent!.trim()).toBe(`REC ${localClock(T + 12_000)} · 4K`);
+    expect(q('mode-badge')!.getAttribute('aria-label')).toBe(`REC ${localClock(T + 12_000)} · 4K, back to live`);
+    p.clipStream = 'sub';
+    flushSync();
+    expect(q('mode-badge')!.textContent!.trim()).toBe(`REC ${localClock(T + 12_000)} · SD`);
+    p.at = T + 3000; // the stills
+    flushSync();
+    expect(q('mode-badge')!.textContent!.trim()).toBe(`REC ${localClock(T + 3000)} · Still`);
+    expect(q('mode-badge')!.getAttribute('aria-label')).toBe(`REC ${localClock(T + 3000)} · Still, back to live`);
+    p.at = T + 40_000; // nothing recorded
+    flushSync();
+    expect(q('mode-badge')!.textContent!.trim()).toBe(`REC ${localClock(T + 40_000)}`);
+  });
+
+  it('keeps the live badges as they were (no SD, 4K or Still)', () => {
+    liveUi.update((u) => ({ ...u, playerState: 'playing', stillsShowing: false, status: { id: 'den', online: true } }));
+    render({ glued: true, now: T + 2000, at: T + 12_000 });
+    expect(q('mode-badge')!.textContent!.trim()).toBe('● LIVE');
+    liveUi.update((u) => ({ ...u, playerState: 'connecting', stillsShowing: true }));
+    flushSync();
+    expect(q('mode-badge')!.textContent!.trim()).toBe('● STILLS');
+  });
+
   it('a click on the REC badge goes back to live; the LIVE badge is no button', () => {
     const onglue = vi.fn();
     const p = render({ onglue }) as unknown as { glued: boolean };
     expect(q('mode-badge')!.tagName).toBe('BUTTON');
-    expect(q('mode-badge')!.getAttribute('aria-label')).toBe(`REC ${localClock(T)}, back to live`);
+    expect(q('mode-badge')!.getAttribute('aria-label')).toBe(`REC ${localClock(T)} · Still, back to live`);
     q('mode-badge')!.click();
     expect(onglue).toHaveBeenCalledTimes(1);
     p.glued = true;
