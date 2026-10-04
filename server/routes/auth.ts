@@ -137,9 +137,9 @@ function tokenMatches(presented: unknown, expected: string): boolean {
 // Token login off: the route doesn't exist (the normal unknown-path 404).
 // The same-origin check comes before the failure limiter, so cross-site
 // posts can't use up the owner's tries.
+authRouter.use('/auth/token', (_req: Request, _res: Response, next: NextFunction) => (tokenLoginEnabled() ? next() : next('router')));
 authRouter.post(
   '/auth/token',
-  (_req: Request, _res: Response, next: NextFunction) => (tokenLoginEnabled() ? next() : next('route')),
   authRateLimit,
   requireSameOrigin,
   tokenFailureLimit,

@@ -1,6 +1,6 @@
 import { Request, Response } from 'express';
 import { randomBytes, timingSafeEqual } from 'crypto';
-import { cookieOptions } from './loginConfig';
+import { cookieOptions, cookieSecure } from './loginConfig';
 
 const GOOGLE_AUTH_ENDPOINT = 'https://accounts.google.com/o/oauth2/v2/auth';
 export const OAUTH_STATE_COOKIE = 'oauth_state';
@@ -61,8 +61,10 @@ export function clearLoginHint(res: Response): void {
 function issueNonce(req: Request, res: Response): string {
   const existing = req.cookies?.[OAUTH_STATE_COOKIE];
   const nonce = typeof existing === 'string' && NONCE_PATTERN.test(existing) ? existing : randomBytes(16).toString('hex');
-  // Lax (cookieOptions): the callback arrives as a top-level redirect from Google.
-  res.cookie(OAUTH_STATE_COOKIE, nonce, { ...cookieOptions(), maxAge: STATE_MAX_AGE_MS });
+  // Lax: the callback arrives as a top-level redirect from Google. Spelled
+  // out (not cookieOptions()) so CodeQL sees httpOnly; Secure unless
+  // COOKIE_SECURE=false (the Pi over http).
+  res.cookie(OAUTH_STATE_COOKIE, nonce, { httpOnly: true, secure: cookieSecure(), sameSite: 'lax', maxAge: STATE_MAX_AGE_MS });
   return nonce;
 }
 
