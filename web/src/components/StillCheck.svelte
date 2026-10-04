@@ -14,6 +14,7 @@
     usage,
     onresult,
     ondone,
+    onaround,
   }: {
     base: string;
     ts: number;
@@ -23,6 +24,8 @@
     usage: UsageState;
     onresult: (r: CheckResult) => void;
     ondone: () => void;
+    // "Save clip around this" (#179 phase 3): opens the Save dialog at `ts`.
+    onaround?: (ts: number) => void;
   } = $props();
 
   // Per second: a request still running or an answer for another second
@@ -60,13 +63,17 @@
       aria-busy={running === ts} onclick={() => void run()}>
       {#if running === ts}<span class="spinner" aria-hidden="true" data-testid="still-check-spinner"></span>{/if}{btn.label}
     </button>
+    {#if onaround}
+      <!-- Any second, checked or not, a gap too (an FTP clip may cover it): the proxy says when nothing does. -->
+      <button class="around" data-testid="still-around-button" title="Save a clip from 10 s before to 10 s after this second" onclick={() => onaround(ts)}>Save clip around this</button>
+    {/if}
     {#if usageText}<span class="muted" data-testid="still-check-usage">{usageText}</span>{/if}
   </div>
   {#if btn.reason && running !== ts}<p class="muted" data-testid="still-check-reason">{btn.reason}</p>{/if}
   {#if error}<p class="error" role="alert" data-testid="still-check-error">{error}</p>{/if}
   {#if check}
     <p data-testid="still-check-result">
-      <span class="vision">✧ Vision: {findings(check.summary)}</span>{#if confirms}<span data-testid="still-check-confirms"> · {confirms}</span>{/if}{#if reused}<span class="muted" data-testid="still-check-reused"> · {reused}</span>{/if}
+      <span class="vision">✧ Vision: {findings(check.summary)}</span>{#if confirms}<span data-testid="still-check-confirms"> · {confirms}</span>{/if}{#if reused}<span class="muted" data-testid="still-check-reused"> · {reused}</span>{/if}{#if onaround}<span> · </span><button class="link" data-testid="still-check-around" onclick={() => onaround(ts)}>Save clip around this</button>{/if}
     </p>
   {/if}
 </div>
@@ -79,9 +86,11 @@
   .error { color: var(--danger); }
   .vision { color: var(--vision-mark); font-weight: 600; }
   .go { display: inline-flex; align-items: center; gap: 6px; font: inherit; color: var(--text); background: var(--surface-2); border: 1px solid var(--vision-mark); border-radius: 8px; padding: 4px 10px; min-height: 36px; cursor: pointer; }
+  .around { font: inherit; color: var(--text); background: var(--surface-2); border: 1px solid var(--border); border-radius: 8px; padding: 4px 10px; min-height: 36px; cursor: pointer; }
+  .link { padding: 0; border: 0; background: transparent; color: var(--accent); font: inherit; text-decoration: underline; cursor: pointer; }
   .go:disabled { opacity: 0.6; cursor: default; border-color: var(--border); }
   .spinner { width: 12px; height: 12px; border-radius: 50%; border: 2px solid var(--border); border-top-color: var(--vision-mark); animation: spin 0.8s linear infinite; }
   @keyframes spin { to { transform: rotate(360deg); } }
   @media (prefers-reduced-motion: reduce) { .spinner { animation-duration: 2.4s; } }
-  @media (max-width: 600px) { .go { min-height: 44px; } }
+  @media (max-width: 600px) { .go, .around { min-height: 44px; } }
 </style>

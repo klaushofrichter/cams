@@ -7,7 +7,9 @@ import {
   isRealDate,
   isRealMonth,
   parseClipName,
+  offsetAt,
   timeInfoFromGetTime,
+  zoneStamp,
 } from '../server/recordings/clipNames';
 
 const SUB = '/mnt/sda/Mp4Record/2026-09-25/RecS0A_DST20260925_125653_125718_0_55148080000000_927C9.mp4';
@@ -144,5 +146,52 @@ describe('isRealMonth', () => {
   it('rejects anything not matching the shape at all', () => {
     expect(isRealMonth('202609')).toBe(false);
     expect(isRealMonth('')).toBe(false);
+  });
+});
+
+// The offset in effect at a moment (review of cams #190): DST "enabled" on
+// the camera is not DST in effect; the camera's own rule decides (GetTime's
+// Dst block, the US rule as measured: 2nd Sunday of March 02:00, 1st Sunday
+// of November 02:00).
+const US_RULE = { startMon: 3, startWeek: 2, startWeekday: 0, startHour: 2, startMin: 0, startSec: 0, endMon: 11, endWeek: 1, endWeekday: 0, endHour: 2, endMin: 0, endSec: 0 };
+const RULED = timeInfoFromGetTime({ Time: { timeZone: 21600, isDst: 1 }, Dst: { enable: 1, offset: 1, ...US_RULE } });
+const utc = (iso: string) => Date.parse(iso);
+
+describe('offsetAt', () => {
+  it.each([
+    ['summer', '2026-10-04T19:03:22Z', -300],
+    ['winter (2026-12-15)', '2026-12-15T19:03:22Z', -360],
+    ['January', '2027-01-10T12:00:00Z', -360],
+    ['spring forward: 01:59:59 CST, the last standard second', '2026-03-08T07:59:59Z', -360],
+    ['spring forward: 03:00 CDT, the first daylight second', '2026-03-08T08:00:00Z', -300],
+    ['fall back: 01:59:59 CDT, the last daylight second', '2026-11-01T06:59:59Z', -300],
+    ['fall back: 01:00 CST, the first standard second', '2026-11-01T07:00:00Z', -360],
+    ['the day after falling back', '2026-11-02T12:00:00Z', -360],
+  ])('%s', (_name, iso, off) => {
+    expect(offsetAt(RULED, utc(iso))).toBe(off);
+  });
+
+  it('reads the rule from GetTime, with "last week" as week 5', () => {
+    expect(RULED.dstRule).toEqual({ start: { mon: 3, week: 2, weekday: 0, minutes: 120 }, end: { mon: 11, week: 1, weekday: 0, minutes: 120 } });
+    // The EU rule: last Sunday of March 01:00 UTC (02:00 CET) to last Sunday of October 03:00 CEST.
+    const berlin = timeInfoFromGetTime({ Time: { timeZone: -3600 }, Dst: { enable: 1, offset: 1, startMon: 3, startWeek: 5, startWeekday: 0, startHour: 2, startMin: 0, endMon: 10, endWeek: 5, endWeekday: 0, endHour: 3, endMin: 0 } });
+    expect(offsetAt(berlin, utc('2026-03-29T00:59:59Z'))).toBe(60);
+    expect(offsetAt(berlin, utc('2026-03-29T01:00:00Z'))).toBe(120);
+    expect(offsetAt(berlin, utc('2026-10-25T00:59:59Z'))).toBe(120);
+    expect(offsetAt(berlin, utc('2026-10-25T01:00:00Z'))).toBe(60);
+  });
+
+  it('without DST is the standard offset; without a rule, the viewer\'s zone when it agrees with the camera', () => {
+    expect(offsetAt({ stdOffsetMinutes: 60, dstOffsetMinutes: 0 }, utc('2026-07-01T12:00:00Z'))).toBe(60);
+    expect(offsetAt(CHICAGO, utc('2026-12-15T19:03:22Z'), 'America/Chicago')).toBe(-360);
+    expect(offsetAt(CHICAGO, utc('2026-10-04T19:03:22Z'), 'America/Chicago')).toBe(-300);
+    // A viewer elsewhere says nothing about the camera: standard time then.
+    expect(offsetAt(CHICAGO, utc('2026-10-04T19:03:22Z'), 'Asia/Tokyo')).toBe(-360);
+    expect(offsetAt(CHICAGO, utc('2026-10-04T19:03:22Z'))).toBe(-360);
+  });
+
+  it('writes a moment in a zone as a file name stamp', () => {
+    expect(zoneStamp(utc('2026-12-15T19:03:22Z'), 'America/Chicago')).toBe('2026-12-15_13-03-22');
+    expect(zoneStamp(utc('2026-10-04T19:03:22Z'), 'America/Chicago')).toBe('2026-10-04_14-03-22');
   });
 });

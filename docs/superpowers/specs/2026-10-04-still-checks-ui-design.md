@@ -139,3 +139,76 @@ analyses, and `attachAnalyses(cards, analyses, checks)`.
 - e2e (desktop and phone, the fake cam-proxy implementing the contract):
   check a second → result, mark, list entry; the same second again → "checked
   before"; disabled when Vision is off; a check in another tab shows live.
+
+---
+
+## 5. Phase 3: "Save clip around this"
+
+cam-proxy's side is its still-checks spec §13 (rulings 38–48 there):
+`POST …/compositions {at, preS, postS, size, badge, timeZone?, dryRun?}`,
+the window `[at − pre, at + 1 s + post]` from FTP clips where they cover it
+and 1 fps stills elsewhere, 409 `nothing_to_compose` when nothing covers it.
+
+**What the user sees.** Under the Timeline's large still, next to
+"✧ Check with Vision": **"Save clip around this"** (any second, checked or
+not). It opens the existing Save dialog in an "around a second" mode:
+title "Save clip around 14:03:22", the still as its picture, pre-roll and
+post-roll sliders and numbers (default 10 and 10 → "Result: 21s"), the
+size list (SD, 360p, 720p, 1080p), "Mark still sections", the result's
+length and limit in the dialog's words ("At most 5m", "At most 2m" at
+1080p), and a "Made of" line from a dry run: "FTP clip 14:03:15–14:03:40
+and stills (1 per second)", "Stills only (1 per second)", or "Nothing is
+kept around this second" (Generate off). Generate, progress, preview and
+Save work as for a clip. A still check's result line offers the same
+action. The file is `<camera>-<YYYY-MM-DD_HH-MM-SS>-around.mp4`.
+
+**cams server.** `POST /api/cameras/:id/compositions` takes `{at, preS,
+postS, size, badge, timeZone?, dryRun?}` instead of `{eventId, …}`
+(exactly one), checks it (below), relays it to the proxy and answers the
+proxy's status and body; a started job is remembered as today and its
+answer gains `name`.
+
+11. Ruling: the dialog is the existing ComposeDialog with an `at` prop
+    instead of `clip` — one dialog, its units ("1m 43s"), limits and
+    words; the anchor is a 1 s "clip" in `resultLength`, so −10/+10 is
+    21 s — cost if wrong: a second component.
+12. Ruling: around a second the rolls apply at every size (0…limit; a
+    clip's rolls are SD only because other sizes resize the clip alone;
+    here the window is the clip) and there is no 4K or plain save (no
+    single recording) — cost if wrong: a size list.
+13. Ruling: rolls are 0 or more (nothing to cut), and the post-roll stops
+    at the seconds already past (the proxy refuses a window that hasn't
+    ended); the slider tracks run 0 to the size's limit − 1 s — cost:
+    none.
+14. Ruling: `at` is checked in cams before relaying: a safe integer, a
+    whole second, not in the future, at most 8 days back (the proxy keeps
+    7, counted from the start of a UTC day) → 400 `invalid`; the rolls by
+    `resultLength(1, pre, post, generateMaxS(size))`; `eventId` and `at`
+    together → 400 — cost: none.
+15. Ruling: the "Made of" line comes from a dry run, asked 300 ms after
+    the last change of rolls or size; a 409 turns Generate off with
+    "Nothing is kept around this second (stills and clips are kept 7
+    days)"; a failed dry run shows no line and leaves Generate on (the
+    real request answers) — cost if wrong: drop the line.
+16. Ruling: the file name is made by the cams server, in the camera's
+    local time like every other save (#72), from the camera's time
+    settings (`GetTime`, cached an hour) **at that second**: its Dst rule
+    (month, week, weekday, hour) decides whether DST is in effect, not
+    "DST enabled" (review of #190: winter names were 1 h ahead); without a
+    rule, the viewer's zone when its offset is one the camera can have,
+    else standard time; when the camera can't be read, the viewer's zone
+    (`timeZone`), else UTC — cost if wrong: a name in another zone.
+20. Ruling (review of #190): the post-roll's cap ("seconds already past")
+    is refreshed once a second while the dialog is open and again on
+    Generate; a post-roll past it is refused in the dialog ("At most N s
+    after") — cost: none.
+21. Ruling (review of #190): the dialog's picture is left out for a gap
+    second and hidden when it fails to load — cost: none.
+17. Ruling: the button is offered on every second, also a gap (an FTP clip
+    may cover it); the proxy's 409 says when nothing does — cost: none.
+18. Ruling: no cams-side limit for compositions beyond the API limit: the
+    proxy allows 10 a minute per client and one encode at a time (3
+    queued); its `rate_limited` and `busy` are worded in the dialog —
+    cost if wrong: a limiter.
+19. Ruling: the action also sits at the end of a still check's result
+    line, so it is where the eye is after a check — cost: one link.

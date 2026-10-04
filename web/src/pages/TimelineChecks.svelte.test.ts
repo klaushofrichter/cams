@@ -274,3 +274,51 @@ describe('the day’s checks', () => {
     expect(button().textContent).toMatch(/✧ Checked/);
   });
 });
+
+// "Save clip around this" (#179 phase 3, spec §5): next to the check button
+// on every second, and in a check's result; it opens the Save dialog there.
+describe('Save clip around this', () => {
+  it('sits next to the check button and opens the Save dialog at that second', async () => {
+    await openAt(AT);
+    const around = q('still-around-button') as HTMLButtonElement;
+    expect(around.textContent).toBe('Save clip around this');
+    expect(around.disabled).toBe(false);
+    expect(around.closest('[data-testid="still-check"]')).not.toBeNull();
+    expect(q('still-check-around')).toBeNull(); // no result yet
+    around.click();
+    await settle();
+    const dialog = q('compose-dialog')!;
+    expect(dialog.getAttribute('aria-label')).toMatch(/^Save clip around /);
+    expect((q('compose-thumb') as HTMLImageElement).getAttribute('src')).toBe(`/api/cameras/den/stills/${AT}.jpg`);
+    expect(q('compose-length')?.textContent).toBe('Result: 21s · at most 5m');
+    (q('compose-close') as HTMLButtonElement).click();
+    await settle();
+    expect(q('compose-dialog')).toBeNull();
+  });
+
+  it('keeps the Timeline\'s keys off while the dialog is open; Escape closes only the dialog', async () => {
+    await openAt(AT);
+    (q('still-around-button') as HTMLButtonElement).click();
+    await settle();
+    const time = q('timeline-large-time')!.textContent;
+    (q('compose-close') as HTMLButtonElement).focus();
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowLeft', bubbles: true }));
+    await settle();
+    expect(q('timeline-large-time')!.textContent).toBe(time);
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    await settle();
+    expect(q('compose-dialog')).toBeNull();
+    expect(q('timeline-large')).not.toBeNull();
+  });
+
+  it('is offered in a check\'s result too', async () => {
+    w.checks = [check(AT, 9)];
+    await openAt(AT);
+    const link = q('still-check-around') as HTMLButtonElement;
+    expect(link.textContent).toBe('Save clip around this');
+    expect(link.closest('[data-testid="still-check-result"]')).not.toBeNull();
+    link.click();
+    await settle();
+    expect(q('compose-dialog')).not.toBeNull();
+  });
+});

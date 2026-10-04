@@ -297,10 +297,13 @@ export async function startFakeProxy(opts: { port?: number; token?: string } = {
   // 1080p; its compositionWindow) and its refusals.
   app.post('/api/cameras/:cam/compositions', express.json(), (req, res) => {
     fake.composeRequests.push(req.body);
-    const b = req.body as { clipId?: unknown; span?: { start?: unknown; end?: unknown }; preS?: unknown; postS?: unknown; size?: unknown; badge?: unknown };
-    if (!Number.isSafeInteger(b.clipId) || typeof b.preS !== 'number' || typeof b.postS !== 'number' || typeof b.badge !== 'boolean' || !['sd', '360p', '720p', '1080p'].includes(String(b.size))) {
-      return void res.status(400).json({ error: 'invalid', detail: 'clipId, preS, postS (seconds), size (sd, 360p, 720p, 1080p) and badge (true/false) are required' });
+    const b = req.body as { clipId?: unknown; at?: unknown; span?: { start?: unknown; end?: unknown }; preS?: unknown; postS?: unknown; size?: unknown; badge?: unknown; dryRun?: unknown };
+    if (typeof b.preS !== 'number' || typeof b.postS !== 'number' || typeof b.badge !== 'boolean' || !['sd', '360p', '720p', '1080p'].includes(String(b.size))) {
+      return void res.status(400).json({ error: 'invalid', detail: 'clipId or at, preS, postS (seconds), size (sd, 360p, 720p, 1080p) and badge (true/false) are required' });
     }
+    if ((b.clipId === undefined) === (b.at === undefined)) return void res.status(400).json({ error: 'invalid', detail: 'exactly one of clipId (a clip) or at (a second, unix ms)' });
+    if (b.at !== undefined) return void composeAround(req.params.cam, b, res);
+    if (!Number.isSafeInteger(b.clipId)) return void res.status(400).json({ error: 'invalid', detail: 'clipId is a whole number' });
     // cam-proxy's spanOf: {start, end} in unix ms, start before end, at most a day apart.
     let given: { start: number; end: number } | undefined;
     if (b.span !== undefined) {
@@ -320,6 +323,9 @@ export async function startFakeProxy(opts: { port?: number; token?: string } = {
     const durationS = Math.round((rawEnd - start) / 1000);
     const maxS = generateMaxS(String(b.size));
     if (durationS > maxS) return void res.status(400).json({ error: 'invalid', detail: `at most ${proxySeconds(maxS)}` });
+    startJob(durationS, res);
+  });
+  const startJob = (durationS: number, res: express.Response) => {
     const id = randomBytes(16).toString('base64url');
     const job = { state: 'running' as 'queued' | 'running' | 'done', progress: 0, durationS };
     fake.compositions.set(id, job);
@@ -332,7 +338,42 @@ export async function startFakeProxy(opts: { port?: number; token?: string } = {
       }, (fake.composeDelayMs * k) / steps);
     }
     res.status(201).json({ id, ...job });
-  });
+  };
+  // Around a second (cam-proxy still-checks spec §13): the window
+  // [at - pre, at + 1 s + post], each second a clip that covers it, else its
+  // still, else a card; nothing but cards is a 409; a dry run answers the
+  // plan. cam-proxy's own words.
+  const composeAround = (cam: string, b: { at?: unknown; span?: unknown; preS?: unknown; postS?: unknown; size?: unknown; dryRun?: unknown }, res: express.Response) => {
+    const bad = (detail: string) => void res.status(400).json({ error: 'invalid', detail });
+    const at = b.at, now = Date.now();
+    if (typeof at !== 'number' || !Number.isSafeInteger(at) || at < 0) return bad('at is a whole number (unix ms)');
+    if (at % 1000 !== 0) return bad('at is a whole second');
+    if (at > now) return bad('at is in the future');
+    if (at < Math.floor((now - 7 * 86_400_000) / 86_400_000) * 86_400_000) return bad('at is older than the stills and clips kept (7 days)');
+    if (b.span !== undefined) return bad('span goes with clipId, not with at');
+    if (b.dryRun !== undefined && typeof b.dryRun !== 'boolean') return bad('dryRun is true or false');
+    const pre = b.preS as number, post = b.postS as number;
+    if (![pre, post].every((v) => Number.isInteger(v) && v >= 0 && v <= 3600)) return bad('around a second, pre-roll and post-roll are whole seconds from 0 to 3600');
+    const durationS = pre + 1 + post, maxS = generateMaxS(String(b.size));
+    if (durationS > maxS) return bad(`at most ${proxySeconds(maxS)}`);
+    const start = at - pre * 1000, end = at + (post + 1) * 1000;
+    if (end > now) return bad(`the window ends in the future (${Math.ceil((end - now) / 1000)} s from now)`);
+    const clips = fake.clips.filter((c) => c.cam === cam).sort((x, y) => x.start - y.start || x.id - y.id);
+    const stills = fake.stills.get(cam);
+    const seconds = { clip: 0, still: 0, card: 0 };
+    const used = new Map<number, FakeClip>();
+    for (let t = start; t < end; t += 1000) {
+      const c = clips.find((x) => t >= x.start && t + 1000 <= x.end + 500);
+      if (c) {
+        seconds.clip++;
+        used.set(c.id, c);
+      } else if (stills?.has(t)) seconds.still++;
+      else seconds.card++;
+    }
+    if (!seconds.clip && !seconds.still) return void res.status(409).json({ error: 'nothing_to_compose', detail: 'no clip or still covers any second of this window' });
+    if (b.dryRun) return void res.json({ start, end, durationS, seconds, clips: [...used.values()].map((c) => ({ start: c.start, end: c.end })) });
+    startJob(durationS, res);
+  };
   app.get('/api/cameras/:cam/compositions/:file', (req, res) => {
     const m = /^([A-Za-z0-9_-]{22})(\.mp4)?$/.exec(req.params.file);
     const job = m && fake.compositions.get(m[1]);
@@ -710,6 +751,24 @@ if (require.main === module) {
       const b = req.body as { cam?: unknown; at?: unknown; summary?: unknown; objects?: unknown };
       if (typeof b.cam !== 'string' || !Number.isSafeInteger(b.at) || !Array.isArray(b.summary) || !Array.isArray(b.objects)) return void res.status(400).json({ error: 'cam, at, summary and objects' });
       fake.checkAnswers.set(`${b.cam}|${b.at as number}`, { summary: b.summary as FakeCheck['summary'], objects: b.objects as FakeCheck['objects'] });
+      res.json({ ok: true });
+    });
+    // e2e only: POST /ftp-clip {cam, start, end} adds an FTP clip (a second
+    // covered by a clip for "Save clip around this", #179 phase 3).
+    hooks.post('/ftp-clip', (req, res) => {
+      const b = req.body as { cam?: unknown; start?: unknown; end?: unknown };
+      if (typeof b.cam !== 'string' || !Number.isSafeInteger(b.start) || !Number.isSafeInteger(b.end) || (b.end as number) <= (b.start as number)) return void res.status(400).json({ error: 'cam, start and end' });
+      const id = Math.max(0, ...fake.clips.map((c) => c.id)) + 1;
+      fake.clips.push({ id, cam: b.cam, start: b.start as number, end: b.end as number, stream: 'sub', events: [], body: Buffer.alloc(16) });
+      res.json({ id });
+    });
+    // e2e only: POST /stills-clear {cam, from, to} deletes the stills in
+    // [from, to) (retention took them: nothing around a second, #179 phase 3).
+    hooks.post('/stills-clear', (req, res) => {
+      const b = req.body as { cam?: unknown; from?: unknown; to?: unknown };
+      if (typeof b.cam !== 'string' || !Number.isSafeInteger(b.from) || !Number.isSafeInteger(b.to)) return void res.status(400).json({ error: 'cam, from and to' });
+      const stills = fake.stills.get(b.cam);
+      for (const t of [...(stills?.keys() ?? [])]) if (t >= (b.from as number) && t < (b.to as number)) stills!.delete(t);
       res.json({ ok: true });
     });
     hooks.listen(FAKE_PROXY_PORT - 2, '127.0.0.1');

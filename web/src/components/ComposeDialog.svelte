@@ -2,16 +2,32 @@
   import { onDestroy, onMount, tick, untrack } from 'svelte';
   import { triggerDownload } from '../lib/download';
   import { downloadUrl, formatClock, orderTriggers, thumbUrl, TRIGGER_LABELS, type EventClip } from '../lib/recordings';
-  import { cancelJob, composedName, formatSeconds, PLAIN_MAX_S, rollKeyStep, rollValueText, sliderBounds, fullQualityAvailable, isAvailable, isPlain, ORIGINAL_4K_LABEL, pollJob, presetRolls, resultLength, rollRange, saveMaxS, SIZE_LABELS, snapRoll, startJob, videoUrl, type ComposeSize, type JobView, type RollRange, type SaveSize } from '../lib/compose';
+  import { aroundLength, aroundPreset, aroundRanges, cancelJob, composedName, formatSeconds, generateMaxS, madeOf, PLAIN_MAX_S, planAround, rollKeyStep, rollValueText, secondsPast, sliderBounds, fullQualityAvailable, isAvailable, isPlain, ORIGINAL_4K_LABEL, pollJob, presetRolls, resultLength, rollRange, saveMaxS, SIZE_LABELS, snapRoll, startJob, videoUrl, type AroundPlan, type ComposeSize, type JobView, type RollRange, type SaveSize } from '../lib/compose';
+  import { localClock } from '../lib/clock';
 
   // Every download of a clip goes through this dialog (Klaus, 2026-09-29): SD
   // or 4K as recorded, or, with a cam-proxy, SD sizes with a pre-/post-roll
   // (cam-proxy spec 2026-09-28). `composable`: the camera has a cam-proxy in use.
-  let { camera, clip, onclose, composable = true }: { camera: string; clip: EventClip; onclose: () => void; composable?: boolean } = $props();
+  // `at` instead of `clip` (#179 phase 3, "Save clip around this"): the
+  // window around a second (unix ms), composed by the cam-proxy from its FTP
+  // clips and stills; `stillSrc` is that second's still. Always generated:
+  // rolls 0 or more at every size, no 4K, no plain save.
+  let { camera, clip, at, stillSrc, onclose, composable = true }: { camera: string; clip?: EventClip; at?: number; stillSrc?: string; onclose: () => void; composable?: boolean } = $props();
+  const around = untrack(() => at !== undefined);
+  // The seconds already past after `at`: the proxy composes only a window
+  // that has ended, so the post-roll stops there. It grows while the dialog
+  // is open (once a second) and is taken again on Generate (review of #190).
+  let pastS = $state(untrack(() => (at !== undefined ? secondsPast(at, Date.now()) : 0)));
+  const refreshPast = () => {
+    if (at !== undefined) pastS = secondsPast(at, Date.now());
+  };
+  // The second's still; hidden when it doesn't load (a gap, review of #190).
+  let stillFailed = $state(false);
+  const clipS = $derived(around ? 1 : clip!.durationSec);
 
   // A clip longer than even a plain save opens cut at its end to the
-  // generated limit, and says so (Klaus, 2026-10-04).
-  const preset = untrack(() => presetRolls(clip.durationSec));
+  // generated limit, and says so (Klaus, 2026-10-04). Around a second: -10/+10.
+  const preset = untrack(() => (around ? { ...aroundPreset(pastS), note: '' } : presetRolls(clip!.durationSec)));
   let preS = $state(preset.preS);
   let postS = $state(preset.postS);
   let badge = $state(true);
@@ -32,10 +48,10 @@
   let askSeq = 0;
   async function askFull(): Promise<boolean> {
     const seq = ++askSeq;
-    const id = clip.id;
+    const id = clip!.id;
     const a = await fullQualityAvailable(camera, id);
-    if (seq === askSeq && id === clip.id && is4k) fullOk = a;
-    return a && seq === askSeq && id === clip.id && is4k;
+    if (seq === askSeq && id === clip!.id && is4k) fullOk = a;
+    return a && seq === askSeq && id === clip!.id && is4k;
   }
   // Only with a cam-proxy: a camera without one saves 4K exactly as before
   // (no question, the plain <a download>, which keeps the user's tap on iOS).
@@ -49,7 +65,7 @@
     if (!is4k || !composable) return;
     e.preventDefault();
     if (fullMissing || !length.ok) return;
-    const href = downloadUrl(camera, clip.id, 'main');
+    const href = downloadUrl(camera, clip!.id, 'main');
     void askFull().then((ok) => {
       if (ok) triggerDownload(href);
     });
@@ -57,22 +73,30 @@
   const fullMissing = $derived(is4k && !fullOk);
   // Pre- and post-roll are for SD only (Klaus, 2026-09-29): other sizes save
   // or resize the clip alone.
-  const rollOff = $derived(size !== 'sd');
+  const rollOff = $derived(!around && size !== 'sd');
   const roll = $derived(rollOff ? { pre: 0, post: 0 } : { pre: Number(preS), post: Number(postS) });
   // The limit that applies (server/clipLimits.ts): 600 s for a plain save
   // (SD or 4K as recorded), 300 s for a generated clip, 120 s at 1080p.
-  const maxS = $derived(saveMaxS(size, roll.pre, roll.post));
-  const length = $derived(resultLength(clip.durationSec, roll.pre, roll.post, maxS));
-  const plain = $derived(isPlain(size, roll.pre, roll.post));
+  const maxS = $derived(around ? generateMaxS(size) : saveMaxS(size, roll.pre, roll.post));
+  const length = $derived(
+    !around ? resultLength(clipS, roll.pre, roll.post, maxS)
+    : Number.isInteger(roll.post) && roll.post > pastS ? { ok: false as const, error: `At most ${pastS} s after: the clip can only end at a second already past` }
+    : aroundLength(roll.pre, roll.post, size),
+  );
+  const plain = $derived(!around && isPlain(size, roll.pre, roll.post));
   // The limit only when it matters (Klaus, 2026-10-04): a generated clip
   // (300 s, 120 s at 1080p) or a recording longer than a plain save.
-  const showLimit = $derived(!plain || clip.durationSec > PLAIN_MAX_S);
-  // The sliders' ranges: each given the other roll, never past the limit.
-  const preRange = $derived(rollRange(clip.durationSec, Number(postS) || 0, size));
-  const postRange = $derived(rollRange(clip.durationSec, Number(preS) || 0, size));
+  const showLimit = $derived(!plain || clipS > PLAIN_MAX_S);
+  // The sliders' ranges: each given the other roll, never past the limit
+  // (around a second: 0 or more, the post-roll within the seconds past).
+  const ar = $derived(aroundRanges(Number(preS) || 0, Number(postS) || 0, size, pastS));
+  const preRange = $derived(around ? ar.pre : rollRange(clipS, Number(postS) || 0, size));
+  const postRange = $derived(around ? ar.post : rollRange(clipS, Number(preS) || 0, size));
   // The tracks are fixed (sliderBounds); a drag past what the other roll
   // leaves is clamped, and the thumb put back where the value is.
-  const track = $derived(sliderBounds(clip.durationSec, size));
+  const track = $derived(sliderBounds(clipS, size));
+  const preTrack = $derived(around ? ar.preTrack : track);
+  const postTrack = $derived(around ? ar.postTrack : track);
   function slide(e: Event, range: RollRange, put: (v: number) => void) {
     const el = e.currentTarget as HTMLInputElement;
     const v = snapRoll(Number(el.value), range);
@@ -92,16 +116,19 @@
   }
   const ready = $derived(job?.state === 'done');
   const busy = $derived(job?.state === 'queued' || job?.state === 'running');
-  const name = $derived(composedName(camera, clip.id, (is4k ? 'sd' : size) as ComposeSize));
+  // Around a second the cams server names the file in the camera's time
+  // (ruling 16) and sends it with the job.
+  const name = $derived(around ? (job?.name ?? `${camera}-around.mp4`) : composedName(camera, clip!.id, (is4k ? 'sd' : size) as ComposeSize));
 
   // Whether the proxy has a copy of this clip at all (issue #72): without
   // one, only the plain save is offered.
   let available = $state(true);
   let presetNote = $state(preset.note);
   // Only SD and 4K as recorded: no cam-proxy, or it has no copy of this clip.
-  const simple = $derived(!composable || !available);
+  const simple = $derived(!around && (!composable || !available));
   const sizes = $derived<[SaveSize, string][]>(simple
     ? [['sd', SIZE_LABELS.sd], ['4k', ORIGINAL_4K_LABEL]]
+    : around ? (Object.entries(SIZE_LABELS) as [SaveSize, string][])
     : [...(Object.entries(SIZE_LABELS) as [SaveSize, string][]), ['4k', ORIGINAL_4K_LABEL]]);
   // A size the list no longer offers (the proxy answered "no copy") falls back
   // to SD, and a pre-/post-roll typed meanwhile is dropped with its hidden
@@ -120,7 +147,8 @@
   const focusables = () => [...(dialogEl?.querySelectorAll<HTMLElement>('button, input, select, a[href]') ?? [])].filter((e) => !e.hasAttribute('disabled'));
   onMount(() => {
     void tick().then(() => focusables()[0]?.focus());
-    if (composable) void isAvailable(camera, clip.id).then((a) => (available = a));
+    if (composable && !around) void isAvailable(camera, clip!.id).then((a) => (available = a));
+    const past = around ? setInterval(refreshPast, 1000) : undefined;
     const onVisible = () => {
       if (document.visibilityState === 'hidden') {
         if (job || starting) hiddenAt ??= Date.now(); // only a hide while a job runs counts
@@ -128,7 +156,10 @@
       else if (job) void poll(gen, job.id);
     };
     document.addEventListener('visibilitychange', onVisible);
-    return () => document.removeEventListener('visibilitychange', onVisible);
+    return () => {
+      clearInterval(past);
+      document.removeEventListener('visibilitychange', onVisible);
+    };
   });
   onDestroy(() => opener?.focus?.());
   function trap(e: KeyboardEvent) {
@@ -148,6 +179,27 @@
     if (lastKey && key !== lastKey && (job || starting)) stop();
     lastKey = key;
   });
+
+  // Around a second: what the clip will be made of, from a dry run 300 ms
+  // after the last change (ruling 15); "nothing" turns Generate off, a failed
+  // dry run shows no line.
+  let plan = $state<{ key: string; plan: AroundPlan | 'nothing' } | null>(null);
+  const planKey = $derived(`${roll.pre}|${roll.post}|${size}`);
+  $effect(() => {
+    if (!around || !length.ok || size === '4k') return;
+    const key = planKey;
+    const q = { at: at!, preS: roll.pre, postS: roll.post, size: size as ComposeSize };
+    const t = setTimeout(() => {
+      void planAround(camera, q).then((r) => {
+        if (key !== planKey) return;
+        plan = r.kind === 'plan' ? { key, plan: r.plan } : r.kind === 'nothing' ? { key, plan: 'nothing' } : null;
+      });
+    }, 300);
+    return () => clearTimeout(t);
+  });
+  const shownPlan = $derived(plan && plan.key === planKey && length.ok ? plan.plan : null);
+  const nothing = $derived(shownPlan === 'nothing');
+  const title = $derived(around ? `Save clip around ${localClock(at!)}` : 'Save clip');
 
   // Each Generate, Cancel, edit or Close is a new generation: an answer that
   // arrives for an older one (a start or a poll) is dropped, and a job it
@@ -172,6 +224,8 @@
   }
   async function generate() {
     if (starting || busy || size === '4k') return; // 4K is saved as it is, never composed
+    refreshPast();
+    if (!length.ok) return; // the post-roll past the seconds past, say
     stop();
     error = '';
     const mine = gen;
@@ -179,7 +233,10 @@
     hiddenAt = document.visibilityState === 'hidden' ? Date.now() : null;
     let started: JobView;
     try {
-      started = await startJob(camera, { eventId: clip.id, preS: roll.pre, postS: roll.post, size: size as ComposeSize, badge, timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone });
+      const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+      started = await startJob(camera, around
+        ? { at: at!, preS: roll.pre, postS: roll.post, size: size as ComposeSize, badge, timeZone }
+        : { eventId: clip!.id, preS: roll.pre, postS: roll.post, size: size as ComposeSize, badge, timeZone });
     } catch (e) {
       if (mine === gen) {
         starting = false;
@@ -216,7 +273,7 @@
       job = null;
       return;
     }
-    job = v;
+    job = { ...v, ...(job?.name ? { name: job.name } : {}) };
     if (v.state === 'done' || v.state === 'failed') clearInterval(timer);
     // A result being looked at stays on the proxy: ask about it once a minute.
     if (v.state === 'done' && !keep) keep = setInterval(() => void poll(mine, id), 60_000);
@@ -231,15 +288,22 @@
 
 <svelte:window onkeydown={(e) => e.key === 'Escape' && close()} onbeforeunload={() => stop()} />
 <div class="backdrop" role="presentation" onclick={close}></div>
-<div class="dialog" role="dialog" aria-modal="true" aria-label="Save clip" data-testid="compose-dialog" tabindex="-1" bind:this={dialogEl} onkeydown={trap}>
+<div class="dialog" role="dialog" aria-modal="true" aria-label={title} data-testid="compose-dialog" tabindex="-1" bind:this={dialogEl} onkeydown={trap}>
   <header>
-    <h2>Save clip</h2>
+    <h2>{title}</h2>
     <button class="x" data-testid="compose-close" aria-label="Close" onclick={close}>✕</button>
   </header>
-  <div class="clip">
-    <img data-testid="compose-thumb" src={thumbUrl(camera, clip.id, clip.thumb)} alt="" />
-    <span>{formatClock(clip.start)} · {formatSeconds(clip.durationSec)} · {orderTriggers(clip.triggers).map((t) => TRIGGER_LABELS[t]).join(', ')}</span>
-  </div>
+  {#if around}
+    <div class="clip">
+      {#if stillSrc && !stillFailed}<img data-testid="compose-thumb" src={stillSrc} alt="" onerror={() => (stillFailed = true)} />{/if}
+      <span>{localClock(at!)} · {Number(preS) || 0} s before, {Number(postS) || 0} s after</span>
+    </div>
+  {:else if clip}
+    <div class="clip">
+      <img data-testid="compose-thumb" src={thumbUrl(camera, clip.id, clip.thumb)} alt="" />
+      <span>{formatClock(clip.start)} · {formatSeconds(clip.durationSec)} · {orderTriggers(clip.triggers).map((t) => TRIGGER_LABELS[t]).join(', ')}</span>
+    </div>
+  {/if}
   {#if composable && !available}
     <p class="muted" data-testid="compose-unavailable">The cam-proxy has no copy of this clip, so it can only be saved as it is.</p>
   {/if}
@@ -252,10 +316,10 @@
            the left, right adds. Together: the window around the clip. -->
       <label>Pre-roll (s) <input type="number" data-testid="compose-pre" min={preRange.min} max={preRange.max} step="1" disabled={rollOff} bind:value={preS} />
         <input type="range" dir="rtl" data-testid="compose-pre-slider" aria-label="Pre-roll (s)" aria-valuetext={rollValueText('pre', rollOff ? 0 : Number(preS) || 0)}
-          min={track.min} max={track.max} step="1" disabled={rollOff} value={rollOff ? 0 : Number(preS) || 0} oninput={slidePre} onkeydown={(e) => stepKey(e, 'pre')} /></label>
+          min={preTrack.min} max={preTrack.max} step="1" disabled={rollOff} value={rollOff ? 0 : Number(preS) || 0} oninput={slidePre} onkeydown={(e) => stepKey(e, 'pre')} /></label>
       <label>Post-roll (s) <input type="number" data-testid="compose-post" min={postRange.min} max={postRange.max} step="1" disabled={rollOff} bind:value={postS} />
         <input type="range" data-testid="compose-post-slider" aria-label="Post-roll (s)" aria-valuetext={rollValueText('post', rollOff ? 0 : Number(postS) || 0)}
-          min={track.min} max={track.max} step="1" disabled={rollOff} value={rollOff ? 0 : Number(postS) || 0} oninput={slidePost} onkeydown={(e) => stepKey(e, 'post')} /></label>
+          min={postTrack.min} max={postTrack.max} step="1" disabled={rollOff} value={rollOff ? 0 : Number(postS) || 0} oninput={slidePost} onkeydown={(e) => stepKey(e, 'post')} /></label>
     {/if}
     <label>Size
       <select data-testid="compose-size" bind:value={size}>
@@ -279,13 +343,19 @@
     <p class="err" data-testid="compose-4k-unavailable" role="alert">The full-resolution file isn't available right now; download the standard quality instead.</p>
     <button class="link" data-testid="compose-use-sd" onclick={() => (size = 'sd')}>Use the standard quality</button>
   {/if}
-  {#if simple && clip.durationSec > PLAIN_MAX_S}
-    <p class="muted" data-testid="compose-too-long-note">This recording is {formatSeconds(clip.durationSec)}. A save as it is can be at most {formatSeconds(PLAIN_MAX_S)}, and only a cam-proxy copy can be cut, so it can’t be saved here.</p>
+  {#if simple && clipS > PLAIN_MAX_S}
+    <p class="muted" data-testid="compose-too-long-note">This recording is {formatSeconds(clipS)}. A save as it is can be at most {formatSeconds(PLAIN_MAX_S)}, and only a cam-proxy copy can be cut, so it can’t be saved here.</p>
   {/if}
   {#if length.ok}
     <p class="muted" data-testid="compose-length" role="status">Result: {formatSeconds(length.seconds)}{showLimit ? ` · at most ${formatSeconds(maxS)}` : ''}</p>
   {:else}
     <p class="err" data-testid="compose-error" role="status">{length.error}</p>
+  {/if}
+  {#if around && length.ok && shownPlan && shownPlan !== 'nothing'}
+    <p class="muted" data-testid="compose-made-of">Made of: {madeOf(shownPlan, (t) => localClock(t))}</p>
+  {/if}
+  {#if around && length.ok && nothing}
+    <p class="err" data-testid="compose-nothing" role="status">Nothing is kept around this second (stills and clips are kept 7 days).</p>
   {/if}
   {#if busy}
     {#if job?.state === 'queued'}<p class="muted" data-testid="compose-queued">Queued…</p>{/if}
@@ -299,11 +369,11 @@
   <footer>
     {#if busy}
       <button data-testid="compose-cancel" onclick={stop}>Cancel</button>
-    {:else if !plain && length.ok}
+    {:else if !plain && length.ok && !nothing}
       <button data-testid="compose-generate" disabled={starting} onclick={generate}>{starting ? 'Starting…' : ready ? 'Generate again' : 'Generate'}</button>
     {/if}
     <a data-testid="compose-save" class="primary" download onclick={onSave}
-      href={fullMissing ? undefined : plain ? (length.ok ? downloadUrl(camera, clip.id, is4k ? 'main' : 'sub') : undefined) : ready && job ? videoUrl(camera, job.id, false, name) : undefined}
+      href={fullMissing ? undefined : plain ? (length.ok ? downloadUrl(camera, clip!.id, is4k ? 'main' : 'sub') : undefined) : ready && job ? videoUrl(camera, job.id, false, name) : undefined}
       aria-disabled={!fullMissing && ((plain && length.ok) || ready) ? 'false' : 'true'}>Save</a>
   </footer>
 </div>

@@ -2,6 +2,7 @@ import { mkdirSync } from 'fs';
 import { join } from 'path';
 import { expect, test, type Page } from '@playwright/test';
 import { signIn } from './session';
+import { chicagoMs } from './fakeProxyData';
 
 // Fullscreen for every mode (#182, spec
 // docs/superpowers/specs/2026-10-04-fullscreen-recorded-design.md): the
@@ -18,7 +19,7 @@ const urlAt = (page: Page) => Number(new URL(page.url()).searchParams.get('at'))
 const current = (page: Page) => page.locator('[data-testid="event-card"][aria-current="true"]');
 // Den's 12:05:05 motion clip (CDT), 1 s in: its video is shorter than the
 // clip's 25 s, so the steps stay in its first 12 s.
-const clipAt = () => Date.parse(`${chicagoToday()}T12:05:06-05:00`);
+const clipAt = () => chicagoMs(chicagoToday(), '12:05:06');
 // The URL follows the video's own time while a clip is on screen: within a few frames.
 const near = async (page: Page, want: number) => expect.poll(() => Math.abs(urlAt(page) - want)).toBeLessThan(300);
 
