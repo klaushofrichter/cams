@@ -3,7 +3,8 @@ import { getProxyClient } from '../proxy/client';
 import { getAnalysisStore } from '../proxy/analyses';
 import { attachAnalyses } from '../recordings/analysis';
 import { pipeline } from 'stream/promises';
-import { clipDate, CLIP_ID, isRealDate, isRealMonth } from '../recordings/clipNames';
+import { formatSeconds, PLAIN_MAX_S } from '../clipLimits';
+import { clipDate, clipSeconds, CLIP_ID, isRealDate, isRealMonth } from '../recordings/clipNames';
 import { getRecordings } from '../recordings/service';
 import { RecordingError } from '../recordings/errors';
 import { extent } from '../recordings/extent';
@@ -126,6 +127,9 @@ recordingsRouter.get('/api/cameras/:id/clips/:clipId/download', async (req, res,
     return;
   }
   const quality = q === 'main' ? 'main' : 'sub';
+  // A plain save is up to PLAIN_MAX_S (Klaus, 2026-10-04); the Save dialog
+  // offers no longer one, so this only answers a hand-made link.
+  if (clipSeconds(clipId) > PLAIN_MAX_S) return void res.status(400).json({ error: 'too_long', detail: `At most ${formatSeconds(PLAIN_MAX_S)}` });
   // Registered before openDownload() is called, so an abort mid-acquire (a
   // camera slot still queued) or mid-transfer both cancel cleanly rather
   // than leaking the slot or crashing on an unhandled stream error.

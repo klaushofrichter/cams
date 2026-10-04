@@ -1,6 +1,6 @@
 // Composed SD clips (cam-proxy spec 2026-09-28): the save dialog's API.
+import { formatSeconds, generateMaxS, GENERATE_MAX_S, PLAIN_MAX_S, ROLL_LIMIT_S } from '../../../server/clipLimits';
 import { apiFetch } from './api';
-import { pad2 } from './recordings';
 export type ComposeSize = 'sd' | '360p' | '720p' | '1080p';
 export const SIZE_LABELS: Record<ComposeSize, string> = {
   sd: 'SD 896×512 (original)', '360p': '640×360', '720p': '1280×720 (upscaled)', '1080p': '1920×1080 (upscaled)',
@@ -11,15 +11,35 @@ export type SaveSize = ComposeSize | '4k';
 export const ORIGINAL_4K_LABEL = '4K 4512×2512 (original)';
 export interface JobView { id: string; state: 'queued' | 'running' | 'done' | 'failed' | 'cancelled'; progress: number; durationS: number; error?: string }
 
-const roll = (v: number) => Number.isInteger(v) && v >= -600 && v <= 60;
-export function resultLength(clipS: number, preS: number, postS: number): { ok: true; seconds: number } | { ok: false; error: string } {
-  if (!roll(preS) || !roll(postS)) return { ok: false, error: 'Whole seconds from -600 to 60' };
-  const start = -preS, end = clipS + postS;
-  if (Math.min(end, clipS) - Math.max(start, 0) < 1) return { ok: false, error: 'At least 1 s of the clip must remain' };
-  const seconds = end - start;
-  return seconds > 60 ? { ok: false, error: 'At most 1:00' } : { ok: true, seconds };
+// The limits and the length rule are the server's own module, so the dialog
+// and the server never disagree (Klaus, 2026-10-04: plain save 600 s,
+// generated 300 s, 120 s at 1080p; seconds shown as "44 s", "114 s (1:54)").
+export { formatSeconds, GENERATE_MAX_S, GENERATE_MAX_S_1080P, isPlain, PLAIN_MAX_S, resultLength, saveMaxS } from '../../../server/clipLimits';
+
+// A roll slider's range, given the other roll (clip of clipS seconds, a
+// size's generated limit): at least 1 s of the clip stays and the result
+// never passes the limit. The plain save (SD, both rolls 0) may be longer
+// than a generated clip: then 0 is allowed too, and the values between the
+// generated limit (`gapFrom`) and 0 are not (snapRoll).
+export interface RollRange { min: number; max: number; gapFrom?: number }
+export function rollRange(clipS: number, otherS: number, size: string): RollRange {
+  const min = Math.max(-ROLL_LIMIT_S, 1 - clipS - Math.min(otherS, 0));
+  const max = Math.min(ROLL_LIMIT_S, generateMaxS(size) - clipS - otherS);
+  if (size === 'sd' && otherS === 0 && clipS <= PLAIN_MAX_S && max < 0) return { min, max: 0, gapFrom: max };
+  return { min, max: Math.max(min, max) };
 }
-export const formatLength = (s: number) => `${Math.floor(s / 60)}:${pad2(s % 60)}`;
+// A slider's value inside its range, out of the gap to the nearer side.
+export function snapRoll(v: number, r: RollRange): number {
+  const x = Math.min(r.max, Math.max(r.min, Math.round(v)));
+  if (r.gapFrom !== undefined && x > r.gapFrom && x < 0) return x - r.gapFrom <= -x ? r.gapFrom : 0;
+  return x;
+}
+// The rolls a dialog opens with: none, unless the clip is longer than even a
+// plain save; then the post-roll cuts it to the generated limit at its end.
+export function presetRolls(clipS: number): { preS: number; postS: number; note: string } {
+  if (clipS <= PLAIN_MAX_S) return { preS: 0, postS: 0, note: '' };
+  return { preS: 0, postS: GENERATE_MAX_S - clipS, note: `This recording is ${formatSeconds(clipS)}, longer than a save can be: the post-roll cuts it to ${formatSeconds(GENERATE_MAX_S)} at its end.` };
+}
 // The camera's local time, from the event id (YYYYMMDD-HHMMSS-…), like the
 // original download's name (issue #72), not the browser's zone.
 export function composedName(cam: string, eventId: string, size: ComposeSize): string {

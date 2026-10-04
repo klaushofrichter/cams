@@ -74,3 +74,23 @@ test('4K re-checks on Save: a file that went away shows the message instead of a
   await page.getByTestId('compose-use-sd').click();
   await expect(page.getByTestId('compose-save')).toHaveAttribute('href', /quality=sub/);
 });
+
+// Klaus, 2026-10-04: sliders next to the fields, never past the limit, and
+// the length in seconds. Barn's proxy copy covers two days, so the rolls only
+// fit because cams sends the recording's own span (image 16's bug).
+test('the sliders reach the 300 s limit, and that result is generated', async ({ page }) => {
+  await page.goto('/app/recordings?panel=history&cam=barn');
+  await download(page).click();
+  await expect(page.getByTestId('compose-length')).toHaveText('Result: 25 s · at most 600 s (10:00)');
+  const pre = page.getByTestId('compose-pre-slider');
+  await expect(pre).toHaveAttribute('max', '275');
+  await pre.fill('275');
+  await expect(page.getByTestId('compose-pre')).toHaveValue('275');
+  await expect(page.getByTestId('compose-length')).toHaveText('Result: 300 s (5:00) · at most 300 s (5:00)');
+  await expect(page.getByTestId('compose-post-slider')).toHaveAttribute('max', '0');
+  await page.getByTestId('compose-post').fill('-5');
+  await expect(page.getByTestId('compose-post-slider')).toHaveValue('-5');
+  await expect(page.getByTestId('compose-length')).toHaveText('Result: 295 s (4:55) · at most 300 s (5:00)');
+  await page.getByTestId('compose-generate').click();
+  await expect(page.getByTestId('compose-player')).toBeVisible({ timeout: 10_000 });
+});

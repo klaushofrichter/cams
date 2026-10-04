@@ -11,6 +11,9 @@ import { FAKE_TOKEN, startFakeProxy, type FakeProxy } from './proxy/fakeProxy';
 
 const auth = `${SESSION_COOKIE}=${signSession('klaus@klaushofrichter.net')}`;
 const EVENT = '20260928-140000-140020';
+const SPAN = { start: Date.parse('2026-09-28T14:00:00-05:00'), end: Date.parse('2026-09-28T14:00:20-05:00') };
+const LONG = '20261004-071650-071844'; // 114 s
+const LONG_SPAN = { start: Date.parse('2026-10-04T07:16:50-05:00'), end: Date.parse('2026-10-04T07:18:44-05:00') };
 let fake: FakeProxy;
 
 beforeEach(async () => {
@@ -21,7 +24,11 @@ beforeEach(async () => {
   ]);
   resetProxyClients();
   // The event → proxy clip lookup has its own tests (the recordings service).
-  vi.spyOn(getRecordings(), 'proxyClipOf').mockImplementation(async (_cam, id) => (id === EVENT ? { id: 7 } : null));
+  // The proxy's FTP copy of an event can start earlier and run longer than
+  // the SD recording (image 16 of 2026-10-04: a 114 s recording).
+  vi.spyOn(getRecordings(), 'proxyClipOf').mockImplementation(async (_cam, id) => (id === EVENT ? { id: 7, event: SPAN } : id === LONG ? { id: 8, event: LONG_SPAN } : null));
+  fake.clips.push({ id: 7, cam: 'cam1', start: SPAN.start, end: SPAN.end, stream: 'sub', events: [], body: Buffer.alloc(1) });
+  fake.clips.push({ id: 8, cam: 'cam1', start: LONG_SPAN.start - 131_000, end: LONG_SPAN.end, stream: 'sub', events: [], body: Buffer.alloc(1) });
 });
 afterEach(async () => {
   vi.restoreAllMocks();
@@ -36,10 +43,28 @@ describe('compositions pass-through', () => {
     const r = await post('den', { eventId: EVENT, preS: 5, postS: 10, size: 'sd', badge: true });
     expect(r.status).toBe(201);
     expect(r.body.id).toMatch(/^[A-Za-z0-9_-]{22}$/);
-    expect(fake.composeRequests.at(-1)).toEqual({ clipId: 7, preS: 5, postS: 10, size: 'sd', badge: true });
+    expect(fake.composeRequests.at(-1)).toEqual({ clipId: 7, span: SPAN, preS: 5, postS: 10, size: 'sd', badge: true });
     await post('den', { eventId: EVENT, preS: 0, postS: 5, size: 'sd', badge: false, timeZone: 'America/Chicago' });
     expect(fake.composeRequests.at(-1)).toMatchObject({ timeZone: 'America/Chicago' }); // the cards' clock (final review I5)
     expect(fake.requests.at(-1)?.auth).toBe(`Bearer ${FAKE_TOKEN}`);
+  });
+
+  // Image 16 of 2026-10-04: the dialog said 44 s, the proxy "At most 60 s":
+  // it applied the rolls to its own, longer copy (245 s → 175 s).
+  it('sends the recording\'s span, so the proxy measures the same 44 s as the dialog (114 s, pre -100, post 30)', async () => {
+    const r = await post('den', { eventId: LONG, preS: -100, postS: 30, size: 'sd', badge: true });
+    expect(r.status).toBe(201);
+    expect(r.body).toMatchObject({ durationS: 44 });
+    expect(fake.composeRequests.at(-1)).toMatchObject({ clipId: 8, span: LONG_SPAN, preS: -100, postS: 30 });
+  });
+
+  it('checks the length itself, with the dialog\'s rule and words, before asking the proxy', async () => {
+    const before = fake.composeRequests.length;
+    expect((await post('den', { eventId: LONG, preS: 187, postS: 0, size: 'sd', badge: true })).body).toEqual({ error: 'invalid', detail: 'At most 300 s (5:00)' });
+    expect((await post('den', { eventId: LONG, preS: 0, postS: 7, size: '1080p', badge: true })).body).toEqual({ error: 'invalid', detail: 'At most 120 s (2:00)' });
+    expect((await post('den', { eventId: LONG, preS: -114, postS: 0, size: 'sd', badge: true })).body).toEqual({ error: 'invalid', detail: 'At least 1 s of the clip must remain' });
+    expect(fake.composeRequests.length).toBe(before);
+    expect((await post('den', { eventId: LONG, preS: 186, postS: 0, size: 'sd', badge: true })).body).toMatchObject({ durationS: 300 });
   });
 
   it('polls, then streams the result as a download or inline', async () => {

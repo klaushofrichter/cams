@@ -2,15 +2,18 @@
   import { onDestroy, onMount, tick, untrack } from 'svelte';
   import { triggerDownload } from '../lib/download';
   import { downloadUrl, formatClock, orderTriggers, thumbUrl, TRIGGER_LABELS, type EventClip } from '../lib/recordings';
-  import { cancelJob, composedName, formatLength, fullQualityAvailable, isAvailable, ORIGINAL_4K_LABEL, pollJob, resultLength, SIZE_LABELS, startJob, videoUrl, type ComposeSize, type JobView, type SaveSize } from '../lib/compose';
+  import { cancelJob, composedName, formatSeconds, fullQualityAvailable, isAvailable, isPlain, ORIGINAL_4K_LABEL, pollJob, presetRolls, resultLength, rollRange, saveMaxS, SIZE_LABELS, snapRoll, startJob, videoUrl, type ComposeSize, type JobView, type SaveSize } from '../lib/compose';
 
   // Every download of a clip goes through this dialog (Klaus, 2026-09-29): SD
   // or 4K as recorded, or, with a cam-proxy, SD sizes with a pre-/post-roll
   // (cam-proxy spec 2026-09-28). `composable`: the camera has a cam-proxy in use.
   let { camera, clip, onclose, composable = true }: { camera: string; clip: EventClip; onclose: () => void; composable?: boolean } = $props();
 
-  let preS = $state(0);
-  let postS = $state(0);
+  // A clip longer than even a plain save opens cut at its end to the
+  // generated limit, and says so (Klaus, 2026-10-04).
+  const preset = untrack(() => presetRolls(clip.durationSec));
+  let preS = $state(preset.preS);
+  let postS = $state(preset.postS);
   let badge = $state(true);
   let size = $state<SaveSize>('sd');
   let job = $state<JobView | null>(null);
@@ -45,7 +48,7 @@
   function onSave(e: MouseEvent) {
     if (!is4k || !composable) return;
     e.preventDefault();
-    if (fullMissing) return;
+    if (fullMissing || !length.ok) return;
     const href = downloadUrl(camera, clip.id, 'main');
     void askFull().then((ok) => {
       if (ok) triggerDownload(href);
@@ -56,8 +59,16 @@
   // or resize the clip alone.
   const rollOff = $derived(size !== 'sd');
   const roll = $derived(rollOff ? { pre: 0, post: 0 } : { pre: Number(preS), post: Number(postS) });
-  const length = $derived(resultLength(clip.durationSec, roll.pre, roll.post));
-  const plain = $derived(is4k || (Number(preS) === 0 && Number(postS) === 0 && size === 'sd'));
+  // The limit that applies (server/clipLimits.ts): 600 s for a plain save
+  // (SD or 4K as recorded), 300 s for a generated clip, 120 s at 1080p.
+  const maxS = $derived(saveMaxS(size, roll.pre, roll.post));
+  const length = $derived(resultLength(clip.durationSec, roll.pre, roll.post, maxS));
+  const plain = $derived(isPlain(size, roll.pre, roll.post));
+  // The sliders' ranges: each given the other roll, never past the limit.
+  const preRange = $derived(rollRange(clip.durationSec, Number(postS) || 0, size));
+  const postRange = $derived(rollRange(clip.durationSec, Number(preS) || 0, size));
+  const slidePre = (e: Event) => (preS = snapRoll(Number((e.currentTarget as HTMLInputElement).value), preRange));
+  const slidePost = (e: Event) => (postS = snapRoll(Number((e.currentTarget as HTMLInputElement).value), postRange));
   const ready = $derived(job?.state === 'done');
   const busy = $derived(job?.state === 'queued' || job?.state === 'running');
   const name = $derived(composedName(camera, clip.id, (is4k ? 'sd' : size) as ComposeSize));
@@ -65,6 +76,7 @@
   // Whether the proxy has a copy of this clip at all (issue #72): without
   // one, only the plain save is offered.
   let available = $state(true);
+  let presetNote = $state(preset.note);
   // Only SD and 4K as recorded: no cam-proxy, or it has no copy of this clip.
   const simple = $derived(!composable || !available);
   const sizes = $derived<[SaveSize, string][]>(simple
@@ -75,7 +87,10 @@
   // fields: no Generate for settings that can't be seen (issue #76).
   $effect(() => {
     if (!sizes.some(([k]) => k === size)) size = 'sd';
-    if (simple) preS = postS = 0;
+    if (simple) {
+      preS = postS = 0;
+      presetNote = '';
+    }
   });
   let dialogEl: HTMLElement | undefined = $state();
   // Focus: into the dialog on open, kept inside by Tab, back to where it was
@@ -202,15 +217,19 @@
   </header>
   <div class="clip">
     <img data-testid="compose-thumb" src={thumbUrl(camera, clip.id)} alt="" />
-    <span>{formatClock(clip.start)} · {clip.durationSec} s · {orderTriggers(clip.triggers).map((t) => TRIGGER_LABELS[t]).join(', ')}</span>
+    <span>{formatClock(clip.start)} · {formatSeconds(clip.durationSec)} · {orderTriggers(clip.triggers).map((t) => TRIGGER_LABELS[t]).join(', ')}</span>
   </div>
   {#if composable && !available}
     <p class="muted" data-testid="compose-unavailable">The cam-proxy has no copy of this clip, so it can only be saved as it is.</p>
   {/if}
   <div class="fields">
     {#if !simple}
-      <label>Pre-roll (s) <input type="number" data-testid="compose-pre" min="-600" max="60" step="1" disabled={rollOff} bind:value={preS} /></label>
-      <label>Post-roll (s) <input type="number" data-testid="compose-post" min="-600" max="60" step="1" disabled={rollOff} bind:value={postS} /></label>
+      <!-- Number and slider show the same roll; a negative one cuts the clip
+           (pre-roll at its start, post-roll at its end). -->
+      <label>Pre-roll (s) <input type="number" data-testid="compose-pre" min={preRange.min} max={preRange.max} step="1" disabled={rollOff} bind:value={preS} />
+        <input type="range" data-testid="compose-pre-slider" aria-label="Pre-roll (s)" min={preRange.min} max={preRange.max} step="1" disabled={rollOff} value={rollOff ? 0 : Number(preS) || 0} oninput={slidePre} /></label>
+      <label>Post-roll (s) <input type="number" data-testid="compose-post" min={postRange.min} max={postRange.max} step="1" disabled={rollOff} bind:value={postS} />
+        <input type="range" data-testid="compose-post-slider" aria-label="Post-roll (s)" min={postRange.min} max={postRange.max} step="1" disabled={rollOff} value={rollOff ? 0 : Number(postS) || 0} oninput={slidePost} /></label>
     {/if}
     <label>Size
       <select data-testid="compose-size" bind:value={size}>
@@ -221,6 +240,9 @@
       <label class="row"><input type="checkbox" data-testid="compose-badge" disabled={rollOff} bind:checked={badge} /> Mark still sections</label>
     {/if}
   </div>
+  {#if presetNote && !rollOff && Number(preS) === preset.preS && Number(postS) === preset.postS}
+    <p class="muted" data-testid="compose-preset-note">{presetNote}</p>
+  {/if}
   {#if !simple && rollOff}
     <p class="muted" data-testid="compose-roll-note">Pre- and post-roll are available only for SD quality.</p>
   {/if}
@@ -232,7 +254,7 @@
     <button class="link" data-testid="compose-use-sd" onclick={() => (size = 'sd')}>Use the standard quality</button>
   {/if}
   {#if length.ok}
-    <p class="muted" data-testid="compose-length" role="status">Result: {formatLength(length.seconds)}</p>
+    <p class="muted" data-testid="compose-length" role="status">Result: {formatSeconds(length.seconds)} · at most {formatSeconds(maxS)}</p>
   {:else}
     <p class="err" data-testid="compose-error" role="status">{length.error}</p>
   {/if}
@@ -252,8 +274,8 @@
       <button data-testid="compose-generate" disabled={starting} onclick={generate}>{starting ? 'Starting…' : ready ? 'Generate again' : 'Generate'}</button>
     {/if}
     <a data-testid="compose-save" class="primary" download onclick={onSave}
-      href={fullMissing ? undefined : plain ? downloadUrl(camera, clip.id, is4k ? 'main' : 'sub') : ready && job ? videoUrl(camera, job.id, false, name) : undefined}
-      aria-disabled={!fullMissing && (plain || ready) ? 'false' : 'true'}>Save</a>
+      href={fullMissing ? undefined : plain ? (length.ok ? downloadUrl(camera, clip.id, is4k ? 'main' : 'sub') : undefined) : ready && job ? videoUrl(camera, job.id, false, name) : undefined}
+      aria-disabled={!fullMissing && ((plain && length.ok) || ready) ? 'false' : 'true'}>Save</a>
   </footer>
 </div>
 
@@ -268,6 +290,7 @@
   .fields { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; font-size: 13px; }
   .fields label { display: grid; gap: 4px; }
   .fields .row { grid-column: 1 / -1; display: flex; gap: 6px; align-items: center; }
+  input[type='range'] { width: 100%; margin: 2px 0 0; accent-color: var(--accent); }
   input[type='number'], select { padding: 6px 8px; border-radius: 8px; border: 1px solid var(--border); background: var(--surface-2); color: var(--text); font: inherit; }
   /* Pre-/post-roll off for sizes other than SD: dimmed, label included. */
   input:disabled { opacity: 0.45; cursor: not-allowed; }

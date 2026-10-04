@@ -11,6 +11,7 @@ import type { AddressInfo } from 'net';
 import { tmpdir } from 'os';
 import { join } from 'path';
 import { cameraNameProblem } from '../../server/cameraName';
+import { formatSeconds, generateMaxS } from '../../server/clipLimits';
 
 export interface FakeClip { id: number; cam: string; start: number; end: number; stream: string; events: number[]; body: Buffer; snapshot?: Buffer }
 export interface FakeMessage { id: number; ts: number; cam: string; type: string; data: Record<string, unknown> }
@@ -251,11 +252,28 @@ export async function startFakeProxy(opts: { port?: number; token?: string } = {
     res.setHeader('Cache-Control', 'private, max-age=604800, immutable');
     res.sendFile(file, { headers: { 'Content-Type': m![2] === 'mp4' ? 'video/mp4' : 'image/jpeg' } });
   });
-  // Composed clips (cam-proxy spec 2026-09-28), like the real API.
+  // Composed clips (cam-proxy spec 2026-09-28), like the real API: the clip
+  // must be known, and the rolls apply to `span` (the recording the viewer
+  // chose) or else to the clip, with cam-proxy's limits (300 s, 120 s at
+  // 1080p; its compositionWindow) and its refusals.
   app.post('/api/cameras/:cam/compositions', express.json(), (req, res) => {
     fake.composeRequests.push(req.body);
+    const b = req.body as { clipId?: unknown; span?: { start?: unknown; end?: unknown }; preS?: unknown; postS?: unknown; size?: unknown; badge?: unknown };
+    if (!Number.isSafeInteger(b.clipId) || typeof b.preS !== 'number' || typeof b.postS !== 'number' || typeof b.badge !== 'boolean' || !['sd', '360p', '720p', '1080p'].includes(String(b.size))) {
+      return void res.status(400).json({ error: 'invalid', detail: 'clipId, preS, postS (seconds), size (sd, 360p, 720p, 1080p) and badge (true/false) are required' });
+    }
+    const clip = fake.clips.find((c) => c.id === b.clipId && c.cam === req.params.cam);
+    if (!clip) return void res.status(404).json({ error: 'not_found' });
+    const span = b.span && Number.isSafeInteger(b.span.start) && Number.isSafeInteger(b.span.end) ? { start: b.span.start as number, end: b.span.end as number } : clip;
+    const pre = b.preS, post = b.postS;
+    if (![pre, post].every((v) => Number.isInteger(v) && Math.abs(v) <= 3600)) return void res.status(400).json({ error: 'invalid', detail: 'pre-roll and post-roll are whole seconds from -3600 to 3600' });
+    const start = span.start - pre * 1000, rawEnd = span.end + post * 1000;
+    if (Math.min(rawEnd, span.end) - Math.max(start, span.start) < 1000) return void res.status(400).json({ error: 'invalid', detail: 'at least 1 s of the clip must remain' });
+    const durationS = Math.round((rawEnd - start) / 1000);
+    const maxS = generateMaxS(String(b.size));
+    if (durationS > maxS) return void res.status(400).json({ error: 'invalid', detail: `at most ${formatSeconds(maxS)}` });
     const id = randomBytes(16).toString('base64url');
-    const job = { state: 'running' as 'queued' | 'running' | 'done', progress: 0, durationS: 30 };
+    const job = { state: 'running' as 'queued' | 'running' | 'done', progress: 0, durationS };
     fake.compositions.set(id, job);
     const steps = 4;
     for (let k = 1; k <= steps; k++) {
