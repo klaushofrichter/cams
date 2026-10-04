@@ -1,4 +1,9 @@
-FROM node:26-alpine AS builder
+# One image for the cluster (linux/amd64) and the Pi demo kit (linux/arm64),
+# built by build-push.yml and deploy-production.yml with buildx and QEMU.
+# The builder runs on the build machine's own platform: its output (dist/,
+# JavaScript and the web bundle) doesn't depend on the architecture, so only
+# the runtime stage below runs under emulation.
+FROM --platform=$BUILDPLATFORM node:26-alpine AS builder
 WORKDIR /app
 COPY package.json package-lock.json ./
 RUN npm ci
@@ -9,7 +14,8 @@ RUN npm run build
 
 FROM node:26-alpine
 WORKDIR /app
-# Thumbnails of recorded clips (server/recordings/thumbnail.ts).
+# Thumbnails of recorded clips (server/recordings/thumbnail.ts). Alpine has
+# ffmpeg for x86_64 and aarch64 alike.
 RUN apk add --no-cache ffmpeg
 ENV CACHE_DIR=/var/cache/cams
 ENV NODE_ENV=production
