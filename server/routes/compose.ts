@@ -4,7 +4,7 @@ import { pipeline } from 'stream/promises';
 import { aroundLength, generateMaxS, resultLength } from '../clipLimits';
 import { logger } from '../logger';
 import { getProxyClient, proxyPath, ProxyError, type ProxyClient } from '../proxy/client';
-import { CLIP_ID as EVENT } from '../recordings/clipNames';
+import { CLIP_ID as EVENT, offsetAt, offsetStamp, zoneStamp, type TimeInfo } from '../recordings/clipNames';
 import { getRecordings } from '../recordings/service';
 import { getClient } from '../reolink/clients';
 import { knownCamera, proxyTarget } from './common';
@@ -133,21 +133,20 @@ const validZone = (z: string) => {
     return false;
   }
 };
-// YYYY-MM-DD_HH-MM-SS of `at` in the camera's local time (its time settings,
-// as every other save is named, #72); in the viewer's zone, else UTC, when
-// the camera can't be asked within 2 s (ruling 16).
+// YYYY-MM-DD_HH-MM-SS of `at` in the camera's local time at that moment
+// (its time settings and DST rule, as every other save is named, #72); in
+// the viewer's zone, else UTC, when the camera can't be asked within 2 s
+// (ruling 16).
 async function stampOf(cam: string, at: number, zone: string | undefined): Promise<string> {
-  const iso = (offMin: number) => new Date(at + offMin * 60_000).toISOString().slice(0, 19).replace('T', '_').replaceAll(':', '-');
+  let time: TimeInfo;
   try {
     const client = getClient(cam);
     if (!client) throw new Error('no client');
-    const time = await Promise.race([client.timeInfo(), new Promise<never>((_r, reject) => setTimeout(() => reject(new Error('slow')), 2000).unref())]);
-    return iso(time.stdOffsetMinutes + time.dstOffsetMinutes);
+    time = await Promise.race([client.timeInfo(), new Promise<never>((_r, reject) => setTimeout(() => reject(new Error('slow')), 2000).unref())]);
   } catch {
-    if (!zone) return iso(0);
-    const p = Object.fromEntries(new Intl.DateTimeFormat('en-US', { timeZone: zone, year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23' }).formatToParts(at).map((x) => [x.type, x.value]));
-    return `${p.year}-${p.month}-${p.day}_${p.hour}-${p.minute}-${p.second}`;
+    return zone ? zoneStamp(at, zone) : offsetStamp(at, 0);
   }
+  return offsetStamp(at, offsetAt(time, at, zone));
 }
 
 // The event → proxy clip lookup failed (the proxy, or the camera's day list):

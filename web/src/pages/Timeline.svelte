@@ -607,7 +607,7 @@
 </section>
 {#if aroundAt !== null && camera}
   <!-- "Save clip around this" (#179 phase 3): the Save dialog at that second. -->
-  <ComposeDialog camera={camera.id} at={aroundAt} stillSrc={`${base}/stills/${aroundAt}.jpg`} onclose={() => (aroundAt = null)} />
+  <ComposeDialog camera={camera.id} at={aroundAt} stillSrc={still?.gap && still.ts === aroundAt ? undefined : `${base}/stills/${aroundAt}.jpg`} onclose={() => (aroundAt = null)} />
 {/if}
 
 <style>

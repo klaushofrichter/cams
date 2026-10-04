@@ -16,10 +16,11 @@ afterEach(() => {
   vi.useRealTimers();
 });
 const AGO = 120_000;
-function render(at = Math.floor(Date.now() / 1000) * 1000 - AGO, onclose = vi.fn()) {
+function render(at = Math.floor(Date.now() / 1000) * 1000 - AGO, onclose = vi.fn(), noStill = false) {
+  const stillSrc = noStill ? undefined : `/api/cameras/den/proxy/stills/${at}.jpg`;
   target = document.createElement('div');
   document.body.appendChild(target);
-  component = mount(ComposeDialog, { target, props: { camera: 'den', at, stillSrc: `/api/cameras/den/proxy/stills/${at}.jpg`, onclose } });
+  component = mount(ComposeDialog, { target, props: { camera: 'den', at, stillSrc, onclose } });
   flushSync();
   return at;
 }
@@ -93,6 +94,48 @@ describe('ComposeDialog around a second', () => {
     expect(q('compose-post-slider')!.getAttribute('max')).toBe('4');
     expect(q('compose-pre-slider')!.getAttribute('max')).toBe('299');
     expect(q('compose-length')!.textContent).toBe('Result: 15s · at most 5m');
+  });
+
+  // Review of #190: the cap grows while the dialog is open, and Generate
+  // checks it again.
+  it('lets the post-roll grow as seconds pass, and checks it again on Generate', async () => {
+    vi.useFakeTimers();
+    const calls = server();
+    const at = Math.floor(Date.now() / 1000) * 1000 - 3000;
+    render(at);
+    expect((q('compose-post') as HTMLInputElement).value).toBe('2');
+    expect(q('compose-post-slider')!.getAttribute('max')).toBe('2');
+    await vi.advanceTimersByTimeAsync(20_000);
+    flushSync();
+    expect(Number(q('compose-post-slider')!.getAttribute('max'))).toBeGreaterThanOrEqual(21);
+    set('compose-post', '15');
+    expect(q('compose-length')!.textContent).toBe('Result: 26s · at most 5m');
+    q('compose-generate')!.click();
+    await vi.advanceTimersByTimeAsync(10);
+    flushSync();
+    expect(calls.find((c) => c.method === 'POST' && !c.body?.dryRun)!.body).toMatchObject({ at, preS: 10, postS: 15 });
+  });
+
+  it('refuses on Generate a post-roll past the seconds already past', async () => {
+    vi.useFakeTimers();
+    const calls = server();
+    render(Math.floor(Date.now() / 1000) * 1000 - 3000);
+    set('compose-post', '9'); // typed past the cap of 2
+    expect(q('compose-error')!.textContent).toBe('At most 2 s after: the clip can only end at a second already past');
+    expect(q('compose-generate')).toBeNull();
+    expect(calls.filter((c) => c.method === 'POST' && !c.body?.dryRun)).toHaveLength(0);
+  });
+
+  it('hides the picture when the second has no still', () => {
+    server();
+    render(undefined, vi.fn(), true);
+    expect(q('compose-thumb')).toBeNull();
+    if (component) unmount(component);
+    target?.remove();
+    render();
+    q('compose-thumb')!.dispatchEvent(new Event('error'));
+    flushSync();
+    expect(q('compose-thumb')).toBeNull();
   });
 
   it('says what the clip will be made of, from a dry run after the last change', async () => {

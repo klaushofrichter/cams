@@ -192,9 +192,18 @@ answer gains `name`.
     real request answers) — cost if wrong: drop the line.
 16. Ruling: the file name is made by the cams server, in the camera's
     local time like every other save (#72), from the camera's time
-    settings (`GetTime`, cached an hour); when they can't be read, the
-    viewer's zone (`timeZone`) is used — the browser doesn't know the
-    camera's offset — cost if wrong: a name in another zone.
+    settings (`GetTime`, cached an hour) **at that second**: its Dst rule
+    (month, week, weekday, hour) decides whether DST is in effect, not
+    "DST enabled" (review of #190: winter names were 1 h ahead); without a
+    rule, the viewer's zone when its offset is one the camera can have,
+    else standard time; when the camera can't be read, the viewer's zone
+    (`timeZone`), else UTC — cost if wrong: a name in another zone.
+20. Ruling (review of #190): the post-roll's cap ("seconds already past")
+    is refreshed once a second while the dialog is open and again on
+    Generate; a post-roll past it is refused in the dialog ("At most N s
+    after") — cost: none.
+21. Ruling (review of #190): the dialog's picture is left out for a gap
+    second and hidden when it fails to load — cost: none.
 17. Ruling: the button is offered on every second, also a gap (an FTP clip
     may cover it); the proxy's 409 says when nothing does — cost: none.
 18. Ruling: no cams-side limit for compositions beyond the API limit: the

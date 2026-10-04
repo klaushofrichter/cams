@@ -189,9 +189,10 @@ describe('compositions around a second', () => {
   beforeEach(() => {
     fake.stills.set('cam1', new Map(Array.from({ length: 61 }, (_, i) => [AT - 30_000 + i * 1000, jpeg])));
     fake.clips.push({ id: 9, cam: 'cam1', start: AT + 20_000, end: AT + 30_000, stream: 'sub', events: [], body: Buffer.alloc(1) });
-    // The camera's time settings: UTC-6 with DST on (UTC-5).
-    vi.spyOn(getClient('den')!, 'timeInfo').mockResolvedValue({ stdOffsetMinutes: -360, dstOffsetMinutes: 60 });
+    // The camera's time settings: UTC-6, DST by the US rule (UTC-5 in summer).
+    vi.spyOn(getClient('den')!, 'timeInfo').mockResolvedValue({ stdOffsetMinutes: -360, dstOffsetMinutes: 60, dstRule: US_RULE });
   });
+  const US_RULE = { start: { mon: 3, week: 2, weekday: 0, minutes: 120 }, end: { mon: 11, week: 1, weekday: 0, minutes: 120 } };
   const around = (more: object = {}) => post('den', { at: AT, preS: 10, postS: 10, size: 'sd', badge: true, ...more });
   const stamp = (t: number, offMin: number) => new Date(t + offMin * 60_000).toISOString().slice(0, 19).replace('T', '_').replaceAll(':', '-');
 
@@ -202,6 +203,27 @@ describe('compositions around a second', () => {
     expect(fake.composeRequests.at(-1)).toEqual({ at: AT, preS: 10, postS: 10, size: 'sd', badge: true, timeZone: 'Asia/Tokyo' });
     // Remembered like a clip's job: it can be polled and fetched.
     expect((await request(createApp()).get(`/api/cameras/den/compositions/${r.body.id}`).set('Cookie', auth)).status).toBe(200);
+  });
+
+  // Review of #190: DST enabled is not DST in effect; winter names are standard time.
+  it.each([
+    ['winter', '2026-12-15T19:03:22Z', '2026-12-15_13-03-22'],
+    ['summer', '2026-10-04T19:03:22Z', '2026-10-04_14-03-22'],
+    ['the last daylight second before falling back', '2026-11-01T06:59:59Z', '2026-11-01_01-59-59'],
+    ['the first standard second after it', '2026-11-01T07:00:00Z', '2026-11-01_01-00-00'],
+    ['the first daylight second in spring', '2026-03-08T08:00:00Z', '2026-03-08_03-00-00'],
+  ])('names the file with the offset in effect at the second: %s', async (_name, iso, stamp) => {
+    const at = Date.parse(iso);
+    vi.useFakeTimers({ toFake: ['Date'], now: at + 60_000 });
+    try {
+      fake.stills.set('cam1', new Map([[at, jpeg]]));
+      // Signed at the faked time (a session from "the future" is refused).
+      const r = await request(createApp()).post('/api/cameras/den/compositions').set('Cookie', `${SESSION_COOKIE}=${signSession('klaus@klaushofrichter.net')}`).send({ at, preS: 0, postS: 0, size: 'sd', badge: true });
+      expect(r.status).toBe(201);
+      expect(r.body.name).toBe(`den-${stamp}-around.mp4`);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('names the file in the viewer\'s zone when the camera\'s time is unknown, else UTC', async () => {

@@ -15,8 +15,14 @@
   let { camera, clip, at, stillSrc, onclose, composable = true }: { camera: string; clip?: EventClip; at?: number; stillSrc?: string; onclose: () => void; composable?: boolean } = $props();
   const around = untrack(() => at !== undefined);
   // The seconds already past after `at`: the proxy composes only a window
-  // that has ended, so the post-roll stops there.
-  const pastS = untrack(() => (at !== undefined ? secondsPast(at, Date.now()) : 0));
+  // that has ended, so the post-roll stops there. It grows while the dialog
+  // is open (once a second) and is taken again on Generate (review of #190).
+  let pastS = $state(untrack(() => (at !== undefined ? secondsPast(at, Date.now()) : 0)));
+  const refreshPast = () => {
+    if (at !== undefined) pastS = secondsPast(at, Date.now());
+  };
+  // The second's still; hidden when it doesn't load (a gap, review of #190).
+  let stillFailed = $state(false);
   const clipS = $derived(around ? 1 : clip!.durationSec);
 
   // A clip longer than even a plain save opens cut at its end to the
@@ -72,7 +78,11 @@
   // The limit that applies (server/clipLimits.ts): 600 s for a plain save
   // (SD or 4K as recorded), 300 s for a generated clip, 120 s at 1080p.
   const maxS = $derived(around ? generateMaxS(size) : saveMaxS(size, roll.pre, roll.post));
-  const length = $derived(around ? aroundLength(roll.pre, roll.post, size) : resultLength(clipS, roll.pre, roll.post, maxS));
+  const length = $derived(
+    !around ? resultLength(clipS, roll.pre, roll.post, maxS)
+    : Number.isInteger(roll.post) && roll.post > pastS ? { ok: false as const, error: `At most ${pastS} s after: the clip can only end at a second already past` }
+    : aroundLength(roll.pre, roll.post, size),
+  );
   const plain = $derived(!around && isPlain(size, roll.pre, roll.post));
   // The limit only when it matters (Klaus, 2026-10-04): a generated clip
   // (300 s, 120 s at 1080p) or a recording longer than a plain save.
@@ -138,6 +148,7 @@
   onMount(() => {
     void tick().then(() => focusables()[0]?.focus());
     if (composable && !around) void isAvailable(camera, clip!.id).then((a) => (available = a));
+    const past = around ? setInterval(refreshPast, 1000) : undefined;
     const onVisible = () => {
       if (document.visibilityState === 'hidden') {
         if (job || starting) hiddenAt ??= Date.now(); // only a hide while a job runs counts
@@ -145,7 +156,10 @@
       else if (job) void poll(gen, job.id);
     };
     document.addEventListener('visibilitychange', onVisible);
-    return () => document.removeEventListener('visibilitychange', onVisible);
+    return () => {
+      clearInterval(past);
+      document.removeEventListener('visibilitychange', onVisible);
+    };
   });
   onDestroy(() => opener?.focus?.());
   function trap(e: KeyboardEvent) {
@@ -210,6 +224,8 @@
   }
   async function generate() {
     if (starting || busy || size === '4k') return; // 4K is saved as it is, never composed
+    refreshPast();
+    if (!length.ok) return; // the post-roll past the seconds past, say
     stop();
     error = '';
     const mine = gen;
@@ -279,7 +295,7 @@
   </header>
   {#if around}
     <div class="clip">
-      <img data-testid="compose-thumb" src={stillSrc} alt="" />
+      {#if stillSrc && !stillFailed}<img data-testid="compose-thumb" src={stillSrc} alt="" onerror={() => (stillFailed = true)} />{/if}
       <span>{localClock(at!)} · {Number(preS) || 0} s before, {Number(postS) || 0} s after</span>
     </div>
   {:else if clip}
