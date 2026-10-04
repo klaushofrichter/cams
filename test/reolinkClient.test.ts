@@ -334,7 +334,8 @@ describe('ReolinkClient recordings', () => {
   it('reads camera time into offsets and caches it', async () => {
     const client = new ReolinkClient(cam);
     const t = await client.timeInfo();
-    expect(t).toEqual({ stdOffsetMinutes: -360, dstOffsetMinutes: 60 });
+    // With the camera's DST rule (cam-sim sends the measured US rule; review of #190).
+    expect(t).toEqual({ stdOffsetMinutes: -360, dstOffsetMinutes: 60, dstRule: { start: { mon: 3, week: 2, weekday: 0, minutes: 120 }, end: { mon: 11, week: 1, weekday: 0, minutes: 120 } } });
     await client.timeInfo();
     // one GetTime only: cached
   });
