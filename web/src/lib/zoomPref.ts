@@ -1,12 +1,16 @@
 // web/src/lib/zoomPref.ts
 import { derived, get, type Readable } from 'svelte/store';
-import { preferences, savePreferences } from './preferences';
+import { preferences, savePreferences, type Preferences } from './preferences';
 import { normalizeZoom, type StripZoom } from './strip';
 
 // The History strip's zoom is the saved preference (Klaus, 2026-09-27): a
 // pick applies at once and is saved; saves go one after another and the
 // store ends with the last pick, whatever order the answers arrive in.
 export const zoom: Readable<StripZoom> = derived(preferences, (p) => normalizeZoom(p?.timelineZoom ?? 24)); // a saved 12 h reads as 6 h
+
+// Settings' draft: a stored zoom the strip no longer offers (12 h) as the
+// one it reads as, so the dropdown isn't blank and nothing looks edited.
+export const withValidZoom = <P extends Preferences>(p: P): P => ({ ...p, timelineZoom: normalizeZoom(p.timelineZoom) });
 
 let chain: Promise<unknown> = Promise.resolve();
 let latest: StripZoom | null = null;

@@ -2,7 +2,7 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { get } from 'svelte/store';
-import { pickZoom, zoom } from './zoomPref';
+import { pickZoom, withValidZoom, zoom } from './zoomPref';
 import { preferences, type Preferences } from './preferences';
 
 const PREFS: Preferences = { defaultCamera: null, liveQuality: 'sub', eventFilter: ['person', 'vehicle', 'pet', 'motion'], timelineZoom: 24, liveKeepAlive: 60 };
@@ -12,6 +12,11 @@ afterEach(() => {
 });
 
 describe('zoomPref', () => {
+  it('gives a preferences object a zoom the strip offers (Settings\' draft)', () => {
+    expect(withValidZoom({ ...PREFS, timelineZoom: 12 })).toEqual({ ...PREFS, timelineZoom: 6 });
+    expect(withValidZoom({ ...PREFS, timelineZoom: 1 / 6 })).toEqual({ ...PREFS, timelineZoom: 1 / 6 });
+  });
+
   it('follows the saved preference, 24 until it loads', () => {
     expect(get(zoom)).toBe(24);
     preferences.set({ ...PREFS, timelineZoom: 3 });

@@ -390,7 +390,9 @@
      its room without a clip, and the info line below it keeps two lines'
      room, so neither moves the strip when the source changes under a drag. */
   @media (max-width: 767px) {
-    .info { order: 1; flex-basis: 100%; line-height: 1.4; min-height: calc(2 * 1.4em); }
+    .info { order: 1; flex-basis: 100%; line-height: 18px; min-height: 36px; }
+    /* Mixed fonts (the monospace time) on a baseline made a line 1 px taller. */
+    .info span, .info a { vertical-align: top; }
     .dl.off { display: inline-flex; visibility: hidden; }
   }
 </style>

@@ -1,7 +1,7 @@
 // web/src/lib/strip.test.ts
 import { describe, expect, it } from 'vitest';
 import {
-  STRIP_ZOOMS, normalizeZoom, zoomKey, zoomLabel, clipRuns, clipStartFromId, inRuns, localDaysBetween, mergeRuns, nextChange, previewRuns, sourceAt, stillRuns, stripSpans, windowAround,
+  STRIP_ZOOMS, normalizeZoom, zoomKey, zoomLabel, tickStep, stripTicks, TICK_CHAR_PX, clipRuns, clipStartFromId, inRuns, localDaysBetween, mergeRuns, nextChange, previewRuns, sourceAt, stillRuns, stripSpans, windowAround,
   type Coverage,
 } from './strip';
 import type { EventClip } from './recordings';
@@ -151,5 +151,53 @@ describe('previews with many missing tiles (production freeze, 2026-09-28)', () 
     expect(spans.length).toBeGreaterThan(30_000);
     expect(sourceAt(cov, T0 + 4000 * 500 + 500, T0 + 86_400_000)).toMatchObject({ kind: 'preview' });
     expect(sourceAt(cov, T0 + 4000 * 500 + 2500, T0 + 86_400_000)).toMatchObject({ kind: 'none' });
+  });
+});
+
+// Review of #171: the step comes from the bar's width, so labels never
+// collide on a phone; edge labels are pulled inside the bar.
+describe('ticks', () => {
+  const S = 1000;
+  const M = 60 * S;
+  const H = 60 * M;
+  it('keeps each zoom\'s step where the bar is wide, and widens it on a narrow bar', () => {
+    const desktop = STRIP_ZOOMS.map((z) => tickStep(z, 640));
+    expect(desktop).toEqual([3 * H, H, 30 * M, 15 * M, 5 * M, 2 * M, 15 * S]);
+    const phone = STRIP_ZOOMS.map((z) => tickStep(z, 229));
+    expect(phone).toEqual([6 * H, 2 * H, H, 15 * M, 10 * M, 2 * M, 30 * S]);
+    expect(STRIP_ZOOMS.map((z) => tickStep(z, 0))).toEqual(desktop); // not measured yet: the zoom's own step
+  });
+
+  it('shows the seconds on every tick below a minute, and the date at midnight', () => {
+    const at = new Date(2026, 9, 4, 12, 0, 0).getTime();
+    const t = stripTicks({ start: at - 30 * S, end: at + 30 * S }, 1 / 60, 229);
+    expect(t.map((x) => x.label)).toEqual(['11:59:30', '12:00:00', '12:00:30']);
+    expect(t.map((x) => x.align)).toEqual(['start', 'center', 'end']);
+    const mid = new Date(2026, 9, 4).getTime();
+    expect(stripTicks({ start: mid - 5 * M, end: mid + 5 * M }, 1 / 6, 640).map((x) => x.label)).toEqual(['23:56', '23:58', 'Sun 4', '00:02', '00:04']);
+  });
+
+  it('never lets two labels overlap or leave the bar, at any zoom, width and moment', () => {
+    for (const z of STRIP_ZOOMS) {
+      for (const width of [130, 229, 300, 640, 1100]) {
+        const span = z * H;
+        for (let k = 0; k < 40; k++) {
+          const at = new Date(2026, 9, 4, 12, 0, 0).getTime() + (k * span) / 37 + k * 777;
+          const ticks = stripTicks({ start: at - span / 2, end: at + span / 2 }, z, width);
+          expect(ticks.length).toBeGreaterThan(0);
+          const boxes = ticks.map((x) => {
+            const w = x.label.length * TICK_CHAR_PX;
+            const px = (x.left / 100) * width;
+            const from = x.align === 'start' ? px : x.align === 'end' ? px - w : px - w / 2;
+            return [from, from + w];
+          });
+          for (const [a, b] of boxes) {
+            expect(a).toBeGreaterThanOrEqual(-1e-6);
+            expect(b).toBeLessThanOrEqual(width + 1e-6);
+          }
+          for (let i = 1; i < boxes.length; i++) expect(boxes[i][0]).toBeGreaterThanOrEqual(boxes[i - 1][1]);
+        }
+      }
+    }
   });
 });

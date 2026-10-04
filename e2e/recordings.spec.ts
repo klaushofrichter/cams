@@ -502,6 +502,43 @@ test('on a phone the strip and controls fit the width', async ({ page }, testInf
   }
 });
 
+// Review of #171: at 1 min the 15 s labels ran into each other and the last
+// was cut off ("08:15:4"). At every zoom, no label overlaps another or
+// leaves the bar.
+test('on a phone the tick labels neither overlap nor leave the bar, at every zoom', async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== 'phone', 'phone layout');
+  await keepPrefsLocal(page); // the zooms below must not reach the shared user
+  const at = await page.evaluate(() => new Date().setHours(8, 15, 20, 0));
+  await page.goto(`/app/recordings?cam=cam1&panel=history&at=${at}`);
+  for (const z of ['24', '6', '3', '1', '30m', '10m', '1m']) {
+    await page.getByTestId(`zoom-${z}`).click();
+    await expect(page.getByTestId(`zoom-${z}`)).toHaveAttribute('aria-pressed', 'true');
+    for (const shift of [0, 7, 19]) { // a few positions: the edges' labels differ
+      if (shift) {
+        const b = (await page.getByTestId('timeline').boundingBox())!;
+        await page.mouse.move(b.x + b.width / 2, b.y + b.height / 2);
+        await page.mouse.down();
+        await page.mouse.move(b.x + b.width / 2 + shift, b.y + b.height / 2, { steps: 3 });
+        await page.mouse.up();
+      }
+      await page.waitForTimeout(100);
+      const r = await page.getByTestId('timeline').evaluate((bar) => {
+        const b = bar.getBoundingClientRect();
+        const inner = { left: b.left + bar.clientLeft, right: b.left + bar.clientLeft + bar.clientWidth };
+        const labels = [...bar.querySelectorAll('[data-testid="strip-tick"]')].map((e) => ({ text: e.textContent, ...JSON.parse(JSON.stringify(e.getBoundingClientRect())) }));
+        return { inner, labels };
+      });
+      const where = `zoom ${z}, ${JSON.stringify(r.labels.map((l) => l.text))}`;
+      expect(r.labels.length, where).toBeGreaterThan(0);
+      for (const l of r.labels) {
+        expect(l.left, where).toBeGreaterThanOrEqual(r.inner.left - 0.5);
+        expect(l.right, where).toBeLessThanOrEqual(r.inner.right + 0.5);
+      }
+      for (let i = 1; i < r.labels.length; i++) expect(r.labels[i].left, where).toBeGreaterThanOrEqual(r.labels[i - 1].right);
+    }
+  }
+});
+
 // iPhone, 2026-10-04: the download button took a line of its own under the
 // info line, and came and went (with the info line's second line) as a drag
 // crossed recorded and empty stretches: the timeline under it jumped. On a
@@ -533,22 +570,52 @@ test.describe('on an iPhone-sized screen', () => {
     const cy = bar.y + bar.height / 2;
     const start = await offset();
     const seen = new Set<string>();
+    const infoHeights = new Set<number>();
+    let noClipDownloadWidth = Infinity;
     let shift = 0;
     await page.mouse.move(cx, cy);
     await page.mouse.down();
     for (const dx of [3, 6, 9, 12, 18, 24, 30, 24, 12, 6, 0, -3, -6, -12, -18, -24, -30, -18, -6, 0]) {
       await page.mouse.move(cx + dx, cy);
       await page.waitForTimeout(80);
-      seen.add((await page.getByTestId('source-badge').textContent())!);
+      const source = (await page.getByTestId('source-badge').textContent())!;
+      seen.add(source);
       shift = Math.max(shift, Math.abs((await offset()) - start));
+      // The info line keeps its two lines' room whatever it says, and the
+      // download button its box without a clip (hidden, not removed).
+      infoHeights.add(await page.getByTestId('strip-info').evaluate((e) => e.getBoundingClientRect().height));
+      if (source !== 'SD 10 FPS') noClipDownloadWidth = Math.min(noClipDownloadWidth, await page.getByTestId('clip-download').evaluate((e) => e.getBoundingClientRect().width));
     }
     await page.mouse.up();
     await page.waitForTimeout(200);
     shift = Math.max(shift, Math.abs((await offset()) - start));
-    console.log(`timeline layout shift while dragging: ${shift} px; sources seen: ${[...seen].join(', ')}`);
+    console.log(`timeline layout shift while dragging: ${shift} px; sources seen: ${[...seen].join(', ')}; info heights: ${[...infoHeights].join(', ')}; download width without a clip: ${noClipDownloadWidth}`);
+    expect([...infoHeights]).toHaveLength(1);
+    expect(noClipDownloadWidth).toBeGreaterThan(0);
+    expect(noClipDownloadWidth).toBeLessThan(Infinity); // measured
     expect(seen.has('SD 10 FPS')).toBe(true);
     expect(seen.size).toBeGreaterThan(1); // an empty stretch too
     expect(shift).toBe(0);
+  });
+
+  // Porch has no cam-proxy, so no "Show in Timeline": its clip line takes two
+  // lines on a phone and its "No recording" line one. The strip stays put.
+  test('the info line keeps two lines\' room when it needs only one', async ({ page }, testInfo) => {
+    test.skip(testInfo.project.name !== 'phone', 'phone layout');
+    const place = async (at: number, source: string) => {
+      const day = await page.evaluate((t) => { const d = new Date(t); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; }, at);
+      await page.goto(`/app/recordings?cam=porch&date=${day}&panel=history&at=${at}`);
+      await expect(page.getByTestId('source-badge')).toHaveText(source);
+      return page.evaluate(() => {
+        const box = document.querySelector('.player .box')!.getBoundingClientRect();
+        const info = document.querySelector('[data-testid="strip-info"]')!.getBoundingClientRect();
+        return { info: info.height, timeline: document.querySelector('[data-testid="timeline"]')!.getBoundingClientRect().top - box.top };
+      });
+    };
+    const clip = await place(await page.evaluate(() => new Date().setHours(8, 15, 20, 0)), 'SD 10 FPS');
+    const empty = await place(await page.evaluate(() => { const d = new Date(); d.setDate(d.getDate() - 1); return d.setHours(12, 0, 0, 0); }), 'No recording');
+    console.log(`porch info line: clip ${clip.info} px, no recording ${empty.info} px`);
+    expect(empty).toEqual(clip);
   });
 });
 

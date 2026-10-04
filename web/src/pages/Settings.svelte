@@ -14,6 +14,7 @@
   } from '../lib/settings';
   import { preferences, preferencesFailed, savePreferences, type Preferences } from '../lib/preferences';
   import { STRIP_ZOOMS, zoomWords } from '../lib/strip';
+  import { withValidZoom } from '../lib/zoomPref';
 
   type State = 'idle' | 'saving' | 'saved' | 'partial' | 'error';
   const AI: { kind: 'person' | 'vehicle' | 'pet'; label: string }[] = [
@@ -38,12 +39,12 @@
   let prefs: Preferences | null = $state(null);
   let prefsState: State = $state('idle');
   $effect(() => {
-    if ($preferences && !prefs) prefs = structuredClone($preferences);
+    if ($preferences && !prefs) prefs = withValidZoom(structuredClone($preferences));
   });
   // lastCamera isn't edited here (it follows the header picker): leave it out
   // of the draft's comparison and of Save, or a camera switch on this page
   // would look like an edit and Save would put the old camera back.
-  const editable = (p: Preferences): Preferences => ({ ...p, lastCamera: undefined });
+  const editable = (p: Preferences): Preferences => withValidZoom({ ...p, lastCamera: undefined });
   const prefsDirty = $derived(!!prefs && !!$preferences && Object.keys(diffPatch(editable($preferences), editable(prefs))).length > 0);
   // Once a save has landed ('saved'/'partial'/'error'), editing again should
   // clear that stale text rather than leaving it next to unsent changes.
@@ -55,7 +56,7 @@
     prefsState = 'saving';
     try {
       prefsState = (await savePreferences(diffPatch(editable($preferences), editable(prefs)))) ? 'saved' : 'error';
-      if (prefsState === 'saved' && $preferences) prefs = structuredClone($preferences);
+      if (prefsState === 'saved' && $preferences) prefs = withValidZoom(structuredClone($preferences));
     } catch {
       prefsState = 'error';
     }

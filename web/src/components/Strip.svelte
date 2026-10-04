@@ -1,16 +1,16 @@
 <!-- web/src/components/Strip.svelte -->
 <script lang="ts">
-  import { stripSpans, windowAround, STRIP_ZOOMS, zoomKey, zoomLabel, zoomWords, type Coverage } from '../lib/strip';
+  import { stripSpans, stripTicks, windowAround, STRIP_ZOOMS, zoomKey, zoomLabel, zoomWords, type Coverage } from '../lib/strip';
   import { zoom, pickZoom } from '../lib/zoomPref';
   import { previewAt, tileStyle, type PreviewMinute } from '../lib/timeline';
-  import { addDays, localDate, pad2, type EventClip } from '../lib/recordings';
+  import type { EventClip } from '../lib/recordings';
   import { filmFrames, FILM_H, FILM_W } from '../lib/film';
   import { localClock } from '../lib/clock';
 
   // History's strip (spec 2026-09-27): the playhead stays in the centre and
   // time moves under it. Drag, sideways wheel, click and ←/→ move it.
   let {
-    coverage, events, visibleIds, failedIds, at, now, currentId, previews, thumbFor, onseek, ondrag, onstep, oldest = null, pending = [], onglue, filmWidth,
+    coverage, events, visibleIds, failedIds, at, now, currentId, previews, thumbFor, onseek, ondrag, onstep, oldest = null, pending = [], onglue, filmWidth, barWidth,
   }: {
     coverage: Coverage;
     events: EventClip[];
@@ -28,6 +28,7 @@
     oldest?: number | null; // the oldest content (the left edge); null: not known
     pending?: { kind: string; ts: number }[]; // live events not listed as recordings yet
     filmWidth?: number; // tests only: jsdom has no layout
+    barWidth?: number; // tests only, as filmWidth
   } = $props();
 
   const win = $derived(windowAround(at, $zoom));
@@ -55,34 +56,9 @@
   );
   const nowLeft = $derived(now > win.start && now < win.end ? pct(now) : null);
 
-  // Ticks counted from each local midnight (so they sit on local hours in any
-  // time zone), labelled with the wall clock (the repeated hour on the 25-hour
-  // day shows twice); a date at midnight. Four to six ticks a window, so the
-  // labels stay apart on a phone: 10 min every 2 minutes, 1 min every 15 s
-  // (with the seconds).
-  const TICK_MS: [number, number][] = [[24, 3 * 3_600_000], [6, 3_600_000], [3, 1_800_000], [1, 900_000], [0.5, 300_000], [1 / 6, 120_000]];
-  const ticks = $derived.by(() => {
-    const step = TICK_MS.find(([z]) => $zoom >= z - 1e-9)?.[1] ?? 15_000;
-    const out: { left: number; label: string }[] = [];
-    const times: number[] = [];
-    for (let day = localDate(new Date(win.start)); ; day = addDays(day, 1)) {
-      const [y, m, dd] = day.split('-').map(Number);
-      const midnight = new Date(y, m - 1, dd).getTime();
-      if (midnight > win.end) break;
-      const next = new Date(y, m - 1, dd + 1).getTime();
-      // From the first tick in the window, not from midnight (a 15 s step).
-      for (let t = midnight + Math.max(0, Math.ceil((win.start - midnight) / step)) * step; t < next && t <= win.end; t += step) times.push(t);
-    }
-    for (const t of times) {
-      const d = new Date(t);
-      const midnight = d.getHours() === 0 && d.getMinutes() === 0;
-      const label = midnight
-        ? `${d.toLocaleDateString(undefined, { weekday: 'short' })} ${d.getDate()}`
-        : `${pad2(d.getHours())}:${pad2(d.getMinutes())}${d.getSeconds() ? `:${pad2(d.getSeconds())}` : ''}`;
-      out.push({ left: pct(t), label });
-    }
-    return out;
-  });
+  // The ticks: their step from the bar's width (lib/strip.ts stripTicks).
+  let barW = $state(0);
+  const ticks = $derived(stripTicks(win, $zoom, barWidth ?? barW));
 
   // Pointer: a press that moves less than 4 px is a click (seek there);
   // otherwise a drag (time follows the pointer, right = back in time).
@@ -210,7 +186,7 @@
   <div class="barwrap">
   <!-- The playhead's mark above the bar (Klaus, 2026-09-28: more prominent). -->
   <span class="mark" data-testid="strip-playhead-mark" aria-hidden="true"></span>
-  <div class="bar" class:dragging data-testid="timeline" role="slider" tabindex="0" aria-label="Recordings timeline" aria-valuenow={Math.round(at / 1000)}
+  <div class="bar" class:dragging bind:clientWidth={barW} data-testid="timeline" role="slider" tabindex="0" aria-label="Recordings timeline" aria-valuenow={Math.round(at / 1000)}
     onpointerdown={down} onpointermove={move} onpointerup={up} onpointercancel={cancel} onlostpointercapture={cancel} onpointerleave={leave} onwheel={wheel} onkeydown={keydown}>
     {#each spans as s, i (i)}
       <span class={`span ${s.kind}`} data-testid="strip-span" data-kind={s.kind} style={`left:${s.left}%;width:${s.width}%`}></span>
@@ -229,7 +205,7 @@
       {#if !hover}<span class="cursor-time" class:flip={cursor.left > 80} data-testid="strip-cursor-time" style={`left:${cursor.left}%`}>{cursor.label}</span>{/if}
     {/if}
     <div class="ticks">
-      {#each ticks as t (t.left)}<span data-testid="strip-tick" style={`left:${t.left}%`}>{t.label}</span>{/each}
+      {#each ticks as t (t.t)}<span data-testid="strip-tick" class={t.align} style={`left:${t.left}%`}>{t.label}</span>{/each}
     </div>
   </div>
   </div>
@@ -297,4 +273,6 @@
   .playhead { position: absolute; top: -2px; bottom: -2px; width: 3px; margin-left: -1.5px; background: var(--accent); box-shadow: 0 0 0 1px color-mix(in srgb, var(--bg) 60%, transparent); pointer-events: none; }
   .ticks { position: absolute; left: 0; right: 0; bottom: 2px; height: 12px; pointer-events: none; }
   .ticks span { position: absolute; transform: translateX(-50%); font-size: 10px; color: var(--muted); font-family: var(--mono); white-space: nowrap; }
+  .ticks span.start { transform: none; }
+  .ticks span.end { transform: translateX(-100%); }
 </style>

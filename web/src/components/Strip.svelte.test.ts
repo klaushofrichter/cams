@@ -209,13 +209,25 @@ describe('Strip', () => {
   });
 
   it('offers 1 minute, with ticks every 15 seconds that show the seconds', () => {
-    render({});
+    render({ barWidth: 640 });
     q('zoom-1m')!.click();
     flushSync();
     expect(q('strip-back')!.title).toBe('Back 1 min');
     expect(q('strip-forward')!.getAttribute('aria-label')).toBe('Forward 1 minute');
     const labels = [...target!.querySelectorAll('[data-testid="strip-tick"]')].map((e) => e.textContent);
-    expect(labels).toEqual(['11:59:30', '11:59:45', '12:00', '12:00:15', '12:00:30']);
+    expect(labels).toEqual(['11:59:30', '11:59:45', '12:00:00', '12:00:15', '12:00:30']);
+    // the edge labels stay inside the bar
+    const ticks = [...target!.querySelectorAll('[data-testid="strip-tick"]')];
+    expect(ticks[0].classList.contains('start')).toBe(true);
+    expect(ticks.at(-1)!.classList.contains('end')).toBe(true);
+  });
+
+  it('spaces the ticks for the bar\'s width: every 30 s at 1 min on a phone', () => {
+    render({ barWidth: 229 });
+    q('zoom-1m')!.click();
+    flushSync();
+    const labels = [...target!.querySelectorAll('[data-testid="strip-tick"]')].map((e) => e.textContent);
+    expect(labels).toEqual(['11:59:30', '12:00:00', '12:00:30']);
   });
 
   it('drags 1 minute across the bar at the 1 min zoom (600 px = 60 s)', () => {

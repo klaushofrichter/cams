@@ -205,6 +205,31 @@ test('preferences save and apply', async ({ page, context, baseURL }, testInfo) 
   await expect(page.getByTestId('settings-card-prefs').getByTestId('save-state')).toHaveAttribute('data-state', 'saved');
 });
 
+// Review of #171: preferences stored with the old 12 h zoom show 6 h in the
+// dropdown (not a blank one), and nothing reads as changed. The server maps
+// a stored 12 to 6 itself; the page here gets a 12 straight from a route.
+test('a stored 12 h zoom shows as 6 hours in Settings, and Save does not send it', async ({ page }) => {
+  let stored: Record<string, unknown> = {};
+  const puts: Record<string, unknown>[] = [];
+  await page.route('**/api/preferences', async (route) => {
+    if (route.request().method() === 'PUT') { // never reaches the shared user
+      puts.push(route.request().postDataJSON());
+      return route.fulfill({ json: { ...stored, ...route.request().postDataJSON() } });
+    }
+    const res = await route.fetch();
+    stored = { ...(await res.json()), timelineZoom: 12 };
+    await route.fulfill({ response: res, json: stored });
+  });
+  await page.goto('/app/settings');
+  await expect(page.getByTestId('pref-zoom')).toHaveValue('6');
+  await expect(page.getByTestId('pref-zoom').locator('option:checked')).toHaveText('6 hours');
+  if (await page.getByTestId('save-prefs').isEnabled()) {
+    await page.getByTestId('save-prefs').click();
+    await expect.poll(() => puts.length).toBe(1);
+    expect(puts[0]).not.toHaveProperty('timelineZoom'); // 6 h is what it reads as: no edit
+  }
+});
+
 test('live events can be turned off and filtered by type (Klaus, 2026-09-28)', async ({ page, context, baseURL }, testInfo) => {
   test.skip(testInfo.project.name !== 'desktop', "PREFS_EMAIL's preferences are shared by the projects; only run this in one to avoid a race");
   await signIn(context, baseURL!, PREFS_EMAIL);
