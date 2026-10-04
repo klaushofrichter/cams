@@ -203,14 +203,27 @@ describe('ComposeDialog', () => {
     expect([pre.min, pre.max, post.min, post.max]).toEqual(['-113', '186', '-113', '186']);
     set('compose-post-slider', '30');
     expect((q('compose-post') as HTMLInputElement).value).toBe('30');
-    expect(pre.max).toBe('156'); // 114 + 156 + 30 = 300
-    set('compose-pre-slider', '156');
+    // The track stays (review of #176): 0 doesn't move to the right end.
+    expect(pre.max).toBe('186');
+    set('compose-pre-slider', '186'); // 114 + 186 + 30 would be 330: clamped
     expect((q('compose-pre') as HTMLInputElement).value).toBe('156');
+    expect(pre.value).toBe('156');
     expect(q('compose-length')!.textContent).toBe('Result: 300 s (5:00) · at most 300 s (5:00)');
-    expect(post.max).toBe('30');
+    set('compose-post-slider', '100'); // nothing left to add: stays 30
+    expect(post.value).toBe('30');
+    expect((q('compose-post') as HTMLInputElement).value).toBe('30');
     set('compose-pre', '-100');
     expect(pre.value).toBe('-100');
-    expect(post.min).toBe('-13'); // 1 s of the clip stays
+    set('compose-post-slider', '-113'); // 1 s of the clip stays
+    expect((q('compose-post') as HTMLInputElement).value).toBe('-13');
+  });
+
+  it('says why a clip longer than a plain save can\'t be saved without a cam-proxy copy', () => {
+    render(vi.fn(), false, { ...long, id: '20261004-070000-071140', end: '2026-10-04T07:11:40-05:00', durationSec: 700 });
+    expect(q('compose-too-long-note')!.textContent).toBe('This recording is 700 s (11:40). A save as it is can be at most 600 s (10:00), and only a cam-proxy copy can be cut, so it can’t be saved here.');
+    expect(q('compose-error')!.textContent).toBe('At most 600 s (10:00)');
+    expect(q('compose-too-long-note')!.compareDocumentPosition(q('compose-error')!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(q('compose-save')!.getAttribute('aria-disabled')).toBe('true');
   });
 
   it('lowers the sliders’ limit at 1080p', () => {

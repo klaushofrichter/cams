@@ -28,6 +28,13 @@ export function rollRange(clipS: number, otherS: number, size: string): RollRang
   if (size === 'sd' && otherS === 0 && clipS <= PLAIN_MAX_S && max < 0) return { min, max: 0, gapFrom: max };
   return { min, max: Math.max(min, max) };
 }
+// A roll slider's track: fixed by the clip and the size's limit, not by the
+// other roll (review of #176: a track ending at the current 0 read as
+// "maxed"). The value is clamped to rollRange (snapRoll), so the result still
+// never passes the limit.
+export function sliderBounds(clipS: number, size: string): { min: number; max: number } {
+  return { min: Math.max(-ROLL_LIMIT_S, 1 - clipS), max: Math.max(0, Math.min(ROLL_LIMIT_S, generateMaxS(size) - clipS)) };
+}
 // A slider's value inside its range, out of the gap to the nearer side.
 export function snapRoll(v: number, r: RollRange): number {
   const x = Math.min(r.max, Math.max(r.min, Math.round(v)));

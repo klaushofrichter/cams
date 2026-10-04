@@ -58,6 +58,17 @@ describe('compositions pass-through', () => {
     expect(fake.composeRequests.at(-1)).toMatchObject({ clipId: 8, span: LONG_SPAN, preS: -100, postS: 30 });
   });
 
+  // The fake mirrors cam-proxy's spanOf and overlap rule (review of #176).
+  it('the fake proxy refuses a malformed span, and one that misses the clip, like cam-proxy', async () => {
+    const send = (span: unknown) => fetch(`${fake.url}/api/cameras/cam1/compositions`, { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${FAKE_TOKEN}` }, body: JSON.stringify({ clipId: 7, span, preS: 0, postS: 0, size: 'sd', badge: false }) }).then(async (r) => [r.status, await r.json()]);
+    const malformed = [400, { error: 'invalid', detail: 'span is {start, end} in unix ms, start before end, at most a day apart' }];
+    expect(await send({ start: SPAN.start, end: 'x' })).toEqual(malformed);
+    expect(await send({ start: SPAN.end, end: SPAN.start })).toEqual(malformed);
+    expect(await send({ start: SPAN.start, end: SPAN.start + 86_400_001 })).toEqual(malformed);
+    expect(await send({ start: SPAN.end - 500, end: SPAN.end + 60_000 })).toEqual([400, { error: 'invalid', detail: 'span must overlap the clip by at least 1 s' }]);
+    expect((await send(SPAN))[0]).toBe(201);
+  });
+
   it('checks the length itself, with the dialog\'s rule and words, before asking the proxy', async () => {
     const before = fake.composeRequests.length;
     expect((await post('den', { eventId: LONG, preS: 187, postS: 0, size: 'sd', badge: true })).body).toEqual({ error: 'invalid', detail: 'At most 300 s (5:00)' });

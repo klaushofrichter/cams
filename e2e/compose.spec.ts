@@ -87,7 +87,11 @@ test('the sliders reach the 300 s limit, and that result is generated', async ({
   await pre.fill('275');
   await expect(page.getByTestId('compose-pre')).toHaveValue('275');
   await expect(page.getByTestId('compose-length')).toHaveText('Result: 300 s (5:00) · at most 300 s (5:00)');
-  await expect(page.getByTestId('compose-post-slider')).toHaveAttribute('max', '0');
+  // The post-roll's track stays fixed; a drag past the limit is clamped.
+  await expect(page.getByTestId('compose-post-slider')).toHaveAttribute('max', '275');
+  await page.getByTestId('compose-post-slider').fill('50');
+  await expect(page.getByTestId('compose-post')).toHaveValue('0');
+  await expect(page.getByTestId('compose-post-slider')).toHaveValue('0');
   await page.getByTestId('compose-post').fill('-5');
   await expect(page.getByTestId('compose-post-slider')).toHaveValue('-5');
   await expect(page.getByTestId('compose-length')).toHaveText('Result: 295 s (4:55) · at most 300 s (5:00)');

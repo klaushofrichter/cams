@@ -2,7 +2,7 @@
   import { onDestroy, onMount, tick, untrack } from 'svelte';
   import { triggerDownload } from '../lib/download';
   import { downloadUrl, formatClock, orderTriggers, thumbUrl, TRIGGER_LABELS, type EventClip } from '../lib/recordings';
-  import { cancelJob, composedName, formatSeconds, fullQualityAvailable, isAvailable, isPlain, ORIGINAL_4K_LABEL, pollJob, presetRolls, resultLength, rollRange, saveMaxS, SIZE_LABELS, snapRoll, startJob, videoUrl, type ComposeSize, type JobView, type SaveSize } from '../lib/compose';
+  import { cancelJob, composedName, formatSeconds, PLAIN_MAX_S, sliderBounds, fullQualityAvailable, isAvailable, isPlain, ORIGINAL_4K_LABEL, pollJob, presetRolls, resultLength, rollRange, saveMaxS, SIZE_LABELS, snapRoll, startJob, videoUrl, type ComposeSize, type JobView, type RollRange, type SaveSize } from '../lib/compose';
 
   // Every download of a clip goes through this dialog (Klaus, 2026-09-29): SD
   // or 4K as recorded, or, with a cam-proxy, SD sizes with a pre-/post-roll
@@ -67,8 +67,17 @@
   // The sliders' ranges: each given the other roll, never past the limit.
   const preRange = $derived(rollRange(clip.durationSec, Number(postS) || 0, size));
   const postRange = $derived(rollRange(clip.durationSec, Number(preS) || 0, size));
-  const slidePre = (e: Event) => (preS = snapRoll(Number((e.currentTarget as HTMLInputElement).value), preRange));
-  const slidePost = (e: Event) => (postS = snapRoll(Number((e.currentTarget as HTMLInputElement).value), postRange));
+  // The tracks are fixed (sliderBounds); a drag past what the other roll
+  // leaves is clamped, and the thumb put back where the value is.
+  const track = $derived(sliderBounds(clip.durationSec, size));
+  function slide(e: Event, range: RollRange, put: (v: number) => void) {
+    const el = e.currentTarget as HTMLInputElement;
+    const v = snapRoll(Number(el.value), range);
+    put(v);
+    el.value = String(v);
+  }
+  const slidePre = (e: Event) => slide(e, preRange, (v) => (preS = v));
+  const slidePost = (e: Event) => slide(e, postRange, (v) => (postS = v));
   const ready = $derived(job?.state === 'done');
   const busy = $derived(job?.state === 'queued' || job?.state === 'running');
   const name = $derived(composedName(camera, clip.id, (is4k ? 'sd' : size) as ComposeSize));
@@ -227,9 +236,9 @@
       <!-- Number and slider show the same roll; a negative one cuts the clip
            (pre-roll at its start, post-roll at its end). -->
       <label>Pre-roll (s) <input type="number" data-testid="compose-pre" min={preRange.min} max={preRange.max} step="1" disabled={rollOff} bind:value={preS} />
-        <input type="range" data-testid="compose-pre-slider" aria-label="Pre-roll (s)" min={preRange.min} max={preRange.max} step="1" disabled={rollOff} value={rollOff ? 0 : Number(preS) || 0} oninput={slidePre} /></label>
+        <input type="range" data-testid="compose-pre-slider" aria-label="Pre-roll (s)" min={track.min} max={track.max} step="1" disabled={rollOff} value={rollOff ? 0 : Number(preS) || 0} oninput={slidePre} /></label>
       <label>Post-roll (s) <input type="number" data-testid="compose-post" min={postRange.min} max={postRange.max} step="1" disabled={rollOff} bind:value={postS} />
-        <input type="range" data-testid="compose-post-slider" aria-label="Post-roll (s)" min={postRange.min} max={postRange.max} step="1" disabled={rollOff} value={rollOff ? 0 : Number(postS) || 0} oninput={slidePost} /></label>
+        <input type="range" data-testid="compose-post-slider" aria-label="Post-roll (s)" min={track.min} max={track.max} step="1" disabled={rollOff} value={rollOff ? 0 : Number(postS) || 0} oninput={slidePost} /></label>
     {/if}
     <label>Size
       <select data-testid="compose-size" bind:value={size}>
@@ -252,6 +261,9 @@
   {#if fullMissing}
     <p class="err" data-testid="compose-4k-unavailable" role="alert">The full-resolution file isn't available right now; download the standard quality instead.</p>
     <button class="link" data-testid="compose-use-sd" onclick={() => (size = 'sd')}>Use the standard quality</button>
+  {/if}
+  {#if simple && clip.durationSec > PLAIN_MAX_S}
+    <p class="muted" data-testid="compose-too-long-note">This recording is {formatSeconds(clip.durationSec)}. A save as it is can be at most {formatSeconds(PLAIN_MAX_S)}, and only a cam-proxy copy can be cut, so it can’t be saved here.</p>
   {/if}
   {#if length.ok}
     <p class="muted" data-testid="compose-length" role="status">Result: {formatSeconds(length.seconds)} · at most {formatSeconds(maxS)}</p>

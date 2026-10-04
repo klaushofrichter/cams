@@ -262,9 +262,18 @@ export async function startFakeProxy(opts: { port?: number; token?: string } = {
     if (!Number.isSafeInteger(b.clipId) || typeof b.preS !== 'number' || typeof b.postS !== 'number' || typeof b.badge !== 'boolean' || !['sd', '360p', '720p', '1080p'].includes(String(b.size))) {
       return void res.status(400).json({ error: 'invalid', detail: 'clipId, preS, postS (seconds), size (sd, 360p, 720p, 1080p) and badge (true/false) are required' });
     }
+    // cam-proxy's spanOf: {start, end} in unix ms, start before end, at most a day apart.
+    let given: { start: number; end: number } | undefined;
+    if (b.span !== undefined) {
+      const o = (b.span ?? {}) as { start?: unknown; end?: unknown };
+      const ok = typeof b.span === 'object' && Number.isSafeInteger(o.start) && Number.isSafeInteger(o.end) && (o.end as number) > (o.start as number) && (o.end as number) - (o.start as number) <= 86_400_000;
+      if (!ok) return void res.status(400).json({ error: 'invalid', detail: 'span is {start, end} in unix ms, start before end, at most a day apart' });
+      given = { start: o.start as number, end: o.end as number };
+    }
     const clip = fake.clips.find((c) => c.id === b.clipId && c.cam === req.params.cam);
     if (!clip) return void res.status(404).json({ error: 'not_found' });
-    const span = b.span && Number.isSafeInteger(b.span.start) && Number.isSafeInteger(b.span.end) ? { start: b.span.start as number, end: b.span.end as number } : clip;
+    if (given && Math.min(given.end, clip.end) - Math.max(given.start, clip.start) < 1000) return void res.status(400).json({ error: 'invalid', detail: 'span must overlap the clip by at least 1 s' });
+    const span = given ?? clip;
     const pre = b.preS, post = b.postS;
     if (![pre, post].every((v) => Number.isInteger(v) && Math.abs(v) <= 3600)) return void res.status(400).json({ error: 'invalid', detail: 'pre-roll and post-roll are whole seconds from -3600 to 3600' });
     const start = span.start - pre * 1000, rawEnd = span.end + post * 1000;

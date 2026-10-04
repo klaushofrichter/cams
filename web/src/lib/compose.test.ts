@@ -1,6 +1,6 @@
 // web/src/lib/compose.test.ts
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { composedName, isAvailable, presetRolls, rollRange, snapRoll } from './compose';
+import { composedName, isAvailable, presetRolls, rollRange, sliderBounds, snapRoll } from './compose';
 
 describe('compose helpers', () => {
   it('formats file names', () => {
@@ -27,6 +27,17 @@ describe('rollRange and snapRoll', () => {
     expect(snapRoll(5, r)).toBe(0);
     expect(rollRange(400, -50, 'sd')).toEqual({ min: -349, max: -50 }); // already generated: no gap
   });
+  // Review of #176: each slider's own track is fixed by the clip and the
+  // limit (not by the other roll), so 0 stays where it is; the value is
+  // clamped to rollRange instead.
+  it('fixes the slider track to the clip and the limit', () => {
+    expect(sliderBounds(114, 'sd')).toEqual({ min: -113, max: 186 });
+    expect(sliderBounds(114, '1080p')).toEqual({ min: -113, max: 6 });
+    expect(sliderBounds(400, 'sd')).toEqual({ min: -399, max: 0 });
+    expect(sliderBounds(700, 'sd')).toEqual({ min: -699, max: 0 });
+    expect(snapRoll(186, rollRange(114, 30, 'sd'))).toBe(156); // dragged past what the other roll leaves
+  });
+
   it('clamps and rounds', () => {
     expect(snapRoll(500, { min: -10, max: 186 })).toBe(186);
     expect(snapRoll(-20.4, { min: -10, max: 186 })).toBe(-10);
