@@ -52,6 +52,8 @@ test('from History, the Timeline menu opens that minute and still; a minute step
   // Step to a neighbour inside the hour: back unless this is the hour's first minute.
   const back = !(await page.getByTestId('timeline-minute-prev').isDisabled());
   const after = before + (back ? -60_000 : 60_000);
+  await page.keyboard.press('Escape'); // with the large still open, the arrows step its second (issue #159)
+  await expect(page.getByTestId('timeline-still')).toHaveCount(0);
   await page.keyboard.press(back ? 'ArrowLeft' : 'ArrowRight');
   await expect(active).toHaveAttribute('data-minute', String(after));
   await expect(page.getByTestId('timeline-still')).toHaveCount(0); // a new minute starts without a still
@@ -60,6 +62,48 @@ test('from History, the Timeline menu opens that minute and still; a minute step
   await expect(page.locator('[data-testid="timeline-minute"].active')).toHaveAttribute('data-minute', String(after));
   await page.getByTestId('timeline-close').click();
   await expect(page.getByTestId('timeline-minute-view')).toHaveCount(0);
+});
+
+// Issue #159: one second back or forward under the large still. Den's fake
+// proxy keeps a still every ten seconds, so the seconds between are gaps.
+test('the large still steps one second with the buttons and the arrow keys, across minutes and gaps', async ({ page }) => {
+  const m = Math.floor((Date.now() - 180_000) / 60_000) * 60_000; // three minutes ago
+  await page.goto(`/app/timeline?cam=cam1&t=${m + 10_000}`);
+  const still = page.getByTestId('timeline-still');
+  const gap = page.getByTestId('timeline-gap');
+  const active = page.locator('[data-testid="timeline-minute"].active');
+  await expect(still).toHaveAttribute('src', new RegExp(`stills/${m + 10_000}\\.jpg$`));
+  const stamp = (t: number) => page.evaluate((x) => {
+    const d = new Date(x);
+    const p = (n: number) => String(n).padStart(2, '0');
+    return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`;
+  }, t);
+  // A second without a still: the gap, said in local time.
+  await page.getByTestId('timeline-second-next').click();
+  await expect(gap).toHaveText(`${await stamp(m + 11_000)} not available as snapshot`);
+  await expect(still).toHaveCount(0);
+  await page.getByTestId('timeline-second-prev').click();
+  await expect(still).toHaveAttribute('src', new RegExp(`stills/${m + 10_000}\\.jpg$`));
+  // The arrow keys, and back across the minute: the previous minute's last second.
+  await page.keyboard.press('ArrowLeft');
+  await expect(gap).toHaveText(`${await stamp(m + 9000)} not available as snapshot`);
+  for (let s = 8; s >= 0; s--) {
+    await page.keyboard.press('ArrowLeft');
+    await expect(page.getByTestId('timeline-large-time')).toHaveText(await page.evaluate((x) => new Date(x).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }), m + s * 1000));
+  }
+  await expect(still).toHaveAttribute('src', new RegExp(`stills/${m}\\.jpg$`));
+  await expect(active).toHaveAttribute('data-minute', String(m));
+  await page.keyboard.press('ArrowLeft');
+  await expect(gap).toHaveText(`${await stamp(m - 1000)} not available as snapshot`);
+  await expect(active).toHaveAttribute('data-minute', String(m - 60_000));
+  await expect(page.locator('[data-testid="timeline-second"].active')).toHaveAttribute('data-ts', String(m - 1000));
+  // The minute view moved: its large still and buttons are brought back into view (a phone).
+  await expect(page.getByTestId('timeline-second-next')).toBeInViewport();
+  await expect(page.getByTestId('timeline-second-prev')).toBeInViewport();
+  await page.keyboard.press('ArrowRight');
+  await expect(still).toHaveAttribute('src', new RegExp(`stills/${m}\\.jpg$`));
+  await expect(active).toHaveAttribute('data-minute', String(m));
+  await expect(page).toHaveURL(new RegExp(`&t=${m}$`));
 });
 
 test('from Live, the Timeline menu opens the newest minute', async ({ page }, testInfo) => {

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { dayRange, hourGroups, minuteOf, previewAt, splitRange, stillIndex, tileIndex, tileStyle, timelineCursor, timelineSearch, stepMinute, cardsInMinute, cardKind, secondKinds, seenStills, analysedSeconds, minuteIndex, type PreviewMinute } from './timeline';
+import { blankMinute, secondStamp, stepSecond, dayRange, hourGroups, minuteOf, previewAt, splitRange, stillIndex, tileIndex, tileStyle, timelineCursor, timelineSearch, stepMinute, cardsInMinute, cardKind, secondKinds, seenStills, analysedSeconds, minuteIndex, type PreviewMinute } from './timeline';
 
 // Tests run with TZ=America/Chicago (vitest.config).
 const m = (minute: number, present = Array(60).fill(true)): PreviewMinute => ({ minute, cols: 10, rows: 6, tileW: 160, tileH: 90, intervalS: 1, present, url: `/x/${minute}.jpg` });
@@ -168,3 +168,81 @@ describe('the minute view (spec 2026-09-30-analytics-in-cams-design)', () => {
   });
 });
 
+
+// Issue #159: one second back or forward under the large still.
+describe('stepSecond', () => {
+  // Chicago (CDT, UTC-5) on 2026-09-27; local h:m:s.
+  const at = (h: number, mi: number, s: number, ms = 0) => Date.UTC(2026, 8, 27, h + 5, mi, s, ms);
+  const open = { oldest: null, now: Date.UTC(2030, 0, 1) };
+
+  it('steps inside the minute', () => {
+    expect(stepSecond(at(14, 3, 20), 1, open)).toEqual({ ts: at(14, 3, 21), date: '2026-09-27', minute: at(14, 3, 0), crossed: 'second' });
+    expect(stepSecond(at(14, 3, 20), -1, open)?.ts).toBe(at(14, 3, 19));
+  });
+
+  it('steps from a still between whole seconds to the neighbouring whole second', () => {
+    expect(stepSecond(at(14, 3, 20, 400), 1, open)?.ts).toBe(at(14, 3, 21));
+    expect(stepSecond(at(14, 3, 20, 400), -1, open)?.ts).toBe(at(14, 3, 19));
+  });
+
+  it('crosses into the previous minute at its last second, the next at its first', () => {
+    expect(stepSecond(at(14, 3, 0), -1, open)).toEqual({ ts: at(14, 2, 59), date: '2026-09-27', minute: at(14, 2, 0), crossed: 'minute' });
+    expect(stepSecond(at(14, 3, 59), 1, open)).toEqual({ ts: at(14, 4, 0), date: '2026-09-27', minute: at(14, 4, 0), crossed: 'minute' });
+  });
+
+  it('crosses into the previous hour at its last minute and second, the next at its first', () => {
+    expect(stepSecond(at(14, 0, 0), -1, open)).toEqual({ ts: at(13, 59, 59), date: '2026-09-27', minute: at(13, 59, 0), crossed: 'hour' });
+    expect(stepSecond(at(14, 59, 59), 1, open)).toEqual({ ts: at(15, 0, 0), date: '2026-09-27', minute: at(15, 0, 0), crossed: 'hour' });
+  });
+
+  it('crosses into the previous day at its last second, the next at its first', () => {
+    const midnight = Date.UTC(2026, 8, 28, 5); // 2026-09-28 00:00 CDT
+    expect(stepSecond(midnight, -1, open)).toEqual({ ts: midnight - 1000, date: '2026-09-27', minute: midnight - 60_000, crossed: 'day' });
+    expect(stepSecond(midnight - 1000, 1, open)).toEqual({ ts: midnight, date: '2026-09-28', minute: midnight, crossed: 'day' });
+  });
+
+  it('crosses the DST changes in America/Chicago', () => {
+    // Spring forward, 2027-03-14: 01:59:59 CST, then 03:00:00 CDT.
+    const spring = Date.UTC(2027, 2, 14, 8); // 03:00 CDT
+    const s = stepSecond(spring - 1000, 1, open)!;
+    expect([s.ts, s.crossed, new Date(s.ts).getHours()]).toEqual([spring, 'hour', 3]);
+    expect(stepSecond(spring, -1, open)?.ts).toBe(spring - 1000);
+    expect(new Date(spring - 1000).getHours()).toBe(1);
+    // Fall back, 2026-11-01: 01:59:59 CDT, then 01:00:00 CST (another hour with the same number).
+    const fall = Date.UTC(2026, 10, 1, 7); // 01:00 CST
+    const f = stepSecond(fall - 1000, 1, open)!;
+    expect([f.ts, f.date, f.crossed, new Date(f.ts).getHours()]).toEqual([fall, '2026-11-01', 'hour', 1]);
+    const b = stepSecond(fall, -1, open)!;
+    expect([b.ts, b.crossed, new Date(b.ts).getHours(), new Date(b.ts).getMinutes()]).toEqual([fall - 1000, 'hour', 1, 59]);
+  });
+
+  it('never steps past now', () => {
+    const now = at(14, 3, 20, 700);
+    expect(stepSecond(at(14, 3, 19), 1, { oldest: null, now })?.ts).toBe(at(14, 3, 20)); // the second now is in
+    expect(stepSecond(at(14, 3, 20), 1, { oldest: null, now })).toBeNull();
+    expect(stepSecond(at(14, 3, 20), -1, { oldest: null, now })?.ts).toBe(at(14, 3, 19));
+  });
+
+  it('never steps before the oldest still', () => {
+    const oldest = at(9, 0, 5, 300);
+    expect(stepSecond(at(9, 0, 6), -1, { oldest, now: open.now })?.ts).toBe(at(9, 0, 5)); // the oldest still's second
+    expect(stepSecond(at(9, 0, 5), -1, { oldest, now: open.now })).toBeNull();
+    expect(stepSecond(at(9, 0, 5), 1, { oldest, now: open.now })?.ts).toBe(at(9, 0, 6));
+  });
+});
+
+describe('secondStamp', () => {
+  it('writes a moment as the local YYYY-MM-DD HH:MM:SS', () => {
+    expect(secondStamp(Date.UTC(2026, 8, 27, 5, 4, 3, 900))).toBe('2026-09-27 00:04:03');
+    expect(secondStamp(Date.UTC(2026, 10, 1, 7, 0, 0))).toBe('2026-11-01 01:00:00');
+  });
+});
+
+describe('blankMinute', () => {
+  it('is a minute without a sprite: every second missing, shaped like its neighbours', () => {
+    const b = blankMinute(60_000, m(0));
+    expect(b).toEqual({ minute: 60_000, cols: 10, rows: 6, tileW: 160, tileH: 90, intervalS: 1, present: Array(60).fill(false), url: '' });
+    expect(blankMinute(120_000).present).toHaveLength(60);
+    expect(tileStyle(b, 3, 0.5)).toBe('background-size:800px 270px;background-position:-240px -0px;width:80px;height:45px');
+  });
+});

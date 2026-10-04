@@ -62,6 +62,7 @@ describe('GET /api/cameras/:id/extent', () => {
     const res = await get('/api/cameras/cam1/extent');
     expect(res.status).toBe(200);
     expect(res.body.oldest).toBe(await cameraOldest());
+    expect(res.body.stills).toBeNull(); // no proxy, no stills
   });
 
   it('is the proxy’s oldest content when that is older', async () => {
@@ -69,6 +70,18 @@ describe('GET /api/cameras/:id/extent', () => {
     const old = Date.now() - 50 * DAY;
     fake.stills.set('cam1', new Map([[old, JPEG]]));
     expect((await get('/api/cameras/cam1/extent')).body.oldest).toBe(old);
+  });
+
+  // Issue #159: the Timeline's one-second steps stop at the oldest still.
+  it('names the proxy’s oldest still apart', async () => {
+    await setup(true);
+    const old = Date.now() - 2 * DAY;
+    fake.stills.set('cam1', new Map([[old + 5000, JPEG], [old, JPEG]]));
+    const older = Date.now() - 50 * DAY;
+    fake.previews.set('cam1', new Map([[older, JPEG]])); // older than any still
+    const body = (await get('/api/cameras/cam1/extent')).body;
+    expect(body.stills).toBe(old);
+    expect(body.oldest).toBe(older);
   });
 
   it('is the camera’s when the proxy fails', async () => {
