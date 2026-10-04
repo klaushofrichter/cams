@@ -77,7 +77,11 @@ describe('GET /api/cameras/:id/extent', () => {
     await setup(true);
     const old = Date.now() - 2 * DAY;
     fake.stills.set('cam1', new Map([[old + 5000, JPEG], [old, JPEG]]));
-    expect((await get('/api/cameras/cam1/extent')).body.stills).toBe(old);
+    const older = Date.now() - 50 * DAY;
+    fake.previews.set('cam1', new Map([[older, JPEG]])); // older than any still
+    const body = (await get('/api/cameras/cam1/extent')).body;
+    expect(body.stills).toBe(old);
+    expect(body.oldest).toBe(older);
   });
 
   it('is the camera’s when the proxy fails', async () => {

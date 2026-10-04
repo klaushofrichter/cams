@@ -249,6 +249,9 @@
   // go through the same selection (open, still) and the same pickSeq guard as
   // a click, so a late still for an earlier second never shows.
   let wantExact = false; // wantT is a step's very second, not "the nearest still"
+  // The lower bound. Until /extent answers, or when it fails, there is none:
+  // back-steps may then go on into seconds before the oldest still, each
+  // showing the gap overlay.
   let oldestStill = $state<number | null>(null);
   $effect(() => {
     const cam = camera;
@@ -331,7 +334,8 @@
       return;
     }
     const minute = minuteOf(ts);
-    if (open?.minute !== minute) open = minutes.find((x) => x.minute === minute) ?? blankMinute(minute, minutes[0]);
+    const moved = open?.minute !== minute;
+    if (moved) open = minutes.find((x) => x.minute === minute) ?? blankMinute(minute, minutes[0]);
     const b = base;
     try {
       const list = await stillsIn(b, minute);
@@ -342,6 +346,12 @@
       // The next still the same way, so a further step finds it cached.
       const ahead = list.find((t) => Math.floor(t / 1000) * 1000 === ts + stepDir * 1000);
       if (ahead !== undefined) new Image().src = `${b}/stills/${ahead}.jpg`;
+      // Another minute (maybe another hour) moved the minute view: its large
+      // still and the step buttons back into view, on a phone too.
+      if (moved) {
+        await tick();
+        if (seq === pickSeq) document.querySelector<HTMLElement>('[data-testid="timeline-large"]')?.scrollIntoView?.({ block: 'nearest' });
+      }
     } catch {
       if (seq === pickSeq) pickMessage = 'Could not load that still.';
     }

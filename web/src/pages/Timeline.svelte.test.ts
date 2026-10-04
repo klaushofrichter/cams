@@ -597,6 +597,22 @@ describe('Timeline', () => {
         expect(still()).toBe(`/api/cameras/den/stills/${m0 + 59_000}.jpg`);
       });
 
+      it('brings the large still and its buttons into view when a step opens another minute', async () => {
+        await open(m0 + 58_000);
+        const seen: (ScrollIntoViewOptions | boolean | undefined)[] = [];
+        const spy = vi.spyOn(Element.prototype, 'scrollIntoView').mockImplementation(function (this: Element, o?: ScrollIntoViewOptions | boolean) {
+          if (this.getAttribute('data-testid') === 'timeline-large') seen.push(o);
+        });
+        try {
+          await press('ArrowRight'); // inside the minute: no scrolling
+          expect(seen).toEqual([]);
+          await press('ArrowRight'); // into the next minute
+          expect(seen).toEqual([{ block: 'nearest' }]);
+        } finally {
+          spy.mockRestore();
+        }
+      });
+
       it('crossing an hour switches the view to that hour, at its first or last minute', async () => {
         const h = new Date();
         h.setHours(10, 58, 0, 0);

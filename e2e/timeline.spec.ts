@@ -97,6 +97,9 @@ test('the large still steps one second with the buttons and the arrow keys, acro
   await expect(gap).toHaveText(`${await stamp(m - 1000)} not available as snapshot`);
   await expect(active).toHaveAttribute('data-minute', String(m - 60_000));
   await expect(page.locator('[data-testid="timeline-second"].active')).toHaveAttribute('data-ts', String(m - 1000));
+  // The minute view moved: its large still and buttons are brought back into view (a phone).
+  await expect(page.getByTestId('timeline-second-next')).toBeInViewport();
+  await expect(page.getByTestId('timeline-second-prev')).toBeInViewport();
   await page.keyboard.press('ArrowRight');
   await expect(still).toHaveAttribute('src', new RegExp(`stills/${m}\\.jpg$`));
   await expect(active).toHaveAttribute('data-minute', String(m));
