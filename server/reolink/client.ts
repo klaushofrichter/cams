@@ -18,6 +18,7 @@ export class CameraError extends Error {
     readonly code: CameraErrorCode,
     message: string,
     readonly requestSent = false,
+    readonly rspCode?: number, // the camera's own refusal code (camera_error), when it sent one
   ) {
     super(message);
     this.name = 'CameraError';
@@ -28,6 +29,7 @@ export interface CameraStatus {
   model: string;
   firmware: string;
   simulator: string | null; // cam-sim's one extra GetDevInfo field
+  name: string | null; // the camera's own name (GetDevInfo.name)
   streams: { main: StreamInfo | null; sub: StreamInfo | null };
 }
 
@@ -189,7 +191,7 @@ export class ReolinkClient {
         this.clearTokenIfCurrent(token);
         continue;
       }
-      throw new CameraError('camera_error', `${cmd} failed (rspCode ${reply.error?.rspCode ?? 'unknown'})`);
+      throw new CameraError('camera_error', `${cmd} failed (rspCode ${reply.error?.rspCode ?? 'unknown'})`, false, reply.error?.rspCode);
     }
     throw new CameraError('camera_auth_failed', `${cmd}: session rejected after re-login`);
   }
@@ -230,12 +232,13 @@ export class ReolinkClient {
   }
 
   async status(): Promise<CameraStatus> {
-    const value = await this.command<{ DevInfo?: { model?: string; firmVer?: string; simulator?: unknown } }>('GetDevInfo');
+    const value = await this.command<{ DevInfo?: { model?: string; firmVer?: string; simulator?: unknown; name?: unknown } }>('GetDevInfo');
     return {
       model: value.DevInfo?.model ?? 'unknown',
       firmware: value.DevInfo?.firmVer ?? 'unknown',
       // cam-sim's one extra field (a real camera never sends it).
       simulator: typeof value.DevInfo?.simulator === 'string' ? value.DevInfo.simulator : null,
+      name: typeof value.DevInfo?.name === 'string' && value.DevInfo.name ? value.DevInfo.name : null,
       streams: await this.streams(),
     };
   }

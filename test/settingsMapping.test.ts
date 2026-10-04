@@ -68,7 +68,7 @@ describe('validating patches', () => {
     });
     expect(validateImagePatch({ spotlight: { brightness: 0 }, osd: { name: 'Front door' } }).ok).toBe(true);
     expect(validateImagePatch({ osd: { name: 'x'.repeat(31) } }).ok).toBe(true);
-    expect(validateImagePatch({ osd: { name: '門'.repeat(10) } }).ok).toBe(true); // 30 bytes
+    expect(validateImagePatch({ osd: { name: 'Backyard (Left) [2]' } }).ok).toBe(true);
   });
 
   // Review focus 2.
@@ -97,7 +97,9 @@ describe('validating patches', () => {
     [{ osd: { name: '' } }],
     [{ osd: { name: 'x'.repeat(32) } }],
     [{ osd: { name: 'bad\nname' } }],
-    [{ osd: { name: '門'.repeat(11) } }], // 11 characters, but 33 bytes
+    [{ osd: { name: '門' } }], // the camera's name rules: ASCII only (-54)
+    [{ osd: { name: 'Den_Left' } }],
+    [{ osd: { name: ' Den' } }],
     [{ osd: { name: '\u200bDen' } }], // zero-width space
     [{ osd: { name: 'Den\u202e' } }], // bidi override
     [{ osd: { name: 'Den\u0085' } }], // C1 control

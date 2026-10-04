@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { diffPatch, osdNameProblem, utf8Bytes } from './settings';
+import { diffPatch } from './settings';
 
 const detection = {
   recording: true,
@@ -57,22 +57,7 @@ describe('diffPatch', () => {
   });
 });
 
-// The same limits as the server's validOsdName (server/reolink/settings.ts).
-describe('osdNameProblem', () => {
-  it('counts bytes, not characters', () => {
-    expect(utf8Bytes('門'.repeat(11))).toBe(33);
-    expect(osdNameProblem('x'.repeat(31))).toBeNull();
-    expect(osdNameProblem('門'.repeat(11))).toMatch(/at most 31 bytes/);
-  });
-
-  it('rejects invisible characters and a blank name', () => {
-    expect(osdNameProblem('\u200bDen')).toMatch(/invisible/);
-    expect(osdNameProblem('Den\n')).toMatch(/control/);
-    expect(osdNameProblem('   ')).toMatch(/blank/);
-    expect(osdNameProblem('')).toMatch(/blank/);
-    expect(osdNameProblem('Front door')).toBeNull();
-  });
-});
+// The OSD name's rules are the camera name's now: see cameraName.test.ts.
 
 describe('diffPatch with lists', () => {
   it('treats equal lists as unchanged and sends a changed list whole', () => {

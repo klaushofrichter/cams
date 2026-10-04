@@ -1,6 +1,8 @@
 import { Router, Request, Response } from 'express';
 import { getRecordings } from '../recordings/service';
 import { proxyHub, proxyStates } from '../proxy/stream';
+import { nameEvents } from '../cameraRegistry';
+import '../proxy/names'; // keeps the cameras' names from their cam-proxies
 
 // The cam-proxy relay to browsers (Plan 6): the proxy's events, as a hint
 // to reload through the usual APIs. No URLs or tokens travel here.
@@ -65,6 +67,10 @@ eventsRouter.get('/api/events/stream', (req: Request, res: Response) => {
   };
   // A camera's proxy was switched on or off (Settings): re-read /api/cameras.
   const onCameras = () => send('cameras', {});
+  // A camera's shown name changed (renamed here, in the Reolink app or on the
+  // camera; or its proxy came or went): pages switch to it, no reload.
+  const onName = (n: { cam: string; name: string }) => send('camera', n);
+  nameEvents.on('name', onName);
   proxyHub.on('state', onState);
   proxyHub.on('message', onMessage);
   proxyHub.on('cameras', onCameras);
@@ -79,6 +85,7 @@ eventsRouter.get('/api/events/stream', (req: Request, res: Response) => {
     proxyHub.off('state', onState);
     proxyHub.off('message', onMessage);
     proxyHub.off('cameras', onCameras);
+    nameEvents.off('name', onName);
   };
   req.on('close', finish);
   res.on('finish', finish);

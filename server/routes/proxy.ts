@@ -1,7 +1,8 @@
 import { Router, Request, Response } from 'express';
 import { Readable } from 'stream';
 import { pipeline } from 'stream/promises';
-import { getCamera, type CameraConfig } from '../cameraRegistry';
+import { getCamera, proxyActive, setReportedName, type CameraConfig } from '../cameraRegistry';
+import { plausibleName } from '../proxy/names';
 import { logger } from '../logger';
 import { setProxyEnabled } from '../proxyState';
 import { proxyHub, startProxyStream, stopProxyStream } from '../proxy/stream';
@@ -62,7 +63,9 @@ async function proxyInfo(id: string, proxy: { url: string; token: string }): Pro
     return { reachable: false, webUrl: null };
   }
   // It answered: reachable. A link only for this camera's own entry.
-  const mine = Array.isArray(list) ? (list as { id?: unknown; publicUrl?: unknown }[]).find((c) => c?.id === proxyCameraId(id)) : undefined;
+  const mine = Array.isArray(list) ? (list as { id?: unknown; name?: unknown; publicUrl?: unknown }[]).find((c) => c?.id === proxyCameraId(id)) : undefined;
+  // The camera's name, while cams uses this proxy (design camera-name-design.md).
+  if (proxyActive(id) && plausibleName(mine?.name)) setReportedName(id, mine.name);
   const url = mine?.publicUrl;
   return { reachable: true, webUrl: typeof url === 'string' && /^https?:\/\/[^\s]+$/.test(url) ? url : null };
 }

@@ -19,8 +19,10 @@ export interface StreamOptions {
 
 // A proxy from before the `analysis` stream type existed (v2026.09.30.3 and
 // older) answers 400 to it, and the stream asks again without it (until the
-// next reconnect, which tries it again).
-const TYPES = ['camera-event', 'camera-status', 'clip', 'analysis'];
+// next reconnect, which tries it again). The same for `camera` (the camera's
+// name, {cam, name}; design camera-name-design.md), newer still.
+const TYPES = ['camera-event', 'camera-status', 'clip', 'analysis', 'camera'];
+const OPTIONAL = ['analysis', 'camera'];
 
 export class ProxyStream extends EventEmitter {
   private lastId: string | undefined;
@@ -79,9 +81,10 @@ export class ProxyStream extends EventEmitter {
         let text = '';
         if (res.status === 400) text = await res.text().catch(() => '');
         else await res.body?.cancel();
-        if (this.types.includes('analysis') && /unknown type: analysis/.test(text)) {
-          this.types = this.types.filter((t) => t !== 'analysis');
-          logger.debug({ cameraId: this.cam }, 'proxy_stream_without_analysis');
+        const unknown = /unknown type: ([a-z-]+)/.exec(text)?.[1];
+        if (unknown && OPTIONAL.includes(unknown) && this.types.includes(unknown)) {
+          this.types = this.types.filter((t) => t !== unknown);
+          logger.debug({ cameraId: this.cam, type: unknown }, 'proxy_stream_without_type');
           return void this.connect();
         }
         throw new ProxyError('proxy_error', `cam-proxy ${this.client.host()} stream answered ${res.status}`, res.status);
@@ -96,7 +99,7 @@ export class ProxyStream extends EventEmitter {
       if (code !== this.error) logger.warn({ cameraId: this.cam, code, message: (err as Error).message }, 'proxy_stream_down');
       this.error = code;
       this.setUp(false);
-      // The proxy may come back as a newer version: ask for analyses again.
+      // The proxy may come back as a newer version: ask for every type again.
       this.types = [...TYPES];
       if (Date.now() - connectedAt >= (this.o.healthyMs ?? 60_000)) this.delay = this.o.backoffMinMs ?? 1000;
       // A refused token won't fix itself soon: retry at the slowest pace.

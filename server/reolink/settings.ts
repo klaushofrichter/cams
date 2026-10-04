@@ -1,6 +1,7 @@
 // Typed cams settings <-> Reolink commands. Shapes measured on RLC-1224A
 // firmware v3.2.0.6011 (see docs/reolink-api.md and the Plan 4 camera facts).
 // Pure: no I/O, so every mapping is unit-tested against real replies.
+import { cameraNameProblem, validCameraName } from '../cameraName';
 
 export type Schedule = 'on' | 'off' | 'custom';
 export type AiKind = 'person' | 'vehicle' | 'pet';
@@ -163,13 +164,10 @@ export function validateDetectionPatch(body: unknown): { ok: true; patch: Detect
   return details.length ? { ok: false, details } : { ok: true, patch: b as DetectionPatch };
 }
 
-// The firmware stores the OSD name in 32 bytes (31 plus the terminator), so
-// the limit is UTF-8 bytes, not characters. \p{C} covers control and format
-// characters: C0/C1, bidi overrides and zero-width characters, none of which
-// belong in text burned into the video.
-export const OSD_NAME_MAX_BYTES = 31;
+// The OSD text is the camera's name (one value with GetDevName and
+// GetDevInfo.name, measured 2026-10-03): the camera's name rules apply.
 export function validOsdName(name: unknown): name is string {
-  return typeof name === 'string' && Buffer.byteLength(name, 'utf8') <= OSD_NAME_MAX_BYTES && !/\p{C}/u.test(name) && /\S/u.test(name);
+  return validCameraName(name);
 }
 
 export function validateImagePatch(body: unknown): { ok: true; patch: ImagePatch } | { ok: false; details: string[] } {
@@ -203,7 +201,7 @@ export function validateImagePatch(body: unknown): { ok: true; patch: ImagePatch
       const o = b.osd as Obj;
       onlyKeys(o, ['showName', 'name', 'namePosition', 'showTime', 'timePosition', 'watermark'], 'osd.', details);
       for (const k of ['showName', 'showTime', 'watermark']) if (k in o && typeof o[k] !== 'boolean') details.push(`osd.${k}: must be true or false`);
-      if ('name' in o && !validOsdName(o.name)) details.push('osd.name: up to 31 bytes (UTF-8), not blank, no control or invisible characters');
+      if ('name' in o && !validOsdName(o.name)) details.push(`osd.name: ${cameraNameProblem(o.name)}`);
       for (const k of ['namePosition', 'timePosition']) {
         if (k in o && !(OSD_POSITIONS as readonly string[]).includes(o[k] as string)) details.push(`osd.${k}: one of ${OSD_POSITIONS.join(', ')}`);
       }
