@@ -1,19 +1,42 @@
 <script lang="ts">
-  import { boxLabel, type Box, type StillObject, type SummaryEntry } from '../lib/vision';
+  import { boxLabel, capital, pct, type Box, type StillObject, type SummaryEntry } from '../lib/vision';
 
   // The Timeline's large still (spec 2026-09-30-analytics-in-cams-design): for
   // an analysed second, Vision's summary boxes with labels; "Show all objects"
-  // draws everything Vision reported instead.
-  let { src, alt, summary, loadAll }: { src: string; alt: string; summary: SummaryEntry[] | null; loadAll?: () => Promise<StillObject[]> } = $props();
+  // draws everything Vision reported instead. `objectList` (the Vision dialog,
+  // issue #158) adds what cam-proxy's Timeline detail has: Boxes / Plain still,
+  // and with all objects a list of them where a click shows only that one's box.
+  let {
+    src,
+    alt,
+    summary,
+    loadAll,
+    objectList = false,
+    showAll = $bindable(false),
+  }: { src: string; alt: string; summary: SummaryEntry[] | null; loadAll?: () => Promise<StillObject[]>; objectList?: boolean; showAll?: boolean } = $props();
 
-  let showAll = $state(false);
   let all = $state<StillObject[] | null>(null);
   let failed = $state(false);
 
   // An object without coordinates arrives as a zero-area box, or none: not drawn.
   const drawn = (b: Box | null | undefined): Box | null => (b && b.x1 > b.x0 && b.y1 > b.y0 ? b : null);
+  // The radio group's name: arrow keys move within it, Tab stops once.
+  const uid = $props.id();
+  const group = `still-view-${uid}`;
+  // The object picked in the list (its index in `all`); null draws them all.
+  let selected = $state<number | null>(null);
+  // Plain still: no boxes at all, whatever is picked.
+  let view = $state<'boxes' | 'plain'>('boxes');
+  const listed = $derived(objectList && showAll && all ? all : null);
   const boxes = $derived<{ label: string; box: Box }[]>(
-    showAll && all
+    view === 'plain'
+      ? []
+      : listed && selected !== null
+      ? [listed[selected]].flatMap((o) => {
+          const b = o && drawn(o.box);
+          return b ? [{ label: boxLabel(o.name, o.score), box: b }] : [];
+        })
+      : showAll && all
       ? all.flatMap((o) => {
           const b = drawn(o.box);
           return b ? [{ label: boxLabel(o.name, o.score), box: b }] : [];
@@ -45,10 +68,12 @@
     showAll = false;
     all = null;
     failed = false;
+    selected = null;
   });
 
   async function toggle() {
     showAll = !showAll;
+    selected = null;
     if (showAll) failed = false;
     if (!showAll || all || !loadAll) return;
     const mine = gen;
@@ -75,11 +100,33 @@
       {#each boxes as b, i (i)}<span class="label" class:inside={b.box.y0 < TOP} data-testid="timeline-box-label" style={labelAt(b.box)}>{b.label}</span>{/each}
     {/if}
   </div>
-  {#if summary && loadAll}
+  {#if summary && (loadAll || objectList)}
     <div class="small">
-      <label><input type="checkbox" checked={showAll} onchange={() => void toggle()} data-testid="timeline-show-all" /> Show all objects</label>
-      <span class="muted" role="status" data-testid="timeline-show-all-failed">{failed ? 'Could not load all objects.' : ''}</span>
+      {#if objectList}
+        <fieldset class="view" data-testid="still-view">
+          <legend class="sr">Image</legend>
+          <label><input type="radio" name={group} value="boxes" bind:group={view} data-testid="still-view-boxes" /> Boxes</label>
+          <label><input type="radio" name={group} value="plain" bind:group={view} data-testid="still-view-plain" /> Plain still</label>
+        </fieldset>
+      {/if}
+      {#if loadAll}
+        <label><input type="checkbox" checked={showAll} onchange={() => void toggle()} data-testid="timeline-show-all" /> Show all objects</label>
+        <span class="muted" role="status" data-testid="timeline-show-all-failed">{failed ? 'Could not load all objects.' : ''}</span>
+      {/if}
     </div>
+  {/if}
+  {#if listed}
+    <ul class="objects" aria-label="Objects" data-testid="still-objects">
+      {#each listed as o, i (i)}
+        <li>
+          <button type="button" class:sel={selected === i} aria-pressed={selected === i} onclick={() => (selected = selected === i ? null : i)} data-testid="still-object">
+            <span class="name">{capital(o.name)}</span>{#if !drawn(o.box)}<span class="muted nobox">no box</span>{/if}<span class="score">{pct(o.score)}</span>
+          </button>
+        </li>
+      {:else}
+        <li class="muted">Nothing found.</li>
+      {/each}
+    </ul>
   {/if}
 </figure>
 
@@ -96,4 +143,15 @@
   .label.inside { transform: none; }
   .small { font-size: 13px; display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
   .muted { color: var(--muted); }
+  .view { border: 0; padding: 0; margin: 0; display: flex; gap: 12px; align-items: center; }
+  .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+  /* The object list (issue #158), as cam-proxy's: a row per object, the picked one marked. */
+  .objects { list-style: none; margin: 0; padding: 0; display: grid; font-size: 13px; }
+  .objects button { width: 100%; display: flex; align-items: baseline; gap: 8px; padding: 5px 8px; border: 0; border-left: 3px solid transparent; border-radius: 0; background: transparent; color: var(--text); font: inherit; text-align: left; cursor: pointer; }
+  .objects button:hover { background: color-mix(in srgb, var(--vision-mark) 10%, transparent); }
+  .objects button:focus-visible { outline: 2px solid var(--vision-mark); outline-offset: -2px; }
+  .objects button.sel { background: color-mix(in srgb, var(--vision-mark) 20%, transparent); border-left-color: var(--vision-mark); }
+  .objects .name { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+  .objects .score { font-variant-numeric: tabular-nums; }
+  .nobox { font-size: 12px; font-style: italic; }
 </style>

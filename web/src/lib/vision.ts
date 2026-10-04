@@ -18,8 +18,8 @@ export interface Badge { kind: 'agree' | 'not-confirmed' | 'extra'; category: Ca
 
 export const LABEL: Record<Category, string> = { person: 'Person', vehicle: 'Vehicle', pet: 'Pet' };
 const percent = (s: number) => Math.round(s * 100);
-const pct = (s: number) => `${percent(s)}%`;
-const capital = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
+export const pct = (s: number) => `${percent(s)}%`;
+export const capital = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
 // The label next to a box (Klaus, 2026-10-01): "Clothing 56%", only the first
 // letter capitalised ("Ceiling fan 90%").
 export const boxLabel = (name: string, score: number) => `${capital(name)} ${pct(score)}`;

@@ -220,6 +220,24 @@ describe('the Vision dialog', () => {
     expect(fetch).toHaveBeenCalledWith('/api/cameras/cam1/analyses/12', expect.anything());
   });
 
+  // Issue #158: with all objects, the list of objects replaces the findings; off again, the findings are back.
+  it('lists all objects in place of the findings, and a click on one shows only its box', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ eventId: 12, status: 'ok', stillTs: T2, summary: [], objects: [{ name: 'Person', score: 0.84, box }, { name: 'Ceiling fan', score: 0.7, box }] }), { status: 200 })));
+    inCard();
+    const dialog = await open();
+    expect(dialog.textContent).toContain('Person - 84% Confidence');
+    byId('timeline-show-all')!.click();
+    await vi.waitFor(() => expect(document.querySelectorAll('[data-testid="still-object"]')).toHaveLength(2));
+    expect(dialog.textContent).not.toContain('Person - 84% Confidence');
+    (document.querySelectorAll('[data-testid="still-object"]')[1] as HTMLElement).click();
+    flushSync();
+    expect(document.querySelectorAll('[data-testid="timeline-boxes"] rect')).toHaveLength(1);
+    byId('timeline-show-all')!.click();
+    flushSync();
+    expect(byId('still-objects')).toBeNull();
+    expect(dialog.textContent).toContain('Person - 84% Confidence');
+  });
+
   it('says so when the still has nothing relevant, and still offers all objects', async () => {
     inCard({ best: {}, notConfirmed: ['person'], stills: [{ eventId: 13, stillTs: T1, summary: [] }] });
     const dialog = await open('not-confirmed');

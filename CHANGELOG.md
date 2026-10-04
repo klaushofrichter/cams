@@ -8,7 +8,5 @@ published as [GitHub releases](https://github.com/klaushofrichter/cams/releases)
 
 ## [Unreleased]
 
-### Changed
-
-- An expired session no longer drops you on the start page: cams renews it silently with Google when it can and brings you back to the page you were on; when Google needs you to sign in, the start page's sign-in returns you to that page too. This covers every request the app makes, including images, videos and the event stream.
+- Vision dialog: with "Show all objects", a list of every object with its confidence in percent; clicking one shows only its box, clicking it again shows all boxes, as in cam-proxy's Timeline detail. A Boxes / Plain still choice hides the boxes (#158).
 
