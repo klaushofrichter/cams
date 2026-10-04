@@ -15,6 +15,9 @@ const SHOTS = process.env.CHECKS_SHOTS; // a folder: screenshots of the result (
 
 test.beforeEach(async ({ context, baseURL }) => {
   await signIn(context, baseURL!);
+  // Yesterday's minutes are older than the fake's oldest seeded still, which
+  // would end the second steps there: no lower bound in these specs.
+  await context.route('**/api/cameras/cam1/extent', (r) => r.fulfill({ json: { oldest: null, stills: null } }));
 });
 
 // A second of yesterday with a still, and what Vision answers for it.
@@ -131,7 +134,10 @@ test('a check made in another tab shows live: the list, the marks, the open stil
 test('◀ ✧ ▶ and Shift+arrows step between the day’s checks', async ({ page }) => {
   const s = await aSecond(page, 'nothing');
   const a = s.at, b = s.at + 2000;
-  for (const at of [a, b]) expect((await page.request.post('/api/cameras/cam1/still-checks', { data: { at } })).ok()).toBe(true);
+  for (const at of [a, b]) {
+    const r = await page.request.post('/api/cameras/cam1/still-checks', { data: { at } });
+    expect(r.ok(), await r.text()).toBe(true);
+  }
   await openAt(page, { at: a + 1000, date: s.date });
   await expect(page.getByTestId('timeline-large-time')).toBeVisible();
   await page.getByTestId('timeline-check-next').click();
