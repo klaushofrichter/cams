@@ -15,6 +15,7 @@ import { PriorityGate } from './priorityGate';
 import { makeThumbnail } from './thumbnail';
 import { Semaphore } from '../reolink/semaphore';
 import { findProxyClip, findProxyStill, openProxyClip, openProxyStill } from './proxyClips';
+import { proxyDetections } from './detection';
 import { RecordingError } from './errors';
 import { fallsBack, headProxyRecording, listProxyDays, listProxyDay, logProxyFailure, openProxyRecording, type ProxyRecording } from './proxyRecordings';
 import { ProxyError } from '../proxy/client';
@@ -57,6 +58,9 @@ const BREAKER_FAILURES = 3;
 const RECORDINGS_PROBE_MS = () => Number(process.env.RECORDINGS_PROBE_MS) || 60_000;
 const DOWNLOAD_RETRY_DELAY_MS = Number(process.env.DOWNLOAD_RETRY_DELAY_MS) || 1000;
 const RECENT_WINDOW_MS = 24 * 60 * 60 * 1000;
+// A detection's thumbnail: the still at its second or up to this much later.
+const DETECTION_STILL_MS = 3000;
+const hasDetection = (triggers: readonly Trigger[]) => triggers.some((t) => t === 'person' || t === 'vehicle' || t === 'pet');
 // The camera Search cache behind cameraPath(): this many camera/day/stream
 // entries, least recently used out first.
 export const CAMERA_PATHS_MAX = 64;
@@ -473,11 +477,11 @@ export class RecordingsService {
     return this.breakerOpen(cameraId) ? 'unavailable' : 'ok';
   }
 
-  // The event's start and end, from the day's list.
-  private async eventSpan(cameraId: string, clipId: string): Promise<{ start: number; end: number } | null> {
+  // The event's start, end and triggers, from the day's list.
+  private async eventSpan(cameraId: string, clipId: string): Promise<{ start: number; end: number; triggers: Trigger[] } | null> {
     const date = clipDate(clipId);
     const ev = (await this.day(cameraId, date)).events.find((e) => e.id === clipId);
-    return ev ? { start: Date.parse(ev.start), end: Date.parse(ev.end) } : null;
+    return ev ? { start: Date.parse(ev.start), end: Date.parse(ev.end), triggers: ev.triggers } : null;
   }
 
   // The proxy's clip for an event (composed clips, cam-proxy spec 2026-09-28):
@@ -611,22 +615,44 @@ export class RecordingsService {
     }
   }
 
+  // A card the camera's AI flagged (person, vehicle or pet) with a cam-proxy
+  // gets its thumbnail from the detection moment (issue #157), cached under
+  // its own key so a thumbnail made before that is not served for it.
+  private async thumbKey(cameraId: string, clipId: string): Promise<string> {
+    if (!proxyActive(cameraId)) return this.key(cameraId, clipId, 'jpg');
+    const span = await this.eventSpan(cameraId, clipId).catch(() => null);
+    return this.key(cameraId, clipId, span && hasDetection(span.triggers) ? 'det.jpg' : 'jpg');
+  }
+
   // The mp4 is fetched (via withClip) only when the jpg isn't already
   // cached: DiskCache.fill() checks that internally before ever invoking
   // this producer, so a cached thumbnail is served without touching the
   // camera at all.
-  async thumbnail(cameraId: string, clipId: string): Promise<string> {
-    const jpgKey = this.key(cameraId, clipId, 'jpg');
+  async thumbnail(cameraId: string, clipId: string, jpgKey?: string): Promise<string> {
+    jpgKey ??= await this.thumbKey(cameraId, clipId);
     return this.cache.fill(jpgKey, async (tmp) => {
-      // A camera with a cam-proxy: its still 2 s into the event (Plan 7),
-      // no clip transfer and no ffmpeg.
+      // A camera with a cam-proxy: its still at the moment the person,
+      // vehicle or pet was detected (issue #157), else 2 s into the event
+      // (Plan 7), no clip transfer and no ffmpeg.
       if (proxyActive(cameraId)) {
         try {
           // At most three at a time per camera, lookups included: a day's
           // list asked for all its thumbnails at once (issues #38, #76).
           const got = await this.stillGate(cameraId).run(async () => {
             const span = await this.eventSpan(cameraId, clipId);
-            const ts = span && (await findProxyStill(cameraId, span.start + 2000, span.start + 12_000));
+            if (!span) return false;
+            // One event lookup per flagged card; a failed one (an older or
+            // unreachable proxy) leaves the 2 s rule.
+            const moments = hasDetection(span.triggers)
+              ? await proxyDetections(cameraId, span.start, span.end).catch((e: Error) => {
+                  logger.warn({ cameraId, clipId, message: e.message }, 'proxy_detection_lookup_failed');
+                  return [];
+                })
+              : [];
+            // A still at the second, or within 3 s after it (a gap).
+            let ts: number | null = null;
+            for (const m of moments) if ((ts = await findProxyStill(cameraId, m, m + DETECTION_STILL_MS))) break;
+            ts ??= await findProxyStill(cameraId, span.start + 2000, span.start + 12_000);
             if (!ts) return false;
             await pipeline(await openProxyStill(cameraId, ts), createWriteStream(tmp));
             return true;
@@ -662,10 +688,10 @@ export class RecordingsService {
   // done, so a concurrent evict() can never remove the file while it's
   // being sent to a client.
   async withThumbnail<T>(cameraId: string, clipId: string, use: (path: string) => Promise<T>): Promise<T> {
-    const jpgKey = this.key(cameraId, clipId, 'jpg');
+    const jpgKey = await this.thumbKey(cameraId, clipId);
     this.cache.pin(jpgKey);
     try {
-      const path = await this.thumbnail(cameraId, clipId);
+      const path = await this.thumbnail(cameraId, clipId, jpgKey);
       return await use(path);
     } finally {
       this.cache.unpin(jpgKey);
