@@ -3,7 +3,7 @@ import { createHash, timingSafeEqual } from 'crypto';
 import { OAuth2Client } from 'google-auth-library';
 import { expiredSessionKind, SESSION_COOKIE, SESSION_MAX_AGE_MS, signSession, signTokenSession } from '../session';
 import { getAllowedEmails } from '../allowedEmails';
-import { createAuthRateLimit, createTokenFailureLimit } from '../middleware/rateLimit';
+import { createApiRateLimit, createAuthRateLimit, createTokenFailureLimit } from '../middleware/rateLimit';
 import { RETURN_COOKIE, rememberReturn, safeReturnPath } from '../middleware/requireAuth';
 import { requireSameOrigin } from '../middleware/requireSameOrigin';
 import { checkState, clearLoginHint, clearState, loginHint, redirectToGoogle, setLoginHint } from '../googleLogin';
@@ -137,7 +137,10 @@ function tokenMatches(presented: unknown, expected: string): boolean {
 // Token login off: the route doesn't exist (the normal unknown-path 404).
 // The same-origin check comes before the failure limiter, so cross-site
 // posts can't use up the owner's tries.
-authRouter.use('/auth/token', (_req: Request, _res: Response, next: NextFunction) => (tokenLoginEnabled() ? next() : next('router')));
+// The gate sits behind the general limiter every unknown path meets anyway
+// (the pages router's), so "off" answers exactly like an unknown route.
+const tokenGateLimit = createApiRateLimit();
+authRouter.use('/auth/token', tokenGateLimit, (_req: Request, _res: Response, next: NextFunction) => (tokenLoginEnabled() ? next() : next('router')));
 authRouter.post(
   '/auth/token',
   authRateLimit,
