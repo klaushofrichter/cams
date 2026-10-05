@@ -3,6 +3,7 @@ import { existsSync, readFileSync } from 'fs';
 import { basename } from 'path';
 import { logger } from './logger';
 import { proxyEnabled } from './proxyState';
+import { proxyGroupKey } from './proxy/groupKey';
 
 export interface CameraConfig {
   id: string;
@@ -58,10 +59,16 @@ export function loadCameras(file: string | undefined = process.env.CAMERAS_FILE)
   } catch {
     throw new Error(`camera registry ${basename(file)} is not valid JSON`);
   }
-  if (!Array.isArray(parsed)) throw new Error(`camera registry ${basename(file)} must be a JSON array`);
+  return parseCameras(parsed, basename(file));
+}
+
+// The registry's checks on a parsed file (also the generator's, before it
+// writes one). `label` names the file in errors.
+export function parseCameras(parsed: unknown, label: string): CameraConfig[] {
+  if (!Array.isArray(parsed)) throw new Error(`camera registry ${label} must be a JSON array`);
 
   const seen = new Set<string>();
-  return parsed.map((entry: unknown, i: number) => {
+  const list = parsed.map((entry: unknown, i: number) => {
     if (typeof entry !== 'object' || entry === null) throw new Error(`camera registry entry ${i} is not an object`);
     const e = entry as Record<string, unknown>;
     for (const field of FIELDS) {
@@ -107,6 +114,24 @@ export function loadCameras(file: string | undefined = process.env.CAMERAS_FILE)
     if (e.webUiNote !== undefined) camera.webUiNote = e.webUiNote as string;
     if (proxy) camera.proxy = proxy;
     return camera;
+  });
+  checkProxyGroups(list);
+  return list;
+}
+
+// Entries with the same proxy url + token are one cam-proxy (spec
+// 2026-10-05 §12.1): their admin tokens can't disagree. An entry without
+// one keeps no sign-in link, as before.
+function checkProxyGroups(list: CameraConfig[]): void {
+  const admin = new Map<string, { i: number; id: string; token: string }>();
+  list.forEach((c, i) => {
+    if (!c.proxy?.adminToken) return;
+    const key = proxyGroupKey(c.proxy);
+    const first = admin.get(key);
+    if (!first) return void admin.set(key, { i, id: c.id, token: c.proxy.adminToken });
+    if (first.token !== c.proxy.adminToken) {
+      throw new Error(`camera registry entries ${first.i} ("${first.id}") and ${i} ("${c.id}"): same cam-proxy (url and token) but different adminToken`);
+    }
   });
 }
 
@@ -216,6 +241,11 @@ export function listCameras(): CameraSummary[] {
 }
 
 // Ids of the cameras whose cam-proxy is in use.
+// Every configured camera, config order (the same array until setCameras).
+export function allCameras(): readonly CameraConfig[] {
+  return cameras;
+}
+
 export function listProxied(): string[] {
   return cameras.filter((c) => proxyActive(c.id)).map((c) => c.id);
 }
