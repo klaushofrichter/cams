@@ -7,6 +7,7 @@ import express, { type Response } from 'express';
 import rateLimit from 'express-rate-limit';
 import { mkdtempSync, writeFileSync } from 'fs';
 import http from 'http';
+import https from 'https';
 import { createHash, randomBytes } from 'crypto';
 import type { AddressInfo } from 'net';
 import { tmpdir } from 'os';
@@ -114,6 +115,12 @@ export interface FakeProxy {
   checkFailure: { status: number; body: unknown } | null; // tests: the next new check's call fails like this (counted, nothing stored)
   checkDelayMs: number; // tests: a new check's Vision call takes this long
   checkCalls: number; // Vision calls made for checks
+  caPem: string | null; // GET /tls/ca.pem (public, no token; null: 404), like a site-CA cam-proxy (spec 2026-10-05 §10.4)
+  cameraTls: Map<string, unknown>; // proxy camera id → its `tls` block in /api/cameras (absent: no field, like a proxy without a site CA)
+  caPemEndless: boolean; // tests: /tls/ca.pem streams without end (no Content-Length)
+  openSockets(): number; // connections open now
+  camFilter: boolean; // tests: false = ignore ?cam= and send every camera's messages
+  features: string[] | null; // `features` on every /api/cameras item; null: a cam-proxy from before multi-camera P1 (no field, ?cam= is one whole id)
   streamConnections(): number;
   push(m: Omit<FakeMessage, 'id' | 'ts'> & { ts?: number }): FakeMessage;
   dropStreams(): void; // ends every open stream (a proxy restart)
@@ -127,12 +134,14 @@ export const FAKE_ADMIN_TOKEN = 'fake-proxy-admin-token-'.padEnd(48, 'a');
 
 export const JPEG = Buffer.from([0xff, 0xd8, 0xff, 0xe0, 0, 0x10, 0x4a, 0x46, 0x49, 0x46, 0, 1, 0xff, 0xd9]);
 
-export async function startFakeProxy(opts: { port?: number; token?: string } = {}): Promise<FakeProxy> {
+export async function startFakeProxy(opts: { port?: number; token?: string; tls?: { key: Buffer | string; cert: Buffer | string } } = {}): Promise<FakeProxy> {
   const token = opts.token ?? FAKE_TOKEN;
   const dir = mkdtempSync(join(tmpdir(), 'cams-fakeproxy-'));
   const app = express();
   const streams = new Set<Response>();
-  const streamTypes = new Map<Response, string[] | undefined>(); // like the real one: live pushes honour ?types
+  // Like the real one: live pushes honour ?types and ?cam (a list, spec 2026-10-05 §6.2).
+  const streamFilters = new Map<Response, { types?: string[]; cams?: Set<string> }>();
+  const wanted = (f: { types?: string[]; cams?: Set<string> } | undefined, m: FakeMessage) => (!f?.types || f.types.includes(m.type)) && (!fake.camFilter || !f?.cams || f.cams.has(m.cam));
   const sockets = new Set<import('net').Socket>();
   let nextId = 1;
 
@@ -183,14 +192,17 @@ export async function startFakeProxy(opts: { port?: number; token?: string } = {
     checkFailure: null,
     checkDelayMs: 0,
     checkCalls: 0,
+    caPem: null,
+    cameraTls: new Map(),
+    caPemEndless: false,
+    openSockets: () => sockets.size,
+    camFilter: true,
+    features: ['sse-cam-list'],
     streamConnections: () => streams.size,
     push(m) {
       const msg: FakeMessage = { id: nextId++, ts: m.ts ?? Date.now(), cam: m.cam, type: m.type, data: m.data };
       fake.messages.push(msg);
-      for (const res of streams) {
-        const types = streamTypes.get(res);
-        if (!types || types.includes(msg.type)) write(res, msg);
-      }
+      for (const res of streams) if (wanted(streamFilters.get(res), msg)) write(res, msg);
       return msg;
     },
     dropStreams() {
@@ -211,7 +223,7 @@ export async function startFakeProxy(opts: { port?: number; token?: string } = {
   app.use((req, res, next) => {
     if (fake.offline) return void req.socket.destroy();
     fake.requests.push({ path: req.path, auth: req.get('authorization'), query: { ...req.query } });
-    if (req.path === '/health') return next();
+    if (req.path === '/health' || req.path === '/tls/ca.pem') return next();
     // The control API takes the admin token only, like the real one.
     if (req.path.startsWith('/control/')) {
       if (req.get('authorization') !== `Bearer ${FAKE_ADMIN_TOKEN}`) return void res.status(req.get('authorization') ? 403 : 401).json({ error: 'unauthorized' });
@@ -221,6 +233,19 @@ export async function startFakeProxy(opts: { port?: number; token?: string } = {
     next();
   });
   app.get('/health', (_req, res) => void res.json({ ok: true, version: 'fake' }));
+  app.get('/tls/ca.pem', (_req, res) => {
+    if (fake.caPemEndless) {
+      res.writeHead(200, { 'Content-Type': 'application/x-pem-file' });
+      const chunk = 'A'.repeat(16_384);
+      const more = () => {
+        if (!res.destroyed && res.write(chunk)) setImmediate(more);
+        else if (!res.destroyed) res.once('drain', more);
+      };
+      return more();
+    }
+    if (!fake.caPem) return void res.status(404).json({ error: 'not_found' });
+    res.type('application/x-pem-file').send(fake.caPem);
+  });
   app.post('/control/login-links', (_req, res) => void res.status(201).json({ code: `fake-code-${++fake.loginLinks}`, expiresInS: 60 }));
   // The camera's name (cam-proxy, design camera-name-design.md "API
   // contract"): checked with the camera's rules, written, read back; a change
@@ -245,18 +270,21 @@ export async function startFakeProxy(opts: { port?: number; token?: string } = {
     // Like the real one: an unknown type is refused (a cam-proxy before `analysis` existed).
     const unknown = fake.knownTypes && types?.find((t) => !fake.knownTypes!.includes(t));
     if (unknown) return void res.status(400).json({ error: 'invalid', detail: `unknown type: ${unknown}` });
+    // An old proxy (features null) compares ?cam= as one whole id.
+    const camList = typeof req.query.cam === 'string' && req.query.cam ? new Set(fake.features ? req.query.cam.split(',') : [req.query.cam]) : undefined;
+    const filter = { types, cams: camList };
     const since = req.query.since !== undefined ? Number(req.query.since) : req.get('last-event-id') ? Number(req.get('last-event-id')) : undefined;
     res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-store' });
     res.write('retry: 3000\n\n');
     if (since !== undefined) {
       if (since < fake.oldestId - 1) res.write(`event: reset\ndata: ${JSON.stringify({ oldestId: fake.oldestId })}\n\n`);
-      else for (const m of fake.messages) if (m.id > since && (!types || types.includes(m.type))) write(res, m);
+      else for (const m of fake.messages) if (m.id > since && wanted(filter, m)) write(res, m);
     }
     streams.add(res);
-    streamTypes.set(res, types);
+    streamFilters.set(res, filter);
     req.on('close', () => {
       streams.delete(res);
-      streamTypes.delete(res);
+      streamFilters.delete(res);
     });
   });
 
@@ -266,7 +294,7 @@ export async function startFakeProxy(opts: { port?: number; token?: string } = {
   };
   // The camera list, as the real one reports it (only what cams reads).
   app.get('/api/cameras', (_req, res) => {
-    res.json(fake.camerasBody !== undefined ? fake.camerasBody : [...fake.cameraNames].map(([id, name]) => ({ id, name, online: true, lastEventTs: null, stream: null, publicUrl: fake.publicUrl, address: fake.cameraAddresses.get(id) ?? null })));
+    res.json(fake.camerasBody !== undefined ? fake.camerasBody : [...fake.cameraNames].map(([id, name]) => ({ id, name, online: true, lastEventTs: null, stream: null, publicUrl: fake.publicUrl, address: fake.cameraAddresses.get(id) ?? null, ...(fake.features && { features: fake.features }), ...(fake.cameraTls.has(id) && { tls: fake.cameraTls.get(id) }), error: null })));
   });
   // Like the real one: the oldest clip, still and preview it holds.
   app.get('/api/cameras/:cam/extent', (req, res) => {
@@ -678,13 +706,13 @@ export async function startFakeProxy(opts: { port?: number; token?: string } = {
 
   fake.archive = installFakeArchive(app, fake, dir);
 
-  const server = http.createServer(app);
+  const server = opts.tls ? https.createServer({ key: opts.tls.key, cert: opts.tls.cert }, app) : http.createServer(app);
   server.on('connection', (s) => {
     sockets.add(s);
     s.on('close', () => sockets.delete(s));
   });
   await new Promise<void>((r) => server.listen(opts.port ?? 0, '127.0.0.1', () => r()));
-  fake.url = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+  fake.url = `${opts.tls ? 'https' : 'http'}://127.0.0.1:${(server.address() as AddressInfo).port}`;
   return fake;
 }
 
