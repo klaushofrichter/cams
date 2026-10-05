@@ -12,6 +12,9 @@ export const RETENTION_MAX_DAYS = 36500;
 export const DEFAULT_RETENTION_DAYS = 365;
 const LABEL = /^[A-Za-z0-9]{1,24}$/;
 const CONTROL = /[\u0000-\u001f\u007f-\u009f]/;
+// Format characters (\p{Cf}: a right-to-left override, zero-width ones, a
+// BOM), which the proxy refuses too: invisible, and they can disguise a name.
+const FORMAT = /\p{Cf}/u;
 
 // A typed label's problem in the dialog's words, or null.
 export function labelProblem(label: string): string | null {
@@ -48,6 +51,7 @@ export function nameProblem(name: unknown): string | null {
   if (!t) return 'The name can’t be empty.';
   if (t.length > NAME_MAX_CHARS) return `The name is at most ${NAME_MAX_CHARS} characters.`;
   if (CONTROL.test(t)) return 'The name can’t hold control characters.';
+  if (FORMAT.test(t)) return 'The name can’t hold invisible formatting characters.';
   return null;
 }
 

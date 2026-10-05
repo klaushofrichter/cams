@@ -64,6 +64,8 @@ export interface FakeArchive {
   failNext: string | null; // the next job fails with this error
   zipChunkDelayMs: number; // tests: the ZIP is sent in pieces this far apart
   defaultThumb: Buffer; // a clip's thumbnail when no still is chosen (its "first frame")
+  zipHeaderDelayMs: number; // tests: the ZIP's headers come this late
+  zipClosedEarly: number; // ZIP requests whose client went away before the answer ended
   creates: { cam: string; body: unknown; onBehalfOf: string | undefined }[];
   writes: { method: string; path: string; onBehalfOf: string | undefined }[];
   add(cam: string, o?: Partial<FakeArchiveItem> & { body?: Buffer; thumb?: Buffer | null }): FakeArchiveItem;
@@ -147,6 +149,8 @@ export function installFakeArchive(app: Express, fake: FakeProxy, dir: string): 
     failNext: null,
     zipChunkDelayMs: 0,
     defaultThumb: FAKE_JPEG,
+    zipHeaderDelayMs: 0,
+    zipClosedEarly: 0,
     creates: [],
     writes: [],
     add(cam, o = {}) {
@@ -369,6 +373,11 @@ export function installFakeArchive(app: Express, fake: FakeProxy, dir: string): 
       const base = `${fileSafe(e.item.name)} (${id})`;
       return [{ name: `${base}.mp4`, data: e.body }, { name: `${base}.json`, data: Buffer.from(JSON.stringify(metadataOf(e), null, 2)) }, ...(e.thumb ? [{ name: `${base}.jpg`, data: e.thumb }] : [])];
     });
+    res.on('close', () => {
+      if (!res.writableFinished) a.zipClosedEarly++;
+    });
+    if (a.zipHeaderDelayMs) await new Promise((r) => setTimeout(r, a.zipHeaderDelayMs));
+    if (res.destroyed) return;
     const zip = storedZip(files);
     const first = a.entries.get(ids[0])!.item;
     const t = new Date().toISOString().replace(/[-:]/g, '').slice(0, 15).replace('T', '-');

@@ -82,6 +82,15 @@ describe('create (contract §2)', () => {
     expect(JSON.stringify(r.body)).not.toContain(a.url);
   });
 
+  it('sends the session’s email as X-On-Behalf-Of, never one the browser sent', async () => {
+    const job = await composition();
+    const r = await app().post('/api/cameras/den/archive').set('Cookie', auth).set('X-On-Behalf-Of', 'evil@x').send({ source: { type: 'composition', id: job } });
+    expect(r.status).toBe(201);
+    expect(a.archive.creates.at(-1)?.onBehalfOf).toBe(EMAIL);
+    await app().delete(`/api/archive/den/items/${r.body.archiveId}`).set('Cookie', auth).set('X-On-Behalf-Of', 'evil@x');
+    expect(a.archive.writes.at(-1)).toMatchObject({ method: 'DELETE', onBehalfOf: EMAIL });
+  });
+
   it('refuses a composition it didn’t start, without asking the proxy', async () => {
     const r = await send('post', '/api/cameras/den/archive', { source: { type: 'composition', id: 'A'.repeat(22) } });
     expect(r.status).toBe(404);
@@ -265,6 +274,7 @@ describe('one item (contract §4)', () => {
     const past = await get(`/api/archive/den/items/${it0.id}/video`).set('Range', `bytes=${MP4.length + 10}-`);
     expect(past.status).toBe(416);
     const dl = await get(`/api/archive/den/items/${it0.id}/video?download=1`);
+    expect(dl.headers['cache-control']).toBe('no-store'); // a rename changes the name: never a cached download
     expect(dl.headers['content-disposition']).toBe(`attachment; filename="Fox (at) the door.mp4"; filename*=UTF-8''Fox%20%28at%29%20the%20door.mp4`);
     expect((await get(`/api/archive/den/items/99/video`)).status).toBe(404);
   });
@@ -308,6 +318,24 @@ describe('ZIP (contract §5)', () => {
       expect(Number(headers['content-length'])).toBe(body.length);
       expect(firstAt).toBeLessThan(500); // the first half arrived before the proxy sent the rest
       expect(zipNames(body)).toEqual([`Fox_ at the door (${x.id}).mp4`, `Fox_ at the door (${x.id}).json`, `Fox_ at the door (${x.id}).jpg`, expect.stringMatching(/\(\d+\)\.mp4$/), expect.stringMatching(/\(\d+\)\.json$/)]);
+    } finally {
+      server.closeAllConnections();
+      server.close();
+    }
+  });
+
+  it('lets go of the proxy when the viewer leaves before the ZIP starts', async () => {
+    const x = a.archive.add('cam1');
+    a.archive.zipHeaderDelayMs = 800;
+    const server = http.createServer(createApp()).listen(0, '127.0.0.1');
+    await new Promise((r) => server.once('listening', r));
+    try {
+      const port = (server.address() as AddressInfo).port;
+      const req = http.get({ port, host: '127.0.0.1', path: `/api/archive/den/zip?ids=${x.id}`, headers: { Cookie: auth } });
+      req.on('error', () => undefined);
+      await vi.waitFor(() => expect(a.requests.some((r) => r.path === '/api/archive/zip')).toBe(true));
+      req.destroy();
+      await vi.waitFor(() => expect(a.archive.zipClosedEarly).toBe(1), { timeout: 600 }); // before the proxy would have answered
     } finally {
       server.closeAllConnections();
       server.close();

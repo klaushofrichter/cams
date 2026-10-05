@@ -377,6 +377,16 @@ archiveRouter.post('/api/archive/:via/delete', async (req, res) => {
   }
 });
 
+// Aborted when the viewer goes away, so a proxy request still waiting for its
+// headers (a large ZIP being planned) is let go at once, not at its timeout.
+function viewerGone(res: Response): AbortSignal {
+  const ctl = new AbortController();
+  res.on('close', () => {
+    if (!res.writableFinished) ctl.abort(new Error('viewer left'));
+  });
+  return ctl.signal;
+}
+
 // Streams the proxy's body as it comes (never buffered); a viewer who leaves
 // cancels the upstream request.
 async function stream(up: globalThis.Response, req: Request, res: Response): Promise<void> {
@@ -403,7 +413,7 @@ archiveRouter.get('/api/archive/:via/items/:id/video', async (req, res) => {
   // Byte ranges pass through: players seek with them, iOS plays only with them.
   const range = req.get('range');
   try {
-    const up = await p.client.open(`/api/archive/${id}/video`, download ? { download: 1 } : undefined, { idleMs: 30_000, headers: range && /^bytes=\d{0,15}-\d{0,15}$/.test(range) ? { Range: range } : {} });
+    const up = await p.client.open(`/api/archive/${id}/video`, download ? { download: 1 } : undefined, { signal: viewerGone(res), idleMs: 30_000, headers: range && /^bytes=\d{0,15}-\d{0,15}$/.test(range) ? { Range: range } : {} });
     if (up.status === 416) {
       await up.body?.cancel();
       const cr = header(up, 'content-range', /^bytes \*\/\d{1,15}$/);
@@ -417,7 +427,10 @@ archiveRouter.get('/api/archive/:via/items/:id/video', async (req, res) => {
     if (cr && up.status === 206) headers['Content-Range'] = cr;
     const etag = header(up, 'etag', /^(W\/)?"[A-Za-z0-9._:-]{1,128}"$/);
     if (etag) headers.ETag = etag;
-    if (download) headers['Content-Disposition'] = header(up, 'content-disposition', DISPOSITION) ?? `attachment; filename="archive-${id}.mp4"`;
+    if (download) {
+      headers['Content-Disposition'] = header(up, 'content-disposition', DISPOSITION) ?? `attachment; filename="archive-${id}.mp4"`;
+      headers['Cache-Control'] = 'no-store'; // the name follows a rename: never a cached download
+    }
     res.status(up.status).set(headers);
     await stream(up, req, res);
   } catch (err) {
@@ -430,7 +443,7 @@ archiveRouter.get('/api/archive/:via/items/:id/thumbnail', async (req, res) => {
   const id = p && itemId(req, res);
   if (!p || !id) return;
   try {
-    const up = await p.client.open(`/api/archive/${id}/thumbnail`, undefined, { idleMs: 10_000 });
+    const up = await p.client.open(`/api/archive/${id}/thumbnail`, undefined, { signal: viewerGone(res), idleMs: 10_000 });
     if (!up.ok || !up.body) {
       await up.body?.cancel();
       return void res.status(up.status === 404 ? 404 : 502).json({ error: up.status === 404 ? 'not_found' : 'proxy_unavailable' });
@@ -467,7 +480,7 @@ archiveRouter.get('/api/archive/:via/zip', createArchiveRateLimit('zip'), async 
   if (typeof ids === 'string') return bad(res, ids);
   try {
     // A ZIP of many 4K clips takes long: no idle cut while the proxy sends.
-    const up = await p.client.open('/api/archive/zip', { ids: ids.join(',') }, { idleMs: 60_000, timeoutMs: 60_000 });
+    const up = await p.client.open('/api/archive/zip', { ids: ids.join(',') }, { signal: viewerGone(res), idleMs: 60_000, timeoutMs: 60_000 });
     if (!up.ok || !up.body) return void (await passRefusal(up, res));
     const headers: Record<string, string> = { 'Content-Type': 'application/zip', 'Content-Disposition': header(up, 'content-disposition', ZIP_NAME) ?? 'attachment; filename="archive.zip"' };
     const len = header(up, 'content-length', /^\d{1,15}$/);

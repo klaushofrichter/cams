@@ -40,6 +40,8 @@ describe('name and retention', () => {
     expect(nameProblem('x'.repeat(121))).toMatch(/120/);
     expect(nameProblem(' ' + 'x'.repeat(120) + ' ')).toBeNull();
     expect(nameProblem('a\nb')).toMatch(/control/);
+    // Format characters, as the proxy refuses them (\p{Cf}): a right-to-left override, zero-width, a BOM.
+    for (const c of ['\u202E', '\u200B', '\uFEFF']) expect(nameProblem(`a${c}b`)).toMatch(/control|invisible/);
     expect(nameProblem(5)).toMatch(/text/);
   });
 
