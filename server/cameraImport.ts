@@ -5,7 +5,10 @@
 // errors name a field, diffs show •••.
 import { readFileSync } from 'fs';
 import { isAbsolute, join } from 'path';
+import type { Dispatcher } from 'undici';
+import { validCameraAddress } from './cameraRegistry';
 import { fingerprintList } from './tls/fingerprint';
+import { fetchPinnedCa, fetchWith, siteCaDispatcher, SiteCaError } from './tls/siteCa';
 
 export type Secret = string | { env: string } | { file: string };
 
@@ -140,4 +143,54 @@ export function parseImportInput(input: string, baseDir: string, env: NodeJS.Pro
     }
     return out;
   });
+}
+
+export interface ProxyCamera {
+  id: string; // the proxy's id
+  name: string | null;
+  address: string | null;
+  tls: { mode: string; servername: string | null; fingerprint: string | null } | null; // spec §10.4; null: the proxy has no site CA
+}
+
+const shortText = (v: unknown): string | null => (typeof v === 'string' && v.length > 0 && v.length <= 64 && !/\p{C}/u.test(v) ? v : null);
+
+function tlsOf(v: unknown): ProxyCamera['tls'] {
+  if (!isObj(v) || typeof v.mode !== 'string') return null;
+  return { mode: v.mode.slice(0, 16), servername: typeof v.servername === 'string' && /^[a-z0-9.-]{1,253}$/i.test(v.servername) ? v.servername : null, fingerprint: typeof v.fingerprint === 'string' ? v.fingerprint : null };
+}
+
+// The cameras a proxy serves (GET /api/cameras with its client token). With
+// a pinned site CA: /tls/ca.pem first, checked against the pin, then the
+// list over TLS that trusts only that CA (spec §13.3). The token is sent
+// only after the pin matched.
+export async function readProxyCameras(p: ImportProxy, o: { timeoutMs?: number } = {}): Promise<ProxyCamera[]> {
+  const host = new URL(p.url).host;
+  const timeoutMs = o.timeoutMs ?? 10_000;
+  let dispatcher: Dispatcher | undefined;
+  if (p.caFingerprint) {
+    try {
+      const ca = await fetchPinnedCa(p.url, p.caFingerprint, { timeoutMs });
+      dispatcher = siteCaDispatcher([ca.pem], p.tlsServername);
+    } catch (err) {
+      throw new ImportError(err instanceof SiteCaError ? `proxy ${host}: ${err.message.replace(/^cam-proxy \S+: /, '')}` : `proxy ${host}: ${(err as Error).name}`);
+    }
+  }
+  let res: Response;
+  try {
+    res = await fetchWith(dispatcher)(`${p.url}/api/cameras`, { headers: { Authorization: `Bearer ${p.token}` }, redirect: 'error', signal: AbortSignal.timeout(timeoutMs) });
+  } catch (err) {
+    throw new ImportError(`proxy ${host}: unreachable (${(err as Error).name})`);
+  }
+  if (res.status === 401 || res.status === 403) throw new ImportError(`proxy ${host}: refused the token (${res.status})`);
+  if (!res.ok) throw new ImportError(`proxy ${host}: answered ${res.status}`);
+  let list: unknown;
+  try {
+    list = await res.json();
+  } catch {
+    throw new ImportError(`proxy ${host}: its camera list isn't JSON`);
+  }
+  if (!Array.isArray(list)) throw new ImportError(`proxy ${host}: its camera list isn't a list`);
+  return list
+    .filter((c): c is Record<string, unknown> => isObj(c) && typeof c.id === 'string' && ID_PATTERN.test(c.id))
+    .map((c) => ({ id: c.id as string, name: shortText(c.name), address: validCameraAddress(c.address) ? c.address : null, tls: tlsOf(c.tls) }));
 }
