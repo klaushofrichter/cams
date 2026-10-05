@@ -81,6 +81,7 @@
   .row { display: flex; align-items: center; gap: 8px; }
   .muted { margin: 0; color: var(--muted); font-size: 13px; }
   .err { margin: 0; color: var(--danger); font-size: 13px; }
-  .link { margin: 0; font-size: 13px; }
-  .link a { display: inline-flex; align-items: center; gap: 4px; }
+  /* Same size and spacing as Settings' "Open the camera's own web page" (Klaus 2026-10-05). */
+  .link { margin: 0; }
+  .link a { display: inline-flex; align-items: center; gap: 6px; }
 </style>
