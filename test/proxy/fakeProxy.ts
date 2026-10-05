@@ -114,6 +114,8 @@ export interface FakeProxy {
   checkFailure: { status: number; body: unknown } | null; // tests: the next new check's call fails like this (counted, nothing stored)
   checkDelayMs: number; // tests: a new check's Vision call takes this long
   checkCalls: number; // Vision calls made for checks
+  camFilter: boolean; // tests: false = ignore ?cam= and send every camera's messages
+  features: string[] | null; // `features` on every /api/cameras item; null: a cam-proxy from before multi-camera P1 (no field, ?cam= is one whole id)
   streamConnections(): number;
   push(m: Omit<FakeMessage, 'id' | 'ts'> & { ts?: number }): FakeMessage;
   dropStreams(): void; // ends every open stream (a proxy restart)
@@ -132,7 +134,9 @@ export async function startFakeProxy(opts: { port?: number; token?: string } = {
   const dir = mkdtempSync(join(tmpdir(), 'cams-fakeproxy-'));
   const app = express();
   const streams = new Set<Response>();
-  const streamTypes = new Map<Response, string[] | undefined>(); // like the real one: live pushes honour ?types
+  // Like the real one: live pushes honour ?types and ?cam (a list, spec 2026-10-05 §6.2).
+  const streamFilters = new Map<Response, { types?: string[]; cams?: Set<string> }>();
+  const wanted = (f: { types?: string[]; cams?: Set<string> } | undefined, m: FakeMessage) => (!f?.types || f.types.includes(m.type)) && (!fake.camFilter || !f?.cams || f.cams.has(m.cam));
   const sockets = new Set<import('net').Socket>();
   let nextId = 1;
 
@@ -183,14 +187,13 @@ export async function startFakeProxy(opts: { port?: number; token?: string } = {
     checkFailure: null,
     checkDelayMs: 0,
     checkCalls: 0,
+    camFilter: true,
+    features: ['sse-cam-list'],
     streamConnections: () => streams.size,
     push(m) {
       const msg: FakeMessage = { id: nextId++, ts: m.ts ?? Date.now(), cam: m.cam, type: m.type, data: m.data };
       fake.messages.push(msg);
-      for (const res of streams) {
-        const types = streamTypes.get(res);
-        if (!types || types.includes(msg.type)) write(res, msg);
-      }
+      for (const res of streams) if (wanted(streamFilters.get(res), msg)) write(res, msg);
       return msg;
     },
     dropStreams() {
@@ -245,18 +248,21 @@ export async function startFakeProxy(opts: { port?: number; token?: string } = {
     // Like the real one: an unknown type is refused (a cam-proxy before `analysis` existed).
     const unknown = fake.knownTypes && types?.find((t) => !fake.knownTypes!.includes(t));
     if (unknown) return void res.status(400).json({ error: 'invalid', detail: `unknown type: ${unknown}` });
+    // An old proxy (features null) compares ?cam= as one whole id.
+    const camList = typeof req.query.cam === 'string' && req.query.cam ? new Set(fake.features ? req.query.cam.split(',') : [req.query.cam]) : undefined;
+    const filter = { types, cams: camList };
     const since = req.query.since !== undefined ? Number(req.query.since) : req.get('last-event-id') ? Number(req.get('last-event-id')) : undefined;
     res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-store' });
     res.write('retry: 3000\n\n');
     if (since !== undefined) {
       if (since < fake.oldestId - 1) res.write(`event: reset\ndata: ${JSON.stringify({ oldestId: fake.oldestId })}\n\n`);
-      else for (const m of fake.messages) if (m.id > since && (!types || types.includes(m.type))) write(res, m);
+      else for (const m of fake.messages) if (m.id > since && wanted(filter, m)) write(res, m);
     }
     streams.add(res);
-    streamTypes.set(res, types);
+    streamFilters.set(res, filter);
     req.on('close', () => {
       streams.delete(res);
-      streamTypes.delete(res);
+      streamFilters.delete(res);
     });
   });
 
@@ -266,7 +272,7 @@ export async function startFakeProxy(opts: { port?: number; token?: string } = {
   };
   // The camera list, as the real one reports it (only what cams reads).
   app.get('/api/cameras', (_req, res) => {
-    res.json(fake.camerasBody !== undefined ? fake.camerasBody : [...fake.cameraNames].map(([id, name]) => ({ id, name, online: true, lastEventTs: null, stream: null, publicUrl: fake.publicUrl, address: fake.cameraAddresses.get(id) ?? null })));
+    res.json(fake.camerasBody !== undefined ? fake.camerasBody : [...fake.cameraNames].map(([id, name]) => ({ id, name, online: true, lastEventTs: null, stream: null, publicUrl: fake.publicUrl, address: fake.cameraAddresses.get(id) ?? null, ...(fake.features && { features: fake.features }) })));
   });
   // Like the real one: the oldest clip, still and preview it holds.
   app.get('/api/cameras/:cam/extent', (req, res) => {
