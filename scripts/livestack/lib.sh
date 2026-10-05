@@ -1,5 +1,6 @@
 # lib.sh: shared paths and helpers for the live-stack harness
-# (start-sim-stack.sh, start-real-stack.sh, stop-stack.sh, check-stack.sh,
+# (start-sim-stack.sh, start-real-stack.sh, start-two-proxy-stack.sh,
+# stop-stack.sh, check-stack.sh, check-two-proxy.sh,
 # run-all-suites.sh). Sourced, never run. See docs/livestack.md.
 #
 # Paths (all overridable through the environment):
@@ -89,22 +90,25 @@ require_ports_free() {
   for p in "$@"; do port_free "$p" || die "port $p is in use; pick another or stop what listens there"; done
 }
 
-# prepare_repo REPO: a detached worktree of origin/main at $WORK/src-REPO, with
-# npm ci + npm run build done once per commit (marker .livestack-built).
-# LIVESTACK_REFRESH=1 moves an existing worktree to the newest origin/main.
-# The repo's own checkout is never touched (only fetch and worktree add).
+# prepare_repo REPO [REF [DIR]]: a detached worktree of REF (default
+# origin/main) at DIR (default $WORK/src-REPO), with npm ci + npm run build
+# done once per commit (marker .livestack-built). A REF that is a tag or a
+# commit is checked out as is; LIVESTACK_REFRESH=1 moves an existing worktree
+# to the newest REF. The repo's own checkout is never touched (only fetch and
+# worktree add).
 prepare_repo() {
-  local repo="$1" src dir="$WORK/src-$1" sha
+  local repo="$1" ref="${2:-origin/main}" dir="${3:-$WORK/src-$1}" src sha
   src="$(repo_path "$repo")"
   [ -d "$src/.git" ] || [ -f "$src/.git" ] || die "$repo: no git repo at $src (set LIVESTACK_DEV_DIR or the LIVESTACK_*_REPO for it)"
-  git -C "$src" fetch -q origin main || die "$repo: git fetch failed"
+  git -C "$src" fetch -q --tags origin main || die "$repo: git fetch failed"
+  git -C "$src" rev-parse -q --verify "$ref^{commit}" >/dev/null || die "$repo: no commit $ref"
   if [ -d "$dir" ]; then
     if [ "${LIVESTACK_REFRESH:-0}" = 1 ]; then
-      git -C "$dir" checkout -q --detach origin/main || die "$repo: checkout failed"
+      git -C "$dir" checkout -q --detach "$ref" || die "$repo: checkout failed"
     fi
   else
     git -C "$src" worktree prune
-    git -C "$src" worktree add -q --detach "$dir" origin/main || die "$repo: worktree add failed"
+    git -C "$src" worktree add -q --detach "$dir" "$ref" || die "$repo: worktree add failed"
   fi
   sha="$(git -C "$dir" rev-parse HEAD)"
   if [ "$(cat "$dir/.livestack-built" 2>/dev/null)" != "$sha" ]; then
@@ -117,12 +121,20 @@ prepare_repo() {
   fi
 }
 
+# latest_tag REPO: the repo's newest release tag (v<date>.<n>), after a fetch.
+latest_tag() {
+  local src; src="$(repo_path "$1")"
+  git -C "$src" fetch -q --tags origin || die "$1: git fetch failed"
+  git -C "$src" tag -l 'v*' --sort=-v:refname | head -n 1
+}
+
 # remove_worktrees: removes the stacks' src-* worktrees and run-all-suites.sh's
 # suites/src-* worktrees from their repos (stop-stack.sh --clean).
 remove_worktrees() {
   local repo dir
   for repo in cams cam-proxy cam-sim; do
-    for dir in "$WORK/src-$repo" "$WORK/suites/src-$repo"; do
+    # src-REPO, and src-REPO-<ref> of the two-proxy stack
+    for dir in "$WORK/src-$repo" "$WORK/src-$repo"-* "$WORK/suites/src-$repo"; do
       [ -d "$dir" ] || continue
       git -C "$(repo_path "$repo")" worktree remove --force "$dir" 2>/dev/null || rm -rf "$dir"
       git -C "$(repo_path "$repo")" worktree prune
@@ -154,40 +166,48 @@ wait_http() {
 # The proxy's secrets as NAME_FILE variables (the FTP password only when the
 # stack has one), in the array PENV. cam-proxy reads CAMPROXY_*_FILE itself,
 # so no secret is ever on a command line or in the environment as a value.
+# proxy_secret_env [SECRETS_DIR]: default $RUN/secrets (the two-proxy stack
+# has one folder per proxy).
 proxy_secret_env() {
-  PENV=(CAMPROXY_TOKENS_FILE="$RUN/secrets/proxy_tokens"
-        CAMPROXY_ADMIN_TOKEN_FILE="$RUN/secrets/proxy_admin_token"
-        CAMPROXY_CAMERA_PASSWORD_FILE="$RUN/secrets/camera_password")
-  if [ -f "$RUN/secrets/ftp_password" ]; then PENV+=(CAMPROXY_FTP_PASSWORD_FILE="$RUN/secrets/ftp_password"); fi
+  local d="${1:-$RUN/secrets}"
+  PENV=(CAMPROXY_TOKENS_FILE="$d/proxy_tokens"
+        CAMPROXY_ADMIN_TOKEN_FILE="$d/proxy_admin_token"
+        CAMPROXY_CAMERA_PASSWORD_FILE="$d/camera_password")
+  if [ -f "$d/ftp_password" ]; then PENV+=(CAMPROXY_FTP_PASSWORD_FILE="$d/ftp_password"); fi
 }
 
-# Checks a cam-proxy config the way the proxy will load it (schema and cross
-# checks), without starting anything.
+# validate_proxy_config CONFIG [SRC_DIR [SECRETS_DIR]]: checks a cam-proxy
+# config the way the proxy will load it (schema and cross checks), without
+# starting anything. SRC_DIR defaults to $WORK/src-cam-proxy.
 validate_proxy_config() {
-  proxy_secret_env
-  ( cd "$WORK/src-cam-proxy" && env CAMPROXY_CONFIG="$1" "${PENV[@]}" \
+  proxy_secret_env "${3:-}"
+  ( cd "${2:-$WORK/src-cam-proxy}" && env CAMPROXY_CONFIG="$1" "${PENV[@]}" \
     node -e 'require("./dist/src/config/load").loadConfig(process.env); console.log("cam-proxy config ok")' ) \
     || die "cam-proxy config $1 is invalid"
 }
 
-# Checks a cams cameras file with cams' own loader (prints ids only).
+# validate_cams_cameras FILE [SRC_DIR]: checks a cams cameras file with cams'
+# own loader (prints ids only). SRC_DIR defaults to $WORK/src-cams.
 validate_cams_cameras() {
-  ( cd "$WORK/src-cams" && LOG_LEVEL=silent node -e 'const l=require("./dist/server/cameraRegistry").loadCameras(process.argv[1]); console.log("cams cameras ok: " + l.map(c => c.id + (c.proxy ? " (proxy)" : "")).join(", "))' "$1" ) \
+  ( cd "${2:-$WORK/src-cams}" && LOG_LEVEL=silent node -e 'const l=require("./dist/server/cameraRegistry").loadCameras(process.argv[1]); console.log("cams cameras ok: " + l.map(c => c.id + (c.proxy ? " (proxy)" : "")).join(", "))' "$1" ) \
     || die "cams cameras file $1 is invalid"
 }
 
-# start_proxy CONFIG: cam-proxy from the worktree's dist, every listener on
-# 127.0.0.1 (bind-local.cjs preload: cam-proxy has no bind option), secrets
-# from files.
+# start_proxy CONFIG [NAME [SRC_DIR [SECRETS_DIR]]]: cam-proxy from the
+# worktree's dist, every listener on 127.0.0.1 (bind-local.cjs preload:
+# cam-proxy has no bind option), secrets from files. Google Vision's key and
+# URL are dropped from the environment, so a local proxy can never call it.
 start_proxy() {
-  proxy_secret_env
-  start_bg cam-proxy env -C "$WORK/src-cam-proxy" \
+  proxy_secret_env "${4:-}"
+  start_bg "${2:-cam-proxy}" env -C "${3:-$WORK/src-cam-proxy}" \
+    -u CAMPROXY_GOOGLE_VISION_KEY -u CAMPROXY_GOOGLE_VISION_URL -u CAMPROXY_ENV_FILE \
     CAMPROXY_CONFIG="$1" "${PENV[@]}" \
     LIVESTACK_BIND=127.0.0.1 \
     node --require "$HERE/bind-local.cjs" dist/src/cli.js
 }
 
-# start_cams CAMERAS_FILE PORT: cams from the worktree's dist on 127.0.0.1.
+# start_cams CAMERAS_FILE PORT [SRC_DIR]: cams from the worktree's dist
+# (default $WORK/src-cams) on 127.0.0.1.
 # Google sign-in is a dummy client that is never used: check-stack.sh signs
 # its own session cookie with this run's COOKIE_SECRET. The rate limits are
 # raised so a check run is never throttled. COOKIE_SECRET is the one value
@@ -195,7 +215,7 @@ start_proxy() {
 start_cams() {
   local cookie_secret
   cookie_secret="$(env_get "$RUN_ENV" CAMS_COOKIE_SECRET)"
-  start_bg cams env -C "$WORK/src-cams" \
+  start_bg cams env -C "${3:-$WORK/src-cams}" \
     PORT="$2" \
     COOKIE_SECRET="$cookie_secret" \
     GOOGLE_CLIENT_ID=livestack GOOGLE_CLIENT_SECRET=livestack \
