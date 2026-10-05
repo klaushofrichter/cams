@@ -475,6 +475,12 @@
   .controls button:disabled { opacity: 0.5; cursor: default; }
   .time { font-family: var(--mono); font-size: 13px; color: var(--muted); }
   .dl { margin-left: auto; }
+  /* The download button ends the player's button row and the info line takes
+     its own line under it, at every width (the Pi's Chrome, 2026-10-05): in
+     the info line, its 34 px box made that line taller with a clip than
+     without, so the strip jumped; and kept hidden there, it made the page
+     16 px taller and pushed it past a 720 px window. */
+  .info { order: 1; flex-basis: 100%; }
   /* Hidden, not removed, at every width: its 34 px box is taller than the
      info line, so its coming and going moved the strip (phone 2026-10-04,
      the Pi's Chrome 2026-10-05). */
