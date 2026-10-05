@@ -1,6 +1,7 @@
 import { getCamera, setReportedAddress, setReportedName } from '../cameraRegistry';
 import { logger } from '../logger';
-import { getProxyClient, proxyCameraId } from './client';
+import { getProxyClient } from './client';
+import { entryOf, readProxyList, type ProxyCameraEntry } from './cameraList';
 import { proxyHub, proxyStates } from './stream';
 
 // A camera's name from its cam-proxy (design camera-name-design.md): the
@@ -30,12 +31,10 @@ export function forgetProxyName(id: string): void {
 export const plausibleName = (v: unknown): v is string => typeof v === 'string' && v.length > 0 && v.length <= 64 && !/\p{C}/u.test(v);
 
 // The camera's entry in the proxy's camera list (no answer, no entry: undefined).
-async function readProxyEntry(id: string, timeoutMs: number): Promise<{ name?: unknown; address?: unknown } | undefined> {
-  const client = getProxyClient(id);
-  if (!client) return undefined;
+async function readProxyEntry(id: string, timeoutMs: number): Promise<ProxyCameraEntry | undefined> {
+  if (!getProxyClient(id)) return undefined;
   try {
-    const list = await client.json<unknown>('/api/cameras', undefined, { timeoutMs });
-    return Array.isArray(list) ? (list as { id?: unknown; name?: unknown; address?: unknown }[]).find((c) => c?.id === proxyCameraId(id)) : undefined;
+    return entryOf(id, await readProxyList(id, timeoutMs));
   } catch (err) {
     logger.debug({ cameraId: id, message: (err as Error).message }, 'proxy_name_unread');
     return undefined;

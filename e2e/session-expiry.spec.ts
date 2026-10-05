@@ -28,7 +28,10 @@ test.describe('expired session', () => {
 
     await expect(page).toHaveURL(/\/app\/settings$/);
     await expect(page.getByTestId('page-title')).toHaveText('Settings');
-    expect(calls).toEqual([{ prompt: 'none', loginHint: 'klaus@klaushofrichter.net' }]);
+    // The URL and title are already Settings' before the renewal round trip
+    // (client-side navigation): wait for the renewal itself (flaky on main too).
+    await expect.poll(() => calls).toEqual([{ prompt: 'none', loginHint: 'klaus@klaushofrichter.net' }]);
+    await expect(page).toHaveURL(/\/app\/settings$/);
   });
 
   test('falls back to the sign-in page when Google needs the user, then returns to the same page', async ({ page, context, baseURL }, testInfo) => {

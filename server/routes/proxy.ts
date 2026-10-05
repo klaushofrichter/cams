@@ -8,6 +8,7 @@ import { setProxyEnabled } from '../proxyState';
 import { proxyHub, startProxyStream, stopProxyStream } from '../proxy/stream';
 import { parseObjects, parseSummary } from '../proxy/analyses';
 import { ProxyClient, ProxyError, proxyCameraId } from '../proxy/client';
+import { entryOf, readProxyList, type ProxyCameraEntry } from '../proxy/cameraList';
 import { knownCamera, proxyTarget } from './common';
 
 // Stills and preview sprites from a camera's cam-proxy, for the Timeline
@@ -58,15 +59,15 @@ proxyRouter.put('/api/cameras/:id/proxy', async (req: Request, res: Response) =>
 // 2026-09-28). cams only knows the proxy's internal URL; the proxy reports
 // where people reach it (its publicUrl). Asked directly (even with the proxy
 // switched off), with a short timeout.
-async function proxyInfo(id: string, proxy: { url: string; token: string }): Promise<{ reachable: boolean; webUrl: string | null }> {
-  let list: unknown;
+async function proxyInfo(id: string): Promise<{ reachable: boolean; webUrl: string | null }> {
+  let list: ProxyCameraEntry[];
   try {
-    list = await new ProxyClient(proxy, { timeoutMs: 3000 }).json<unknown>('/api/cameras');
+    list = await readProxyList(id, 3000, { maxAgeMs: 0 });
   } catch {
     return { reachable: false, webUrl: null };
   }
   // It answered: reachable. A link only for this camera's own entry.
-  const mine = Array.isArray(list) ? (list as { id?: unknown; name?: unknown; publicUrl?: unknown }[]).find((c) => c?.id === proxyCameraId(id)) : undefined;
+  const mine = entryOf(id, list);
   // The camera's name, while cams uses this proxy (design camera-name-design.md).
   if (proxyActive(id) && plausibleName(mine?.name)) setReportedName(id, mine.name);
   const url = mine?.publicUrl;
@@ -75,7 +76,7 @@ async function proxyInfo(id: string, proxy: { url: string; token: string }): Pro
 
 proxyRouter.get('/api/cameras/:id/proxy/info', async (req: Request, res: Response) => {
   const c = configured(req, res);
-  if (c) res.json(await proxyInfo(c.id, c.proxy));
+  if (c) res.json(await proxyInfo(c.id));
 });
 
 // A signed-in cams user opens the proxy's UI without its token (Klaus,
@@ -86,7 +87,7 @@ proxyRouter.post('/api/cameras/:id/proxy/login-link', async (req: Request, res: 
   if (!c) return;
   const { id, proxy } = c;
   if (!proxy.adminToken) return void res.status(409).json({ error: 'no_login_link' });
-  const info = await proxyInfo(id, proxy);
+  const info = await proxyInfo(id);
   if (!info.reachable) return void res.status(502).json({ error: 'proxy_unavailable' });
   if (!info.webUrl) return void res.status(409).json({ error: 'no_login_link' });
   try {
