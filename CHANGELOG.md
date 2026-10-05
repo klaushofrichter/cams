@@ -8,7 +8,7 @@ published as [GitHub releases](https://github.com/klaushofrichter/cams/releases)
 
 ## [Unreleased]
 
-### Added
-- Several cameras can share one cam-proxy (a multi-camera host): cams keeps one event stream per proxy and gives each camera its own events.
-- `scripts/cameras-config.ts` writes `cameras.json` from a short list of cam-proxies (dry run by default, `--write`, `--prune`), checking a proxy's site CA against its pinned fingerprint.
 
+### Fixed
+
+- Archive: a ZIP download keeps a meaningful name (`archive-<camera>-<time>.zip`) instead of `archive.zip`, and two cam-proxies whose cameras share an id no longer give their ZIPs the same name.

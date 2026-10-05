@@ -399,8 +399,14 @@ const header = (up: globalThis.Response, name: string, re: RegExp) => {
   return v && re.test(v) ? v : undefined;
 };
 // An attachment name as cam-proxy sends it (contract §4, §5): a quoted ASCII
-// name and maybe an RFC 5987 one.
-const DISPOSITION = /^attachment; filename="[\x20\x21\x23-\x5b\x5d-\x7e]{1,200}"(; filename\*=UTF-8''[A-Za-z0-9!#$&+.^_`|~%-]{1,1000})?$/;
+// name and maybe an RFC 5987 one. The header as sent and its ASCII name, or
+// undefined when it isn't that form. One check for the video and the ZIP.
+const DISPOSITION = /^attachment; filename="([\x20\x21\x23-\x5b\x5d-\x7e]{1,200})"(; filename\*=UTF-8''[A-Za-z0-9!#$&+.^_`|~%-]{1,1000})?$/;
+function attachment(up: globalThis.Response): { header: string; name: string } | undefined {
+  const v = up.headers.get('content-disposition');
+  const m = v ? DISPOSITION.exec(v) : null;
+  return m ? { header: v!, name: m[1] } : undefined;
+}
 
 archiveRouter.get('/api/archive/:via/items/:id/video', async (req, res) => {
   const p = proxyOf(req, res);
@@ -425,7 +431,7 @@ archiveRouter.get('/api/archive/:via/items/:id/video', async (req, res) => {
     const etag = header(up, 'etag', /^(W\/)?"[A-Za-z0-9._:-]{1,128}"$/);
     if (etag) headers.ETag = etag;
     if (download) {
-      headers['Content-Disposition'] = header(up, 'content-disposition', DISPOSITION) ?? `attachment; filename="archive-${id}.mp4"`;
+      headers['Content-Disposition'] = attachment(up)?.header ?? `attachment; filename="archive-${id}.mp4"`;
       headers['Cache-Control'] = 'no-store'; // the name follows a rename: never a cached download
     }
     res.status(up.status).set(headers);
@@ -463,7 +469,19 @@ archiveRouter.get('/api/archive/:via/items/:id/metadata', async (req, res) => {
 
 // --- ZIP (contract §5) ------------------------------------------------------
 
-const ZIP_NAME = /^attachment; filename="archive-[A-Za-z0-9_-]{1,64}-\d{8}-\d{6}\.zip"$/;
+// The ZIP's name is cams's own: archive-<camera>-<YYYYMMDD-HHMMSS>.zip.
+// cam-proxy names it after its own id of the first clip's camera, which two
+// proxies may share (both "cam1"): cams puts its own id for that camera
+// instead, else the camera it reaches the proxy through (`via`); both are
+// unique across proxies. The time is the proxy's, from its name, else
+// cams's clock (UTC).
+const ZIP_NAME = /^archive-([A-Za-z0-9_-]{1,64})-(\d{8}-\d{6})\.zip$/;
+function zipName(p: Pick<ArchiveProxy, 'via' | 'toCams'>, proxyName: string | undefined, now = new Date()): string {
+  const m = proxyName ? ZIP_NAME.exec(proxyName) : null;
+  const cam = (m && p.toCams.get(m[1])) || p.via;
+  const time = m?.[2] ?? now.toISOString().replace(/[-:]/g, '').slice(0, 15).replace('T', '-');
+  return `archive-${cam.replace(/[^A-Za-z0-9_-]/g, '_').slice(0, 64)}-${time}.zip`;
+}
 archiveRouter.get('/api/archive/:via/zip', createArchiveRateLimit('zip'), async (req, res) => {
   const p = proxyOf(req, res);
   if (!p) return;
@@ -473,7 +491,7 @@ archiveRouter.get('/api/archive/:via/zip', createArchiveRateLimit('zip'), async 
     // A ZIP of many 4K clips takes long: no idle cut while the proxy sends.
     const up = await p.client.open('/api/archive/zip', { ids: ids.join(',') }, { signal: viewerGone(res), idleMs: 60_000, timeoutMs: 60_000 });
     if (!up.ok || !up.body) return void (await passRefusal(up, res));
-    const headers: Record<string, string> = { 'Content-Type': 'application/zip', 'Content-Disposition': header(up, 'content-disposition', ZIP_NAME) ?? 'attachment; filename="archive.zip"' };
+    const headers: Record<string, string> = { 'Content-Type': 'application/zip', 'Content-Disposition': `attachment; filename="${zipName(p, attachment(up)?.name)}"` };
     const len = header(up, 'content-length', /^\d{1,15}$/);
     if (len) headers['Content-Length'] = len;
     res.status(200).set(headers);

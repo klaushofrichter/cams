@@ -63,6 +63,7 @@ export interface FakeArchive {
   jobMs: number; // 0: a job finishes at once (201); else it runs this long (202)
   failNext: string | null; // the next job fails with this error
   zipChunkDelayMs: number; // tests: the ZIP is sent in pieces this far apart
+  zipDisposition?: string; // tests: the ZIP's Content-Disposition instead of cam-proxy's
   defaultThumb: Buffer; // a clip's thumbnail when no still is chosen (its "first frame")
   zipHeaderDelayMs: number; // tests: the ZIP's headers come this late
   zipClosedEarly: number; // ZIP requests whose client went away before the answer ended
@@ -381,7 +382,9 @@ export function installFakeArchive(app: Express, fake: FakeProxy, dir: string): 
     const zip = storedZip(files);
     const first = a.entries.get(ids[0])!.item;
     const t = new Date().toISOString().replace(/[-:]/g, '').slice(0, 15).replace('T', '-');
-    res.writeHead(200, { 'Content-Type': 'application/zip', 'Content-Length': String(zip.length), 'Content-Disposition': `attachment; filename="archive-${first.cam}-${t}.zip"` });
+    // As cam-proxy names it (src/archive/rules.ts): a quoted ASCII name and its RFC 5987 twin.
+    const zipName = `archive-${first.cam}-${t}.zip`;
+    res.writeHead(200, { 'Content-Type': 'application/zip', 'Content-Length': String(zip.length), 'Content-Disposition': a.zipDisposition ?? `attachment; filename="${zipName}"; filename*=UTF-8''${zipName}` });
     if (!a.zipChunkDelayMs) return void res.end(zip);
     // In pieces, the last one late: a relay that buffers shows nothing until then.
     const half = Math.floor(zip.length / 2);
