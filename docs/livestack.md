@@ -22,6 +22,9 @@ The harness fills that gap, by hand and on demand:
 3. **The real camera**: the real camera → a local cam-proxy → a local cams,
    with the same 23 checks (`start-real-stack.sh`, `check-stack.sh`). Needs the
    Pi's cam-proxy stopped for a minute or two, so Klaus runs or approves it.
+4. **Two proxies**: one cams with two cam-proxies, each with its own cam-sim
+   (`start-two-proxy-stack.sh`, `check-two-proxy.sh`). Safe any time, like 2;
+   see [Two proxies](#4-two-proxies).
 
 Run them in that order: a failure in 1 or 2 is cheaper to find than in 3.
 
@@ -34,6 +37,8 @@ Run them in that order: a failure in 1 or 2 is cheaper to find than in 3.
 | `start-sim-stack.sh` | Part 2: starts cam-sim, cam-proxy and cams on 127.0.0.1 |
 | `start-real-stack.sh` | Part 3: starts cam-proxy and cams on 127.0.0.1 against the real camera |
 | `check-stack.sh` | The 23 checks against a running stack |
+| `start-two-proxy-stack.sh` | Part 4: two cam-sims, two cam-proxies and one cams on 127.0.0.1, cams' `cameras.json` from the generator; `--stop-proxy-b` / `--start-proxy-b` for the outage check |
+| `check-two-proxy.sh` | Part 4's checks: `two-proxy.spec.ts` (Playwright, config `two-proxy.config.ts`, run.env read by `two-proxy-env.ts`), then the generator again |
 | `stop-stack.sh` | Stops the stack it started; `--clean` also deletes the run data and the worktrees |
 | `bind-local.cjs` | `node --require` preload for cams and cam-proxy: binds every listener to 127.0.0.1 (neither has a bind option) |
 | `sim-local.cjs` | cam-sim's CLI with `listen(ports, '127.0.0.1')`, so MediaMTX's RTSP is local too |
@@ -82,6 +87,10 @@ stack can run next to them.
 |---|---|---|---|
 | sim | http 19080, https 19443, control+UI 19943, rtsp 19554, onvif 19800, baichuan 19900 | 19480 (go2rtc 19555/19984, FTPS 19221, passive 19230-19239) | 19580, camera `simcam` |
 | real | none: the camera (https, onvif 8000, rtsp 554, baichuan 9000) | 19481 (go2rtc 19556/19985, no FTP) | 19581, camera `cam1` |
+| two proxies | #n (A = 1, B = 2…): base 19600 + 10·(n-1): http +0, https +1, control+UI +2, rtsp +3, onvif +4, baichuan +5 | A 19680 (go2rtc 19681/19682, FTPS 19683, passive 19690-19699); B 19780 (go2rtc 19781/19782, FTPS 19783, passive 19790-19799) | 19880, cameras `a-cam1`, `b-cam1` |
+
+The stacks share the work dir, its `run/` and its pids file: one stack at a
+time (a start refuses while one runs), and `stop-stack.sh` stops whichever it is.
 
 ## 1. All suites
 
@@ -166,6 +175,80 @@ in the cluster Secret); `CAMS_CAMERA_USER`, `CAMS_CAMERA_PASSWORD_KEY` and
 `proxy-data` and cams cache hold camera video and stills), `run.env`, `logs/`,
 `fixtures/` and `suites/`, and removes the worktrees from their repos. Never
 upload anything from a real run.
+
+## 4. Two proxies
+
+One cams with two cam-proxies (cam-proxy spec 2026-10-05: several proxy
+hosts; cams' P3, proxy groups and the `cameras.json` generator):
+
+```
+cam-sim A "Alpha" ──> cam-proxy A ──┐
+                                    ├──> cams   (a-cam1 = cam1 on A, b-cam1 = cam1 on B)
+cam-sim B "Bravo" ──> cam-proxy B ──┘
+```
+
+```sh
+npm ci                                       # once, in this checkout: Playwright and tsx
+scripts/livestack/start-two-proxy-stack.sh
+scripts/livestack/check-two-proxy.sh         # ~2 min; Google Chrome
+scripts/livestack/stop-stack.sh              # or --clean
+```
+
+**What runs.** cam-sim from `origin/main` (as in part 2, but no automatic
+events: every event in a check is one the check triggered, so it can tell
+which proxy it must reach and which not). cam-proxy at its **newest release
+tag** (`TWOPROXY_PROXY_REF`, proxy B `TWOPROXY_PROXY_B_REF`), two processes
+with their own config, `dataDir`, client and admin tokens, FTP account and
+ports; Google Vision off in both configs and its key dropped from their
+environment. cams at **this checkout's HEAD commit** (`TWOPROXY_CAMS_REF`), so
+commit before a run. Each proxy's worktree is `src-cam-proxy-<ref>`, cams'
+`src-cams-<commit>`.
+
+Both proxies call their camera `cam1`, the default look of a one-camera
+proxy. The generator's input (`run/cams/cameras-config.json`, mode 600; every
+secret a `{"file": …}` into `run/secrets-a` or `run/secrets-b`) gives them the
+prefixes `a-` and `b-`, plain http on loopback, no pins (cam-proxy P5, the
+site CA, isn't done). The start script runs the generator as a dry run (the
+diff, secrets as `•••`), then with `--write`, and starts cams on its result.
+
+**The checks** (`check-two-proxy.sh`; a failed step is reported and the
+next ones still run):
+
+| # | Check | Proves |
+|---|---|---|
+| 1 | both cameras listed | the generated `cameras.json`: both cameras, their proxy's names, each with a proxy; the picker shows both |
+| 2, 3 | live view and snapshot, per camera | the Video page: name, online, its proxy reachable, the live stream plays (`● LIVE`, the top bar's indicator streaming), the camera's Snap |
+| 4 | stills, a clip and a notice per camera | a person event on each cam-sim: each proxy's stills and latest still through cams; the event's recording listed and its clip played (FTP to its own proxy); the top bar shows "Person on Alpha" and "Person on Bravo" |
+| 5, 6 | an event on one camera never shows for the other | a vehicle event on one cam-sim: cams relays it and shows its notice for that camera, and nothing (no camera event, no clip, no notice) for the other, both ways. Both proxies say `cam1`: a mix-up in cams' per-proxy fan-out shows here |
+| 7 | the Archive merges both proxies | one clip archived on each (`POST /api/cameras/<id>/archive`, job polled to `done`); `/api/archive` lists both with the right camera and its proxy (`via`), both proxies ok; the Archive page shows both rows, each with its camera; selecting both and **Download ZIP** gives two ZIPs, one per proxy, each a ZIP named by its proxy |
+| 8 | proxy B down | `--stop-proxy-b`: cams relays B's proxy as down; B's "Proxy" mark is unreachable and its stills answer 502; camera A plays live, has stills, and its events and notices go on; the Archive lists A's clip and says Bravo's proxy didn't answer |
+| 9 | proxy B back | `--start-proxy-b`: B's proxy up again; for 15 s nothing for B is relayed or shown (no old event replayed as a notice); a new event on B shows "Person on Bravo", once; the Archive lists both again |
+| 10 | generator again | a dry run of the generator on the same input finds `(no changes)` |
+
+check-two-proxy.sh starts proxy B again if the spec left it stopped.
+Playwright's results (traces of failed steps) go to
+`$TMPDIR/cams-livestack-two-proxy-results`.
+
+**Before a run**, as for every Playwright run here: no other worktree's
+Playwright, cam-sim, fake proxy or cams server may be on the stack's ports
+(`ps aux | grep -E "playwright|cam-sim|fakeProxy|dist/server"`). The stack's
+ports (19600-19899) clash with none of the e2e suites' (8090-8099,
+8190-8598, 18480-18602) or the other stacks'.
+
+**A multi-camera proxy B (cam-proxy P1).** `TWOPROXY_B_CAMS=N` (1 to 4,
+default 1) starts N cam-sims behind proxy B ("Bravo", "Bravo 2", …; cams ids
+`b-cam1` … `b-camN`) and writes proxy B's config with P1's `cameras` list
+instead of `camera`: each camera its own FTP user, FTP on for the first one
+only (P1 Ruling P1-2, until phase 2's per-camera users; the other cam-sims
+don't upload). It needs a cam-proxy with P1 for proxy B:
+
+```sh
+TWOPROXY_B_CAMS=2 TWOPROXY_PROXY_B_REF=<P1 release tag> scripts/livestack/start-two-proxy-stack.sh
+```
+
+A released cam-proxy without P1 refuses that config, and the script stops
+there and says so. The checks then also show that an event on Bravo never
+reaches Bravo 2 and back (steps 5, 6); the other steps use Bravo.
 
 ## What the 23 checks prove
 

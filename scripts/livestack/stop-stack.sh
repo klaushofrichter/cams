@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# stop-stack.sh [--clean]: stops the stack start-*-stack.sh started.
+# stop-stack.sh [--clean]: stops the stack start-*-stack.sh started (sim,
+# real or two-proxy: they share the work dir and its pids file).
 # See docs/livestack.md.
 #
 # Stops only the processes recorded in the work dir's pids file, newest first
