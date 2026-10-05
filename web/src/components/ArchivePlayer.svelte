@@ -73,6 +73,7 @@
       src={item.urls.video}
       preload="metadata"
       playsinline
+      disableremoteplayback
       poster={item.urls.thumbnail ?? undefined}
       onplay={() => (playing = true)}
       onpause={() => (playing = false)}

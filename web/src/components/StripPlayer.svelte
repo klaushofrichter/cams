@@ -354,6 +354,7 @@
         data-testid={i === active ? 'clip-video' : 'clip-video-idle'}
         src={srcs[i] ?? undefined}
         preload="auto"
+        disableremoteplayback
         muted
         playsinline
         ontimeupdate={() => onVideoTime(i)}
@@ -423,8 +424,8 @@
         {/if}
       {/if}
     </span>
-    <!-- Always there, off without a clip: on a phone it keeps its room, since
-         its coming and going moved the strip under it (2026-10-04). -->
+    <!-- Always there, off without a clip: it keeps its room, since its coming
+         and going moved the strip under it (phone 2026-10-04, Pi 2026-10-05). -->
     <button class="dl" class:off={!downloadable} data-testid="clip-download" title="Download…" aria-label="Download this clip" aria-hidden={!downloadable} disabled={!downloadable}
       onclick={() => downloadable && (saving = downloadable)}><Icon name="downloads" size={16} /></button>
   </div>
@@ -474,7 +475,16 @@
   .controls button:disabled { opacity: 0.5; cursor: default; }
   .time { font-family: var(--mono); font-size: 13px; color: var(--muted); }
   .dl { margin-left: auto; }
-  .dl.off { display: none; } /* a desktop: as before */
+  /* The download button ends the player's button row and the info line takes
+     its own line under it, at every width (the Pi's Chrome, 2026-10-05): in
+     the info line, its 34 px box made that line taller with a clip than
+     without, so the strip jumped; and kept hidden there, it made the page
+     16 px taller and pushed it past a 720 px window. */
+  .info { order: 1; flex-basis: 100%; }
+  /* Hidden, not removed, at every width: its 34 px box is taller than the
+     info line, so its coming and going moved the strip (phone 2026-10-04,
+     the Pi's Chrome 2026-10-05). */
+  .dl.off { visibility: hidden; }
   /* A phone (2026-10-04): the download button ends the button row and keeps
      its room without a clip, and the info line below it keeps two lines'
      room, so neither moves the strip when the source changes under a drag. */
@@ -482,6 +492,5 @@
     .info { order: 1; flex-basis: 100%; line-height: 18px; min-height: 36px; }
     /* Mixed fonts (the monospace time) on a baseline made a line 1 px taller. */
     .info span, .info a { vertical-align: top; }
-    .dl.off { display: inline-flex; visibility: hidden; }
   }
 </style>
