@@ -6,7 +6,7 @@
 import { readFileSync } from 'fs';
 import { isAbsolute, join } from 'path';
 import type { Dispatcher } from 'undici';
-import { validCameraAddress } from './cameraRegistry';
+import { FROM_PROXY, parseCameras, validCameraAddress } from './cameraRegistry';
 import { fingerprintList } from './tls/fingerprint';
 import { fetchPinnedCa, fetchWith, siteCaDispatcher, SiteCaError } from './tls/siteCa';
 
@@ -193,4 +193,131 @@ export async function readProxyCameras(p: ImportProxy, o: { timeoutMs?: number }
   return list
     .filter((c): c is Record<string, unknown> => isObj(c) && typeof c.id === 'string' && ID_PATTERN.test(c.id))
     .map((c) => ({ id: c.id as string, name: shortText(c.name), address: validCameraAddress(c.address) ? c.address : null, tls: tlsOf(c.tls) }));
+}
+
+export type Entry = Record<string, unknown>;
+export interface BuildResult { entries: Entry[]; notes: string[] }
+
+const SECRETS = new Set(['password', 'token', 'adminToken']);
+const urlKey = (u: unknown) => String(u).replace(/\/+$/, '');
+const hostOf = (u: string) => new URL(u).host;
+const remoteOf = (e: Entry): string | undefined => {
+  const p = e.proxy as Entry | undefined;
+  return p ? ((p.camera as string | undefined) ?? (e.id as string)) : undefined;
+};
+
+function entryFor(p: ImportProxy, c: ProxyCamera, old: Entry | undefined): Entry {
+  const input = p.cameras[c.id] ?? {};
+  const where = `proxy ${hostOf(p.url)} camera ${c.id}`;
+  let host: string, protocol: 'https' | 'http', tlsServername: string | undefined;
+  if (p.caFingerprint) {
+    host = FROM_PROXY;
+    protocol = 'https';
+    tlsServername = input.tlsServername ?? c.tls?.servername ?? undefined;
+  } else {
+    protocol = input.protocol ?? p.protocol ?? 'https';
+    tlsServername = input.tlsServername;
+    const h = input.host ?? (protocol === 'https' && tlsServername ? FROM_PROXY : c.address);
+    if (!h) throw new ImportError(`${where}: no address (the proxy reports none): set "host", or "tlsServername" for "from-proxy"`);
+    host = h;
+  }
+  const webUiUrl = input.webUiUrl !== undefined ? input.webUiUrl : old?.webUiUrl;
+  const webUiNote = input.webUiNote ?? old?.webUiNote;
+  const pins = p.caFingerprint;
+  return {
+    id: (old?.id as string | undefined) ?? input.id ?? `${p.prefix}${c.id}`,
+    name: (old?.name as string | undefined) ?? input.name ?? c.name ?? input.id ?? `${p.prefix}${c.id}`,
+    host,
+    protocol,
+    ...(tlsServername && { tlsServername }),
+    user: input.user ?? p.cameraUser,
+    password: input.password ?? p.cameraPassword,
+    ...(webUiUrl !== undefined && { webUiUrl }),
+    ...(webUiNote !== undefined && { webUiNote }),
+    proxy: {
+      url: p.url,
+      token: p.token,
+      ...(p.adminToken && { adminToken: p.adminToken }),
+      camera: c.id,
+      ...(p.tlsServername && { tlsServername: p.tlsServername }),
+      ...(pins && { caFingerprint: pins.length === 1 ? pins[0] : pins }),
+    },
+  };
+}
+
+export function buildCameras(existing: Entry[], read: { proxy: ImportProxy; cameras: ProxyCamera[] }[], o: { prune: boolean }): BuildResult {
+  const notes: string[] = [];
+  const out: (Entry | null)[] = existing.map((e) => e); // null: dropped
+  const source = new Map<number, string>(); // out index → where it comes from (for collisions)
+  existing.forEach((e, i) => source.set(i, e.proxy ? `existing entry for proxy ${hostOf(urlKey((e.proxy as Entry).url))} camera ${remoteOf(e)}` : 'an existing entry without this proxy'));
+  for (const { proxy: p, cameras } of read) {
+    const listed = new Set(cameras.map((c) => c.id));
+    for (const c of cameras) {
+      const i = existing.findIndex((e) => e.proxy && urlKey((e.proxy as Entry).url) === p.url && remoteOf(e) === c.id);
+      const old = i >= 0 ? existing[i] : undefined;
+      const entry = entryFor(p, c, old);
+      const asked = p.cameras[c.id]?.id;
+      if (old && asked && asked !== old.id) notes.push(`${old.id}: kept its id (the input asks for "${asked}"; rename by hand)`);
+      if (i >= 0) out[i] = entry;
+      else {
+        out.push(entry);
+        source.set(out.length - 1, `proxy ${hostOf(p.url)} camera ${c.id}`);
+      }
+      if (i >= 0) source.set(i, `proxy ${hostOf(p.url)} camera ${c.id}`);
+    }
+    existing.forEach((e, i) => {
+      if (!e.proxy || urlKey((e.proxy as Entry).url) !== p.url || listed.has(remoteOf(e)!)) return;
+      const why = `proxy ${hostOf(p.url)} no longer lists camera ${remoteOf(e)}`;
+      if (o.prune) {
+        out[i] = null;
+        notes.push(`${e.id}: dropped (${why})`);
+      } else notes.push(`${e.id}: ${why} (kept; --prune drops it)`);
+    });
+  }
+  const entries: Entry[] = [];
+  const seen = new Map<string, number>();
+  out.forEach((e, i) => {
+    if (!e) return;
+    const first = seen.get(e.id as string);
+    if (first !== undefined) throw new ImportError(`id "${e.id}" is used by ${source.get(first)} and ${source.get(i)}: give one an "id" or a "prefix"`);
+    seen.set(e.id as string, i);
+    entries.push(e);
+  });
+  try {
+    parseCameras(entries, 'the generated cameras.json');
+  } catch (err) {
+    throw new ImportError(`the result would not load in cams: ${(err as Error).message}`);
+  }
+  return { entries, notes };
+}
+
+// Field by field, secrets as •••.
+function flat(e: Entry, prefix = ''): Map<string, unknown> {
+  const m = new Map<string, unknown>();
+  for (const [k, v] of Object.entries(e)) {
+    if (v && typeof v === 'object' && !Array.isArray(v)) for (const [kk, vv] of flat(v as Entry, `${prefix}${k}.`)) m.set(kk, vv);
+    else m.set(`${prefix}${k}`, v);
+  }
+  return m;
+}
+const shown = (path: string, v: unknown) => (v === undefined ? '(none)' : SECRETS.has(path.split('.').at(-1)!) ? '•••' : JSON.stringify(v));
+const masked = (e: Entry): Entry => JSON.parse(JSON.stringify(e, (k, v) => (SECRETS.has(k) && typeof v === 'string' ? '•••' : v)));
+
+export function diffCameras(before: Entry[], after: Entry[]): string[] {
+  const lines: string[] = [];
+  const old = new Map(before.map((e) => [e.id as string, e]));
+  const now = new Set(after.map((e) => e.id as string));
+  for (const e of after) {
+    const b = old.get(e.id as string);
+    if (!b) {
+      lines.push(`+ ${e.id}: ${JSON.stringify(masked(e))}`);
+      continue;
+    }
+    const fb = flat(b), fa = flat(e);
+    for (const k of new Set([...fb.keys(), ...fa.keys()])) {
+      if (JSON.stringify(fb.get(k)) !== JSON.stringify(fa.get(k))) lines.push(`~ ${e.id}: ${k} ${shown(k, fb.get(k))} → ${shown(k, fa.get(k))}`);
+    }
+  }
+  for (const e of before) if (!now.has(e.id as string)) lines.push(`- ${e.id}`);
+  return lines;
 }

@@ -5,7 +5,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { mkdtempSync, readFileSync, writeFileSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
-import { ImportError, parseImportInput, readProxyCameras, type ImportProxy } from '../server/cameraImport';
+import { buildCameras, diffCameras, ImportError, parseImportInput, readProxyCameras, type ImportProxy, type ProxyCamera } from '../server/cameraImport';
 import { certFingerprint } from '../server/tls/fingerprint';
 import { FAKE_TOKEN, startFakeProxy, type FakeProxy } from './proxy/fakeProxy';
 
@@ -103,5 +103,75 @@ describe('reading a proxy', () => {
     const f = await fakeProxy();
     f.camerasBody = [{ id: 'cam1', name: 'Den' }, { id: 'Bad Id' }, null, { name: 'no id' }];
     expect((await readProxyCameras(proxyIn(f))).map((c) => c.id)).toEqual(['cam1']);
+  });
+});
+
+describe('building cameras.json', () => {
+  const A = 'http://192.168.1.220:8480', G = 'https://192.168.1.230:8443';
+  const pi = (more: Partial<ImportProxy> = {}): ImportProxy => ({ url: A, token: T, adminToken: 'a'.repeat(40), cameraUser: 'cams', cameraPassword: PW, prefix: '', cameras: { cam1: { tlsServername: 'cam1.skylar.technology' } }, ...more });
+  const garage = (more: Partial<ImportProxy> = {}): ImportProxy => ({ url: G, tlsServername: 'proxy.garage.internal', caFingerprint: [HEX], token: T, cameraUser: 'cams', cameraPassword: PW, prefix: 'garage-', cameras: {}, ...more });
+  const siteCam = (id: string, name: string): ProxyCamera => ({ id, name, address: `192.168.60.${id.slice(3)}`, tls: { mode: 'site-ca', servername: `${id}.garage.internal`, fingerprint: null } });
+
+  it('writes the Pi’s entry as deploy/pi/cameras.example.json has it', () => {
+    const { entries } = buildCameras([], [{ proxy: pi(), cameras: [{ id: 'cam1', name: 'Den', address: '192.168.1.164', tls: null }] }], { prune: false });
+    expect(entries).toEqual([{ id: 'cam1', name: 'Den', host: 'from-proxy', protocol: 'https', tlsServername: 'cam1.skylar.technology', user: 'cams', password: PW, proxy: { url: A, token: T, adminToken: 'a'.repeat(40), camera: 'cam1' } }]);
+  });
+
+  it('writes one entry per camera of a site-CA proxy, sharing url, token and pin', () => {
+    const { entries } = buildCameras([], [{ proxy: garage(), cameras: [siteCam('cam3', 'Driveway'), siteCam('cam4', 'Gate')] }], { prune: false });
+    expect(entries.map((e) => e.id)).toEqual(['garage-cam3', 'garage-cam4']);
+    expect(entries[1]).toEqual({ id: 'garage-cam4', name: 'Gate', host: 'from-proxy', protocol: 'https', tlsServername: 'cam4.garage.internal', user: 'cams', password: PW, proxy: { url: G, token: T, camera: 'cam4', tlsServername: 'proxy.garage.internal', caFingerprint: HEX } });
+  });
+
+  it('keeps an existing camera’s id, name and links (stable ids)', () => {
+    const existing = [{ id: 'den', name: 'My Den', host: 'from-proxy', protocol: 'https', tlsServername: 'cam1.skylar.technology', user: 'cams', password: 'old', webUiNote: 'note', proxy: { url: `${A}/`, token: T, camera: 'cam1' } }];
+    const { entries, notes } = buildCameras(existing, [{ proxy: pi({ cameras: { cam1: { id: 'other', tlsServername: 'cam1.skylar.technology' } } }), cameras: [{ id: 'cam1', name: 'Den', address: null, tls: null }] }], { prune: false });
+    expect(entries[0]).toMatchObject({ id: 'den', name: 'My Den', webUiNote: 'note', password: PW });
+    expect(notes).toContain('den: kept its id (the input asks for "other"; rename by hand)');
+  });
+
+  it('keeps direct cameras and other proxies’ cameras in place', () => {
+    const shed = { id: 'shed', name: 'Shed', host: '127.0.0.1:8096', protocol: 'http', user: 'e2e', password: 'x' };
+    const cam2 = { id: 'cam2', name: 'Cam 2', host: 'cam2.cam-sim.svc.cluster.local', protocol: 'https', tlsServername: 'cam2.skylar.technology', user: 'cams', password: 'y', proxy: { url: 'http://cam-proxy.cam-proxy.svc.cluster.local:8480', token: T } };
+    const { entries } = buildCameras([shed, cam2], [{ proxy: pi(), cameras: [{ id: 'cam1', name: 'Den', address: null, tls: null }] }], { prune: false });
+    expect(entries.map((e) => e.id)).toEqual(['shed', 'cam2', 'cam1']);
+    expect(entries[1]).toEqual(cam2);
+  });
+
+  it('stops on an id collision across proxies, naming both', () => {
+    const other = garage({ url: 'https://192.168.1.231:8443', prefix: '' });
+    expect(() => buildCameras([], [{ proxy: garage({ prefix: '' }), cameras: [siteCam('cam3', 'A')] }, { proxy: other, cameras: [siteCam('cam3', 'B')] }], { prune: false })).toThrow(
+      'id "cam3" is used by proxy 192.168.1.230:8443 camera cam3 and proxy 192.168.1.231:8443 camera cam3: give one an "id" or a "prefix"',
+    );
+    expect(() => buildCameras([{ id: 'garage-cam3', name: 'x', host: '127.0.0.1:1', protocol: 'http', user: 'u', password: 'p' }], [{ proxy: garage(), cameras: [siteCam('cam3', 'A')] }], { prune: false })).toThrow(
+      'id "garage-cam3" is used by an existing entry without this proxy and proxy 192.168.1.230:8443 camera cam3: give one an "id" or a "prefix"',
+    );
+  });
+
+  it('keeps and reports a camera the proxy no longer lists; --prune drops it', () => {
+    const gone = { id: 'garage-cam9', name: 'Gone', host: 'from-proxy', protocol: 'https', tlsServername: 'cam9.garage.internal', user: 'cams', password: PW, proxy: { url: G, token: T, camera: 'cam9', caFingerprint: HEX } };
+    const read = [{ proxy: garage(), cameras: [siteCam('cam3', 'A')] }];
+    const kept = buildCameras([gone], read, { prune: false });
+    expect(kept.entries.map((e) => e.id)).toEqual(['garage-cam9', 'garage-cam3']);
+    expect(kept.notes).toContain('garage-cam9: proxy 192.168.1.230:8443 no longer lists camera cam9 (kept; --prune drops it)');
+    const pruned = buildCameras([gone], read, { prune: true });
+    expect(pruned.entries.map((e) => e.id)).toEqual(['garage-cam3']);
+    expect(pruned.notes).toContain('garage-cam9: dropped (proxy 192.168.1.230:8443 no longer lists camera cam9)');
+  });
+
+  it('stops when a camera has no address to use', () => {
+    const noTls = pi({ cameras: {} });
+    expect(() => buildCameras([], [{ proxy: noTls, cameras: [{ id: 'cam1', name: 'Den', address: null, tls: null }] }], { prune: false })).toThrow(
+      'proxy 192.168.1.220:8480 camera cam1: no address (the proxy reports none): set "host", or "tlsServername" for "from-proxy"',
+    );
+  });
+
+  it('never shows a secret in the diff', () => {
+    const before = [{ id: 'cam1', name: 'Den', host: 'from-proxy', protocol: 'https', tlsServername: 'cam1.skylar.technology', user: 'cams', password: 'old-pw-value', proxy: { url: A, token: 'o'.repeat(40), camera: 'cam1' } }];
+    const after = [{ ...before[0], name: 'Den 2', password: PW, proxy: { ...before[0].proxy, token: T } }, { id: 'new', name: 'N', host: 'h', protocol: 'http', user: 'u', password: 'p-secret', proxy: { url: A, token: T } }];
+    const lines = diffCameras(before, after);
+    expect(lines).toEqual(['~ cam1: name "Den" → "Den 2"', '~ cam1: password ••• → •••', '~ cam1: proxy.token ••• → •••', '+ new: {"id":"new","name":"N","host":"h","protocol":"http","user":"u","password":"•••","proxy":{"url":"http://192.168.1.220:8480","token":"•••"}}']);
+    expect(lines.join('\n')).not.toMatch(/old-pw-value|p-secret|tttt|oooo/);
+    expect(diffCameras(after, before)).toContain('- new');
   });
 });
