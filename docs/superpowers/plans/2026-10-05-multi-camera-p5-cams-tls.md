@@ -14,9 +14,11 @@
 
 - cams pins one thing per proxy: the CA's SHA-256 fingerprint; it fetches `GET /tls/ca.pem` (public, no token), accepts it only if its fingerprint matches the pin, caches it, and uses it as the **only** trust anchor for that proxy's HTTPS URL and for the cameras of that proxy (spec §10.1.4).
 - Fallback: a camera that refused the import is reported by the proxy as `tls: {mode: "pinned", fingerprint}` in `GET /api/cameras`; cams pins it automatically for that camera; no manual pin (spec §10.1.4); the last one seen is kept in the data dir so the camera stays reachable while its proxy is away (spec §12.3).
-- Leaf pin check: the SHA-256 of the leaf, nothing else (spec §12.3).
+- Leaf pin check: the SHA-256 of the leaf, nothing else, on the socket at `secureConnect` before any request byte (spec §12.3).
 - `caFingerprint` is a string or a list (CA rotation: a new CA can be pinned before the old one goes, spec §10.7).
-- Within a proxy group, `caFingerprint` and `tlsServername` must be equal, else startup fails naming both entries (spec §12.1).
+- Within a proxy group, `caFingerprint` and `tlsServername` must be equal, else startup fails naming both entries; `adminToken` only refuses two different set values (spec §12.1).
+- A pinned proxy's URL is `https://`, except on loopback (spec §12.1); `from-proxy` needs `https` and a camera `tlsServername` or a group `caFingerprint` (spec §12.1).
+- Fingerprints: the proxy emits `SHA256:` + upper-case hex, no colons; cams accepts that and plain hex with or without `SHA256:`/colons, any case (spec §10.4).
 - Names: the proxy's URL is `https://<LAN address>:8443` with `tlsServername` `proxy.<site>.internal`; a camera's `tlsServername` is `<camId>.<site>.internal` (spec §10.3).
 - `from-proxy` stays valid with a site-CA pin (spec §10.2), documented in cams's docs.
 - The Pi keeps `http://127.0.0.1:8480` (cams on the Pi) / `http://192.168.1.220:8480` (cams in the cluster), no pin, and cam1's Let's Encrypt certificate checked against `cam1.skylar.technology` (spec §11, §12.3); a proxy without a site CA (the Pi, the cluster proxy) has no pin and keeps its current trust (spec §13.2).
@@ -36,10 +38,10 @@
 
 ## Rulings (spec gaps, decided here)
 
-- **Ruling: a leaf pin is checked on the TLS socket at `secureConnect`, before the request is written, with `rejectUnauthorized: false` — not with `checkServerIdentity`** — why: spec §12.3 proposes `rejectUnauthorized: false` plus a `checkServerIdentity`, but Node calls `checkServerIdentity` only when the chain verified; for a self-signed factory certificate (`CN=CERTIFICATE`) it is never called, so that check would accept any certificate (a spec contradiction) — cost if wrong: none for security; a custom `createConnection` on the request instead of a plain option.
+- **Ruling: a leaf pin is checked on the TLS socket at `secureConnect`, before the request is written, with `rejectUnauthorized: false` — not with `checkServerIdentity`** — why: spec §12.3 proposes `rejectUnauthorized: false` plus a `checkServerIdentity`, but Node calls `checkServerIdentity` only when the chain verified; for a self-signed factory certificate (`CN=CERTIFICATE`) it is never called, so that check would accept any certificate (the first spec draft's contradiction; spec §12.3 now prescribes the `secureConnect` check) — cost if wrong: none for security; a custom `createConnection` on the request instead of a plain option.
 - **Ruling: `/tls/ca.pem` is fetched without verifying the proxy's certificate** — why: that certificate is signed by the CA being fetched; the PEM's fingerprint against the pin is the check (spec §10.1.4) — cost if wrong: none; nothing but the PEM is read on that connection, and no token is sent.
-- **Ruling: a pinned proxy may have an `http://` URL only on the proxy's own host (127.0.0.0/8, `[::1]`, `localhost`)** — why: spec §12.1 says the proxy URL is verified against the CA, while §12.3 keeps `http://127.0.0.1:8480` for cams on the same host; a pin on a LAN `http://` URL would protect the cameras but leave the token in clear — cost if wrong: a LAN `http://` URL with a pin is refused at startup with a message saying why.
-- **Ruling: `from-proxy` needs `https` and a camera `tlsServername` *or* a proxy `caFingerprint`** — why: a camera on the leaf-pin fallback has no usable name (factory `CN=CERTIFICATE`); its trust is the pin, reported over the pinned channel (spec §10.1.4, §10.2) — cost if wrong: none; without a pin the old rule applies.
+- **Ruling: a pinned proxy may have an `http://` URL only on the proxy's own host (127.0.0.0/8, `[::1]`, `localhost`)** — why: spec §12.1 says the proxy URL is verified against the CA, while §12.3 keeps `http://127.0.0.1:8480` for cams on the same host; a pin on a LAN `http://` URL would protect the cameras but leave the token in clear (spec §12.1 now says so) — cost if wrong: a LAN `http://` URL with a pin is refused at startup with a message saying why.
+- **Ruling: `from-proxy` needs `https` and a camera `tlsServername` *or* a proxy `caFingerprint`** — why: a camera on the leaf-pin fallback has no usable name (factory `CN=CERTIFICATE`); its trust is the pin, reported over the pinned channel (spec §10.1.4, §10.2; §12.1 now states this rule) — cost if wrong: none; without a pin the old rule applies.
 - **Ruling: a site-CA camera without `tlsServername` is checked against its address (the leaf's IP SAN)** — why: spec §10.1.2 puts `IP:<camera address>` in every camera leaf — cost if wrong: such a camera fails TLS until the generator writes its name.
 - **Ruling: fallback pins are taken only from groups with a `caFingerprint`, set on `mode: "pinned"` with a valid fingerprint, cleared on `mode: "site-ca"`, left as they are for any other mode** — why: spec §10.1.4 "arrives over the already verified proxy channel"; "the last one seen is kept" (§12.3) — cost if wrong: a camera moved from `pinned` to `public` keeps its old pin until the proxy reports `site-ca`.
 - **Ruling: the camera list (and with it the fallback pins) is read when a proxy's stream comes up and every 15 minutes while it is up** — why: the spec says when cams pins but not how often it looks; a camera replaced while the stream stays up must be picked up without a restart — cost if wrong: up to 15 minutes until a replaced camera works again.
@@ -1267,7 +1269,7 @@ describe('fallback pins', () => {
     await expect.poll(() => fallbackPin('shed')).toBe(LEAF);
     stopProxyStreams();
     resetProxyClients(); // a fresh client: the camera list isn't served from the last 2 s
-    f.cameraTls.set('cam5', { mode: 'site-ca', servername: 'cam5.test.internal', fingerprint: 'ff'.repeat(32), notAfter: 3, lastPush: { at: 2, outcome: 'ok' } });
+    f.cameraTls.set('cam5', { mode: 'site-ca', servername: 'cam5.test.internal', fingerprint: 'ff'.repeat(32), notAfter: 3, lastPush: { at: 2, outcome: 'pushed' } });
     startProxyStreams(OPTS);
     await expect.poll(() => fallbackPin('shed')).toBeUndefined();
   });

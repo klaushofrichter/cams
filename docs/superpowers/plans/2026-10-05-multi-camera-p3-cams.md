@@ -38,8 +38,8 @@
 
 ## Rulings (spec gaps, decided here)
 
-- **Ruling: `adminToken` may be absent on some entries of a group; only two different set values are a startup error** — why: spec §12.1 says it "must be equal", but `e2e/cameras.json` already has `cam1` (with `adminToken`) and `barn` (without) on one fake proxy, and today each camera's sign-in link depends on its own entry; keeping `adminToken` per camera changes nothing visible — cost if wrong: a group with one entry lacking `adminToken` keeps no sign-in link for that camera, as today.
-- **Ruling: `cam` is always sent as the sorted, de-duplicated proxy ids joined by `,`, and cams still filters each message by its `cam`** — why: today's cam-proxy (`src/stream/sse.ts:15,116`) compares `?cam=` with one id, so `cam=a,b` to an old single-camera proxy would deliver nothing; a group with two different proxy ids only exists on a multi-camera (new) proxy, and the client-side filter is the safety net — cost if wrong: two cams entries mapped to two ids on an old one-camera proxy get no live events (a config that can't work anyway: the old proxy has one camera).
+- **Ruling: `adminToken` may be absent on some entries of a group; only two different set values are a startup error** — why: the first spec draft said it "must be equal" (spec §12.1 now has this rule), but `e2e/cameras.json` already has `cam1` (with `adminToken`) and `barn` (without) on one fake proxy, and today each camera's sign-in link depends on its own entry; keeping `adminToken` per camera changes nothing visible — cost if wrong: a group with one entry lacking `adminToken` keeps no sign-in link for that camera, as today.
+- **Ruling: `cam` is sent as the sorted, de-duplicated proxy ids joined by `,` only when the group has one id, or when the proxy lists `"sse-cam-list"` in the `features` of its `GET /api/cameras` items (cam-proxy P1 Task 13); several ids on a proxy without it subscribe without `cam`; cams always filters each message by its `cam` itself** — why: today's cam-proxy (`src/stream/sse.ts:15,116`) compares `?cam=` with one id as a whole, so `cam=a,b` to an old proxy (the Pi before its update, the cluster proxy before its rollout) would deliver nothing; the spec (§6.1, §6.2 "Older proxies", §12.2) makes the proxy advertise the list filter, and a capability name is safer than a version — cost if wrong: one camera-list read before each connect of a multi-id group (shared with the names read, Task 4).
 - **Ruling: two cams cameras mapped to the same proxy id both get its messages** — why: today each had its own stream and got them; the Archive keeps its "first wins" `toCams` — cost if wrong: duplicate notifications for a deliberately duplicated camera.
 - **Ruling: the camera list (`GET /api/cameras`) is read once per group at a time (requests within 2 s share one answer)** — why: names, addresses and the Settings proxy info all read it; four cameras coming up together would otherwise ask four times (spec §12.2 "one stream per proxy" in spirit) — cost if wrong: a name changed within those 2 s shows on the next read.
 - **Ruling: the generator's input is `{"proxies": [ … ]}`, per-camera settings under `cameras: {"<proxy id>": {…}}`, a camera's TLS name per camera only** — why: spec §13.3 lists the fields but not the shape; a per-proxy camera TLS name can't serve several cameras — cost if wrong: one rename of the input format before anyone uses it (no user yet).
@@ -49,7 +49,7 @@
 - **Ruling: the generated file is validated with cams's own registry parser before anything is written** — why: a file cams can't load would stop cams at its next start — cost if wrong: none (a refused write names the entry and field).
 - **Ruling: the real-proxy e2e two-camera variant (Task 11) and the livestack multi-camera variant (Task 12) wait for cam-proxy's P1+P2 (`cameras[]`) to be released / on `origin/main`** — why: the released image pinned in `e2e/env.ts` and the livestack's `origin/main` worktree must serve `cameras[]`; the rest of P3 depends only on the fake proxy — cost if wrong: those two tasks start later; the others don't wait.
 - **Ruling: P3 builds the site-CA fetch (`server/tls/`) and its HTTPS fake-proxy mode** — why: spec §13.3 "its pin path is tested against a fake proxy with a test CA" in P3; P5 reuses the same modules for the runtime — cost if wrong: none; the modules are small and tested here.
-- **Ruling: CA fingerprints are compared as 64 lowercase hex digits; input may be `SHA256:` + hex, with or without colons, any case** — why: the spec shows `"SHA256:…"` but no exact encoding, and Node gives `AB:CD:…` — cost if wrong: a base64 (OpenSSH-style) fingerprint is refused with a clear message.
+- **Ruling: CA fingerprints are compared as 64 lowercase hex digits; input may be `SHA256:` + hex, with or without colons, any case** — why: cam-proxy emits `SHA256:` + upper-case hex without colons (spec §10.4, cam-proxy P5 Ruling P5-8), and Node gives `AB:CD:…` — cost if wrong: a base64 (OpenSSH-style) fingerprint is refused with a clear message.
 
 ## File Structure
 
@@ -84,7 +84,7 @@
 
 **Interfaces:**
 - Consumes: nothing new.
-- Produces: the fake's `GET /api/stream` honours `?cam=<id>[,<id>…]` (split on `,`) in replay and live pushes, like the multi-camera cam-proxy (spec §6.2); `fake.camFilter: boolean` (default `true`; tests set `false` to get every camera's messages regardless of `?cam=`, so cams's own filter can be tested). `fake.cameraNames` / `fake.cameraAddresses` with several ids already make `/api/cameras` list several cameras.
+- Produces: the fake's `GET /api/stream` honours `?cam=<id>[,<id>…]` (split on `,`) in replay and live pushes, like the multi-camera cam-proxy (spec §6.2); `fake.camFilter: boolean` (default `true`; tests set `false` to get every camera's messages regardless of `?cam=`, so cams's own filter can be tested); `fake.features: string[] | null` (default `['sse-cam-list']`, put on every `/api/cameras` item as `features`, like cam-proxy P1; `null` = a proxy from before multi-camera P1: no `features` field, and `?cam=` is compared as one whole id, so `?cam=a,b` matches nothing). `fake.cameraNames` / `fake.cameraAddresses` with several ids already make `/api/cameras` list several cameras.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -139,6 +139,19 @@ describe('fake proxy with several cameras', () => {
     ctl.abort();
   });
 
+  it('as an old proxy (features null) reads ?cam=a,b as one id and lists no features', async () => {
+    fake = await startFakeProxy();
+    fake.features = null;
+    const list = (await (await fetch(`${fake.url}/api/cameras`, { headers: { Authorization: `Bearer ${FAKE_TOKEN}` } })).json()) as { features?: unknown }[];
+    expect(list[0].features).toBeUndefined();
+    fake.push({ cam: 'cam1', type: 'clip', data: { clipId: 1 } });
+    fake.push({ cam: 'cam1,cam2', type: 'clip', data: { clipId: 2 } }); // the only cam an old proxy would match
+    const ctl = new AbortController();
+    const res = await fetch(`${fake.url}/api/stream?since=0&cam=cam1,cam2`, { headers: { Authorization: `Bearer ${FAKE_TOKEN}` }, signal: ctl.signal });
+    expect(await cams(res, 1)).toEqual(['cam1,cam2']);
+    ctl.abort();
+  });
+
   it('still takes a single ?cam=', async () => {
     fake = await startFakeProxy();
     fake.push({ cam: 'cam1', type: 'clip', data: { clipId: 1 } });
@@ -166,7 +179,7 @@ In `test/proxy/fakeProxy.ts` replace `const streamTypes = new Map<Response, stri
   const wanted = (f: { types?: string[]; cams?: Set<string> } | undefined, m: FakeMessage) => (!f?.types || f.types.includes(m.type)) && (!fake.camFilter || !f?.cams || f.cams.has(m.cam));
 ```
 
-Add `camFilter: boolean; // tests: false = ignore ?cam= and send every camera's messages` to the `FakeProxy` interface and `camFilter: true,` to the initial object.
+Add `camFilter: boolean; // tests: false = ignore ?cam= and send every camera's messages` and `features: string[] | null; // null: a cam-proxy from before multi-camera P1` to the `FakeProxy` interface and `camFilter: true, features: ['sse-cam-list'],` to the initial object. In `app.get('/api/cameras', …)` each generated item gains `...(fake.features && { features: fake.features })`.
 
 In `push(m)` replace the loop body with:
 
@@ -177,7 +190,8 @@ In `push(m)` replace the loop body with:
 In `app.get('/api/stream', …)` after the `types` line add
 
 ```ts
-    const camList = typeof req.query.cam === 'string' && req.query.cam ? new Set(req.query.cam.split(',')) : undefined;
+    // An old proxy (features null) compares ?cam= as one whole id.
+    const camList = typeof req.query.cam === 'string' && req.query.cam ? new Set(fake.features ? req.query.cam.split(',') : [req.query.cam]) : undefined;
     const filter = { types, cams: camList };
 ```
 
@@ -497,7 +511,7 @@ git commit -m "feat: proxy groups: one client and one Archive entry per cam-prox
 **Interfaces:**
 - Consumes: `ProxyGroup`, `proxyGroups()`, `groupOf()`, `activeMembers()`, `remoteIds()` (Task 2); `getProxyClient()`.
 - Produces:
-  - `ProxyStream` constructor `(label: string, client: ProxyClient, o: StreamOptions)`; `StreamOptions.cams?: () => string[]` (replaces `remoteCam`); emits `'message' {remote: string | null, type: string, data: Record<string, unknown>}` and `'state' boolean`; new `reconnect(): void` (keeps the last id).
+  - `ProxyStream` constructor `(label: string, client: ProxyClient, o: StreamOptions)`; `StreamOptions.cams?: () => string[] | Promise<string[]>` (replaces `remoteCam`; read at every connect); emits `'message' {remote: string | null, type: string, data: Record<string, unknown>}` and `'state' boolean`; new `reconnect(): void` (keeps the last id).
   - Unchanged signatures: `startProxyStreams(o?)`, `startProxyStream(cam)`, `stopProxyStream(cam)`, `stopProxyStreams(final?)`, `proxyStates(): {cam, up}[]`, `proxyHub` events `'message' {cam, type, data}` and `'state' {cam, up}` (per cams camera).
 
 - [ ] **Step 1: Write the failing test**
@@ -689,7 +703,7 @@ Header comment: replace the first block with
 `StreamOptions`: delete `remoteCam`; add
 
 ```ts
-  cams?: () => string[]; // the proxy's camera ids to ask for (?cam=a,b), read at every connect; empty: all
+  cams?: () => string[] | Promise<string[]>; // the proxy's camera ids to ask for (?cam=a,b), read at every connect; empty: all (filtered by the caller)
 ```
 
 Class changes:
@@ -712,7 +726,8 @@ Class changes:
 - in `connect()`: first line after the `stopped` check `const gen = ++this.gen;`; the `open` query becomes
 
 ```ts
-      const cams = this.o.cams?.() ?? [];
+      const cams = (await this.o.cams?.()) ?? [];
+      if (this.stopped || gen !== this.gen) return; // stopped or re-subscribed while the list was read
       const res = await this.client.open('/api/stream', { types: this.types.join(','), since: this.lastId, cam: cams.length ? cams.join(',') : undefined }, { signal: abort.signal, idleMs: this.o.idleMs ?? 45_000 });
 ```
 
@@ -845,11 +860,12 @@ git commit -m "feat: one event stream per cam-proxy, fanned out to its cameras"
 - Test: `test/proxyCameraList.test.ts` (new)
 
 **Interfaces:**
-- Consumes: `groupOf()`, `proxyClientFor()`, `proxyCameraId()`.
+- Consumes: `groupOf()`, `proxyClientFor()`, `proxyCameraId()`; `remoteIds()` and Task 3's `run()` in `server/proxy/stream.ts`; cam-proxy's `features` on `GET /api/cameras` items (cam-proxy P1 Task 13).
 - Produces:
   - `interface ProxyCameraEntry { id?: unknown; name?: unknown; address?: unknown; publicUrl?: unknown; tls?: unknown; error?: unknown }`
   - `readProxyList(id: string, timeoutMs: number): Promise<ProxyCameraEntry[]>` (rejects with `ProxyError` like `ProxyClient.json`; requests for one group within 2 s share one answer)
   - `entryOf(id: string, list: ProxyCameraEntry[]): ProxyCameraEntry | undefined`
+  - `supportsCamList(id: string, timeoutMs?: number): Promise<boolean>` (`"sse-cam-list"` in an item's `features`; a failed read is `false`), used by `server/proxy/stream.ts` so `?cam=a,b` goes only to a proxy that takes it (spec §6.2 "Older proxies", §12.2)
 
 - [ ] **Step 1: Write the failing test**
 
@@ -866,7 +882,7 @@ import { createApp } from '../server/app';
 import { cameraName, setCameras, type CameraConfig } from '../server/cameraRegistry';
 import { resetProxyClients } from '../server/proxy/client';
 import { readProxyList } from '../server/proxy/cameraList';
-import { proxyStates, startProxyStreams, stopProxyStreams } from '../server/proxy/stream';
+import { proxyHub, proxyStates, startProxyStreams, stopProxyStreams } from '../server/proxy/stream';
 import '../server/proxy/names';
 import { loadProxyState } from '../server/proxyState';
 import { SESSION_COOKIE, signSession } from '../server/session';
@@ -908,6 +924,40 @@ describe('camera list per proxy', () => {
     expect(listReads()).toBe(1);
   });
 
+  it('sends ?cam=a,b to a proxy that lists sse-cam-list', async () => {
+    startProxyStreams({ backoffMinMs: 50, backoffMaxMs: 400, healthyMs: 200 });
+    await expect.poll(() => proxyStates().length === 2 && proxyStates().every((s) => s.up)).toBe(true);
+    expect(a.requests.filter((r) => r.path === '/api/stream').at(-1)?.query.cam).toBe('barn,cam1');
+  });
+
+  it('asks an older proxy (no features) for every camera and filters itself (the Pi before its update)', async () => {
+    a.features = null; // ?cam=barn,cam1 would match nothing there
+    const got: { cam: string; data: Record<string, unknown> }[] = [];
+    const on = (m: { cam: string; data: Record<string, unknown> }) => got.push(m);
+    proxyHub.on('message', on);
+    try {
+      startProxyStreams({ backoffMinMs: 50, backoffMaxMs: 400, healthyMs: 200 });
+      await expect.poll(() => proxyStates().length === 2 && proxyStates().every((s) => s.up)).toBe(true);
+      expect(a.requests.filter((r) => r.path === '/api/stream').at(-1)?.query.cam).toBeUndefined();
+      a.push({ cam: 'cam1', type: 'clip', data: { clipId: 1 } });
+      a.push({ cam: 'cam9', type: 'clip', data: { clipId: 9 } });
+      a.push({ cam: 'barn', type: 'clip', data: { clipId: 2 } });
+      await expect.poll(() => got.length).toBe(2);
+      expect(got.map((m) => [m.cam, m.data.clipId])).toEqual([['den', 1], ['barn', 2]]);
+    } finally {
+      proxyHub.off('message', on);
+    }
+  });
+
+  it('keeps ?cam=<id> for a one-camera group on an older proxy (the cluster proxy)', async () => {
+    a.features = null;
+    setCameras([cam('den', { url: a.url, token: FAKE_TOKEN, camera: 'cam1' })]);
+    resetProxyClients();
+    startProxyStreams({ backoffMinMs: 50, backoffMaxMs: 400, healthyMs: 200 });
+    await expect.poll(() => proxyStates().every((s) => s.up) && proxyStates().length === 1).toBe(true);
+    expect(a.requests.filter((r) => r.path === '/api/stream').at(-1)?.query.cam).toBe('cam1');
+  });
+
   it('answers the Settings proxy info from the same list, per camera', async () => {
     const r = await request(createApp()).get('/api/cameras/barn/proxy/info').set('Cookie', auth);
     expect(r.body).toEqual({ reachable: true, webUrl: 'http://proxy.example:8480' });
@@ -932,7 +982,7 @@ import { ProxyError, proxyCameraId, proxyClientFor, type ProxyClient } from './c
 // request per proxy at a time: requests within FRESH_MS share one answer, so
 // four cameras coming up together ask once (cam-proxy spec 2026-10-05 §12.2).
 
-export interface ProxyCameraEntry { id?: unknown; name?: unknown; address?: unknown; publicUrl?: unknown; tls?: unknown; error?: unknown }
+export interface ProxyCameraEntry { id?: unknown; name?: unknown; address?: unknown; publicUrl?: unknown; tls?: unknown; error?: unknown; features?: unknown }
 
 const FRESH_MS = 2000;
 // Per client: resetProxyClients() starts every proxy afresh.
@@ -953,6 +1003,19 @@ export function readProxyList(id: string, timeoutMs: number): Promise<ProxyCamer
   return list;
 }
 
+// Whether the proxy takes ?cam=a,b: "sse-cam-list" in its items' features
+// (cam-proxy P1; spec §6.1, §6.2). A proxy from before that reads the list
+// as one id and would send nothing. A failed read counts as "no": the
+// stream then asks for every camera and fans out by `cam` itself.
+export async function supportsCamList(id: string, timeoutMs = 5000): Promise<boolean> {
+  try {
+    const list = await readProxyList(id, timeoutMs);
+    return list.some((c) => Array.isArray(c?.features) && c.features.includes('sse-cam-list'));
+  } catch {
+    return false;
+  }
+}
+
 // This cams camera's entry (by the proxy's id for it).
 export function entryOf(id: string, list: ProxyCameraEntry[]): ProxyCameraEntry | undefined {
   const remote = proxyCameraId(id);
@@ -960,7 +1023,23 @@ export function entryOf(id: string, list: ProxyCameraEntry[]): ProxyCameraEntry 
 }
 ```
 
-- [ ] **Step 4: Read through it in names and proxy info**
+- [ ] **Step 4: Read through it in names, proxy info and the stream**
+
+In `server/proxy/stream.ts` (Task 3's `run()`), the stream's `cams` option becomes
+
+```ts
+  r.stream = new ProxyStream(client.host(), client, {
+    ...options,
+    // A list only to a proxy that takes it; one id works on every proxy;
+    // several on an older proxy: no filter, fanOut drops what we don't map.
+    cams: async () => {
+      const ids = remoteIds(group, r.members);
+      return ids.length > 1 && !(await supportsCamList(r.members[0])) ? [] : ids;
+    },
+  });
+```
+
+with `import { supportsCamList } from './cameraList';`.
 
 In `server/proxy/names.ts` replace `readProxyEntry` with:
 
@@ -997,14 +1076,14 @@ async function proxyInfo(id: string): Promise<{ reachable: boolean; webUrl: stri
 
 - [ ] **Step 5: Run tests to verify they pass**
 
-Run: `npx vitest run test/proxyCameraList.test.ts test/cameraNameRoutes.test.ts test/cameraAddress.test.ts test/proxyRoutes.test.ts test/proxySwitch.test.ts`
+Run: `npx vitest run test/proxyCameraList.test.ts test/proxyGroupStream.test.ts test/cameraNameRoutes.test.ts test/cameraAddress.test.ts test/proxyRoutes.test.ts test/proxySwitch.test.ts`
 Expected: PASS (all).
 
 - [ ] **Step 6: Commit**
 
 ```bash
-git add server/proxy/cameraList.ts server/proxy/names.ts server/routes/proxy.ts test/proxyCameraList.test.ts
-git commit -m "feat: read a cam-proxy's camera list once for all its cameras"
+git add server/proxy/cameraList.ts server/proxy/names.ts server/routes/proxy.ts server/proxy/stream.ts test/proxyCameraList.test.ts
+git commit -m "feat: read a cam-proxy's camera list once for all its cameras; ?cam=a,b only where advertised"
 ```
 
 ---
@@ -2224,7 +2303,7 @@ git commit -m "feat: scripts/cameras-config.ts writes cameras.json from a list o
 - Test: `e2e/realProxy.spec.ts` (new test)
 
 **Interfaces:**
-- Consumes: the released cam-proxy's `cameras[]` config (spec §4.1) and `?cam=a,b` stream (§6.2).
+- Consumes: the released cam-proxy's `cameras[]` config (spec §4.1), `features: ["sse-cam-list"]` on its camera items (§6.1) and the `?cam=a,b` stream (§6.2): with that release the group of Silo and Loft subscribes with `?cam=loft,silo` (the proxy's ids), checked in the new test through the proxy's SSE client count of one.
 - Produces: e2e camera `loft` "Loft" (cam-sim ports http 8086, https 8186, control 8286, onvif 8386, rtsp 8486, baichuan 8586), on the real cam-proxy with Silo.
 
 - [ ] **Step 1: Add the camera and the test**
