@@ -169,7 +169,8 @@ test('archive a plain SD save, select a range with shift-click, set retention, d
   await expect(page.getByTestId('archive-confirm')).toHaveAttribute('aria-label', 'Delete 2 clips?');
   await page.getByTestId('archive-confirm-delete').click();
   await expect(rows).toHaveCount(0);
-  await expect(page.getByTestId('archive-none-shown')).toBeVisible();
+  // "No clip matches", or the empty Archive when the other project's clips are gone too.
+  await expect(page.getByTestId('archive-none-shown').or(page.getByTestId('archive-empty'))).toBeVisible();
 });
 
 test('the Archive is in the menu, and a camera without a proxy has no Archive button', async ({ page }, info) => {
