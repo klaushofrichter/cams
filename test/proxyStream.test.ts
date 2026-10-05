@@ -58,12 +58,13 @@ describe('ProxyStream (upstream)', () => {
     await until(() => got.length === 1);
     expect(got[0].type).toBe('camera-event');
     const asks = fake.requests.filter((r) => r.path === '/api/stream').map((r) => String(r.query.types).split(','));
-    // Asked with analysis, camera (the camera's name, newer still) and
-    // still-check (cams #179), then without each refused type, no loop.
-    expect(asks).toHaveLength(4);
-    expect(asks[0]).toEqual(expect.arrayContaining(['analysis', 'camera', 'still-check']));
+    // Asked with analysis, camera (the camera's name, newer still),
+    // still-check (cams #179) and archive (the Archive), then without each
+    // refused type, no loop.
+    expect(asks).toHaveLength(5);
+    expect(asks[0]).toEqual(expect.arrayContaining(['analysis', 'camera', 'still-check', 'archive']));
     expect(asks[1]).not.toContain('analysis');
-    expect(asks[3]).toEqual(['camera-event', 'camera-status', 'clip']);
+    expect(asks[4]).toEqual(['camera-event', 'camera-status', 'clip']);
   });
 
   it('asks for still checks, and without them from a proxy that has only analyses (cams #179)', async () => {
@@ -72,9 +73,9 @@ describe('ProxyStream (upstream)', () => {
     const { s, got } = stream(fake);
     await until(() => s.up());
     const asks = fake.requests.filter((r) => r.path === '/api/stream').map((r) => String(r.query.types).split(','));
-    expect(asks).toHaveLength(2);
+    expect(asks).toHaveLength(3);
     expect(asks[0]).toContain('still-check');
-    expect(asks[1]).toEqual(['camera-event', 'camera-status', 'clip', 'analysis', 'camera']);
+    expect(asks[2]).toEqual(['camera-event', 'camera-status', 'clip', 'analysis', 'camera']);
     fake.knownTypes = null;
     fake.push({ cam: 'den', type: 'analysis', data: { eventId: 5, kind: 'person', start: 1000, summary: [] } });
     await until(() => got.length === 1);
@@ -242,6 +243,22 @@ describe('GET /api/events/stream (to browsers)', () => {
     const change = c.frames.find((f) => f.startsWith('event: change'))!;
     expect(JSON.parse(change.split('data: ')[1])).toEqual({ cam: 'den', type: 'still-check', ts: 1791130800000 });
     expect(c.frames.join('\n')).not.toContain('Fan');
+  });
+
+  // cam-proxy's archive contract §7: the Archive page reloads on it; the items stay on the server.
+  it('tells browsers the Archive changed: the action and the ids only', async () => {
+    const fake = await fakeProxy();
+    const base = await app(fake);
+    const c = open(base, auth);
+    await until(() => c.frames.some((f) => f.includes('event: proxy') && f.includes('"up":true')));
+    fake.push({ cam: 'den', type: 'archive', data: { action: 'add', ids: [12, 'x'], items: [{ id: 12, name: 'Fox at the door', urls: { video: '/api/archive/12/video' } }] } });
+    fake.push({ cam: 'den', type: 'archive', data: { action: 'explode', ids: [1] } });
+    fake.push({ cam: 'den', type: 'archive', data: { action: 'expire', ids: [3, 4] } });
+    await until(() => c.frames.filter((f) => f.startsWith('event: archive')).length === 2);
+    const got = c.frames.filter((f) => f.startsWith('event: archive')).map((f) => JSON.parse(f.split('data: ')[1]));
+    expect(got).toEqual([{ cam: 'den', action: 'add', ids: [12] }, { cam: 'den', action: 'expire', ids: [3, 4] }]);
+    expect(c.frames.join('\n')).not.toContain('Fox');
+    expect(c.frames.some((f) => f.startsWith('event: change'))).toBe(false);
   });
 
   async function app(fake: FakeProxy) {

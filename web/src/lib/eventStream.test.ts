@@ -62,6 +62,21 @@ describe('createEventStream', () => {
     expect(FakeSource.last.closed).toBe(true);
   });
 
+  // cam-proxy's archive contract §7: the Archive page reloads on it.
+  it('tells archive listeners what changed, and drops a malformed message', () => {
+    const s = make();
+    FakeSource.last.open();
+    const got = vi.fn();
+    const stop = s.onArchive(got);
+    FakeSource.last.emit('archive', { cam: 'den', action: 'add', ids: [12] });
+    FakeSource.last.emit('archive', { cam: 'den', action: 'add' });
+    expect(got.mock.calls).toEqual([[{ cam: 'den', action: 'add', ids: [12] }]]);
+    stop();
+    FakeSource.last.emit('archive', { cam: 'den', action: 'delete', ids: [12] });
+    expect(got).toHaveBeenCalledTimes(1);
+    s.close();
+  });
+
   it('tells watchers about changes for their camera, debounced', () => {
     vi.useFakeTimers();
     const s = make();

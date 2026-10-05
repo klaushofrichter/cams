@@ -1,6 +1,7 @@
 // A small stand-in for cam-proxy (github.com/klaushofrichter/cam-proxy),
 // following its openapi.yaml for the routes cams uses: the event stream,
-// clips, stills, previews, SD recordings, still checks and the camera name. Tests set its data and switches
+// clips, stills, previews, SD recordings, still checks, the camera name and
+// the Archive (./fakeArchive.ts). Tests set its data and switches
 // directly; e2e runs it as a process (bottom of the file).
 import express, { type Response } from 'express';
 import rateLimit from 'express-rate-limit';
@@ -12,6 +13,7 @@ import { tmpdir } from 'os';
 import { join } from 'path';
 import { cameraNameProblem } from '../../server/cameraName';
 import { generateMaxS } from '../../server/clipLimits';
+import { installFakeArchive, type FakeArchive } from './fakeArchive';
 
 // cam-proxy's own wording of a length (src/compose/plan.ts there), not cams's.
 const proxySeconds = (s: number) => (s < 60 ? `${s} s` : `${s} s (${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')})`);
@@ -82,7 +84,9 @@ export interface FakeProxy {
   cameraAddresses: Map<string, string>; // proxy camera id → its camera.host (`address` in /api/cameras; cam-proxy pi-config spec §2)
   nameOverride: { status: number; body: unknown } | null; // tests: PUT /control/camera/name answers this (after checking the name)
   nameRequests: { cam: string; name: unknown }[]; // PUT /control/camera/name bodies (its control API is cam1's, like a one-camera proxy)
-  compositions: Map<string, { state: 'queued' | 'running' | 'done'; progress: number; durationS: number }>;
+  // A composition, with what it was made of (the Archive stores its clip's file).
+  compositions: Map<string, FakeComposition>;
+  archive: FakeArchive; // the Archive (cam-proxy's archive contract)
   composeRequests: unknown[];
   composeDelayMs: number; // a composition goes running → done over this long
   stillDelayMs: number; // tests: each still image answers this late
@@ -115,6 +119,8 @@ export interface FakeProxy {
   dropStreams(): void; // ends every open stream (a proxy restart)
   stop(): Promise<void>;
 }
+
+export interface FakeComposition { state: 'queued' | 'running' | 'done'; progress: number; durationS: number; clipId?: number; at?: number; preS?: number; postS?: number; size?: string; window?: { from: number; to: number } }
 
 export const FAKE_TOKEN = 'fake-proxy-client-token-'.padEnd(48, 'z');
 export const FAKE_ADMIN_TOKEN = 'fake-proxy-admin-token-'.padEnd(48, 'a');
@@ -149,6 +155,7 @@ export async function startFakeProxy(opts: { port?: number; token?: string } = {
     nameOverride: null,
     nameRequests: [],
     compositions: new Map(),
+    archive: undefined as unknown as FakeArchive, // installed below
     composeRequests: [],
     composeDelayMs: 300,
     stillDelayMs: 0,
@@ -325,11 +332,11 @@ export async function startFakeProxy(opts: { port?: number; token?: string } = {
     const durationS = Math.round((rawEnd - start) / 1000);
     const maxS = generateMaxS(String(b.size));
     if (durationS > maxS) return void res.status(400).json({ error: 'invalid', detail: `at most ${proxySeconds(maxS)}` });
-    startJob(durationS, res);
+    startJob(durationS, res, { clipId: clip.id, preS: pre, postS: post, size: String(b.size), window: { from: start, to: rawEnd } });
   });
-  const startJob = (durationS: number, res: express.Response) => {
+  const startJob = (durationS: number, res: express.Response, made: Omit<FakeComposition, 'state' | 'progress' | 'durationS'> = {}) => {
     const id = randomBytes(16).toString('base64url');
-    const job = { state: 'running' as 'queued' | 'running' | 'done', progress: 0, durationS };
+    const job: FakeComposition = { state: 'running', progress: 0, durationS, ...made };
     fake.compositions.set(id, job);
     const steps = 4;
     for (let k = 1; k <= steps; k++) {
@@ -339,7 +346,7 @@ export async function startFakeProxy(opts: { port?: number; token?: string } = {
         if (k === steps) job.state = 'done';
       }, (fake.composeDelayMs * k) / steps);
     }
-    res.status(201).json({ id, ...job });
+    res.status(201).json({ id, state: job.state, progress: job.progress, durationS });
   };
   // Around a second (cam-proxy still-checks spec §13): the window
   // [at - pre, at + 1 s + post], each second a clip that covers it, else its
@@ -374,13 +381,13 @@ export async function startFakeProxy(opts: { port?: number; token?: string } = {
     }
     if (!seconds.clip && !seconds.still) return void res.status(409).json({ error: 'nothing_to_compose', detail: 'no clip or still covers any second of this window' });
     if (b.dryRun) return void res.json({ start, end, durationS, seconds, clips: [...used.values()].map((c) => ({ start: c.start, end: c.end })) });
-    startJob(durationS, res);
+    startJob(durationS, res, { at, clipId: [...used.keys()][0], preS: pre, postS: post, size: String(b.size), window: { from: start, to: end } });
   };
   app.get('/api/cameras/:cam/compositions/:file', (req, res) => {
     const m = /^([A-Za-z0-9_-]{22})(\.mp4)?$/.exec(req.params.file);
     const job = m && fake.compositions.get(m[1]);
     if (!m || !job) return void res.status(404).json({ error: 'not_found' });
-    if (!m[2]) return void res.json({ id: m[1], ...job });
+    if (!m[2]) return void res.json({ id: m[1], state: job.state, progress: job.progress, durationS: job.durationS });
     if (job.state !== 'done') return void res.status(409).json({ error: 'not_ready' });
     const mp4 = Buffer.concat([Buffer.from([0, 0, 0, 16]), Buffer.from('ftypisom'), Buffer.alloc(4)]);
     const range = /^bytes=(\d+)-(\d*)$/.exec(req.get('range') ?? '');
@@ -668,6 +675,8 @@ export async function startFakeProxy(opts: { port?: number; token?: string } = {
     writeFileSync(file, rec.body);
     res.sendFile(file, { etag: false, headers });
   });
+
+  fake.archive = installFakeArchive(app, fake, dir);
 
   const server = http.createServer(app);
   server.on('connection', (s) => {

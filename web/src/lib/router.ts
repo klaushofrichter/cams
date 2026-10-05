@@ -5,7 +5,7 @@ import type { IconName } from './icons';
 // recording; the URL only says which to open. `panel` is that request:
 // 'live' (at now) or 'history' (a recording). /app/live and /app/recordings
 // still work (`legacy`): the page rewrites them to /app/video.
-export type Page = 'video' | 'timeline' | 'settings' | 'about';
+export type Page = 'video' | 'timeline' | 'archive' | 'settings' | 'about';
 export type Panel = 'live' | 'history';
 
 export const VIDEO_PATH = '/app/video';
@@ -26,7 +26,7 @@ export interface NavItem {
   needsProxy?: boolean; // shown only when some camera has a cam-proxy
 }
 
-const OTHER_PAGES: Page[] = ['timeline', 'settings', 'about'];
+const OTHER_PAGES: Page[] = ['timeline', 'archive', 'settings', 'about'];
 
 export function parseRoute(pathname: string, search: string): Route {
   const params = new URLSearchParams(search);
@@ -44,6 +44,8 @@ export function parseRoute(pathname: string, search: string): Route {
 export const NAV_ITEMS: NavItem[] = [
   { id: 'video', label: 'Video', icon: 'live', href: VIDEO_PATH, page: 'video' },
   { id: 'timeline', label: 'Timeline', icon: 'timeline', href: '/app/timeline', page: 'timeline', needsProxy: true },
+  // The cam-proxies' Archive (cams spec 2026-10-05-archive-design).
+  { id: 'archive', label: 'Archive', icon: 'archive', href: '/app/archive', page: 'archive', needsProxy: true },
   { id: 'settings', label: 'Settings', icon: 'settings', href: '/app/settings', page: 'settings' },
   { id: 'about', label: 'About', icon: 'about', href: '/app/about', page: 'about' },
 ];

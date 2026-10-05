@@ -22,7 +22,10 @@ const IMAGE_MAX = fromEnv('RATE_LIMIT_IMAGE_MAX', 20000);
 // 1440 sprites), with their own budget since 2026-09-29.
 const CLIP_PATH = /^\/cameras\/[^/]+\/clips\/[^/]+\/(video|thumb\.jpg|download)$/;
 const IMAGE_PATH = /^\/cameras\/[^/]+\/((previews|stills)\/\d{1,15}\.jpg|still\/latest\.jpg|still-checks\/\d{1,12}\.jpg)$/;
-const MEDIA_PATH = { test: (p: string) => CLIP_PATH.test(p) || IMAGE_PATH.test(p) };
+// An archived clip's video and thumbnail (cam-proxy's archive): a player sends
+// many ranges, and the Archive page a thumbnail per clip.
+const ARCHIVE_MEDIA_PATH = /^\/archive\/[^/]+\/items\/\d{1,12}\/(video|thumbnail)$/;
+const MEDIA_PATH = { test: (p: string) => CLIP_PATH.test(p) || IMAGE_PATH.test(p) || ARCHIVE_MEDIA_PATH.test(p) };
 
 // In-memory stores are correct only because the ksvc is pinned to one
 // replica. Held here so tests can reset them between cases.
@@ -64,9 +67,9 @@ export function createApiRateLimit(): RateLimitRequestHandler {
   return build(API_MAX, { skip: (req) => MEDIA_PATH.test(req.path) });
 }
 
-// Clip video/thumbnail/download requests only.
+// Clip video/thumbnail/download requests only, and archived clips' video and thumbnails.
 export function createMediaRateLimit(): RateLimitRequestHandler {
-  return build(MEDIA_MAX, { skip: (req) => !CLIP_PATH.test(req.path) });
+  return build(MEDIA_MAX, { skip: (req) => !CLIP_PATH.test(req.path) && !ARCHIVE_MEDIA_PATH.test(req.path) });
 }
 
 // cam-proxy stills and sprites only.
@@ -91,6 +94,23 @@ export function createCheckRateLimits(): RateLimitRequestHandler[] {
       keyGenerator: (req) => `user:${currentUser(req)?.email ?? 'unknown'}`,
       message: { error: 'rate_limited' },
     });
+  });
+}
+
+// The Archive (cam-proxy's archive contract §0): per signed-in user, 10 new
+// clips and 4 ZIPs a minute, the proxy's own per-client limits (cams is one
+// client to it, so one person can't use up everyone's). Read per request.
+export function createArchiveRateLimit(kind: 'create' | 'zip'): RateLimitRequestHandler {
+  const store = new MemoryStore();
+  stores.push(store);
+  return rateLimit({
+    windowMs: 60_000,
+    limit: () => (kind === 'create' ? fromEnv('RATE_LIMIT_ARCHIVE_PER_MIN', 10) : fromEnv('RATE_LIMIT_ARCHIVE_ZIP_PER_MIN', 4)),
+    standardHeaders: true,
+    legacyHeaders: false,
+    store,
+    keyGenerator: (req) => `user:${currentUser(req)?.email ?? 'unknown'}`,
+    message: { error: 'rate_limited' },
   });
 }
 

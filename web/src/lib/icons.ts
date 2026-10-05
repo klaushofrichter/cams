@@ -41,6 +41,13 @@ export const ICONS = {
   pet: 'M12 20c-3 0-5-1.5-5-3.5S9.5 12 12 12s5 2.5 5 4.5-2 3.5-5 3.5zM5.5 11a1.5 1.5 0 1 0 0-3 1.5 1.5 0 0 0 0 3zm4-3a1.5 1.5 0 1 0 0-3 1.5 1.5 0 0 0 0 3zm5 0a1.5 1.5 0 1 0 0-3 1.5 1.5 0 0 0 0 3zm4 3a1.5 1.5 0 1 0 0-3 1.5 1.5 0 0 0 0 3z',
   motion: 'M3 8h9M1.5 12H12M3 16h9M16 6l5 6-5 6',
   clip: 'M4 5h16a1 1 0 0 1 1 1v12a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1zm6 4v6l5-3z',
+  // The Archive: a box with a lid.
+  archive: 'M3 4h18v4H3zM5 8v11a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V8M10 12h4',
+  // An edit pencil, a bin, a tag (the Archive's actions).
+  edit: 'M4 20h4L19 9l-4-4L4 16v4zM14 6l4 4',
+  trash: 'M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3',
+  tag: 'M3 12V4h8l10 10-8 8L3 12zM7.5 8.5h.01',
+  download: 'M12 4v11m0 0-4-4m4 4 4-4M5 20h14',
   still: 'M4 5h16a1 1 0 0 1 1 1v12a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1zm-1 11 5-5 4 4 3-3 6 6M15.5 10a1.5 1.5 0 1 0 0-3 1.5 1.5 0 0 0 0 3z',
 } as const;
 

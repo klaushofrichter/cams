@@ -27,6 +27,13 @@ export interface Change {
   phase?: 'start' | 'end';
 }
 
+// The Archive changed: which camera's proxy, what, and which ids (per proxy).
+export interface ArchiveChange {
+  cam: string;
+  action: 'add' | 'update' | 'delete' | 'clear' | 'expire';
+  ids: number[];
+}
+
 // A camera event that just started (the live notification, Klaus 2026-09-28).
 export interface CameraEvent {
   cam: string;
@@ -42,6 +49,8 @@ export interface EventStream {
   onCameraEvent(fn: (e: CameraEvent) => void): () => void;
   // Every change as it arrives, undebounced (the Timeline's still checks, cams #179).
   onChange(fn: (c: Change) => void): () => void;
+  // The Archive changed on a camera's cam-proxy (cam-proxy's archive contract §7).
+  onArchive(fn: (a: ArchiveChange) => void): () => void;
   close(): void;
 }
 
@@ -71,6 +80,7 @@ export function createEventStream(opts: { url?: string; factory?: (url: string) 
   const watchers = new Set<{ cam: () => string; fire: (after?: number) => void }>();
   const eventListeners = new Set<(e: CameraEvent) => void>();
   const changeListeners = new Set<(c: Change) => void>();
+  const archiveListeners = new Set<(a: ArchiveChange) => void>();
   let source: EventSourceLike;
   let missed = false; // disconnected since the last open: pages reload once back
   let reopenMs = REOPEN_MIN_MS;
@@ -114,6 +124,11 @@ export function createEventStream(opts: { url?: string; factory?: (url: string) 
       const n = parse(e.data) as { cam?: unknown; name?: unknown } | undefined;
       if (!n || typeof n.cam !== 'string' || typeof n.name !== 'string' || !n.name) return;
       setCameraName(n.cam, n.name);
+    });
+    source.addEventListener('archive', (e) => {
+      const a = parse(e.data) as ArchiveChange | undefined;
+      if (!a || typeof a.cam !== 'string' || typeof a.action !== 'string' || !Array.isArray(a.ids)) return;
+      for (const fn of archiveListeners) fn(a);
     });
     source.addEventListener('change', (e) => {
       const c = parse(e.data) as Change | undefined;
@@ -167,6 +182,10 @@ export function createEventStream(opts: { url?: string; factory?: (url: string) 
       changeListeners.add(fn);
       return () => changeListeners.delete(fn);
     },
+    onArchive(fn) {
+      archiveListeners.add(fn);
+      return () => archiveListeners.delete(fn);
+    },
     close() {
       closed = true;
       clearTimeout(reopenTimer);
@@ -175,6 +194,7 @@ export function createEventStream(opts: { url?: string; factory?: (url: string) 
       watchers.clear();
       eventListeners.clear();
       changeListeners.clear();
+      archiveListeners.clear();
     },
   };
 }

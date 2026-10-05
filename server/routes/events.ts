@@ -68,6 +68,15 @@ eventsRouter.get('/api/events/stream', (req: Request, res: Response) => {
       send('change', { cam: m.cam, type: m.type, ts: tsOf(m), ...extra });
     }
   };
+  // The Archive changed (cam-proxy's archive contract §7): the Archive page
+  // reloads its list. Only the action and the ids travel, checked.
+  const onArchive = (m: ProxyMessage) => {
+    if (m.type !== 'archive') return;
+    const action = m.data.action;
+    if (typeof action !== 'string' || !['add', 'update', 'delete', 'clear', 'expire'].includes(action)) return;
+    const ids = Array.isArray(m.data.ids) ? m.data.ids.filter((x): x is number => Number.isSafeInteger(x)).slice(0, 1000) : [];
+    send('archive', { cam: m.cam, action, ids });
+  };
   // A camera's proxy was switched on or off (Settings): re-read /api/cameras.
   const onCameras = () => send('cameras', {});
   // A camera's shown name changed (renamed here, in the Reolink app or on the
@@ -76,6 +85,7 @@ eventsRouter.get('/api/events/stream', (req: Request, res: Response) => {
   nameEvents.on('name', onName);
   proxyHub.on('state', onState);
   proxyHub.on('message', onMessage);
+  proxyHub.on('message', onArchive);
   proxyHub.on('cameras', onCameras);
   const ping = setInterval(() => res.write(': ping\n\n'), PING_MS);
   let done = false;
@@ -87,6 +97,7 @@ eventsRouter.get('/api/events/stream', (req: Request, res: Response) => {
     clearInterval(ping);
     proxyHub.off('state', onState);
     proxyHub.off('message', onMessage);
+    proxyHub.off('message', onArchive);
     proxyHub.off('cameras', onCameras);
     nameEvents.off('name', onName);
   };

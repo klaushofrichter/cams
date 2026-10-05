@@ -872,6 +872,23 @@ export class RecordingsService {
     return { stream: got.stream, filename, size: got.size };
   }
 
+  // What the Archive button stores for a plain save (SD or 4K as recorded,
+  // cam-proxy's archive contract §2): the SD card's file the download would
+  // serve, by its bare name; or, for SD while the proxy's recordings API is
+  // failing, its FTP copy, as the download would fall back to. A file only
+  // from this camera's own lists, never from the request. null: neither
+  // (4K not listed, or no copy).
+  async archiveSource(cameraId: string, clipId: string, quality: 'sub' | 'main'): Promise<{ type: 'recording'; id: string } | { type: 'clip'; clipId: number } | null> {
+    const names = await this.names(cameraId, clipId);
+    const picked = pickStream(quality, names);
+    if (!picked || picked.served !== quality) return null; // no silent downgrade
+    if (quality === 'sub' && this.proxyRecordingsFailed.get(cameraId)) {
+      const ftp = await this.proxyClipOf(cameraId, clipId);
+      if (ftp) return { type: 'clip', clipId: ftp.id };
+    }
+    return { type: 'recording', id: baseName(picked.name) };
+  }
+
   // Whether a 4K (main) download can be served now, without a transfer: the
   // proxy knows the main file (a plain 404 HEAD stays optimistic: an older
   // proxy, or a gone file the download then reports), or the proxy fails and
