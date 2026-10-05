@@ -7,6 +7,7 @@ import express, { type Response } from 'express';
 import rateLimit from 'express-rate-limit';
 import { mkdtempSync, writeFileSync } from 'fs';
 import http from 'http';
+import https from 'https';
 import { createHash, randomBytes } from 'crypto';
 import type { AddressInfo } from 'net';
 import { tmpdir } from 'os';
@@ -114,6 +115,8 @@ export interface FakeProxy {
   checkFailure: { status: number; body: unknown } | null; // tests: the next new check's call fails like this (counted, nothing stored)
   checkDelayMs: number; // tests: a new check's Vision call takes this long
   checkCalls: number; // Vision calls made for checks
+  caPem: string | null; // GET /tls/ca.pem (public, no token; null: 404), like a site-CA cam-proxy (spec 2026-10-05 §10.4)
+  cameraTls: Map<string, unknown>; // proxy camera id → its `tls` block in /api/cameras (absent: no field, like a proxy without a site CA)
   camFilter: boolean; // tests: false = ignore ?cam= and send every camera's messages
   features: string[] | null; // `features` on every /api/cameras item; null: a cam-proxy from before multi-camera P1 (no field, ?cam= is one whole id)
   streamConnections(): number;
@@ -129,7 +132,7 @@ export const FAKE_ADMIN_TOKEN = 'fake-proxy-admin-token-'.padEnd(48, 'a');
 
 export const JPEG = Buffer.from([0xff, 0xd8, 0xff, 0xe0, 0, 0x10, 0x4a, 0x46, 0x49, 0x46, 0, 1, 0xff, 0xd9]);
 
-export async function startFakeProxy(opts: { port?: number; token?: string } = {}): Promise<FakeProxy> {
+export async function startFakeProxy(opts: { port?: number; token?: string; tls?: { key: Buffer | string; cert: Buffer | string } } = {}): Promise<FakeProxy> {
   const token = opts.token ?? FAKE_TOKEN;
   const dir = mkdtempSync(join(tmpdir(), 'cams-fakeproxy-'));
   const app = express();
@@ -187,6 +190,8 @@ export async function startFakeProxy(opts: { port?: number; token?: string } = {
     checkFailure: null,
     checkDelayMs: 0,
     checkCalls: 0,
+    caPem: null,
+    cameraTls: new Map(),
     camFilter: true,
     features: ['sse-cam-list'],
     streamConnections: () => streams.size,
@@ -214,7 +219,7 @@ export async function startFakeProxy(opts: { port?: number; token?: string } = {
   app.use((req, res, next) => {
     if (fake.offline) return void req.socket.destroy();
     fake.requests.push({ path: req.path, auth: req.get('authorization'), query: { ...req.query } });
-    if (req.path === '/health') return next();
+    if (req.path === '/health' || req.path === '/tls/ca.pem') return next();
     // The control API takes the admin token only, like the real one.
     if (req.path.startsWith('/control/')) {
       if (req.get('authorization') !== `Bearer ${FAKE_ADMIN_TOKEN}`) return void res.status(req.get('authorization') ? 403 : 401).json({ error: 'unauthorized' });
@@ -224,6 +229,10 @@ export async function startFakeProxy(opts: { port?: number; token?: string } = {
     next();
   });
   app.get('/health', (_req, res) => void res.json({ ok: true, version: 'fake' }));
+  app.get('/tls/ca.pem', (_req, res) => {
+    if (!fake.caPem) return void res.status(404).json({ error: 'not_found' });
+    res.type('application/x-pem-file').send(fake.caPem);
+  });
   app.post('/control/login-links', (_req, res) => void res.status(201).json({ code: `fake-code-${++fake.loginLinks}`, expiresInS: 60 }));
   // The camera's name (cam-proxy, design camera-name-design.md "API
   // contract"): checked with the camera's rules, written, read back; a change
@@ -272,7 +281,7 @@ export async function startFakeProxy(opts: { port?: number; token?: string } = {
   };
   // The camera list, as the real one reports it (only what cams reads).
   app.get('/api/cameras', (_req, res) => {
-    res.json(fake.camerasBody !== undefined ? fake.camerasBody : [...fake.cameraNames].map(([id, name]) => ({ id, name, online: true, lastEventTs: null, stream: null, publicUrl: fake.publicUrl, address: fake.cameraAddresses.get(id) ?? null, ...(fake.features && { features: fake.features }) })));
+    res.json(fake.camerasBody !== undefined ? fake.camerasBody : [...fake.cameraNames].map(([id, name]) => ({ id, name, online: true, lastEventTs: null, stream: null, publicUrl: fake.publicUrl, address: fake.cameraAddresses.get(id) ?? null, ...(fake.features && { features: fake.features }), ...(fake.cameraTls.has(id) && { tls: fake.cameraTls.get(id) }), error: null })));
   });
   // Like the real one: the oldest clip, still and preview it holds.
   app.get('/api/cameras/:cam/extent', (req, res) => {
@@ -684,13 +693,13 @@ export async function startFakeProxy(opts: { port?: number; token?: string } = {
 
   fake.archive = installFakeArchive(app, fake, dir);
 
-  const server = http.createServer(app);
+  const server = opts.tls ? https.createServer({ key: opts.tls.key, cert: opts.tls.cert }, app) : http.createServer(app);
   server.on('connection', (s) => {
     sockets.add(s);
     s.on('close', () => sockets.delete(s));
   });
   await new Promise<void>((r) => server.listen(opts.port ?? 0, '127.0.0.1', () => r()));
-  fake.url = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+  fake.url = `${opts.tls ? 'https' : 'http'}://127.0.0.1:${(server.address() as AddressInfo).port}`;
   return fake;
 }
 
