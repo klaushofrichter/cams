@@ -1,12 +1,11 @@
 import { Router, type Request, type Response } from 'express';
-import { Readable } from 'stream';
-import { pipeline } from 'stream/promises';
 import { logger } from '../logger';
 import { currentUser } from '../middleware/requireAuth';
 import { createCheckRateLimits } from '../middleware/rateLimit';
 import { proxyPath, ProxyError } from '../proxy/client';
 import { parseCheck, parseFullCheck, parseUsage, type StillCheck } from '../proxy/stillChecks';
 import { proxyTarget } from './common';
+import { relayImage } from './proxy';
 
 // Still checks (cams #179, spec 2026-10-04-still-checks-ui-design): Vision on
 // a second picked on the Timeline, through the camera's cam-proxy with its
@@ -115,14 +114,7 @@ stillChecksRouter.get('/api/cameras/:id/still-checks/:file', async (req: Request
   const checkId = Number(m[1]);
   try {
     if (m[2]) {
-      const up = await t.client.open(proxyPath(t.id, `/still-checks/${checkId}.jpg`), undefined, { idleMs: 10_000 });
-      if (!up.ok || !up.body) {
-        await up.body?.cancel();
-        return void res.status(up.status === 404 ? 404 : 502).json({ error: up.status === 404 ? 'not_found' : 'proxy_unavailable' });
-      }
-      if (res.destroyed) return void (await up.body.cancel());
-      res.status(200).set({ 'Content-Type': 'image/jpeg', 'Cache-Control': 'private, max-age=604800, immutable' });
-      return void (await pipeline(Readable.fromWeb(up.body as import('stream/web').ReadableStream), res));
+      return void (await relayImage(res, t.client, proxyPath(t.id, `/still-checks/${checkId}.jpg`), () => ({ 'Cache-Control': 'private, max-age=604800, immutable' })));
     }
     const check = parseFullCheck(await t.client.json<unknown>(proxyPath(t.id, `/still-checks/${checkId}`)));
     if (!check) return void res.status(502).json({ error: 'proxy_unavailable' });

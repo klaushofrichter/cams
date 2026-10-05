@@ -57,7 +57,11 @@ describe('the API', () => {
     }));
     const items = [...Array.from({ length: 501 }, (_, i) => item('den', i + 1)), item('cam2', 1)];
     const r = await deleteItems(items);
-    expect(bodies.map((b) => [b.url, b.ids.length])).toEqual([['/api/archive/den/delete', 500], ['/api/archive/den/delete', 1], ['/api/archive/cam2/delete', 1]]);
+    // The proxies in parallel, each one's pieces in turn.
+    const sizes = (url: string) => bodies.filter((x) => x.url === url).map((x) => x.ids.length);
+    expect(bodies).toHaveLength(3);
+    expect(sizes('/api/archive/den/delete')).toEqual([500, 1]);
+    expect(sizes('/api/archive/cam2/delete')).toEqual([1]);
     expect(r.removed).toHaveLength(502);
     expect(r.errors).toEqual([]);
   });

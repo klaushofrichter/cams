@@ -13,6 +13,7 @@ import { RecordingError } from '../recordings/errors';
 import { getRecordings } from '../recordings/service';
 import { startedComposition } from './compose';
 import { knownCamera } from './common';
+import { relayImage } from './proxy';
 
 // The Archive (cam-proxy's archive contract, docs/archive.md there; cams spec
 // 2026-10-05-archive-design): every call relayed to the camera's cam-proxy
@@ -46,10 +47,34 @@ async function readJson(up: globalThis.Response): Promise<unknown> {
 }
 
 // A refused request as the browser gets it: the contract's statuses and fields.
-async function passRefusal(up: globalThis.Response, res: Response): Promise<void> {
-  const body = await readJson(up);
-  if (PASSED.has(up.status)) return void res.status(up.status).json(refusal(body));
+function sendRefusal(status: number, body: unknown, res: Response): void {
+  if (PASSED.has(status)) return void res.status(status).json(refusal(body));
   res.status(502).json({ error: 'proxy_unavailable' });
+}
+async function passRefusal(up: globalThis.Response, res: Response): Promise<void> {
+  sendRefusal(up.status, await readJson(up), res);
+}
+
+// The editable fields of a create or a PATCH, checked: name (trimmed),
+// labels (normalized) and retention, each only when given; or the problem.
+function editFields(b: { name?: unknown; labels?: unknown; retentionDays?: unknown }): Record<string, unknown> | string {
+  const out: Record<string, unknown> = {};
+  if (b.name !== undefined) {
+    const p = nameProblem(b.name);
+    if (p) return p;
+    out.name = (b.name as string).trim();
+  }
+  if (b.labels !== undefined) {
+    const l = normalizeLabels(b.labels);
+    if (!l.ok) return l.error;
+    out.labels = l.labels;
+  }
+  if (b.retentionDays !== undefined) {
+    const p = retentionProblem(b.retentionDays);
+    if (p) return p;
+    out.retentionDays = b.retentionDays;
+  }
+  return out;
 }
 
 // The proxy named by :via (a cams camera that reaches it), or 404.
@@ -86,22 +111,8 @@ archiveRouter.post('/api/cameras/:id/archive', createArchiveRateLimit('create'),
   const target = proxyOfCamera(cam);
   if (!target) return void res.status(404).json({ error: 'no_proxy' });
   const b = (req.body ?? {}) as CreateBody;
-  const out: Record<string, unknown> = {};
-  if (b.name !== undefined) {
-    const p = nameProblem(b.name);
-    if (p) return bad(res, p);
-    out.name = (b.name as string).trim();
-  }
-  if (b.labels !== undefined) {
-    const l = normalizeLabels(b.labels);
-    if (!l.ok) return bad(res, l.error);
-    out.labels = l.labels;
-  }
-  if (b.retentionDays !== undefined) {
-    const p = retentionProblem(b.retentionDays);
-    if (p) return bad(res, p);
-    out.retentionDays = b.retentionDays;
-  }
+  const out = editFields(b);
+  if (typeof out === 'string') return bad(res, out);
   if (b.thumbnailAt !== undefined) {
     if (!Number.isSafeInteger(b.thumbnailAt) || (b.thumbnailAt as number) < 0) return bad(res, 'thumbnailAt is unix ms');
     out.thumbnailAt = b.thumbnailAt;
@@ -139,7 +150,7 @@ archiveRouter.post('/api/cameras/:id/archive', createArchiveRateLimit('create'),
         const status = FAILED_STATUS.has(up.status) ? up.status : 502;
         return void res.status(status).json({ ...refusal(body), error: failedJob.error ?? 'store_failed', ...(failedJob.detail ? { detail: failedJob.detail } : {}) });
       }
-      return void res.status(PASSED.has(up.status) ? up.status : 502).json(PASSED.has(up.status) ? refusal(body) : { error: 'proxy_unavailable' });
+      return sendRefusal(up.status, body, res);
     }
     const job = parseJob(await readJson(up), target.proxy);
     if (!job) return void res.status(502).json({ error: 'proxy_unavailable' });
@@ -312,22 +323,8 @@ archiveRouter.patch('/api/archive/:via/items/:id', async (req, res) => {
   const id = p && itemId(req, res);
   if (!p || !id) return;
   const b = (req.body ?? {}) as { name?: unknown; labels?: unknown; retentionDays?: unknown };
-  const out: Record<string, unknown> = {};
-  if (b.name !== undefined) {
-    const e = nameProblem(b.name);
-    if (e) return bad(res, e);
-    out.name = (b.name as string).trim();
-  }
-  if (b.labels !== undefined) {
-    const l = normalizeLabels(b.labels);
-    if (!l.ok) return bad(res, l.error);
-    out.labels = l.labels;
-  }
-  if (b.retentionDays !== undefined) {
-    const e = retentionProblem(b.retentionDays);
-    if (e) return bad(res, e);
-    out.retentionDays = b.retentionDays;
-  }
+  const out = editFields(b);
+  if (typeof out === 'string') return bad(res, out);
   if (!Object.keys(out).length) return bad(res, 'name, labels or retentionDays');
   try {
     const up = await p.client.open(`/api/archive/${id}`, undefined, { method: 'PATCH', body: JSON.stringify(out), headers: who(req) });
@@ -443,13 +440,7 @@ archiveRouter.get('/api/archive/:via/items/:id/thumbnail', async (req, res) => {
   const id = p && itemId(req, res);
   if (!p || !id) return;
   try {
-    const up = await p.client.open(`/api/archive/${id}/thumbnail`, undefined, { signal: viewerGone(res), idleMs: 10_000 });
-    if (!up.ok || !up.body) {
-      await up.body?.cancel();
-      return void res.status(up.status === 404 ? 404 : 502).json({ error: up.status === 404 ? 'not_found' : 'proxy_unavailable' });
-    }
-    res.status(200).set({ 'Content-Type': 'image/jpeg', 'Cache-Control': 'private, max-age=604800, immutable' });
-    await stream(up, req, res);
+    await relayImage(res, p.client, `/api/archive/${id}/thumbnail`, () => ({ 'Cache-Control': 'private, max-age=604800, immutable' }), viewerGone(res));
   } catch (err) {
     failed(err, res, 'thumbnail');
   }

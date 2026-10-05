@@ -187,9 +187,10 @@ proxyRouter.get('/api/cameras/:id/analyses/:eventId', async (req: Request, res: 
 });
 
 // One image from the proxy, streamed: its 404 stays a 404, any other refusal
-// is a 502.
-async function relayImage(res: Response, client: ProxyClient, path: string, headers: (up: globalThis.Response) => Record<string, string>): Promise<void> {
-  const up = await client.open(path, undefined, { idleMs: 10_000 });
+// is a 502. Also the still checks' and the Archive's images; `signal` lets a
+// viewer who left cancel the request.
+export async function relayImage(res: Response, client: ProxyClient, path: string, headers: (up: globalThis.Response) => Record<string, string>, signal?: AbortSignal): Promise<void> {
+  const up = await client.open(path, undefined, { idleMs: 10_000, signal });
   if (!up.ok || !up.body) {
     await up.body?.cancel();
     return void res.status(up.status === 404 ? 404 : 502).json({ error: up.status === 404 ? 'not_found' : 'proxy_unavailable' });

@@ -2,7 +2,7 @@
   import { onDestroy, onMount, tick, untrack } from 'svelte';
   import LabelChips from './LabelChips.svelte';
   import RetentionField from './RetentionField.svelte';
-  import { ArchiveError, cancelArchiveJob, createArchive, DEFAULT_RETENTION_DAYS, defaultName, errorText, formatBytes, itemKey, nameProblem, normalizeLabels, pollArchiveJob, preselectLabels, retentionProblem, type ArchiveItem, type ArchiveJob, type ArchiveSource } from '../lib/archive';
+  import { ArchiveError, cancelArchiveJob, createArchive, DEFAULT_RETENTION_DAYS, defaultName, errorText, formatBytes, formProblem, itemKey, pollArchiveJob, preselectLabels, type ArchiveItem, type ArchiveJob, type ArchiveSource } from '../lib/archive';
   import { navigate } from '../lib/router';
 
   // The Save dialog's archive step (cams spec 2026-10-05-archive-design): the
@@ -42,7 +42,7 @@
     clearInterval(timer);
   });
 
-  const problem = $derived(nameProblem(name) ?? retentionProblem(days) ?? (normalizeLabels(labels).ok ? null : 'Check the labels.'));
+  const problem = $derived(formProblem(name, days, labels));
 
   async function archive() {
     if (problem || phase !== 'form') return;

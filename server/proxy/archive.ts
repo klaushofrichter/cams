@@ -1,6 +1,6 @@
 import { getCamera, listProxied } from '../cameraRegistry';
 import { getProxyClient, proxyCameraId, type ProxyClient } from './client';
-import { QUALITIES } from '../archiveRules';
+import { LABEL, QUALITIES } from '../archiveRules';
 
 // The Archive (cam-proxy's archive contract, docs/archive.md there): one per
 // cam-proxy. cams reaches a proxy through a camera that uses it (`via`, the
@@ -96,7 +96,6 @@ function source(v: unknown): ArchiveItem['source'] {
   return out;
 }
 
-const LABEL = /^[A-Za-z0-9]{1,24}$/;
 export const itemBase = (via: string, id: number) => `/api/archive/${encodeURIComponent(via)}/items/${id}`;
 
 // An item from the proxy, or null when it isn't one.

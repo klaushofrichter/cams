@@ -10,7 +10,7 @@ export const LABEL_MAX_CHARS = 24;
 export const NAME_MAX_CHARS = 120;
 export const RETENTION_MAX_DAYS = 36500;
 export const DEFAULT_RETENTION_DAYS = 365;
-const LABEL = /^[A-Za-z0-9]{1,24}$/;
+export const LABEL = /^[A-Za-z0-9]{1,24}$/;
 const CONTROL = /[\u0000-\u001f\u007f-\u009f]/;
 // Format characters (\p{Cf}: a right-to-left override, zero-width ones, a
 // BOM), which the proxy refuses too: invisible, and they can disguise a name.

@@ -2,9 +2,9 @@
 // the archive step of the Save dialog and the Archive page. The rules are the
 // server's own module, so the dialog, cams's server and the proxy agree.
 import { formatSeconds } from '../../../server/clipLimits';
-import type { SortKey, SortOrder } from '../../../server/archiveRules';
+import { nameProblem, normalizeLabels, retentionProblem, type SortKey, type SortOrder } from '../../../server/archiveRules';
 import { apiFetch, getJson } from './api';
-import { localDate, pad2 } from './recordings';
+import { formatClock, localDate } from './recordings';
 
 export { compareItems, DEFAULT_RETENTION_DAYS, labelProblem, labelSpelling, MAX_LABELS, nameProblem, normalizeLabels, PREDEFINED_LABELS, preselectLabels, RETENTION_MAX_DAYS, retentionProblem, sortItems } from '../../../server/archiveRules';
 export type { SortKey, SortOrder } from '../../../server/archiveRules';
@@ -81,10 +81,7 @@ export function formatBytes(n: number): string {
 // The proxy's default name (contract §1), in the viewer's clock: the field
 // starts with it, and the proxy makes the same in the camera's clock when it
 // is left as it is (spec ruling 3).
-export function defaultName(recordedFrom: number, cameraName: string): string {
-  const d = new Date(recordedFrom);
-  return `${localDate(d)} ${[d.getHours(), d.getMinutes(), d.getSeconds()].map(pad2).join(':')} ${cameraName}`;
-}
+export const defaultName = (recordedFrom: number, cameraName: string) => `${dateTime(recordedFrom)} ${cameraName}`;
 
 const DAY = 86_400_000;
 // "in 120 days", "in 1 day", "today" (within a day), "forever", "expired".
@@ -101,10 +98,7 @@ export const durationText = (s: number) => formatSeconds(Math.max(0, Math.round(
 export const QUALITY_LABELS: Record<string, string> = { '360p': '360p', sd: 'SD', '720p': '720p', '1080p': '1080p', '4k': '4K' };
 export const qualityText = (q: string) => QUALITY_LABELS[q] ?? q;
 // "2026-10-05 14:03:22", the viewer's clock.
-export function dateTime(t: number): string {
-  const d = new Date(t);
-  return `${localDate(d)} ${[d.getHours(), d.getMinutes(), d.getSeconds()].map(pad2).join(':')}`;
-}
+export const dateTime = (t: number) => `${localDate(new Date(t))} ${formatClock(t)}`;
 
 // A refusal in the dialog's words (contract §0), sizes included.
 export function errorText(code: string | null | undefined, body: { detail?: unknown; needed?: unknown; free?: unknown; minFreeBytes?: unknown; state?: unknown } = {}): string {
@@ -133,6 +127,11 @@ export function errorText(code: string | null | undefined, body: { detail?: unkn
     default: return 'The clip could not be archived.';
   }
 }
+
+// A clip form's first problem (the archive step, Edit clip): name, then
+// retention, then labels; or null.
+export const formProblem = (name: string, days: number | null, labels: string[]): string | null =>
+  nameProblem(name) ?? retentionProblem(days) ?? (normalizeLabels(labels).ok ? null : 'Check the labels.');
 
 // --- API ---------------------------------------------------------------------
 
@@ -191,19 +190,23 @@ const chunks = <T>(xs: T[], n: number): T[][] => Array.from({ length: Math.ceil(
 
 // Bulk delete: one request per proxy and 500 ids. The keys deleted (or
 // already gone), and the failures' words.
+// The proxies are asked in parallel; the results keep the proxies' order.
 export async function deleteItems(items: ArchiveItem[]): Promise<{ removed: string[]; errors: string[] }> {
-  const removed: string[] = [], errors: string[] = [];
-  for (const [via, list] of byProxy(items)) {
-    for (const part of chunks(list, 500)) {
-      try {
-        const r = await send<{ deleted: number[]; notFound: number[] }>(`/api/archive/${enc(via)}/delete`, 'POST', { ids: part.map((x) => x.id) });
-        for (const id of [...r.body.deleted, ...r.body.notFound]) removed.push(`${via}:${id}`);
-      } catch (e) {
-        errors.push((e as Error).message);
+  const perProxy = await Promise.all(
+    [...byProxy(items)].map(async ([via, list]) => {
+      const removed: string[] = [], errors: string[] = [];
+      for (const part of chunks(list, 500)) {
+        try {
+          const r = await send<{ deleted: number[]; notFound: number[] }>(`/api/archive/${enc(via)}/delete`, 'POST', { ids: part.map((x) => x.id) });
+          for (const id of [...r.body.deleted, ...r.body.notFound]) removed.push(`${via}:${id}`);
+        } catch (e) {
+          errors.push((e as Error).message);
+        }
       }
-    }
-  }
-  return { removed, errors };
+      return { removed, errors };
+    }),
+  );
+  return { removed: perProxy.flatMap((r) => r.removed), errors: perProxy.flatMap((r) => r.errors) };
 }
 
 // The ZIP downloads for a selection (spec ruling 4): one per proxy and 200 clips.

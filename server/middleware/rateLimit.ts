@@ -82,18 +82,21 @@ export function createImageRateLimit(): RateLimitRequestHandler {
 // is the budget's hard stop. In memory: a restart starts them over.
 // Overridable for the e2e suite; read per request, so tests can set them.
 export function createCheckRateLimits(): RateLimitRequestHandler[] {
-  return ([[60_000, () => fromEnv('RATE_LIMIT_CHECKS_PER_MIN', 6)], [86_400_000, () => fromEnv('RATE_LIMIT_CHECKS_PER_DAY', 60)]] as const).map(([windowMs, limit]) => {
-    const store = new MemoryStore();
-    stores.push(store);
-    return rateLimit({
-      windowMs,
-      limit,
-      standardHeaders: true,
-      legacyHeaders: false,
-      store,
-      keyGenerator: (req) => `user:${currentUser(req)?.email ?? 'unknown'}`,
-      message: { error: 'rate_limited' },
-    });
+  return ([[60_000, () => fromEnv('RATE_LIMIT_CHECKS_PER_MIN', 6)], [86_400_000, () => fromEnv('RATE_LIMIT_CHECKS_PER_DAY', 60)]] as const).map(([windowMs, limit]) => perUser(windowMs, limit));
+}
+
+// A limit per signed-in user, its cap read per request.
+function perUser(windowMs: number, limit: () => number): RateLimitRequestHandler {
+  const store = new MemoryStore();
+  stores.push(store);
+  return rateLimit({
+    windowMs,
+    limit,
+    standardHeaders: true,
+    legacyHeaders: false,
+    store,
+    keyGenerator: (req) => `user:${currentUser(req)?.email ?? 'unknown'}`,
+    message: { error: 'rate_limited' },
   });
 }
 
@@ -101,17 +104,7 @@ export function createCheckRateLimits(): RateLimitRequestHandler[] {
 // clips and 4 ZIPs a minute, the proxy's own per-client limits (cams is one
 // client to it, so one person can't use up everyone's). Read per request.
 export function createArchiveRateLimit(kind: 'create' | 'zip'): RateLimitRequestHandler {
-  const store = new MemoryStore();
-  stores.push(store);
-  return rateLimit({
-    windowMs: 60_000,
-    limit: () => (kind === 'create' ? fromEnv('RATE_LIMIT_ARCHIVE_PER_MIN', 10) : fromEnv('RATE_LIMIT_ARCHIVE_ZIP_PER_MIN', 4)),
-    standardHeaders: true,
-    legacyHeaders: false,
-    store,
-    keyGenerator: (req) => `user:${currentUser(req)?.email ?? 'unknown'}`,
-    message: { error: 'rate_limited' },
-  });
+  return perUser(60_000, () => (kind === 'create' ? fromEnv('RATE_LIMIT_ARCHIVE_PER_MIN', 10) : fromEnv('RATE_LIMIT_ARCHIVE_ZIP_PER_MIN', 4)));
 }
 
 export function resetRateLimits(): void {

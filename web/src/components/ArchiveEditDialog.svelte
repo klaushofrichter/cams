@@ -3,7 +3,7 @@
   import LabelChips from './LabelChips.svelte';
   import Modal from './Modal.svelte';
   import RetentionField from './RetentionField.svelte';
-  import { applyLabelStates, eachLimited, itemKey, labelStates, nameProblem, normalizeLabels, patchItem, retentionProblem, sameLabels, type ArchiveItem, type EditMode, type Patch, type Tri } from '../lib/archive';
+  import { applyLabelStates, DEFAULT_RETENTION_DAYS, eachLimited, formProblem, itemKey, labelStates, patchItem, retentionProblem, sameLabels, type ArchiveItem, type EditMode, type Patch, type Tri } from '../lib/archive';
 
   // Edit one archived clip (name, labels, retention), or set the labels or
   // the retention of many (cams spec 2026-10-05-archive-design). Each clip is
@@ -16,14 +16,14 @@
   let name = $state(m.kind === 'one' ? m.item.name : '');
   let labels = $state(m.kind === 'one' ? [...m.item.labels] : []);
   let states = $state<Map<string, Tri>>(labelStates(items));
-  const commonDays = items.every((x) => x.retentionDays === items[0].retentionDays) ? items[0].retentionDays : 365;
+  const commonDays = items.every((x) => x.retentionDays === items[0].retentionDays) ? items[0].retentionDays : DEFAULT_RETENTION_DAYS;
   let days = $state<number | null>(commonDays);
   let busy = $state(false);
   let error = $state('');
 
   const title = m.kind === 'one' ? 'Edit clip' : m.kind === 'labels' ? `Set labels of ${items.length} clip${items.length === 1 ? '' : 's'}` : `Set retention of ${items.length} clip${items.length === 1 ? '' : 's'}`;
   const problem = $derived(
-    m.kind === 'one' ? (nameProblem(name) ?? retentionProblem(days) ?? (normalizeLabels(labels).ok ? null : 'Check the labels.'))
+    m.kind === 'one' ? formProblem(name, days, labels)
     : m.kind === 'retention' ? retentionProblem(days)
     : null,
   );

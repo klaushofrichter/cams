@@ -3,9 +3,8 @@
   import Icon from './Icon.svelte';
   import Modal from './Modal.svelte';
   import { dateTime, durationText, expiresText, formatBytes, getMetadata, qualityText, type ArchiveItem, type ArchiveMetadata } from '../lib/archive';
-  import { formatClock } from '../lib/recordings';
-  import { TRIGGER_LABELS, type Trigger } from '../lib/recordings';
-  import { cameras } from '../lib/stores';
+  import { formatClock, pad2, TRIGGER_LABELS, type Trigger } from '../lib/recordings';
+  import { cameraById } from '../lib/stores';
 
   // An archived clip (cams spec 2026-10-05-archive-design): its video through
   // cams's relay (ranges, so seeking and iOS work), play/pause, a mini
@@ -46,7 +45,7 @@
     video.currentTime = Number((e.currentTarget as HTMLInputElement).value);
     t = video.currentTime;
   }
-  const clock = (s: number) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}`;
+  const clock = (s: number) => `${Math.floor(s / 60)}:${pad2(Math.floor(s % 60))}`;
   const kind = (k: string) => TRIGGER_LABELS[k as Trigger] ?? k;
   const pct = (s: number) => `${Math.round(s * 100)}%`;
   const sourceText = $derived.by(() => {
@@ -97,7 +96,7 @@
   <div class="meta" data-testid="archive-meta">
     <dl>
       <dt>Recorded</dt><dd>{dateTime(item.recordedFrom)} – {formatClock(item.recordedTo)}</dd>
-      <dt>Camera</dt><dd>{$cameras.find((c) => c.id === item.camera)?.name ?? item.cameraName}</dd>
+      <dt>Camera</dt><dd>{$cameraById(item.camera)?.name ?? item.cameraName}</dd>
       <dt>Duration</dt><dd>{durationText(item.durationS)}</dd>
       <dt>Quality</dt><dd>{qualityText(item.quality)}{item.original ? ' (original)' : ''}</dd>
       <dt>Size</dt><dd>{formatBytes(item.bytes)}</dd>

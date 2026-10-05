@@ -8,7 +8,7 @@
   import { triggerDownload } from '../lib/download';
   import { eventStream } from '../lib/eventStream';
   import { navigate, route } from '../lib/router';
-  import { cameras } from '../lib/stores';
+  import { cameraById, cameras } from '../lib/stores';
   import {
     clickSelect, zipDelays, dateTime, deleteItems, durationText, expiresText, filterItems, formatBytes, headerState, itemKey, labelChoices, listArchive, NO_FILTERS,
     PREDEFINED_LABELS, qualityText, sortItems, stillRecorded, toggleAll, videoHref, zipUrls,
@@ -123,13 +123,16 @@
     const m = new Map<string, string>();
     for (const c of $cameras) if (c.proxyConfigured ?? c.proxy) m.set(c.id, c.name);
     for (const x of items) {
-      if (x.camera) m.set(x.camera, $cameras.find((c) => c.id === x.camera)?.name ?? x.cameraName);
+      if (x.camera) m.set(x.camera, $cameraById(x.camera)?.name ?? x.cameraName);
       else m.set(`?${x.cameraName}`, `${x.cameraName} (not in cams)`);
     }
     return [...m];
   });
   const totalBytes = $derived(items.reduce((n, x) => n + x.bytes, 0));
-  const nameOf = (x: ArchiveItem) => (x.camera ? ($cameras.find((c) => c.id === x.camera)?.name ?? x.cameraName) : x.cameraName);
+  const nameOf = (x: ArchiveItem) => (x.camera ? ($cameraById(x.camera)?.name ?? x.cameraName) : x.cameraName);
+  const proxyName = (via: string) => $cameraById(via)?.name ?? via;
+  // The proxies whose status came back; their disk use is shown per proxy when there are several.
+  const okStatus = $derived(status.filter((s) => s.ok));
 
   function sortBy(k: SortKey) {
     if (sort === k) order = order === 'asc' ? 'desc' : 'asc';
@@ -184,7 +187,7 @@
     navigate(href);
   }
   const proxyNote = (p: ProxyState) => {
-    const name = $cameras.find((c) => c.id === p.via)?.name ?? p.via;
+    const name = proxyName(p.via);
     return p.error === 'too_old' ? `${name}’s cam-proxy has no Archive yet (an older version).` : `${name}’s cam-proxy didn’t answer; its clips are missing here.`;
   };
   const COLUMNS: [SortKey, string][] = [['name', 'Name'], ['recorded', 'Recorded'], ['cam', 'Camera'], ['duration', 'Duration'], ['quality', 'Quality'], ['size', 'Size'], ['labels', 'Labels'], ['expires', 'Expires'], ['created', 'Archived']];
@@ -219,9 +222,9 @@
   <h1 data-testid="page-title">Archive</h1>
   <p class="summary" data-testid="archive-summary">
     {#if loaded}{items.length} clip{items.length === 1 ? '' : 's'} · {formatBytes(totalBytes)}{/if}
-    {#each status.filter((s) => s.ok) as s (s.via)}
-      {#if status.filter((x) => x.ok).length > 1 || s.disk?.free != null}
-        <span class:warn={s.warning} data-testid="archive-status">{status.filter((x) => x.ok).length > 1 ? `${$cameras.find((c) => c.id === s.via)?.name ?? s.via}: ` : ''}{s.percentOfDisk ?? 0} % of the disk{s.disk?.free != null ? `, ${formatBytes(s.disk.free)} free` : ''}{s.warning ? ' — over the warning level' : ''}</span>
+    {#each okStatus as s (s.via)}
+      {#if okStatus.length > 1 || s.disk?.free != null}
+        <span class:warn={s.warning} data-testid="archive-status">{okStatus.length > 1 ? `${proxyName(s.via)}: ` : ''}{s.percentOfDisk ?? 0} % of the disk{s.disk?.free != null ? `, ${formatBytes(s.disk.free)} free` : ''}{s.warning ? ' — over the warning level' : ''}</span>
       {/if}
     {/each}
   </p>
