@@ -38,9 +38,9 @@
 
 <div class="stage">
   <!-- svelte-ignore a11y_media_has_caption -->
-  <video bind:this={videoA} class:on={active === 0} data-testid={active === 0 ? 'live-video' : undefined} {muted} playsinline autoplay></video>
+  <video bind:this={videoA} class:on={active === 0} data-testid={active === 0 ? 'live-video' : undefined} {muted} playsinline autoplay disableremoteplayback></video>
   <!-- svelte-ignore a11y_media_has_caption -->
-  <video bind:this={videoB} class:on={active === 1} data-testid={active === 1 ? 'live-video' : undefined} {muted} playsinline autoplay></video>
+  <video bind:this={videoB} class:on={active === 1} data-testid={active === 1 ? 'live-video' : undefined} {muted} playsinline autoplay disableremoteplayback></video>
 </div>
 
 <style>

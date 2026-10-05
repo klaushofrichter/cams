@@ -381,7 +381,7 @@
   {/if}
   {#if ready && job}
     <!-- svelte-ignore a11y_media_has_caption -->
-    <video data-testid="compose-player" src={videoUrl(camera, job.id, true)} controls playsinline></video>
+    <video data-testid="compose-player" src={videoUrl(camera, job.id, true)} controls playsinline disableremoteplayback></video>
   {/if}
   {#if error}<p class="err" role="alert">{error}</p>{/if}
   <footer>

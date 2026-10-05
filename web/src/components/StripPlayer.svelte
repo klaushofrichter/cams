@@ -354,6 +354,7 @@
         data-testid={i === active ? 'clip-video' : 'clip-video-idle'}
         src={srcs[i] ?? undefined}
         preload="auto"
+        disableremoteplayback
         muted
         playsinline
         ontimeupdate={() => onVideoTime(i)}
