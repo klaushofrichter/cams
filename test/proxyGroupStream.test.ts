@@ -165,8 +165,26 @@ describe('the Settings switch on a shared proxy', () => {
     expect((await put('barn', true)).status).toBe(200);
     await expect.poll(() => streamAsks(a).at(-1)?.query.cam).toBe('barn,cam1');
     a.push({ cam: 'barn', type: 'camera-event', data: { eventId: 9, kind: 'person', phase: 'start', ts: Date.now() } });
-    await expect.poll(() => got.filter((m) => m.type !== 'reset').length).toBeGreaterThan(0);
+    await expect.poll(() => got.filter((m) => m.type === 'camera-event').length).toBeGreaterThan(0);
     await new Promise((r) => setTimeout(r, 150));
-    expect(got.filter((m) => m.type !== 'reset').map((m) => [m.cam, m.data.eventId ?? m.data.clipId])).toEqual([['barn', 9]]);
+    // The old event's notice is gone; the replayed clip is only a reload hint (the switch reset reloads anyway).
+    expect(got.filter((m) => m.type === 'camera-event').map((m) => m.data.eventId)).toEqual([9]);
+  });
+
+  it('passes on new messages timed by an older moment right after the switch (re-review)', async () => {
+    const a = await fake();
+    setCameras([cam('den', { url: a.url, token: FAKE_TOKEN, camera: 'cam1' }), cam('barn', { url: a.url, token: FAKE_TOKEN })]);
+    startProxyStreams(OPTS);
+    await expect.poll(() => allUp(['den', 'barn'])).toBe(true);
+    expect((await put('barn', false)).status).toBe(200);
+    await expect.poll(() => streamAsks(a).at(-1)?.query.cam).toBe('cam1');
+    expect((await put('barn', true)).status).toBe(200);
+    await expect.poll(() => streamAsks(a).at(-1)?.query.cam).toBe('barn,cam1');
+    got = [];
+    const now = Date.now();
+    a.push({ cam: 'barn', type: 'clip', data: { clipId: 1, start: now - 20_000, end: now } });
+    a.push({ cam: 'barn', type: 'analysis', data: { eventId: 2, kind: 'person', start: now - 30_000, end: now - 1000, summary: [] } });
+    a.push({ cam: 'barn', type: 'still-check', data: { id: 3, stillTs: now - 3_600_000, requestedAt: now, summary: [], events: [] } });
+    await expect.poll(() => got.filter((m) => m.type !== 'reset').map((m) => m.type)).toEqual(['clip', 'analysis', 'still-check']);
   });
 });

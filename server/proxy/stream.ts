@@ -193,22 +193,23 @@ let shuttingDown = false; // set by stopProxyStreams(true) at SIGTERM
 const camList = (r: Running) => remoteIds(r.group, r.members).join(',');
 
 // A camera that joins a running stream gets the stream's replay from its
-// last id, which may be hours old on a quiet proxy: its own messages from
-// before it joined are dropped (they'd show as new notices). Timed by the
-// message's own time, with some slack for the two clocks; for a minute.
+// last id, which may be hours old on a quiet proxy. What that harms is its
+// old camera events, which browsers would show as new "Person" notices:
+// those from before it joined are dropped, by the event's own time (slack
+// for the two clocks), for a minute. Everything else passes: a clip, an
+// analysis or a still check is timed by an older moment even when new, and
+// for those a replay is only a reload hint (the switch reset reloads anyway).
 const JOIN_SLACK_MS = 5000;
 const JOIN_WINDOW_MS = 60_000;
-const timeOf = (d: Record<string, unknown>): number | undefined => [d.ts, d.start, d.stillTs].find((v): v is number => typeof v === 'number');
 
 function stale(r: Running, cam: string, m: { type: string; data: Record<string, unknown> }): boolean {
   const at = r.joined.get(cam);
-  if (at === undefined || m.type === 'reset') return false;
+  if (at === undefined || m.type !== 'camera-event') return false;
   if (Date.now() - at > JOIN_WINDOW_MS) {
     r.joined.delete(cam);
     return false;
   }
-  const t = timeOf(m.data);
-  return t !== undefined && t < at - JOIN_SLACK_MS;
+  return typeof m.data.ts === 'number' && m.data.ts < at - JOIN_SLACK_MS;
 }
 
 function fanOut(r: Running, m: { remote: string | null; type: string; data: Record<string, unknown> }): void {

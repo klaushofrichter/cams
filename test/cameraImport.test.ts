@@ -57,6 +57,10 @@ describe('generator input', () => {
     for (const url of ['http://127.0.0.1:8480', 'http://localhost:8480', 'http://[::1]:8480', 'https://192.168.1.230:8443']) expect(parse(p(url))[0].caFingerprint).toEqual([HEX]);
   });
 
+  it('refuses a proxy tlsServername on an http url, like the registry', () => {
+    expect(errorOf(() => parse({ proxies: [{ url: 'http://127.0.0.1:8480', tlsServername: 'proxy.x.internal', token: T, cameraUser: 'c', cameraPassword: PW }] }))).toBe('proxies[0].tlsServername: needs an https url');
+  });
+
   it('checks the shape', () => {
     expect(errorOf(() => parse([]))).toBe('input: must be {"proxies": [ … ]} with at least one proxy');
     expect(errorOf(() => parse({ proxies: [{ url: 'ftp://a', token: T, cameraUser: 'c', cameraPassword: PW }] }))).toBe('proxies[0].url: must be an http(s) URL without credentials, query or hash');

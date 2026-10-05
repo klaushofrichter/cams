@@ -127,7 +127,10 @@ export function parseImportInput(input: string, baseDir: string, env: NodeJS.Pro
       prefix: '',
       cameras: {},
     };
-    if (p.tlsServername !== undefined) out.tlsServername = text(p.tlsServername, `${at}.tlsServername`);
+    if (p.tlsServername !== undefined) {
+      out.tlsServername = text(p.tlsServername, `${at}.tlsServername`);
+      if (!out.url.startsWith('https:')) fail(`${at}.tlsServername`, 'needs an https url');
+    }
     if (p.caFingerprint !== undefined) {
       const pins = fingerprintList(p.caFingerprint);
       if (!pins) fail(`${at}.caFingerprint`, 'must be a SHA-256 fingerprint (64 hex digits, "SHA256:" optional) or a list of them');
