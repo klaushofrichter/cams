@@ -148,4 +148,25 @@ describe('the Settings switch on a shared proxy', () => {
       proxyHub.off('state', onState);
     }
   });
+
+  it('gives a camera switched back on nothing old from the shared stream’s replay (review #2)', async () => {
+    const a = await fake();
+    setCameras([cam('den', { url: a.url, token: FAKE_TOKEN, camera: 'cam1' }), cam('barn', { url: a.url, token: FAKE_TOKEN })]);
+    startProxyStreams(OPTS);
+    await expect.poll(() => allUp(['den', 'barn'])).toBe(true);
+    a.push({ cam: 'cam1', type: 'clip', data: { clipId: 1, start: Date.now() } });
+    await expect.poll(() => got.length).toBe(1);
+    expect((await put('barn', false)).status).toBe(200);
+    await expect.poll(() => streamAsks(a).at(-1)?.query.cam).toBe('cam1');
+    const old = Date.now() - 3_600_000;
+    a.push({ cam: 'barn', type: 'camera-event', data: { eventId: 7, kind: 'person', phase: 'start', ts: old } });
+    a.push({ cam: 'barn', type: 'clip', data: { clipId: 8, start: old } });
+    got = [];
+    expect((await put('barn', true)).status).toBe(200);
+    await expect.poll(() => streamAsks(a).at(-1)?.query.cam).toBe('barn,cam1');
+    a.push({ cam: 'barn', type: 'camera-event', data: { eventId: 9, kind: 'person', phase: 'start', ts: Date.now() } });
+    await expect.poll(() => got.filter((m) => m.type !== 'reset').length).toBeGreaterThan(0);
+    await new Promise((r) => setTimeout(r, 150));
+    expect(got.filter((m) => m.type !== 'reset').map((m) => [m.cam, m.data.eventId ?? m.data.clipId])).toEqual([['barn', 9]]);
+  });
 });

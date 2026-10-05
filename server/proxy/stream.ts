@@ -183,6 +183,7 @@ interface Running {
   group: ProxyGroup;
   stream: ProxyStream;
   members: string[]; // the cams cameras it serves now (switched on), config order
+  joined: Map<string, number>; // a camera switched back on → when (its replay is dropped)
 }
 const running = new Map<string, Running>(); // by group key
 
@@ -191,15 +192,34 @@ let shuttingDown = false; // set by stopProxyStreams(true) at SIGTERM
 
 const camList = (r: Running) => remoteIds(r.group, r.members).join(',');
 
+// A camera that joins a running stream gets the stream's replay from its
+// last id, which may be hours old on a quiet proxy: its own messages from
+// before it joined are dropped (they'd show as new notices). Timed by the
+// message's own time, with some slack for the two clocks; for a minute.
+const JOIN_SLACK_MS = 5000;
+const JOIN_WINDOW_MS = 60_000;
+const timeOf = (d: Record<string, unknown>): number | undefined => [d.ts, d.start, d.stillTs].find((v): v is number => typeof v === 'number');
+
+function stale(r: Running, cam: string, m: { type: string; data: Record<string, unknown> }): boolean {
+  const at = r.joined.get(cam);
+  if (at === undefined || m.type === 'reset') return false;
+  if (Date.now() - at > JOIN_WINDOW_MS) {
+    r.joined.delete(cam);
+    return false;
+  }
+  const t = timeOf(m.data);
+  return t !== undefined && t < at - JOIN_SLACK_MS;
+}
+
 function fanOut(r: Running, m: { remote: string | null; type: string; data: Record<string, unknown> }): void {
   const to = m.type === 'reset' || m.remote === null ? r.members : r.members.filter((id) => r.group.remoteOf.get(id) === m.remote);
-  for (const cam of to) proxyHub.emit('message', { cam, type: m.type, data: m.data });
+  for (const cam of to) if (!stale(r, cam, m)) proxyHub.emit('message', { cam, type: m.type, data: m.data });
 }
 
 function run(group: ProxyGroup, members: string[]): void {
   const client = getProxyClient(members[0]);
   if (!client) return;
-  const r: Running = { group, members, stream: undefined as unknown as ProxyStream };
+  const r: Running = { group, members, joined: new Map(), stream: undefined as unknown as ProxyStream };
   r.stream = new ProxyStream(client.host(), client, {
     ...options,
     // A list only to a proxy that takes it; one id works on every proxy;
@@ -238,6 +258,7 @@ export function startProxyStream(cam: string): void {
   if (r.members.includes(cam)) return;
   const before = camList(r);
   r.members = activeMembers(g).filter((id) => id === cam || r.members.includes(id));
+  r.joined.set(cam, Date.now());
   if (r.stream.up()) proxyHub.emit('state', { cam, up: true });
   if (camList(r) !== before) r.stream.reconnect();
 }
@@ -251,6 +272,7 @@ export function stopProxyStream(cam: string): void {
   if (!r || !r.members.includes(cam)) return;
   const before = camList(r);
   r.members = r.members.filter((id) => id !== cam);
+  r.joined.delete(cam);
   proxyHub.emit('state', { cam, up: false });
   if (!r.members.length) {
     r.stream.removeAllListeners();

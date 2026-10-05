@@ -117,6 +117,8 @@ export interface FakeProxy {
   checkCalls: number; // Vision calls made for checks
   caPem: string | null; // GET /tls/ca.pem (public, no token; null: 404), like a site-CA cam-proxy (spec 2026-10-05 §10.4)
   cameraTls: Map<string, unknown>; // proxy camera id → its `tls` block in /api/cameras (absent: no field, like a proxy without a site CA)
+  caPemEndless: boolean; // tests: /tls/ca.pem streams without end (no Content-Length)
+  openSockets(): number; // connections open now
   camFilter: boolean; // tests: false = ignore ?cam= and send every camera's messages
   features: string[] | null; // `features` on every /api/cameras item; null: a cam-proxy from before multi-camera P1 (no field, ?cam= is one whole id)
   streamConnections(): number;
@@ -192,6 +194,8 @@ export async function startFakeProxy(opts: { port?: number; token?: string; tls?
     checkCalls: 0,
     caPem: null,
     cameraTls: new Map(),
+    caPemEndless: false,
+    openSockets: () => sockets.size,
     camFilter: true,
     features: ['sse-cam-list'],
     streamConnections: () => streams.size,
@@ -230,6 +234,15 @@ export async function startFakeProxy(opts: { port?: number; token?: string; tls?
   });
   app.get('/health', (_req, res) => void res.json({ ok: true, version: 'fake' }));
   app.get('/tls/ca.pem', (_req, res) => {
+    if (fake.caPemEndless) {
+      res.writeHead(200, { 'Content-Type': 'application/x-pem-file' });
+      const chunk = 'A'.repeat(16_384);
+      const more = () => {
+        if (!res.destroyed && res.write(chunk)) setImmediate(more);
+        else if (!res.destroyed) res.once('drain', more);
+      };
+      return more();
+    }
     if (!fake.caPem) return void res.status(404).json({ error: 'not_found' });
     res.type('application/x-pem-file').send(fake.caPem);
   });

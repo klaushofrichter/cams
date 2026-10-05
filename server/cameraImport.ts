@@ -3,11 +3,12 @@
 // library, so a later "Add proxy" in cams can use it (§13.4);
 // scripts/cameras-config.ts is its command line. It never prints a secret:
 // errors name a field, diffs show •••.
-import { promises as fs, readFileSync } from 'fs';
+import { promises as fs, readFileSync, statSync } from 'fs';
 import { dirname, isAbsolute, join, resolve } from 'path';
 import type { Dispatcher } from 'undici';
 import { FROM_PROXY, parseCameras, validCameraAddress } from './cameraRegistry';
 import { fingerprintList } from './tls/fingerprint';
+import { pinTransportOk } from './tls/loopback';
 import { fetchPinnedCa, fetchWith, siteCaDispatcher, SiteCaError } from './tls/siteCa';
 
 export type Secret = string | { env: string } | { file: string };
@@ -51,11 +52,15 @@ function secret(v: unknown, path: string, baseDir: string, env: NodeJS.ProcessEn
     value = env[v.env];
     if (value === undefined || value === '') fail(path, `environment variable ${v.env} is not set`);
   } else if (isObj(v) && typeof v.file === 'string' && Object.keys(v).length === 1) {
+    const file = isAbsolute(v.file) ? v.file : join(baseDir, v.file);
+    let mode = 0;
     try {
-      value = readFileSync(isAbsolute(v.file) ? v.file : join(baseDir, v.file), 'utf8').replace(/\r?\n$/, '');
+      mode = statSync(file).mode;
+      value = readFileSync(file, 'utf8').replace(/\r?\n$/, '');
     } catch {
       fail(path, `file ${v.file} is not readable`);
     }
+    if (mode & 0o077) fail(path, `file ${v.file} is readable by others: chmod 600 it`);
   } else fail(path, 'must be a string, {"env": "NAME"} or {"file": "path"}');
   if (!value) fail(path, 'is empty');
   return value!;
@@ -127,6 +132,7 @@ export function parseImportInput(input: string, baseDir: string, env: NodeJS.Pro
       const pins = fingerprintList(p.caFingerprint);
       if (!pins) fail(`${at}.caFingerprint`, 'must be a SHA-256 fingerprint (64 hex digits, "SHA256:" optional) or a list of them');
       out.caFingerprint = pins!;
+      if (!pinTransportOk(new URL(out.url))) fail(`${at}.caFingerprint`, 'needs an https url (or a loopback http one), else the token travels in clear');
     }
     if (p.adminToken !== undefined) out.adminToken = token(p.adminToken, `${at}.adminToken`, baseDir, env);
     if (p.prefix !== undefined) {
@@ -175,19 +181,24 @@ export async function readProxyCameras(p: ImportProxy, o: { timeoutMs?: number }
       throw new ImportError(err instanceof SiteCaError ? `proxy ${host}: ${err.message.replace(/^cam-proxy \S+: /, '')}` : `proxy ${host}: ${(err as Error).name}`);
     }
   }
-  let res: Response;
-  try {
-    res = await fetchWith(dispatcher)(`${p.url}/api/cameras`, { headers: { Authorization: `Bearer ${p.token}` }, redirect: 'error', signal: AbortSignal.timeout(timeoutMs) });
-  } catch (err) {
-    throw new ImportError(`proxy ${host}: unreachable (${(err as Error).name})`);
-  }
-  if (res.status === 401 || res.status === 403) throw new ImportError(`proxy ${host}: refused the token (${res.status})`);
-  if (!res.ok) throw new ImportError(`proxy ${host}: answered ${res.status}`);
   let list: unknown;
   try {
-    list = await res.json();
-  } catch {
-    throw new ImportError(`proxy ${host}: its camera list isn't JSON`);
+    let res: Response;
+    try {
+      res = await fetchWith(dispatcher)(`${p.url}/api/cameras`, { headers: { Authorization: `Bearer ${p.token}` }, redirect: 'error', signal: AbortSignal.timeout(timeoutMs) });
+    } catch (err) {
+      throw new ImportError(`proxy ${host}: unreachable (${(err as Error).name})`);
+    }
+    if (res.status === 401 || res.status === 403) throw new ImportError(`proxy ${host}: refused the token (${res.status})`);
+    if (!res.ok) throw new ImportError(`proxy ${host}: answered ${res.status}`);
+    try {
+      list = await res.json();
+    } catch {
+      throw new ImportError(`proxy ${host}: its camera list isn't JSON`);
+    }
+  } finally {
+    // Its pinned connection ends here, so the command line exits at once.
+    await dispatcher?.close().catch(() => undefined);
   }
   if (!Array.isArray(list)) throw new ImportError(`proxy ${host}: its camera list isn't a list`);
   return list

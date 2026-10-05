@@ -25,7 +25,7 @@ const errorOf = (f: () => unknown): string => {
 
 describe('generator input', () => {
   it('resolves secrets from the file, the environment and files', () => {
-    writeFileSync(join(dir, 'token.txt'), `${T}\n`);
+    writeFileSync(join(dir, 'token.txt'), `${T}\n`, { mode: 0o600 });
     const [p] = parse(
       { proxies: [{ url: 'https://192.168.1.230:8443/', tlsServername: 'proxy.garage.internal', caFingerprint: `SHA256:${HEX}`, token: { file: 'token.txt' }, adminToken: { env: 'ADMIN' }, cameraUser: 'cams', cameraPassword: PW, prefix: 'garage-', cameras: { cam4: { id: 'gate', password: { env: 'GATE_PW' } } } }] },
       { ADMIN: 'a'.repeat(40), GATE_PW: 'gate-pw' },
@@ -44,6 +44,17 @@ describe('generator input', () => {
     const short = errorOf(() => parse({ proxies: [{ url: 'http://a', token: 'short-token-value', cameraUser: 'c', cameraPassword: PW }] }));
     expect(short).toBe('proxies[0].token: must be 32 or more characters without spaces');
     expect(short).not.toContain('short-token-value');
+  });
+
+  it('refuses a secret file others can read (review #5)', () => {
+    writeFileSync(join(dir, 'token-open.txt'), `${T}\n`, { mode: 0o644 });
+    expect(errorOf(() => parse({ proxies: [{ url: 'http://a', token: { file: 'token-open.txt' }, cameraUser: 'c', cameraPassword: PW }] }))).toBe('proxies[0].token: file token-open.txt is readable by others: chmod 600 it');
+  });
+
+  it('refuses a pin on a LAN http URL, takes it on loopback (spec §12.1)', () => {
+    const p = (url: string) => ({ proxies: [{ url, token: T, cameraUser: 'c', cameraPassword: PW, caFingerprint: HEX }] });
+    expect(errorOf(() => parse(p('http://192.168.1.230:8480')))).toBe('proxies[0].caFingerprint: needs an https url (or a loopback http one), else the token travels in clear');
+    for (const url of ['http://127.0.0.1:8480', 'http://localhost:8480', 'http://[::1]:8480', 'https://192.168.1.230:8443']) expect(parse(p(url))[0].caFingerprint).toEqual([HEX]);
   });
 
   it('checks the shape', () => {
@@ -86,6 +97,12 @@ describe('reading a proxy', () => {
     const [c] = await readProxyCameras(proxyIn(f, { tlsServername: 'proxy.test.internal', caFingerprint: [certFingerprint(fx('ca-a.pem'))] }));
     expect(c.tls).toEqual({ mode: 'site-ca', servername: 'cam3.test.internal', fingerprint: 'ab'.repeat(32) });
     expect(f.requests.map((r) => r.path)).toEqual(['/tls/ca.pem', '/api/cameras']);
+  });
+
+  it('closes its pinned connection when done (the command line exits at once)', async () => {
+    const f = await fakeProxy(true);
+    await readProxyCameras(proxyIn(f, { tlsServername: 'proxy.test.internal', caFingerprint: [certFingerprint(fx('ca-a.pem'))] }));
+    await expect.poll(() => f.openSockets(), { timeout: 2000 }).toBe(0);
   });
 
   it('stops on a wrong pin before sending the token', async () => {
@@ -149,7 +166,7 @@ describe('building cameras.json', () => {
   });
 
   it('keeps and reports a camera the proxy no longer lists; --prune drops it', () => {
-    const gone = { id: 'garage-cam9', name: 'Gone', host: 'from-proxy', protocol: 'https', tlsServername: 'cam9.garage.internal', user: 'cams', password: PW, proxy: { url: G, token: T, camera: 'cam9', caFingerprint: HEX } };
+    const gone = { id: 'garage-cam9', name: 'Gone', host: 'from-proxy', protocol: 'https', tlsServername: 'cam9.garage.internal', user: 'cams', password: PW, proxy: { url: G, token: T, camera: 'cam9', tlsServername: 'proxy.garage.internal', caFingerprint: HEX } };
     const read = [{ proxy: garage(), cameras: [siteCam('cam3', 'A')] }];
     const kept = buildCameras([gone], read, { prune: false });
     expect(kept.entries.map((e) => e.id)).toEqual(['garage-cam9', 'garage-cam3']);

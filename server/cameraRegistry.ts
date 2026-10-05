@@ -4,6 +4,8 @@ import { basename } from 'path';
 import { logger } from './logger';
 import { proxyEnabled } from './proxyState';
 import { proxyGroupKey } from './proxy/groupKey';
+import { fingerprintList } from './tls/fingerprint';
+import { pinTransportOk } from './tls/loopback';
 
 export interface CameraConfig {
   id: string;
@@ -26,8 +28,13 @@ export interface CameraConfig {
   // `camera`: the proxy's id for this camera, when it isn't the same as ours.
   // adminToken: optional, the proxy's admin token, used only to mint one-time
   // sign-in links into its UI for a signed-in user (Klaus, 2026-09-28).
-  proxy?: { url: string; token: string; adminToken?: string; camera?: string };
+  // caFingerprint / tlsServername: the proxy's site CA pin(s) and TLS name
+  // (cam-proxy spec 2026-10-05 §12.1), equal across a group; checked here,
+  // used from multi-camera P5 on (until then cams warns at start).
+  proxy?: ProxyConfig;
 }
+
+export interface ProxyConfig { url: string; token: string; adminToken?: string; camera?: string; caFingerprint?: string[]; tlsServername?: string }
 
 export interface CameraSummary {
   id: string;
@@ -59,7 +66,12 @@ export function loadCameras(file: string | undefined = process.env.CAMERAS_FILE)
   } catch {
     throw new Error(`camera registry ${basename(file)} is not valid JSON`);
   }
-  return parseCameras(parsed, basename(file));
+  const list = parseCameras(parsed, basename(file));
+  // The pins are checked but not used before multi-camera P5: say so, so a
+  // generated pinned file doesn't run unpinned silently.
+  const pinned = list.filter((c) => c.proxy?.caFingerprint).map((c) => c.id);
+  if (pinned.length) logger.warn({ cameras: pinned }, 'proxy_pin_not_enforced');
+  return list;
 }
 
 // The registry's checks on a parsed file (also the generator's, before it
@@ -120,9 +132,22 @@ export function parseCameras(parsed: unknown, label: string): CameraConfig[] {
 }
 
 // Entries with the same proxy url + token are one cam-proxy (spec
-// 2026-10-05 §12.1): their admin tokens can't disagree. An entry without
-// one keeps no sign-in link, as before.
+// 2026-10-05 §12.1): their pins and TLS names are equal, and their admin
+// tokens can't disagree (an entry without one keeps no sign-in link, as
+// before).
 function checkProxyGroups(list: CameraConfig[]): void {
+  const first = new Map<string, { i: number; c: CameraConfig }>();
+  list.forEach((c, i) => {
+    if (!c.proxy) return;
+    const key = proxyGroupKey(c.proxy);
+    const f = first.get(key);
+    if (!f) return void first.set(key, { i, c });
+    for (const field of ['caFingerprint', 'tlsServername'] as const) {
+      if (JSON.stringify(f.c.proxy![field]) !== JSON.stringify(c.proxy[field])) {
+        throw new Error(`camera registry entries ${f.i} ("${f.c.id}") and ${i} ("${c.id}"): same cam-proxy (url and token) but different ${field}`);
+      }
+    }
+  });
   const admin = new Map<string, { i: number; id: string; token: string }>();
   list.forEach((c, i) => {
     if (!c.proxy?.adminToken) return;
@@ -137,7 +162,7 @@ function checkProxyGroups(list: CameraConfig[]): void {
 
 // {url, token}: an http(s) URL without credentials, query or hash, and a
 // token of 32+ characters without whitespace. Errors never quote the token.
-function proxyOf(v: unknown, i: number): { url: string; token: string; adminToken?: string; camera?: string } {
+function proxyOf(v: unknown, i: number): ProxyConfig {
   const fail = (what: string): never => {
     throw new Error(`camera registry entry ${i}: proxy ${what}`);
   };
@@ -157,11 +182,20 @@ function proxyOf(v: unknown, i: number): { url: string; token: string; adminToke
   secret(p.token, 'token');
   if (p.adminToken !== undefined) secret(p.adminToken, 'adminToken');
   if (p.camera !== undefined && !(typeof p.camera === 'string' && ID_PATTERN.test(p.camera))) fail(`camera must match ${ID_PATTERN}`);
+  const pins = p.caFingerprint === undefined ? undefined : fingerprintList(p.caFingerprint);
+  if (pins === null) fail('caFingerprint must be a SHA-256 fingerprint or a list of them');
+  if (pins && !pinTransportOk(url!)) fail('caFingerprint needs an https url (or a loopback http one)');
+  if (p.tlsServername !== undefined) {
+    if (typeof p.tlsServername !== 'string' || !/^[a-z0-9.-]{1,253}$/i.test(p.tlsServername)) fail('tlsServername must be a host name');
+    if (url!.protocol !== 'https:') fail('tlsServername needs an https url');
+  }
   return {
     url: String(p.url).replace(/\/+$/, ''),
     token: p.token as string,
     ...(p.adminToken !== undefined && { adminToken: p.adminToken as string }),
     ...(p.camera !== undefined && { camera: p.camera as string }),
+    ...(pins && { caFingerprint: pins }),
+    ...(p.tlsServername !== undefined && { tlsServername: p.tlsServername as string }),
   };
 }
 

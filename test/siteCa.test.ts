@@ -52,6 +52,16 @@ describe('fetchPinnedCa', () => {
     expect(await code(fetchPinnedCa('https://127.0.0.1:9', [A], { timeoutMs: 1000 }))).toBe('ca_unreachable');
   });
 
+  it('refuses a pin over LAN http before asking (spec §12.1)', async () => {
+    expect(await code(fetchPinnedCa('http://192.0.2.1:8480', [A], { timeoutMs: 500 }))).toBe('ca_insecure');
+  });
+
+  it('stops reading an endless /tls/ca.pem at the size cap (review #4)', async () => {
+    const f = await httpsProxy();
+    f.caPemEndless = true;
+    expect(await code(fetchPinnedCa(f.url, [A], { timeoutMs: 5000 }))).toBe('ca_invalid');
+  });
+
   it('works over plain http too (cams on the proxy’s own host)', async () => {
     fake = await startFakeProxy();
     fake.caPem = CA_A;
