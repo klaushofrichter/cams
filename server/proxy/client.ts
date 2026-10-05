@@ -82,13 +82,25 @@ export class ProxyClient {
       throw new ProxyError('proxy_unauthorized', `cam-proxy ${this.host()} refused the token (${res.status})`, res.status);
     }
     if (!init.idleMs || !res.body) return res;
-    // A watchdog on the body: every chunk re-arms it.
+    // A watchdog on the body: every chunk re-arms it. It ends when the body
+    // ends or is aborted, and never holds the process by itself (unref; a
+    // reader that cancels leaves at most a harmless late abort): an aborted
+    // event stream's watchdog kept cams alive for up to idleMs after SIGTERM
+    // (issue #216).
     const idle = init.idleMs;
     let timer: NodeJS.Timeout | undefined;
+    let over = false;
+    const disarm = () => {
+      over = true;
+      clearTimeout(timer);
+    };
     const arm = () => {
       clearTimeout(timer);
+      if (over) return;
       timer = setTimeout(() => ctl.abort(new Error('stalled')), idle);
+      timer.unref();
     };
+    ctl.signal.addEventListener('abort', disarm, { once: true });
     arm();
     const body = res.body.pipeThrough(
       new TransformStream<Uint8Array, Uint8Array>({
@@ -96,9 +108,7 @@ export class ProxyClient {
           arm();
           c.enqueue(chunk);
         },
-        flush() {
-          clearTimeout(timer);
-        },
+        flush: disarm,
       }),
     );
     return new Response(body, { status: res.status, statusText: res.statusText, headers: res.headers });

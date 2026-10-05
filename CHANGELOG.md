@@ -11,4 +11,4 @@ published as [GitHub releases](https://github.com/klaushofrichter/cams/releases)
 
 ### Fixed
 
-- Archive: a ZIP download keeps a meaningful name (`archive-<camera>-<time>.zip`) instead of `archive.zip`, and two cam-proxies whose cameras share an id no longer give their ZIPs the same name.
+- cams exits within a second or two of SIGTERM again: an ended cam-proxy event stream's idle watchdog kept the process alive for up to 45 s (#216).
