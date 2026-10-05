@@ -294,6 +294,29 @@ describe('one item (contract §4)', () => {
 });
 
 describe('ZIP (contract §5)', () => {
+  it('names each proxy’s ZIP apart, though both proxies call their camera cam1', async () => {
+    const x = a.archive.add('cam1'), y = b.archive.add('cam1');
+    const [za, zb] = await Promise.all([get(`/api/archive/den/zip?ids=${x.id}`), get(`/api/archive/cam2/zip?ids=${y.id}`)]);
+    expect([za.status, zb.status]).toEqual([200, 200]);
+    const name = (h: string | undefined) => /^attachment; filename="(archive-[a-z0-9-]+-\d{8}-\d{6}\.zip)"$/.exec(h ?? '')?.[1];
+    expect(name(za.headers['content-disposition'])).toMatch(/^archive-den-/);
+    expect(name(zb.headers['content-disposition'])).toMatch(/^archive-cam2-/);
+  });
+
+  it('names the ZIP by cams’s clock when the proxy sends no usable name', async () => {
+    const x = a.archive.add('cam1');
+    a.archive.zipDisposition = 'attachment; filename="../../etc/passwd"';
+    const r = await get(`/api/archive/den/zip?ids=${x.id}`);
+    expect(r.status).toBe(200);
+    expect(r.headers['content-disposition']).toMatch(/^attachment; filename="archive-den-\d{8}-\d{6}\.zip"$/);
+  });
+
+  it('names a ZIP of a shared proxy after the first clip’s camera', async () => {
+    const x = a.archive.add('barn');
+    const r = await get(`/api/archive/den/zip?ids=${x.id}`);
+    expect(r.headers['content-disposition']).toMatch(/^attachment; filename="archive-barn-\d{8}-\d{6}\.zip"$/);
+  });
+
   it('streams the proxy’s ZIP as it comes, with its length and name', async () => {
     const x = a.archive.add('cam1', { name: 'Fox: at the door', body: MP4 }), y = a.archive.add('barn', { thumb: null });
     a.archive.zipChunkDelayMs = 600;
@@ -314,7 +337,8 @@ describe('ZIP (contract §5)', () => {
         }).on('error', reject);
       });
       expect(headers['content-type']).toBe('application/zip');
-      expect(headers['content-disposition']).toMatch(/^attachment; filename="archive-cam1-\d{8}-\d{6}\.zip"$/);
+      // Named by cams after its own id of the first clip's camera (den, the proxy's cam1).
+      expect(headers['content-disposition']).toMatch(/^attachment; filename="archive-den-\d{8}-\d{6}\.zip"$/);
       expect(Number(headers['content-length'])).toBe(body.length);
       expect(firstAt).toBeLessThan(500); // the first half arrived before the proxy sent the rest
       expect(zipNames(body)).toEqual([`Fox_ at the door (${x.id}).mp4`, `Fox_ at the door (${x.id}).json`, `Fox_ at the door (${x.id}).jpg`, expect.stringMatching(/\(\d+\)\.mp4$/), expect.stringMatching(/\(\d+\)\.json$/)]);

@@ -8,3 +8,7 @@ published as [GitHub releases](https://github.com/klaushofrichter/cams/releases)
 
 ## [Unreleased]
 
+
+### Fixed
+
+- Archive: a ZIP download keeps a meaningful name (`archive-<camera>-<time>.zip`) instead of `archive.zip`, and two cam-proxies whose cameras share an id no longer give their ZIPs the same name.
