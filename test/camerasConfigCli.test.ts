@@ -51,6 +51,16 @@ describe('cameras-config', () => {
     expect(statSync(join(s.dir, bak[0])).mode & 0o777).toBe(0o600);
   });
 
+  it('names the backup from one clock reading (a second can tick over between two)', async () => {
+    const s = await setup((url) => [proxy(url)], [{ id: 'shed', name: 'Shed', host: '127.0.0.1:1', protocol: 'http', user: 'u', password: 'p' }]);
+    let t = Date.UTC(2026, 9, 5, 12, 0, 0);
+    const lines: string[] = [];
+    const code = await runCamerasConfig(['--output', join(s.dir, 'cameras.json'), '--write'], { PROXY_TOKEN: FAKE_TOKEN }, { out: (l) => lines.push(l), err: (l) => lines.push(`ERR ${l}`) }, () => new Date((t += 1000)));
+    expect(lines.at(-1)).toMatch(/^Wrote /);
+    expect(code).toBe(0);
+    expect(readdirSync(s.dir).filter((n) => n.startsWith('cameras.json.bak-'))).toHaveLength(1);
+  });
+
   it('writes nothing when a later proxy fails', async () => {
     const s = await setup((url) => [proxy(url), { ...proxy('http://127.0.0.1:9'), prefix: 'b-' }], [{ id: 'shed', name: 'Shed', host: '127.0.0.1:1', protocol: 'http', user: 'u', password: 'p' }]);
     const before = readFileSync(join(s.dir, 'cameras.json'), 'utf8');

@@ -367,8 +367,9 @@ export async function runCamerasConfig(argv: string[], env: NodeJS.ProcessEnv, i
     try {
       await fs.writeFile(tmp, `${JSON.stringify(entries, null, 2)}\n`, { mode: 0o600, flag: 'wx' });
       if (existing.length || (await fs.stat(output).then(() => true, () => false))) {
-        await fs.copyFile(output, `${output}.bak-${stamp(now())}`);
-        await fs.chmod(`${output}.bak-${stamp(now())}`, 0o600);
+        const bak = `${output}.bak-${stamp(now())}`;
+        await fs.copyFile(output, bak);
+        await fs.chmod(bak, 0o600);
       }
       await fs.rename(tmp, output);
     } catch (err) {
