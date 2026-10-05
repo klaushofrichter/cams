@@ -16,8 +16,15 @@ describe('video elements', () => {
   it('all set disableremoteplayback, so the browser shows no Cast button', () => {
     const missing: string[] = [];
     for (const file of svelteFiles(join(__dirname, '..', 'web', 'src'))) {
-      // Comments mention <video> too; only real tags count.
-      const code = readFileSync(file, 'utf8').replace(/<!--[\s\S]*?-->/g, '').replace(/^\s*(\/\/|\*).*$/gm, '');
+      // Comments mention <video> too; only real tags count. Lines are
+      // dropped, not rewritten: outside HTML comments, and not // or * lines.
+      let inHtmlComment = false;
+      const code = readFileSync(file, 'utf8').split('\n').filter((line) => {
+        const t = line.trim();
+        if (inHtmlComment) { inHtmlComment = !t.includes('-->'); return false; }
+        if (t.startsWith('<!--')) { inHtmlComment = !t.includes('-->'); return false; }
+        return !t.startsWith('//') && !t.startsWith('*');
+      }).join('\n');
       for (const tag of code.match(/<video\b[^>]*>/g) ?? []) {
         if (!/\bdisableremoteplayback\b/.test(tag)) missing.push(`${file.split('/web/src/')[1]}: ${tag.slice(0, 60)}`);
       }
