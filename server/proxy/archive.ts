@@ -1,5 +1,5 @@
-import { getCamera, listProxied } from '../cameraRegistry';
 import { getProxyClient, proxyCameraId, type ProxyClient } from './client';
+import { activeMembers, proxyGroups, type ProxyGroup } from './groups';
 import { LABEL, QUALITIES } from '../archiveRules';
 
 // The Archive (cam-proxy's archive contract, docs/archive.md there): one per
@@ -14,24 +14,24 @@ export interface ArchiveProxy {
   client: ProxyClient;
   cams: string[]; // the cams cameras that use this proxy
   toCams: Map<string, string>; // the proxy's camera id → cams's
+  group: ProxyGroup; // the same object as the event stream's (spec 2026-10-05 §12.4)
 }
 
-// The proxies in use (a switched-off proxy is left out, as everywhere).
-// One per proxy URL and token.
+// The proxies in use (a switched-off camera is left out, as everywhere).
 export function archiveProxies(): ArchiveProxy[] {
-  const byKey = new Map<string, ArchiveProxy>();
-  for (const id of listProxied()) {
-    const p = getCamera(id)?.proxy;
-    const client = getProxyClient(id);
-    if (!p || !client) continue;
-    const key = `${p.url.replace(/\/+$/, '')}\u0000${p.token}`;
-    let g = byKey.get(key);
-    if (!g) byKey.set(key, (g = { via: id, client, cams: [], toCams: new Map() }));
-    g.cams.push(id);
-    const remote = proxyCameraId(id);
-    if (!g.toCams.has(remote)) g.toCams.set(remote, id);
+  const out: ArchiveProxy[] = [];
+  for (const group of proxyGroups()) {
+    const cams = activeMembers(group);
+    const client = cams.length ? getProxyClient(cams[0]) : undefined;
+    if (!client) continue;
+    const toCams = new Map<string, string>();
+    for (const id of cams) {
+      const remote = group.remoteOf.get(id)!;
+      if (!toCams.has(remote)) toCams.set(remote, id);
+    }
+    out.push({ via: cams[0], client, cams, toCams, group });
   }
-  return [...byKey.values()];
+  return out;
 }
 
 export function archiveProxy(via: string): ArchiveProxy | undefined {

@@ -1,5 +1,6 @@
 import { getCamera } from '../cameraRegistry';
 import { proxyEnabled } from '../proxyState';
+import { groupOf } from './groups';
 
 // Talks to a camera's cam-proxy with its client token (Bearer). The token
 // never leaves the server: errors and logs name the proxy's host only.
@@ -151,19 +152,22 @@ export async function errorBody(res: Response): Promise<{ error?: string; reason
   }
 }
 
-// One client per camera for the life of the process (like reolink/clients).
+// One client per cam-proxy (group: url + token) for the life of the process.
 const clients = new Map<string, ProxyClient>();
+
+// The group's client whether or not the camera's proxy is switched on (the
+// Settings page's proxy info asks even then).
+export function proxyClientFor(id: string): ProxyClient | undefined {
+  const g = groupOf(id);
+  if (!g) return undefined;
+  let client = clients.get(g.key);
+  if (!client) clients.set(g.key, (client = new ProxyClient({ url: g.url, token: g.token })));
+  return client;
+}
 
 // Undefined for a camera without a cam-proxy or with it switched off.
 export function getProxyClient(id: string): ProxyClient | undefined {
-  if (!proxyEnabled(id)) return undefined;
-  const existing = clients.get(id);
-  if (existing) return existing;
-  const proxy = getCamera(id)?.proxy;
-  if (!proxy) return undefined;
-  const client = new ProxyClient(proxy);
-  clients.set(id, client);
-  return client;
+  return proxyEnabled(id) ? proxyClientFor(id) : undefined;
 }
 
 // The proxy's id for a camera: `proxy.camera`, or else ours.
