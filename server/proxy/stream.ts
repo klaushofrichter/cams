@@ -2,6 +2,7 @@ import { EventEmitter } from 'events';
 import { listProxied, proxyActive } from '../cameraRegistry';
 import { logger } from '../logger';
 import { getProxyClient, ProxyError, type ProxyClient } from './client';
+import { supportsCamList } from './cameraList';
 import { activeMembers, groupOf, proxyGroups, remoteIds, type ProxyGroup } from './groups';
 
 // One upstream subscription to a cam-proxy's event stream (SSE), shared by
@@ -199,7 +200,15 @@ function run(group: ProxyGroup, members: string[]): void {
   const client = getProxyClient(members[0]);
   if (!client) return;
   const r: Running = { group, members, stream: undefined as unknown as ProxyStream };
-  r.stream = new ProxyStream(client.host(), client, { ...options, cams: () => remoteIds(group, r.members) });
+  r.stream = new ProxyStream(client.host(), client, {
+    ...options,
+    // A list only to a proxy that takes it; one id works on every proxy;
+    // several on an older proxy: no filter, fanOut drops what we don't map.
+    cams: async () => {
+      const ids = remoteIds(group, r.members);
+      return ids.length > 1 && !(await supportsCamList(r.members[0])) ? [] : ids;
+    },
+  });
   r.stream.on('message', (m) => fanOut(r, m));
   r.stream.on('state', (up: boolean) => {
     for (const cam of r.members) proxyHub.emit('state', { cam, up });
