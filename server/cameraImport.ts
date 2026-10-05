@@ -3,8 +3,8 @@
 // library, so a later "Add proxy" in cams can use it (§13.4);
 // scripts/cameras-config.ts is its command line. It never prints a secret:
 // errors name a field, diffs show •••.
-import { readFileSync } from 'fs';
-import { isAbsolute, join } from 'path';
+import { promises as fs, readFileSync } from 'fs';
+import { dirname, isAbsolute, join, resolve } from 'path';
 import type { Dispatcher } from 'undici';
 import { FROM_PROXY, parseCameras, validCameraAddress } from './cameraRegistry';
 import { fingerprintList } from './tls/fingerprint';
@@ -320,4 +320,66 @@ export function diffCameras(before: Entry[], after: Entry[]): string[] {
   }
   for (const e of before) if (!now.has(e.id as string)) lines.push(`- ${e.id}`);
   return lines;
+}
+
+const USAGE = 'usage: cameras-config [--output cameras.json] [--input cameras-config.json] [--write] [--prune]';
+const stamp = (d: Date) => d.toISOString().replace(/[-:]/g, '').replace('T', '-').slice(0, 15);
+
+// The command line (scripts/cameras-config.ts). 0: done; 1: refused (nothing
+// written); 2: usage. Every proxy is read before anything is written.
+export async function runCamerasConfig(argv: string[], env: NodeJS.ProcessEnv, io: { out: (line: string) => void; err: (line: string) => void }, now: () => Date = () => new Date()): Promise<number> {
+  let output = 'cameras.json', input: string | undefined, write = false, prune = false;
+  for (let i = 0; i < argv.length; i++) {
+    const a = argv[i];
+    if (a === '--write') write = true;
+    else if (a === '--prune') prune = true;
+    else if ((a === '--output' || a === '--input') && argv[i + 1] && !argv[i + 1].startsWith('--')) {
+      if (a === '--output') output = argv[++i];
+      else input = argv[++i];
+    } else return io.err(USAGE), 2;
+  }
+  output = resolve(output);
+  input = resolve(input ?? join(dirname(output), 'cameras-config.json'));
+  try {
+    const st = await fs.stat(input).catch(() => {
+      throw new ImportError(`${input} not found`);
+    });
+    if (st.mode & 0o077) throw new ImportError(`${input} is readable by others: chmod 600 it (it holds tokens and passwords)`);
+    const proxies = parseImportInput(await fs.readFile(input, 'utf8'), dirname(input), env);
+    let existing: Entry[] = [];
+    try {
+      const parsed: unknown = JSON.parse(await fs.readFile(output, 'utf8'));
+      if (!Array.isArray(parsed)) throw new ImportError(`${output} is not a JSON array`);
+      existing = parsed as Entry[];
+    } catch (err) {
+      if (err instanceof ImportError) throw err;
+      if ((err as NodeJS.ErrnoException).code !== 'ENOENT') throw new ImportError(`${output} is not valid JSON`);
+    }
+    const read = [];
+    for (const proxy of proxies) read.push({ proxy, cameras: await readProxyCameras(proxy) });
+    const { entries, notes } = buildCameras(existing, read, { prune });
+    const lines = diffCameras(existing, entries);
+    for (const l of lines.length ? lines : ['(no changes)']) io.out(l);
+    for (const n of notes) io.out(`note: ${n}`);
+    if (!write) return io.out(`Dry run: nothing written. Run again with --write to write ${output}.`), 0;
+    if (!lines.length) return io.out('Nothing to write.'), 0;
+    const tmp = `${output}.tmp-${process.pid}`;
+    try {
+      await fs.writeFile(tmp, `${JSON.stringify(entries, null, 2)}\n`, { mode: 0o600, flag: 'wx' });
+      if (existing.length || (await fs.stat(output).then(() => true, () => false))) {
+        await fs.copyFile(output, `${output}.bak-${stamp(now())}`);
+        await fs.chmod(`${output}.bak-${stamp(now())}`, 0o600);
+      }
+      await fs.rename(tmp, output);
+    } catch (err) {
+      await fs.rm(tmp, { force: true });
+      throw new ImportError(`could not write ${output} (${(err as NodeJS.ErrnoException).code ?? (err as Error).name})`);
+    }
+    io.out(`Wrote ${output} (${entries.length} cameras).`);
+    return 0;
+  } catch (err) {
+    if (!(err instanceof ImportError)) throw err;
+    io.err(err.message);
+    return 1;
+  }
 }
