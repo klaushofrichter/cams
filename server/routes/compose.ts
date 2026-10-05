@@ -46,6 +46,14 @@ function remember(cam: string, id: string) {
   for (const [k, v] of started) if (t - v.at > KEEP_MS) started.delete(k);
   started.set(keyOf(cam, id), { id, at: t });
 }
+// A composition cams started for this camera, by cams's own copy of its id
+// (the Archive button stores it, cam-proxy's archive contract §2); asking
+// keeps it, like a poll.
+export function startedComposition(cam: string, id: string): string | undefined {
+  const entry = started.get(keyOf(cam, id));
+  if (entry) entry.at = Date.now();
+  return entry?.id;
+}
 // Each question about a job keeps it (the dialog asks once a minute while a
 // result is open, issue #76).
 function known(cam: string, req: Request, res: Response): string | undefined {

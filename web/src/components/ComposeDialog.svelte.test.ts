@@ -705,3 +705,69 @@ describe('ComposeDialog', () => {
     });
   });
 });
+
+// The Archive button (cams spec 2026-10-05-archive-design): next to Save,
+// whenever Save is possible, with a cam-proxy only.
+describe('ComposeDialog: Archive', () => {
+  it('archives a plain save at once (the recording), and Cancel returns to the Save dialog', async () => {
+    const fetch = vi.fn(async (url: string, _init?: RequestInit) => (url.endsWith('/archive') ? new Response(JSON.stringify({ error: 'archive_off' }), { status: 503 }) : new Response(JSON.stringify({ available: true }), { status: 200 })));
+    vi.stubGlobal('fetch', fetch);
+    render();
+    const archive = q('compose-archive') as HTMLButtonElement;
+    expect(archive.disabled).toBe(false);
+    archive.click();
+    flushSync();
+    expect(q('archive-step')).not.toBeNull();
+    expect(q('compose-dialog')!.getAttribute('aria-label')).toBe('Archive clip');
+    expect(q('compose-size')).toBeNull();
+    expect((q('archive-name') as HTMLInputElement).value).toBe('2026-09-28 14:00:00 den'); // no camera list in this test: the id
+    expect(target!.querySelector('[data-label="Person"]')!.getAttribute('aria-pressed')).toBe('true');
+    q('archive-submit')!.click();
+    await vi.waitFor(() => expect(fetch.mock.calls.some(([u]) => u === '/api/cameras/den/archive')).toBe(true));
+    const [, init] = fetch.mock.calls.find(([u]) => u === '/api/cameras/den/archive')!;
+    expect(JSON.parse(String(init!.body))).toMatchObject({ source: { type: 'event', eventId: clip.id, quality: 'sub' }, labels: ['Person', 'SD'], retentionDays: 365 });
+    await vi.waitFor(() => expect(q('archive-error')?.textContent).toBe('The Archive is switched off on the cam-proxy.'));
+    q('archive-cancel')!.click();
+    flushSync();
+    expect(q('archive-step')).toBeNull();
+    expect(q('compose-size')).not.toBeNull();
+  });
+
+  it('archives 4K as the main recording, with the 4K label', () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ available: true }), { status: 200 })));
+    render();
+    set4k();
+    q('compose-archive')!.click();
+    flushSync();
+    expect(target!.querySelector('[data-label="4K"]')!.getAttribute('aria-pressed')).toBe('true');
+    expect(target!.querySelector('[data-label="SD"]')!.getAttribute('aria-pressed')).toBe('false');
+  });
+
+  it('a composed clip needs its result first, and archives that job', async () => {
+    const JOB = 'K'.repeat(22);
+    const fetch = vi.fn(async (url: string, init?: RequestInit) => {
+      if (url.endsWith('/compositions') && init?.method === 'POST') return new Response(JSON.stringify({ id: JOB, state: 'done', progress: 1, durationS: 30 }), { status: 201 });
+      if (url.includes(`/compositions/${JOB}`)) return new Response(JSON.stringify({ id: JOB, state: 'done', progress: 1, durationS: 30 }), { status: 200 });
+      return new Response(JSON.stringify({ available: true }), { status: 200 });
+    });
+    vi.stubGlobal('fetch', fetch);
+    render();
+    set('compose-post', '10');
+    expect((q('compose-archive') as HTMLButtonElement).disabled).toBe(true);
+    q('compose-generate')!.click();
+    await vi.waitFor(() => expect((q('compose-archive') as HTMLButtonElement | null)?.disabled).toBe(false), { timeout: 3000 });
+    q('compose-archive')!.click();
+    flushSync();
+    q('archive-submit')!.click();
+    await vi.waitFor(() => expect(fetch.mock.calls.some(([u]) => u === '/api/cameras/den/archive')).toBe(true));
+    const [, init] = fetch.mock.calls.find(([u]) => u === '/api/cameras/den/archive')!;
+    expect(JSON.parse(String(init!.body))).toMatchObject({ source: { type: 'composition', id: JOB } });
+  });
+
+  it('has no Archive button for a camera without a cam-proxy', () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response('{}', { status: 200 })));
+    render(vi.fn(), false);
+    expect(q('compose-archive')).toBeNull();
+    expect(q('compose-save')).not.toBeNull();
+  });
+});

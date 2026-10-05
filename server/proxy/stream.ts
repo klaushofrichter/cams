@@ -21,9 +21,10 @@ export interface StreamOptions {
 // older) answers 400 to it, and the stream asks again without it (until the
 // next reconnect, which tries it again). The same for `camera` (the camera's
 // name, {cam, name}; design camera-name-design.md), newer still, and for
-// `still-check` (Vision on a second picked by hand, cams #179).
-const TYPES = ['camera-event', 'camera-status', 'clip', 'analysis', 'camera', 'still-check'];
-const OPTIONAL = ['analysis', 'camera', 'still-check'];
+// `still-check` (Vision on a second picked by hand, cams #179), and for
+// `archive` (the Archive changed, cam-proxy's archive contract §7).
+const TYPES = ['camera-event', 'camera-status', 'clip', 'analysis', 'camera', 'still-check', 'archive'];
+const OPTIONAL = ['analysis', 'camera', 'still-check', 'archive'];
 
 export class ProxyStream extends EventEmitter {
   private lastId: string | undefined;
