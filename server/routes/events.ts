@@ -66,6 +66,13 @@ eventsRouter.get('/api/events/stream', (req: Request, res: Response) => {
           ? { kind: m.data.kind, phase: m.data.phase }
           : {};
       send('change', { cam: m.cam, type: m.type, ts: tsOf(m), ...extra });
+    } else if (m.type === 'archive') {
+      // The Archive changed (cam-proxy's archive contract §7): the Archive
+      // page reloads its list. Only the action and the ids travel, checked.
+      const action = m.data.action;
+      if (typeof action !== 'string' || !['add', 'update', 'delete', 'clear', 'expire'].includes(action)) return;
+      const ids = Array.isArray(m.data.ids) ? m.data.ids.filter((x): x is number => Number.isSafeInteger(x)).slice(0, 1000) : [];
+      send('archive', { cam: m.cam, action, ids });
     }
   };
   // A camera's proxy was switched on or off (Settings): re-read /api/cameras.

@@ -4,6 +4,9 @@
   import { downloadUrl, formatClock, orderTriggers, thumbUrl, TRIGGER_LABELS, type EventClip } from '../lib/recordings';
   import { aroundLength, aroundPreset, aroundRanges, cancelJob, composedName, formatSeconds, generateMaxS, madeOf, PLAIN_MAX_S, planAround, rollKeyStep, rollValueText, secondsPast, sliderBounds, fullQualityAvailable, isAvailable, isPlain, ORIGINAL_4K_LABEL, pollJob, presetRolls, resultLength, rollRange, saveMaxS, SIZE_LABELS, snapRoll, startJob, videoUrl, type AroundPlan, type ComposeSize, type JobView, type RollRange, type SaveSize } from '../lib/compose';
   import { localClock } from '../lib/clock';
+  import ArchiveStep from './ArchiveStep.svelte';
+  import { cameraById } from '../lib/stores';
+  import type { ArchiveSource } from '../lib/archive';
 
   // Every download of a clip goes through this dialog (Klaus, 2026-09-29): SD
   // or 4K as recorded, or, with a cam-proxy, SD sizes with a pre-/post-roll
@@ -199,7 +202,19 @@
   });
   const shownPlan = $derived(plan && plan.key === planKey && length.ok ? plan.plan : null);
   const nothing = $derived(shownPlan === 'nothing');
-  const title = $derived(around ? `Save clip around ${localClock(at!)}` : 'Save clip');
+  // The Archive button (cams spec 2026-10-05-archive-design): the clip Save
+  // would download, kept on the cam-proxy. A composed result by its job; a
+  // plain SD or 4K save by the recording (the server finds its file). Only
+  // with a cam-proxy, and whenever Save is possible.
+  let archiving = $state(false);
+  const archiveSource = $derived<ArchiveSource | null>(
+    !composable || fullMissing ? null
+    : plain ? (length.ok ? { type: 'event', eventId: clip!.id, quality: is4k ? 'main' : 'sub' } : null)
+    : ready && job ? { type: 'composition', id: job.id } : null,
+  );
+  // What it starts from: the window's first second, in the viewer's clock.
+  const recordedFrom = $derived(around ? at! - roll.pre * 1000 : Date.parse(clip!.start) - (plain ? 0 : roll.pre * 1000));
+  const title = $derived(archiving ? 'Archive clip' : around ? `Save clip around ${localClock(at!)}` : 'Save clip');
 
   // Each Generate, Cancel, edit or Close is a new generation: an answer that
   // arrives for an older one (a start or a poll) is dropped, and a job it
@@ -293,6 +308,9 @@
     <h2>{title}</h2>
     <button class="x" data-testid="compose-close" aria-label="Close" onclick={close}>✕</button>
   </header>
+  {#if archiving && archiveSource}
+    <ArchiveStep {camera} cameraName={$cameraById(camera)?.name ?? camera} source={archiveSource} {recordedFrom} kinds={around ? [] : clip!.triggers} size={is4k ? '4k' : size} thumbnailAt={around ? at : undefined} oncancel={() => (archiving = false)} onclose={close} />
+  {:else}
   {#if around}
     <div class="clip">
       {#if stillSrc && !stillFailed}<img data-testid="compose-thumb" src={stillSrc} alt="" onerror={() => (stillFailed = true)} />{/if}
@@ -372,10 +390,14 @@
     {:else if !plain && length.ok && !nothing}
       <button data-testid="compose-generate" disabled={starting} onclick={generate}>{starting ? 'Starting…' : ready ? 'Generate again' : 'Generate'}</button>
     {/if}
+    {#if composable}
+      <button data-testid="compose-archive" disabled={!archiveSource || busy || starting} onclick={() => (archiving = true)}>Archive</button>
+    {/if}
     <a data-testid="compose-save" class="primary" download onclick={onSave}
       href={fullMissing ? undefined : plain ? (length.ok ? downloadUrl(camera, clip!.id, is4k ? 'main' : 'sub') : undefined) : ready && job ? videoUrl(camera, job.id, false, name) : undefined}
       aria-disabled={!fullMissing && ((plain && length.ok) || ready) ? 'false' : 'true'}>Save</a>
   </footer>
+  {/if}
 </div>
 
 <style>
@@ -403,4 +425,5 @@
   footer button, footer a { padding: 7px 14px; border-radius: 9px; border: 1px solid var(--border); background: var(--surface-2); color: var(--text); font: inherit; font-size: 13px; text-decoration: none; cursor: pointer; }
   footer a.primary { background: var(--grad); color: var(--on-grad); border: 0; }
   footer a[aria-disabled='true'] { opacity: 0.45; pointer-events: none; }
+  footer button:disabled { opacity: 0.45; cursor: not-allowed; }
 </style>

@@ -35,6 +35,8 @@ export const E2E_ENV: Record<string, string> = {
   RATE_LIMIT_IMAGE_MAX: '50000',
   RATE_LIMIT_CHECKS_PER_MIN: '1000',
   RATE_LIMIT_CHECKS_PER_DAY: '10000',
+  RATE_LIMIT_ARCHIVE_PER_MIN: '1000',
+  RATE_LIMIT_ARCHIVE_ZIP_PER_MIN: '1000',
 };
 
 // A second cams server for the token login (spec 2026-10-04-pi-deployment-

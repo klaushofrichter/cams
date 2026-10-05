@@ -67,6 +67,7 @@ test('navigation reaches every page and keeps the URL in sync', async ({ page },
   // One Video entry (spec 2026-10-04): /app/live lands on /app/video.
   await expect(page).toHaveURL('/app/video');
   const cases: [string, string | RegExp, string][] = [
+    ['archive', '/app/archive', 'Archive'],
     ['settings', '/app/settings', 'Settings'],
     ['about', '/app/about', 'About'],
     ['video', '/app/video', 'Video'],
@@ -86,7 +87,7 @@ test('the menu has one Video entry, and no Live or History', async ({ page }, te
   await page.goto('/app/video');
   const menu = testInfo.project.name === 'phone' ? page.getByTestId('drawer') : page.getByTestId('sidebar');
   if (testInfo.project.name === 'phone') await page.getByTestId('hamburger').click();
-  await expect(menu.locator('[data-testid^="nav-"]')).toHaveText(['Video', 'Timeline', 'Settings', 'About']);
+  await expect(menu.locator('[data-testid^="nav-"]')).toHaveText(['Video', 'Timeline', 'Archive', 'Settings', 'About']);
   await expect(menu.getByTestId('nav-video')).toHaveAttribute('aria-current', 'page');
   await expect(menu.getByTestId('nav-video')).toHaveAttribute('href', '/app/video');
   for (const id of ['nav-live', 'nav-history']) await expect(page.getByTestId(id)).toHaveCount(0);

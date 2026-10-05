@@ -47,7 +47,7 @@ describe('parseRoute', () => {
 
 describe('navigation items', () => {
   it('lists the menu entries in order: one Video entry (Klaus, 2026-10-04)', () => {
-    expect(NAV_ITEMS.map((i) => i.label)).toEqual(['Video', 'Timeline', 'Settings', 'About']);
+    expect(NAV_ITEMS.map((i) => i.label)).toEqual(['Video', 'Timeline', 'Archive', 'Settings', 'About']);
     expect(NAV_ITEMS[0]).toMatchObject({ id: 'video', href: VIDEO_PATH, page: 'video' });
     expect(VIDEO_PATH).toBe('/app/video');
   });
@@ -55,6 +55,11 @@ describe('navigation items', () => {
   it('parses the Timeline page, which needs a cam-proxy', () => {
     expect(parseRoute('/app/timeline', '?cam=den').page).toBe('timeline');
     expect(NAV_ITEMS.find((i) => i.id === 'timeline')).toMatchObject({ href: '/app/timeline', page: 'timeline', needsProxy: true });
+  });
+
+  it('parses the Archive page, which needs a cam-proxy', () => {
+    expect(parseRoute('/app/archive', '?item=den:12')).toMatchObject({ page: 'archive' });
+    expect(NAV_ITEMS.find((i) => i.id === 'archive')).toMatchObject({ href: '/app/archive', page: 'archive', needsProxy: true, icon: 'archive' });
   });
 
   it('marks Video active in both modes and for the old URLs', () => {

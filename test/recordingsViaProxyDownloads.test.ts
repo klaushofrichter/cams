@@ -355,3 +355,25 @@ describe('the clip download through cam-proxy’s recordings', () => {
     expect(fake.requests).toEqual([]);
   });
 });
+
+// The Archive button's plain save (cam-proxy's archive contract §2): the
+// file the download would serve, by its bare name; the FTP copy for SD while
+// the proxy's recordings fail; no silent 4K downgrade.
+describe('what the Archive stores for a plain save', () => {
+  it('names the SD card’s file of the requested stream, and the proxy archives it', async () => {
+    const { list, ev } = await seeded();
+    expect(await getRecordings().archiveSource('cam1', ev.id, 'sub')).toEqual({ type: 'recording', id: recordingOf(list, ev.id, 'sub').id });
+    expect(await getRecordings().archiveSource('cam1', ev.id, 'main')).toEqual({ type: 'recording', id: recordingOf(list, ev.id, 'main').id });
+    const r = await request(createApp()).post('/api/cameras/cam1/archive').set('Cookie', auth).send({ source: { type: 'event', eventId: ev.id, quality: 'main' }, labels: ['4K'] });
+    expect(r.status).toBe(201);
+    expect(r.body.item).toMatchObject({ original: true, quality: '4k', labels: ['4K'], bytes: recordingOf(list, ev.id, 'main').body.length, source: { type: 'recording', stream: 'main' } });
+  });
+
+  it('takes the FTP copy for SD while the proxy’s recordings fail, as the download does', async () => {
+    const { ev } = await seeded();
+    ftpCopy(ev.start);
+    fake.recordingsOverride = { status: 502, body: { error: 'recordings_unavailable', reason: 'timeout' } };
+    await binary(download(ev.id, 'sub')); // the failure is noted
+    expect(await getRecordings().archiveSource('cam1', ev.id, 'sub')).toEqual({ type: 'clip', clipId: 8 });
+  });
+});
