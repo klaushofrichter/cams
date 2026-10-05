@@ -8,3 +8,7 @@ published as [GitHub releases](https://github.com/klaushofrichter/cams/releases)
 
 ## [Unreleased]
 
+
+### Fixed
+
+- cams exits within a second or two of SIGTERM again: an ended cam-proxy event stream's idle watchdog kept the process alive for up to 45 s (#216).
