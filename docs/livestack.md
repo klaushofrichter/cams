@@ -297,3 +297,14 @@ day and can take minutes on the real camera. Neither is ever a repair.
 | Suites, e2e | cam-sim 21, cam-proxy 34, cams 212 passed (33 skipped by design: viewport-specific specs and Silo, which runs on GitHub only) |
 | Sim stack | 23/23 |
 | Real camera | 23/23; the Pi's proxy was down 06:23:45-06:25:16 (91 s) |
+
+## Results, two proxies, 2026-10-05
+
+cams `feat/multi-camera-p3` (a5cb8cb, #211) with two cam-proxies v2026.10.05.5:
+8 of 9 spec steps passed, the generator re-run is a no-op. The failure: both
+Archive ZIPs download as `archive.zip`. cam-proxy names its ZIP with
+`filename="…"; filename*=UTF-8''…`, and cams' `ZIP_NAME` check
+(`server/routes/archive.ts`) only accepts the plain `filename="…"` form, so
+every ZIP falls back to `archive.zip` (the fake proxy in the tests sends the
+plain form only). The same 9 steps with proxy B on cam-proxy P1 (c40eae6, two
+cam-sims behind it, `TWOPROXY_B_CAMS=2`): the same result.
