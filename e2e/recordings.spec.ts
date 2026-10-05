@@ -641,6 +641,51 @@ test.describe('on an iPhone-sized screen', () => {
     expect(shift).toBe(0);
   });
 
+});
+
+// The Pi's Chrome, 2026-10-05 (Klaus, screenshots): on a desktop-wide
+// screen the download button was removed without a clip, and its 34 px box
+// was taller than the info line, so the strip jumped as the cursor crossed
+// clips and empty stretches. It keeps its room there too.
+test.describe('on a desktop-wide screen', () => {
+  test.use({ viewport: { width: 1280, height: 800 } });
+  test('dragging the strip over clips and empty stretches never moves the timeline', async ({ page }, testInfo) => {
+    test.skip(testInfo.project.name === 'phone', 'desktop layout');
+    await keepPrefsLocal(page);
+    const at = await page.evaluate(() => new Date().setHours(8, 15, 20, 0)); // inside today's 08:15:10 person clip
+    await page.goto(`/app/recordings?cam=cam1&panel=history&at=${at}`);
+    await page.getByTestId('zoom-10m').click();
+    await expect(page.getByTestId('source-badge')).toHaveText('SD 10 FPS');
+    await expect(page.getByTestId('clip-download')).toBeVisible();
+    const offset = () => page.evaluate(() => {
+      const box = document.querySelector('.player .box')!.getBoundingClientRect();
+      return document.querySelector('[data-testid="timeline"]')!.getBoundingClientRect().top - box.top;
+    });
+    const bar = (await page.getByTestId('timeline').boundingBox())!;
+    const cx = bar.x + bar.width / 2;
+    const cy = bar.y + bar.height / 2;
+    const start = await offset();
+    const seen = new Set<string>();
+    let shift = 0;
+    await page.mouse.move(cx, cy);
+    await page.mouse.down();
+    for (const dx of [3, 6, 9, 12, 18, 24, 30, 24, 12, 6, 0, -3, -6, -12, -18, -24, -30, -18, -6, 0]) {
+      await page.mouse.move(cx + dx, cy);
+      await page.waitForTimeout(80);
+      seen.add((await page.getByTestId('source-badge').textContent())!);
+      shift = Math.max(shift, Math.abs((await offset()) - start));
+    }
+    await page.mouse.up();
+    await page.waitForTimeout(200);
+    shift = Math.max(shift, Math.abs((await offset()) - start));
+    expect(seen.has('SD 10 FPS')).toBe(true);
+    expect(seen.size).toBeGreaterThan(1); // an empty stretch too
+    expect(shift).toBe(0);
+  });
+});
+
+test.describe('on an iPhone-sized screen (two lines)', () => {
+  test.use({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 3, hasTouch: true });
   // Porch has no cam-proxy, so no "Show in Timeline": its clip line takes two
   // lines on a phone and its "No recording" line one. The strip stays put.
   test('the info line keeps two lines\' room when it needs only one', async ({ page }, testInfo) => {
