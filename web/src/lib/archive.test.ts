@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { applyLabelStates, clickSelect, createArchive, defaultName, deleteItems, errorText, expiresText, filterItems, formatBytes, headerState, labelChoices, labelStates, stillRecorded, toggleAll, videoHref, zipUrls, type ArchiveItem } from './archive';
+import { applyLabelStates, clickSelect, createArchive, defaultName, deleteItems, errorText, expiresText, zipDelays, filterItems, formatBytes, headerState, labelChoices, labelStates, stillRecorded, toggleAll, videoHref, zipUrls, type ArchiveItem } from './archive';
 
 afterEach(() => vi.unstubAllGlobals());
 
@@ -60,6 +60,13 @@ describe('the API', () => {
     expect(bodies.map((b) => [b.url, b.ids.length])).toEqual([['/api/archive/den/delete', 500], ['/api/archive/den/delete', 1], ['/api/archive/cam2/delete', 1]]);
     expect(r.removed).toHaveLength(502);
     expect(r.errors).toEqual([]);
+  });
+
+  it('spaces ZIP downloads to 4 a minute, counting the ones started before', () => {
+    const now = 1_000_000;
+    expect(zipDelays([], 3, now)).toEqual([0, 0, 0]);
+    expect(zipDelays([now - 70_000, now - 50_000, now - 10_000], 3, now)).toEqual([0, 0, 10_000 + 1000]); // now-70 s is out of the window
+    expect(zipDelays([], 6, now)).toEqual([0, 0, 0, 0, 61_000, 61_000]);
   });
 
   it('makes one ZIP per proxy and 200 clips', () => {

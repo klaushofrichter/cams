@@ -10,7 +10,7 @@
   import { navigate, route } from '../lib/router';
   import { cameras } from '../lib/stores';
   import {
-    clickSelect, dateTime, deleteItems, durationText, expiresText, filterItems, formatBytes, headerState, itemKey, labelChoices, listArchive, NO_FILTERS,
+    clickSelect, zipDelays, dateTime, deleteItems, durationText, expiresText, filterItems, formatBytes, headerState, itemKey, labelChoices, listArchive, NO_FILTERS,
     PREDEFINED_LABELS, qualityText, sortItems, stillRecorded, toggleAll, videoHref, zipUrls,
     type ArchiveItem, type EditMode, type Filters, type ProxyState, type SortKey, type SortOrder,
   } from '../lib/archive';
@@ -159,11 +159,19 @@
     notice = r.errors.length ? `Deleted ${r.removed.length} of ${n}. ${r.errors[0]}` : `Deleted ${n} clip${n === 1 ? '' : 's'}.`;
     void loadStatus();
   }
+  // The ZIP downloads started from this page (unix ms), for the 4-a-minute spacing.
+  let zipStarts: number[] = [];
+  const zipTimers: ReturnType<typeof setTimeout>[] = [];
+  onDestroy(() => zipTimers.forEach(clearTimeout));
   function downloadZip() {
     const urls = zipUrls(chosen);
-    // One ZIP per cam-proxy (and 200 clips); browsers take a few downloads in a row.
-    urls.forEach((u, i) => setTimeout(() => triggerDownload(u), i * 600));
-    notice = urls.length > 1 ? `${urls.length} ZIP files: one per cam-proxy and 200 clips.` : '';
+    // One ZIP per cam-proxy (and 200 clips), at most 4 a minute (never a refused one).
+    const now = Date.now();
+    const delays = zipDelays(zipStarts, urls.length, now).map((d, i) => Math.max(d, i * 600));
+    zipStarts = [...zipStarts.filter((t) => t > now - 60_000), ...delays.map((d) => now + d)];
+    urls.forEach((u, i) => zipTimers.push(setTimeout(() => triggerDownload(u), delays[i])));
+    const wait = delays.find((d) => d > 2000);
+    notice = [urls.length > 1 ? `${urls.length} ZIP files: one per cam-proxy and 200 clips.` : '', wait ? `The cam-proxy takes 4 ZIPs a minute: the next starts in ${Math.ceil(wait / 1000)} s.` : ''].filter(Boolean).join(' ');
   }
   function saved(changed: ArchiveItem[]) {
     const byKey = new Map(changed.map((x) => [itemKey(x), x]));

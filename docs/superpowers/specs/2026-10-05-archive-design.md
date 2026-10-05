@@ -159,7 +159,13 @@ contract.
    viewer's clock and is sent only when edited, so an untouched name is the
    proxy's, in the camera's clock (cam-proxy ruling 9) — cost: with the
    browser in another zone than the camera, an untouched name differs from
-   what the field showed by the zones' offset (editable later).
+   what the field showed by the zones' offset (editable later). The field
+   counts from the card's start minus the pre-roll (or the second minus
+   it); the proxy names it by the composition's planned window, which it
+   may snap to whole seconds or clamp to what it holds (the composition job
+   doesn't expose its plan to cams). So the field's default can differ from
+   the stored default by a few seconds, and only when left untouched, where
+   the proxy's own name is the one stored.
 4. Ruling: Download ZIP makes one ZIP per proxy (and per 200 clips),
    started one after another — each is the proxy's own streamed ZIP,
    relayed unbuffered; a merged ZIP would mean writing ZIP64 and CRCs in

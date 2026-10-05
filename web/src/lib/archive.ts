@@ -213,6 +213,22 @@ export function zipUrls(items: ArchiveItem[]): string[] {
   return out;
 }
 
+// The cam-proxy (and cams) take 4 ZIPs a minute per person: how long each of
+// `n` new downloads waits so that no 60 s window holds more than 4 starts,
+// given the starts before (unix ms). A second's margin. A refused ZIP would
+// be saved as a file holding the refusal, so they are spaced, never refused.
+export const ZIPS_PER_MIN = 4;
+export function zipDelays(started: number[], n: number, now: number): number[] {
+  const times = [...started].sort((a, b) => a - b);
+  const out: number[] = [];
+  for (let i = 0; i < n; i++) {
+    const t = times.length >= ZIPS_PER_MIN ? Math.max(now, times[times.length - ZIPS_PER_MIN] + 61_000) : now;
+    out.push(t - now);
+    times.push(t);
+  }
+  return out;
+}
+
 // Runs `fn` over the items, `limit` at a time (bulk edits: the contract has
 // one PATCH per item). The failures' words.
 export async function eachLimited<T>(xs: T[], limit: number, fn: (x: T) => Promise<void>): Promise<string[]> {

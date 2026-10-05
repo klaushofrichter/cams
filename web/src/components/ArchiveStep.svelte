@@ -35,7 +35,12 @@
   let failures = 0;
   let nameEl: HTMLInputElement | undefined = $state();
   onMount(() => void tick().then(() => nameEl?.focus()));
-  onDestroy(() => clearInterval(timer));
+  // Gone (the dialog closed): no poll arms the timer again (review of #205).
+  let destroyed = false;
+  onDestroy(() => {
+    destroyed = true;
+    clearInterval(timer);
+  });
 
   const problem = $derived(nameProblem(name) ?? retentionProblem(days) ?? (normalizeLabels(labels).ok ? null : 'Check the labels.'));
 
@@ -53,6 +58,7 @@
     }
   }
   function follow(j: ArchiveJob) {
+    if (destroyed) return;
     job = j;
     if (j.state === 'done' && j.item) {
       item = j.item;
@@ -74,13 +80,14 @@
     try {
       j = await pollArchiveJob(via, id);
     } catch (e) {
+      if (destroyed) return;
       if (++failures < 5 && !(e instanceof ArchiveError && e.status < 500)) return;
       clearInterval(timer);
       phase = 'form';
       error = 'The cam-proxy stopped answering; the clip may still be archived. Look on the Archive page.';
       return;
     }
-    if (job?.id !== id) return;
+    if (destroyed || job?.id !== id) return;
     if (!j) {
       clearInterval(timer);
       phase = 'form';

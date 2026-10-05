@@ -131,6 +131,30 @@ describe('ArchiveStep', () => {
     expect(calls.filter((c) => c.method === 'GET').map((c) => c.url)).toEqual([`/api/archive/den/jobs/${JOB}`, `/api/archive/den/jobs/${JOB}`]);
   });
 
+  // Review of #205: a poll answered after the dialog closed armed the timer again, for good.
+  it('stops polling when it goes away, also with a poll still on its way', async () => {
+    let release: (() => void) | undefined;
+    let polls = 0;
+    vi.stubGlobal('fetch', vi.fn(async (_url: string, init: RequestInit = {}) => {
+      if (init.method === 'POST') return new Response(JSON.stringify({ id: JOB, via: 'den', state: 'queued', progress: 0, item: null }), { status: 202 });
+      polls++;
+      await new Promise<void>((r) => (release = r));
+      return new Response(JSON.stringify({ id: JOB, via: 'den', state: 'running', progress: 0.5, item: null }), { status: 200 });
+    }));
+    vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] });
+    render();
+    click('archive-submit');
+    await vi.waitFor(() => expect(q('archive-cancel-job')).not.toBeNull());
+    await vi.advanceTimersByTimeAsync(1500);
+    await vi.waitFor(() => expect(polls).toBe(1));
+    unmount(component!);
+    component = undefined;
+    release!();
+    await new Promise((r) => setTimeout(r, 0));
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(polls).toBe(1);
+  });
+
   it('cancels a running job and goes back to the form', async () => {
     serve((_url, method) => (method === 'POST' ? [202, { id: JOB, via: 'den', state: 'queued', progress: 0, item: null }] : [204, null]));
     render();

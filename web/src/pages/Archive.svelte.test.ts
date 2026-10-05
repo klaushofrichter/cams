@@ -170,6 +170,16 @@ describe('Archive page', () => {
       vi.advanceTimersByTime(2000);
       expect(anchors).toEqual(['/api/archive/den/zip?ids=1,2', '/api/archive/cam2/zip?ids=1']);
       expect(q('archive-notice')!.textContent).toBe('2 ZIP files: one per cam-proxy and 200 clips.');
+      // Two more right away would pass the 4 a minute: the fifth and sixth wait for the window.
+      click(q('archive-bulk-zip'));
+      vi.advanceTimersByTime(2000);
+      expect(anchors).toHaveLength(4);
+      click(q('archive-bulk-zip'));
+      vi.advanceTimersByTime(2000);
+      expect(anchors).toHaveLength(4);
+      expect(q('archive-notice')!.textContent).toMatch(/^2 ZIP files: one per cam-proxy and 200 clips\. The cam-proxy takes 4 ZIPs a minute: the next starts in \d+ s\.$/);
+      vi.advanceTimersByTime(60_000);
+      expect(anchors).toHaveLength(6);
     } finally {
       vi.useRealTimers();
     }
@@ -230,8 +240,14 @@ describe('Archive page', () => {
     expect(video.currentTime).toBe(9);
     click(q('archive-back10', player));
     expect(video.currentTime).toBe(0);
+    const pause = vi.spyOn(video, 'pause');
+    const load = vi.spyOn(video, 'load').mockImplementation(() => {});
     click(q('archive-player-close'));
     expect(q('archive-player')).toBeNull();
+    // Closed: the download stops (a removed <video> may keep fetching ranges).
+    expect(pause).toHaveBeenCalled();
+    expect(video.hasAttribute('src')).toBe(false);
+    expect(load).toHaveBeenCalled();
   });
 
   it('reloads on the relayed archive message', async () => {

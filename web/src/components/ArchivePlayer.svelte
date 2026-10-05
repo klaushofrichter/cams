@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount } from 'svelte';
+  import { onDestroy, onMount } from 'svelte';
   import Icon from './Icon.svelte';
   import Modal from './Modal.svelte';
   import { dateTime, durationText, expiresText, formatBytes, getMetadata, qualityText, type ArchiveItem, type ArchiveMetadata } from '../lib/archive';
@@ -22,6 +22,13 @@
   let metaError = $state('');
   onMount(() => {
     getMetadata(item).then((m) => (meta = m), () => (metaError = 'The details could not be loaded.'));
+  });
+  // Closed: stop the download too (a <video> taken out of the page may keep fetching ranges).
+  onDestroy(() => {
+    if (!video) return;
+    video.pause();
+    video.removeAttribute('src');
+    video.load();
   });
   const total = $derived(duration || item.durationS);
   function toggle() {
