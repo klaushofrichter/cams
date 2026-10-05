@@ -246,11 +246,10 @@ test('the Archive merges both proxies', async ({ page }) => {
   await page.getByTestId('archive-bulk-zip').click();
   await expect(page.getByTestId('archive-notice')).toContainText('2 ZIP files: one per cam-proxy');
   await expect.poll(() => downloads.length, { timeout: 30_000 }).toBe(2);
-  // The proxy's name for its ZIP (archive-<its camera>-<time>.zip), passed on
-  // by cams: soft, so a wrong name is reported and the steps after still run.
-  const names = downloads.map((d) => d.suggestedFilename());
-  for (const n of names) expect.soft(n, 'the ZIP keeps the proxy\'s file name').toMatch(/^archive-[A-Za-z0-9_-]+-\d{8}-\d{6}\.zip$/);
-  expect.soft(new Set(names).size, `two ZIPs, two names: ${names.join(', ')}`).toBe(2);
+  // cams names each ZIP after its camera (cams #215): archive-<camera>-<time>.zip,
+  // apart even though both proxies call their camera cam1.
+  const names = downloads.map((d) => d.suggestedFilename()).sort();
+  expect(names).toEqual([expect.stringMatching(new RegExp(`^archive-${A}-\\d{8}-\\d{6}\\.zip$`)), expect.stringMatching(new RegExp(`^archive-${B}-\\d{8}-\\d{6}\\.zip$`))]);
   for (const d of downloads) {
     const bytes = readFileSync((await d.path())!);
     expect(bytes.subarray(0, 2).toString('latin1'), d.suggestedFilename()).toBe('PK');
