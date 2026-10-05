@@ -118,6 +118,9 @@ user), nothing else is needed; otherwise make `data/` writable for it
 
    Copy the secrets over without printing them, for example with `jq` on the
    Pi reading `/srv/cam-proxy/config/.env`, or write the file locally and `scp` it.
+   A one-camera `cameras.json` like `deploy/pi/cameras.example.json` keeps
+   working unchanged with multi-camera cam-proxies; `scripts/cameras-config.ts`
+   can write it (see README, Generating cameras.json).
 4. Start it:
 
    ```bash
