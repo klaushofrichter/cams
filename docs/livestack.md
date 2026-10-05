@@ -235,20 +235,24 @@ Playwright, cam-sim, fake proxy or cams server may be on the stack's ports
 ports (19600-19899) clash with none of the e2e suites' (8090-8099,
 8190-8598, 18480-18602) or the other stacks'.
 
-**A multi-camera proxy B (cam-proxy P1).** `TWOPROXY_B_CAMS=N` (1 to 4,
-default 1) starts N cam-sims behind proxy B ("Bravo", "Bravo 2", …; cams ids
-`b-cam1` … `b-camN`) and writes proxy B's config with P1's `cameras` list
-instead of `camera`: each camera its own FTP user, FTP on for the first one
-only (P1 Ruling P1-2, until phase 2's per-camera users; the other cam-sims
-don't upload). It needs a cam-proxy with P1 for proxy B:
+**A multi-camera proxy B (cam-proxy P1, released in v2026.10.05.6).**
+`TWOPROXY_B_CAMS=N` (1 to 4, default 1) starts N cam-sims behind proxy B
+("Bravo", "Bravo 2", …; cams ids `b-cam1` … `b-camN`) and writes proxy B's
+config with P1's `cameras` list instead of `camera`: each camera its own FTP
+user, FTP on for the first one only (P1 Ruling P1-2, until phase 2's
+per-camera users; the other cam-sims don't upload, their recordings still come
+over Baichuan). The newest release has P1, so no ref is needed:
 
 ```sh
-TWOPROXY_B_CAMS=2 TWOPROXY_PROXY_B_REF=<P1 release tag> scripts/livestack/start-two-proxy-stack.sh
+TWOPROXY_B_CAMS=2 scripts/livestack/start-two-proxy-stack.sh
 ```
 
-A released cam-proxy without P1 refuses that config, and the script stops
-there and says so. The checks then also show that an event on Bravo never
-reaches Bravo 2 and back (steps 5, 6); the other steps use Bravo.
+A cam-proxy without P1 (`TWOPROXY_PROXY_B_REF` older than v2026.10.05.6)
+refuses that config, and the script stops there and says so. The checks then
+cover every camera: live view, snapshot, stills, a clip and a notice for
+Bravo 2 too; an event on any camera never shows for the others (also between
+Bravo and Bravo 2, on the same proxy); with proxy B down, both of its cameras
+show it unreachable. The Archive and the restart steps use Bravo.
 
 ## What the 23 checks prove
 
@@ -300,11 +304,8 @@ day and can take minutes on the real camera. Neither is ever a repair.
 
 ## Results, two proxies, 2026-10-05
 
-cams `feat/multi-camera-p3` (a5cb8cb, #211) with two cam-proxies v2026.10.05.5:
-8 of 9 spec steps passed, the generator re-run is a no-op. The failure: both
-Archive ZIPs download as `archive.zip`. cam-proxy names its ZIP with
-`filename="…"; filename*=UTF-8''…`, and cams' `ZIP_NAME` check
-(`server/routes/archive.ts`) only accepts the plain `filename="…"` form, so
-every ZIP falls back to `archive.zip` (the fake proxy in the tests sends the
-plain form only). The same 9 steps with proxy B on cam-proxy P1 (c40eae6, two
-cam-sims behind it, `TWOPROXY_B_CAMS=2`): the same result.
+| Run | Result |
+|---|---|
+| cams #211 (P3) + 2 × cam-proxy v2026.10.05.5 | 8/9: both Archive ZIPs downloaded as `archive.zip` (cams accepted only the plain `filename="…"`; fixed in #215) |
+| cams main b19923b (P3 + #215) + 2 × cam-proxy v2026.10.05.6 | 9/9, generator re-run no-op |
+| same, proxy B with two cam-sims (`TWOPROXY_B_CAMS=2`, P1) | 11/11, generator re-run no-op |

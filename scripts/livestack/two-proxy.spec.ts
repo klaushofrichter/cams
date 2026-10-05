@@ -23,8 +23,15 @@ import { runEnv } from './two-proxy-env';
 const env = runEnv();
 const A = env.CAMS_A; // a-cam1
 const B = env.CAMS_B.split(',')[0]; // b-cam1 (the first of proxy B's cameras)
-const NAME: Record<string, string> = { [A]: 'Alpha', [B]: 'Bravo' };
-const SIM = { [A]: { url: env.SIM_A_CONTROL_URL, token: env.SIM_A_CONTROL_TOKEN }, [B]: { url: env.SIM_B_CONTROL_URLS.split(',')[0], token: env.SIM_B_CONTROL_TOKEN } };
+// Every camera: A's, then proxy B's (several with TWOPROXY_B_CAMS, cam-proxy
+// P1: b-cam2 "Bravo 2", …, each with its own cam-sim).
+const B_ALL = env.CAMS_B.split(',');
+const ALL = [A, ...B_ALL];
+const NAME: Record<string, string> = Object.fromEntries(ALL.map((id, i) => [id, i === 0 ? 'Alpha' : i === 1 ? 'Bravo' : `Bravo ${i}`]));
+const SIM: Record<string, { url: string; token: string }> = {
+  [A]: { url: env.SIM_A_CONTROL_URL, token: env.SIM_A_CONTROL_TOKEN },
+  ...Object.fromEntries(B_ALL.map((id, i) => [id, { url: env.SIM_B_CONTROL_URLS.split(',')[i], token: env.SIM_B_CONTROL_TOKEN }])),
+};
 const START = join(__dirname, 'start-two-proxy-stack.sh');
 // Names this run's archived clips; set once in two-proxy.config.ts, so a
 // worker started again after a failed step keeps it.
@@ -36,8 +43,15 @@ async function signIn(context: BrowserContext): Promise<void> {
   await context.addCookies([{ name: 'session', value, domain: new URL(env.CAMS_URL).hostname, path: '/', httpOnly: true, secure: false, sameSite: 'Lax' }]);
 }
 
+// Every event this file triggered: a clip is a camera's own when it starts
+// near one of that camera's events (its FTP upload can land much later, in
+// another step's window).
+const triggered: { cam: string; at: number }[] = [];
+const ownClip = (cam: string, ts: number | null | undefined) => typeof ts === 'number' && triggered.some((t) => t.cam === cam && Math.abs(ts - t.at) < 30_000);
+
 async function trigger(cam: string, type: string, durationS = 6): Promise<number> {
   const at = Date.now();
+  triggered.push({ cam, at });
   const res = await fetch(`${SIM[cam].url}/sim/api/events`, { method: 'POST', headers: { Authorization: `Bearer ${SIM[cam].token}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ type, durationS }) });
   expect(res.status, `trigger ${type} on ${NAME[cam]}'s cam-sim`).toBeLessThan(300);
   return at;
@@ -94,7 +108,7 @@ test.beforeAll(async ({ browser }) => {
   });
   await monitor.goto(`/app/video?cam=${A}`);
   await expect(monitor.getByTestId('topbar')).toBeVisible();
-  await expect.poll(async () => (await seen()).filter((s) => s.event === 'proxy' && s.data.up === true).map((s) => s.data.cam).sort(), { timeout: 30_000 }).toEqual([A, ...env.CAMS_B.split(',')].sort());
+  await expect.poll(async () => (await seen()).filter((s) => s.event === 'proxy' && s.data.up === true).map((s) => s.data.cam).sort(), { timeout: 30_000 }).toEqual([...ALL].sort());
 });
 
 test.beforeEach(async ({ context }) => {
@@ -105,14 +119,13 @@ test('both cameras are listed, each with its own cam-proxy', async ({ page }) =>
   const { status, body } = await getJson<{ id: string; name: string; proxy: boolean }[]>(page.request, '/api/cameras');
   expect(status).toBe(200);
   // Proxy B may serve several cameras (TWOPROXY_B_CAMS, cam-proxy P1): Bravo, Bravo 2, …
-  const all = [A, ...env.CAMS_B.split(',')];
-  const names = all.map((id, i) => NAME[id] ?? `Bravo ${i}`);
-  expect(body.map((c) => [c.id, c.name, c.proxy])).toEqual(all.map((id, i) => [id, names[i], true]));
+  const names = ALL.map((id) => NAME[id]);
+  expect(body.map((c) => [c.id, c.name, c.proxy])).toEqual(ALL.map((id) => [id, NAME[id], true]));
   await page.goto(`/app/video?cam=${A}`);
   await expect(page.getByTestId('camera-picker').locator('option')).toHaveText(names);
 });
 
-for (const cam of [A, B]) {
+for (const cam of ALL) {
   test(`live view and snapshot: ${cam}`, async ({ page }) => {
     await page.goto(`/app/video?cam=${cam}`);
     await expect(page.getByTestId('camera-card-name')).toHaveText(NAME[cam]);
@@ -135,9 +148,9 @@ for (const cam of [A, B]) {
 const clipOf: Record<string, string> = {};
 test('stills, a clip and a notice per camera', async ({ page }) => {
   const since = Date.now();
-  await Promise.all([trigger(A, 'person', 6), trigger(B, 'person', 6)]);
-  await expect.poll(async () => (await notices()).filter((n) => n.t >= since).map((n) => n.text), { timeout: 30_000 }).toEqual(expect.arrayContaining(['Person on Alpha', 'Person on Bravo']));
-  for (const cam of [A, B]) {
+  await Promise.all(ALL.map((cam) => trigger(cam, 'person', 6)));
+  await expect.poll(async () => (await notices()).filter((n) => n.t >= since).map((n) => n.text), { timeout: 30_000 }).toEqual(expect.arrayContaining(ALL.map((cam) => `Person on ${NAME[cam]}`)));
+  for (const cam of ALL) {
     const now = Date.now();
     const stills = await getJson<unknown[]>(page.request, `/api/cameras/${cam}/stills?from=${now - 120_000}&to=${now}`);
     expect(stills.status, `${cam} stills`).toBe(200);
@@ -148,7 +161,7 @@ test('stills, a clip and a notice per camera', async ({ page }) => {
   }
   // The recording of that event (it starts a few seconds before the
   // trigger), listed for each camera, and its clip ended (the FTP upload).
-  for (const cam of [A, B]) {
+  for (const cam of ALL) {
     await expect
       .poll(
         async () => {
@@ -167,28 +180,26 @@ test('stills, a clip and a notice per camera', async ({ page }) => {
   // Each relayed event names its own camera: nothing for one camera arrived
   // only on the other.
   const list = await seen();
-  expect(eventsFor(list, A, since).some((s) => s.data.type === 'camera-event' && s.data.kind === 'person')).toBe(true);
-  expect(eventsFor(list, B, since).some((s) => s.data.type === 'camera-event' && s.data.kind === 'person')).toBe(true);
+  for (const cam of ALL) expect(eventsFor(list, cam, since).some((s) => s.data.type === 'camera-event' && s.data.kind === 'person'), cam).toBe(true);
 });
 
 // An event on one camera reaches that camera only: never the other proxy's
 // camera, and (proxy B with several cameras, P1) never its neighbours. Both
 // proxies call their camera "cam1": a mix-up in cams' per-proxy fan-out
 // would show here.
-const ALL = [A, ...env.CAMS_B.split(',')];
-const nameOf = (id: string) => NAME[id] ?? `Bravo ${ALL.indexOf(id)}`;
-for (const from of [A, B]) {
+for (const from of ALL) {
   const others = ALL.filter((c) => c !== from);
-  test(`an event on ${NAME[from]} never shows for ${others.map(nameOf).join(', ')}`, async () => {
+  test(`an event on ${NAME[from]} never shows for ${others.map((c) => NAME[c]).join(', ')}`, async () => {
     const since = Date.now();
     await trigger(from, 'vehicle', 4);
     await expect.poll(async () => eventsFor(await seen(), from, since).some((s) => s.data.type === 'camera-event' && s.data.kind === 'vehicle' && s.data.phase === 'end'), { timeout: 30_000 }).toBe(true);
     await expect.poll(async () => (await notices()).filter((n) => n.t >= since).map((n) => n.text), { timeout: 10_000 }).toContain(`Vehicle on ${NAME[from]}`);
     await new Promise((r) => setTimeout(r, 8000)); // anything late for another camera
     for (const other of others) {
-      const leaked = eventsFor(await seen(), other, since).filter((s) => s.data.type === 'camera-event' || s.data.type === 'clip');
+      // A camera event of another camera, or a clip that isn't the late upload of its own earlier event.
+      const leaked = eventsFor(await seen(), other, since).filter((s) => s.data.type === 'camera-event' || (s.data.type === 'clip' && !ownClip(other, s.data.ts)));
       expect(leaked, `changes for ${other} after an event on ${NAME[from]} only`).toEqual([]);
-      expect((await notices()).filter((n) => n.t >= since && n.text.endsWith(`on ${nameOf(other)}`))).toEqual([]);
+      expect((await notices()).filter((n) => n.t >= since && n.text.endsWith(`on ${NAME[other]}`))).toEqual([]);
     }
   });
 }
@@ -197,7 +208,7 @@ for (const from of [A, B]) {
 // or the like on their own proxy; cams keeps them apart by proxy), listed with
 // the right camera, and one ZIP per proxy.
 test('the Archive merges both proxies', async ({ page }) => {
-  expect(Object.keys(clipOf).sort(), 'a clip per camera from the step before').toEqual([A, B].sort());
+  expect(Object.keys(clipOf), 'a clip per camera from the step before').toEqual(expect.arrayContaining([A, B]));
   for (const cam of [A, B]) {
     const res = await page.request.post(`/api/cameras/${cam}/archive`, { data: { source: { type: 'event', eventId: clipOf[cam], quality: 'sub' }, name: `${RUN} ${NAME[cam]}`, labels: ['livestack'] }, timeout: 60_000 });
     expect([201, 202], `archive ${clipOf[cam]} of ${cam}: ${res.status()} ${await res.text()}`).toContain(res.status());
@@ -264,7 +275,7 @@ test('proxy B down: camera A keeps working, camera B shows its proxy unreachable
   const since = Date.now();
   execFileSync('bash', [START, '--stop-proxy-b'], { stdio: 'inherit' });
   await expect.poll(async () => (await seen()).some((s) => s.t >= since && s.event === 'proxy' && s.data.cam === B && s.data.up === false), { timeout: 60_000 }).toBe(true);
-  expect((await getJson<{ reachable: boolean }>(page.request, `/api/cameras/${B}/proxy/info`)).body.reachable).toBe(false);
+  for (const cam of B_ALL) expect((await getJson<{ reachable: boolean }>(page.request, `/api/cameras/${cam}/proxy/info`)).body.reachable, cam).toBe(false);
   expect((await getJson<{ reachable: boolean }>(page.request, `/api/cameras/${A}/proxy/info`)).body.reachable).toBe(true);
   await page.goto(`/app/video?cam=${B}`);
   await expect(page.getByTestId('camera-card-proxy')).toHaveAttribute('data-reachable', 'false', { timeout: 30_000 });
@@ -290,12 +301,12 @@ test('proxy B back: its events flow again, without old notices replayed', async 
   restartedAt = Date.now();
   execFileSync('bash', [START, '--start-proxy-b'], { stdio: 'inherit' });
   await expect.poll(async () => (await seen()).some((s) => s.t >= restartedAt && s.event === 'proxy' && s.data.cam === B && s.data.up === true), { timeout: 90_000 }).toBe(true);
-  expect((await getJson<{ reachable: boolean }>(page.request, `/api/cameras/${B}/proxy/info`)).body.reachable).toBe(true);
+  for (const cam of B_ALL) expect((await getJson<{ reachable: boolean }>(page.request, `/api/cameras/${cam}/proxy/info`)).body.reachable, cam).toBe(true);
   // Settle: whatever cams relays for B now on its own is a replay.
   await new Promise((r) => setTimeout(r, 15_000));
-  const replayed = eventsFor(await seen(), B, restartedAt).filter((s) => s.data.type === 'camera-event' && s.data.phase === 'start');
+  const replayed = (await seen()).filter((s) => s.event === 'change' && B_ALL.includes(s.data.cam ?? '') && s.t >= restartedAt && s.data.type === 'camera-event' && s.data.phase === 'start');
   expect(replayed, 'camera events for B relayed after the restart without a new event').toEqual([]);
-  expect((await notices()).filter((n) => n.t >= restartedAt && n.text.endsWith('on Bravo')), 'notices for B after the restart without a new event').toEqual([]);
+  expect((await notices()).filter((n) => n.t >= restartedAt && B_ALL.some((c) => n.text.endsWith(`on ${NAME[c]}`))), 'notices for B after the restart without a new event').toEqual([]);
   // A new event on B comes through, once.
   const t = Date.now();
   await trigger(B, 'person', 4);

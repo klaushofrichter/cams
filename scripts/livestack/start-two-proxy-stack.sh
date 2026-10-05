@@ -26,11 +26,11 @@
 # a-cam1 ("Alpha") and b-cam1 ("Bravo"), and each maps back to cam1 on its own
 # proxy. That is the case where a mix-up between proxies would show.
 #
-# Multi-camera proxy B (cam-proxy P1, not released yet): TWOPROXY_B_CAMS=N
-# (default 1) starts N cam-sims behind proxy B (b-cam1 … b-camN) and writes
-# proxy B's config with P1's "cameras": [ … ] list instead of "camera". It
-# needs a cam-proxy with P1 for proxy B (TWOPROXY_PROXY_B_REF=<tag or
-# commit>); the released one refuses that config, and this script stops there.
+# Multi-camera proxy B (cam-proxy P1, released in v2026.10.05.6):
+# TWOPROXY_B_CAMS=N (default 1) starts N cam-sims behind proxy B (b-cam1 …
+# b-camN) and writes proxy B's config with P1's "cameras": [ … ] list instead
+# of "camera". A cam-proxy without P1 refuses that config, and this script
+# stops there.
 #
 # Ports, all on 127.0.0.1 (the suites use 8090-8099, 8190-8598, 18480-18602;
 # the sim and real stacks 19080-19943 but 19600-19899):
@@ -183,7 +183,7 @@ proxy_config b $PROXY_B_PORT 19783 19790-19799 "$b_cams"
 validate_proxy_config "$RUN/proxy-a/config.json" "$PROXY_A_SRC" "$RUN/secrets-a"
 if [ "$B_CAMS" -gt 1 ]; then
   ( validate_proxy_config "$RUN/proxy-b/config.json" "$PROXY_B_SRC" "$RUN/secrets-b" ) \
-    || die "proxy B ($PROXY_B_REF) refuses a config with $B_CAMS cameras: TWOPROXY_B_CAMS > 1 needs a cam-proxy with P1 (TWOPROXY_PROXY_B_REF)"
+    || die "proxy B ($PROXY_B_REF) refuses a config with $B_CAMS cameras: TWOPROXY_B_CAMS > 1 needs a cam-proxy with P1 (v2026.10.05.6 or newer)"
 else
   validate_proxy_config "$RUN/proxy-b/config.json" "$PROXY_B_SRC" "$RUN/secrets-b"
 fi
