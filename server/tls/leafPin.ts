@@ -41,6 +41,13 @@ export function connectPinned(
   return socket;
 }
 
+// Verified TLS for reading a camera's certificate (its chain and name always
+// checked: this signature can't turn that off). Here so that no other file
+// opens TLS sockets itself.
+export function connectVerified(o: { host: string; port: number; ca?: string | Buffer | string[]; servername?: string }, onSecure: () => void): TLSSocket {
+  return tlsConnect({ host: o.host, port: o.port, ...(o.ca && { ca: o.ca }), ...(o.servername && { servername: o.servername }), rejectUnauthorized: true }, onSecure);
+}
+
 // connectPinned as an http(s) request's createConnection.
 export function pinnedConnection(fingerprint: string, timeoutMs: number, timeoutError: () => Error): NonNullable<https.RequestOptions['createConnection']> {
   return (opts, oncreate) => {

@@ -1,10 +1,9 @@
 import { randomBytes } from 'crypto';
-import { connect as tlsConnect } from 'tls';
 import { IncomingMessage } from 'node:http';
 import type { CameraConfig } from '../cameraRegistry';
 import { logger } from '../logger';
 import { TimeInfo, timeInfoFromGetTime } from '../recordings/clipNames';
-import { connectPinned } from '../tls/leafPin';
+import { connectPinned, connectVerified } from '../tls/leafPin';
 import { type CameraTarget, type CameraTrust, openRequest, readBody, requestWasWritten, ResponseTooLargeError, splitHost, TimeoutError, trustOf } from './http';
 import { Semaphore } from './semaphore';
 
@@ -251,7 +250,7 @@ export class ReolinkClient {
       const socket =
         trust.kind === 'pinned'
           ? connectPinned(base, trust.fingerprint, this.timeoutMs, () => new TimeoutError(), (err) => (err ? finish(null) : onSecure()))
-          : tlsConnect(options, onSecure);
+          : connectVerified(options, onSecure);
       // The socket's idle timeout doesn't cover a stalled handshake: an
       // explicit deadline does.
       const timer = setTimeout(() => finish(null), this.timeoutMs);
