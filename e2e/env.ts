@@ -55,18 +55,21 @@ export const E2E_TOKEN_ENV: Record<string, string> = {
   CACHE_DIR: join(tmpdir(), 'cams-e2e-token-cache'),
 };
 
-// The cam-proxy release the e2e runs for Silo (e2e/realProxy.ts): the first
-// with the recordings API, or later. Bump both with cam-proxy releases: the
+// The cam-proxy release the e2e runs for Silo and Loft (e2e/realProxy.ts):
+// the first with several cameras on one host (multi-camera P1+P2, the
+// `sse-cam-list` stream filter), or later. Bump both with cam-proxy releases: the
 // digest is the image index's (`docker buildx imagetools inspect <image>:<tag>`),
 // so a moved or replaced tag can't change what the e2e runs.
-export const CAM_PROXY_TAG = 'v2026.10.02.4';
-export const CAM_PROXY_DIGEST = 'sha256:33f595fe1991d430855d172e9e75e4d79be53e3f1a7cef1f1fa5b04ce8aeb5ec';
+export const CAM_PROXY_TAG = 'v2026.10.05.7';
+export const CAM_PROXY_DIGEST = 'sha256:54b2fddc82e899716b328bdb536906235261a544a50eff905a7cc655baa67c7e';
 export const CAM_PROXY_IMAGE = `ghcr.io/klaushofrichter/cam-proxy:${CAM_PROXY_TAG}@${CAM_PROXY_DIGEST}`;
 
-// The real cam-proxy for Silo (e2e/realProxy.ts). Test-only tokens. It runs
+// The real cam-proxy for Silo and Loft (e2e/realProxy.ts). Test-only tokens. It runs
 // on GitHub Actions (an ephemeral runner), or with CAMS_E2E_REAL_PROXY=1, and
 // only on Linux (host networking: it listens on every interface, so never on
-// a laptop on the home LAN). A plain CI=true doesn't turn it on.
+// a laptop on the home LAN). A plain CI=true doesn't turn it on, and
+// CAMS_E2E_REAL_PROXY=0 turns it off (scripts/e2e-time-of-day.ts: the
+// container's clock can't be shifted).
 export const REAL_PROXY = {
   port: 8091,
   go2rtcRtsp: 8092,
@@ -75,6 +78,7 @@ export const REAL_PROXY = {
   adminToken: 'e2e-real-proxy-admin-not-a-secret-000000',
 };
 export function realProxyOn(env: NodeJS.ProcessEnv = process.env, platform: string = process.platform): boolean {
+  if (env.CAMS_E2E_REAL_PROXY === '0') return false;
   return (env.GITHUB_ACTIONS === 'true' || env.CAMS_E2E_REAL_PROXY === '1') && platform === 'linux';
 }
 export const REAL_PROXY_ON = realProxyOn();

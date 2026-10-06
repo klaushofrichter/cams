@@ -134,29 +134,33 @@ The Google OAuth client must list the redirect URI: `http://localhost:8080/auth/
 ```bash
 npm test                 # vitest: server + web libraries (node) and Svelte components (jsdom)
 npm run build && npm run test:e2e   # Playwright, desktop and phone viewports
+npm run build && npm run test:e2e:times   # the Video specs at fixed Chicago times of day
 ```
+
+`test:e2e:times` (`scripts/e2e-time-of-day.ts`) runs the Video specs at 00:30, 06:00, 12:10, 18:30, 20:30 and 23:50 Chicago time (and once with the servers in a zone a day ahead), each time starting the whole stack with its clock moved there: `e2e/clockShift.cjs` shifts `Date` in every Node process, `e2e/clock.ts` in the browser. The demo recordings sit at fixed times of day and the Video page collapses the hours far from now, so a spec can pass at noon and fail in the evening (issue #213). `--at HH:MM` runs one time; arguments after `--` go to Playwright. It needs the e2e ports free.
 
 Both suites need **ffmpeg** on the `PATH`, and e2e needs **Google Chrome**. The e2e suite signs its own session cookie with a test secret (`e2e/session.ts`), so it never talks to Google; the expired-session spec answers the redirect to Google itself (`fakeGoogle`).
 
 **The tests use [cam-sim](https://github.com/klaushofrichter/cam-sim) as the camera.** cam-sim simulates the Reolink RLC-1224A's HTTP API, quirks included, and can switch on faults (refused downloads, failing settings writes, offline, and more). cams has no mock camera of its own.
 
 - **Unit tests** start cam-sim in the test process through `test/camera/sim.ts` (`createSimCamera`). `test/camera/warm.ts` builds cam-sim's test-pattern media once, before the tests run.
-- **e2e** starts five cam-sim processes (`e2e/sims.ts`), listed in `e2e/cameras.json`:
+- **e2e** starts six cam-sim processes (`e2e/sims.ts`), listed in `e2e/cameras.json`:
   - "Den", with a cam-proxy;
   - "Porch", which rejects `SetWhiteLed`;
   - "Shed", which refuses downloads like the real camera;
   - "Barn", which refuses downloads too but has a cam-proxy whose clip plays, and whose live stream always resets, so the live view shows the proxy's stills;
   - "Silo", which refuses HTTP downloads like the real camera since 2026-10-01 and has the real cam-proxy (its released container image, pinned in `e2e/env.ts` by tag and digest, `CAM_PROXY_TAG` and `CAM_PROXY_DIGEST`), which fetches the recordings over Baichuan. To bump it, bump both: the digest is the index's `Digest:` line from `docker buildx imagetools inspect <image>:<tag>`, not a per-platform manifest. It runs on GitHub Actions only (`e2e/realProxy.ts`: host networking, so it listens on every interface), or with `CAMS_E2E_REAL_PROXY=1` on a Linux machine you control, and never on macOS or Windows; elsewhere `e2e/realProxy.spec.ts` is skipped and `e2e/realProxy.ts` refuses to start.
+  - "Loft", like Silo, and the second camera of the same real cam-proxy (a multi-camera host): one proxy group in cams, with one event stream (`?cam=loft,silo`), each camera's own events, and one Archive for both.
 
-  A sixth camera, "Garage", points at an unused port and stays offline.
-- **cam-proxy in tests** is a small fake (`test/proxy/fakeProxy.ts`) that follows cam-proxy's `openapi.yaml` for the stream, clips, stills, previews and SD recordings, and its Archive contract (`test/proxy/fakeArchive.ts`). Unit tests set its data directly (`test/proxy/seedRecordings.ts` gives it cam-sim's recordings); e2e runs it as a process, seeded with ffmpeg test patterns (`e2e/fakeProxyData.ts`), without SD recordings (its recordings routes answer 503). The real round trip is Silo's, against the released cam-proxy image (needs Docker), in CI.
+  A seventh camera, "Garage", points at an unused port and stays offline.
+- **cam-proxy in tests** is a small fake (`test/proxy/fakeProxy.ts`) that follows cam-proxy's `openapi.yaml` for the stream, clips, stills, previews and SD recordings, and its Archive contract (`test/proxy/fakeArchive.ts`). Unit tests set its data directly (`test/proxy/seedRecordings.ts` gives it cam-sim's recordings); e2e runs it as a process, seeded with ffmpeg test patterns (`e2e/fakeProxyData.ts`), without SD recordings (its recordings routes answer 503). The real round trip is Silo's and Loft's, against the released cam-proxy image (needs Docker), in CI.
 - **Version:** cam-sim is a dev dependency pinned to a release tarball in `package.json`. To update it, change the URL to the new release's `cam-sim-<tag>.tgz` asset, run `npm install`, and run both suites.
 - **The other direction:** cam-sim's own CI runs cams' unit and e2e suites against every cam-sim change, so a simulator change that would break cams fails there first.
 - **The live stack, by hand:** `scripts/livestack/` runs cams → cam-proxy → cam-sim (or the real camera) locally from the three repos' `origin/main` and checks it end to end; see [docs/livestack.md](docs/livestack.md).
 
 ## Deployment and releases
 
-`main` is built and published as `ghcr.io/klaushofrichter/cams:main` but never deployed. Every PR to `main` or `production` runs `test`, `e2e` and `codeql`; `production` requires all three (strict, with an owner override). Merging a PR from `main` to `production` deploys through the in-cluster runner, smoke-tests the public URL and creates a `vYYYY.MM.DD.N` release. The release notes come from the `[Unreleased]` section of `CHANGELOG.md`, which the workflow then empties on `main`.
+`main` is built and published as `ghcr.io/klaushofrichter/cams:main` but never deployed. Every PR to `main` or `production` runs `test`, `e2e`, `e2e-time-of-day` and `codeql`; `production` requires all three (strict, with an owner override). Merging a PR from `main` to `production` deploys through the in-cluster runner, smoke-tests the public URL and creates a `vYYYY.MM.DD.N` release. The release notes come from the `[Unreleased]` section of `CHANGELOG.md`, which the workflow then empties on `main`.
 
 ## Security
 

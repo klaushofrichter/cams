@@ -209,10 +209,17 @@ export async function deleteItems(items: ArchiveItem[]): Promise<{ removed: stri
   return { removed: perProxy.flatMap((r) => r.removed), errors: perProxy.flatMap((r) => r.errors) };
 }
 
-// The ZIP downloads for a selection (spec ruling 4): one per proxy and 200 clips.
+// The ZIP downloads for a selection (spec ruling 4): one per proxy and 200
+// clips. A ZIP whose clips are all of one cams camera names it (`cam`), so
+// cams can name the file after it: a multi-camera proxy calls its ZIPs "all".
 export function zipUrls(items: ArchiveItem[]): string[] {
   const out: string[] = [];
-  for (const [via, list] of byProxy(items)) for (const part of chunks(list, 200)) out.push(`/api/archive/${enc(via)}/zip?ids=${part.map((x) => x.id).join(',')}`);
+  for (const [via, list] of byProxy(items))
+    for (const part of chunks(list, 200)) {
+      const cams = new Set(part.map((x) => x.camera));
+      const [cam] = cams;
+      out.push(`/api/archive/${enc(via)}/zip?ids=${part.map((x) => x.id).join(',')}${cams.size === 1 && cam ? `&cam=${enc(cam)}` : ''}`);
+    }
   return out;
 }
 

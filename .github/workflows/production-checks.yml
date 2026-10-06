@@ -71,6 +71,31 @@ jobs:
           path: test-results/
           retention-days: 7
 
+  # The Video specs at fixed Chicago times of day (00:30 to 23:50, the
+  # runner's UTC a day ahead too), each with the whole stack's clock moved
+  # there (scripts/e2e-time-of-day.ts, issue #213): a spec that only passes
+  # at some hours fails here whenever the PR runs.
+  e2e-time-of-day:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 26
+      - run: npm ci
+      - run: sudo rm -f /etc/apt/sources.list.d/google-chrome.list
+      - name: Ensure ffmpeg (the fake cam-proxy's media)
+        run: command -v ffmpeg || (sudo apt-get update && sudo apt-get install -y --no-install-recommends ffmpeg)
+      - run: npx playwright install --with-deps chromium
+      - run: npm run build
+      - run: npm run test:e2e:times
+      - uses: actions/upload-artifact@v7
+        if: failure()
+        with:
+          name: e2e-time-of-day-results
+          path: test-results/
+          retention-days: 7
+
   codeql:
     runs-on: ubuntu-latest
     permissions:

@@ -8,7 +8,6 @@ published as [GitHub releases](https://github.com/klaushofrichter/cams/releases)
 
 ## [Unreleased]
 
-
 ### Fixed
+- Archive: a ZIP of one camera's clips from a cam-proxy with several cameras is named after that camera (it was named after the proxy's first camera).
 
-- cams exits within a second or two of SIGTERM again: an ended cam-proxy event stream's idle watchdog kept the process alive for up to 45 s (#216).

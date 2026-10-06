@@ -380,10 +380,11 @@ export function installFakeArchive(app: Express, fake: FakeProxy, dir: string): 
     if (a.zipHeaderDelayMs) await new Promise((r) => setTimeout(r, a.zipHeaderDelayMs));
     if (res.destroyed) return;
     const zip = storedZip(files);
-    const first = a.entries.get(ids[0])!.item;
     const t = new Date().toISOString().replace(/[-:]/g, '').slice(0, 15).replace('T', '-');
-    // As cam-proxy names it (src/archive/rules.ts): a quoted ASCII name and its RFC 5987 twin.
-    const zipName = `archive-${first.cam}-${t}.zip`;
+    // As cam-proxy names it (src/api/archive-api.ts, src/archive/rules.ts): after
+    // its camera, "all" when it has several; a quoted ASCII name and its RFC 5987 twin.
+    const own = [...fake.cameraNames.keys()];
+    const zipName = `archive-${own.length === 1 ? own[0] : 'all'}-${t}.zip`;
     res.writeHead(200, { 'Content-Type': 'application/zip', 'Content-Length': String(zip.length), 'Content-Disposition': a.zipDisposition ?? `attachment; filename="${zipName}"; filename*=UTF-8''${zipName}` });
     if (!a.zipChunkDelayMs) return void res.end(zip);
     // In pieces, the last one late: a relay that buffers shows nothing until then.

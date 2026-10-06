@@ -1,4 +1,5 @@
-import { expect, test, type Page } from '@playwright/test';
+import { type Page } from '@playwright/test';
+import { expect, test } from './clock';
 import { signIn } from './session';
 
 // Video page stage 2 (spec docs/superpowers/specs/2026-10-04-video-page-design.md):

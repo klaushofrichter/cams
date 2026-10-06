@@ -168,7 +168,7 @@ describe('Archive page', () => {
       click(q('archive-select-all'));
       click(q('archive-bulk-zip'));
       vi.advanceTimersByTime(2000);
-      expect(anchors).toEqual(['/api/archive/den/zip?ids=1,2', '/api/archive/cam2/zip?ids=1']);
+      expect(anchors).toEqual(['/api/archive/den/zip?ids=1,2&cam=den', '/api/archive/cam2/zip?ids=1&cam=cam2']);
       expect(q('archive-notice')!.textContent).toBe('2 ZIP files: one per cam-proxy and 200 clips.');
       // Two more right away would pass the 4 a minute: the fifth and sixth wait for the window.
       click(q('archive-bulk-zip'));
