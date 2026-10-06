@@ -317,4 +317,4 @@ day and can take minutes on the real camera. Neither is ever a repair.
 | cams #211 (P3) + 2 × cam-proxy v2026.10.05.5 | 8/9: both Archive ZIPs downloaded as `archive.zip` (cams accepted only the plain `filename="…"`; fixed in #215) |
 | cams main b19923b (P3 + #215) + 2 × cam-proxy v2026.10.05.6 | 9/9, generator re-run no-op |
 | same, proxy B with two cam-sims (`TWOPROXY_B_CAMS=2`, P1) | 11/11, generator re-run no-op |
-| RESULT_PLACEHOLDER |
+| cams fb5e63f (P3 tasks 11–12, PR #224) + 2 × cam-proxy v2026.10.05.7, proxy B with three cam-sims (`TWOPROXY_B_CAMS=3`, P1+P2: an FTP user each, all three uploaded clips) | 15/15, generator re-run no-op |
