@@ -26,11 +26,12 @@
 # a-cam1 ("Alpha") and b-cam1 ("Bravo"), and each maps back to cam1 on its own
 # proxy. That is the case where a mix-up between proxies would show.
 #
-# Multi-camera proxy B (cam-proxy P1, released in v2026.10.05.6):
-# TWOPROXY_B_CAMS=N (default 1) starts N cam-sims behind proxy B (b-cam1 …
-# b-camN) and writes proxy B's config with P1's "cameras": [ … ] list instead
-# of "camera". A cam-proxy without P1 refuses that config, and this script
-# stops there.
+# Multi-camera proxy B (cam-proxy P1+P2, released in v2026.10.05.7; cams
+# plan 2026-10-05-multi-camera-p3-cams, Task 12): TWOPROXY_B_CAMS=N (default
+# 1) starts N cam-sims behind proxy B (b-cam1 … b-camN) and writes proxy B's
+# config with the "cameras": [ … ] list instead of "camera", each camera
+# uploading by FTP as its own user (P2). A cam-proxy without them refuses
+# that config, and this script stops there.
 #
 # Ports, all on 127.0.0.1 (the suites use 8090-8099, 8190-8598, 18480-18602;
 # the sim and real stacks 19080-19943 but 19600-19899):
@@ -38,6 +39,7 @@
 #                               control+UI +2, rtsp +3, onvif +4, baichuan +5
 #   cam-proxy A  19680, go2rtc 19681/19682, FTPS 19683, passive 19690-19699
 #   cam-proxy B  19780, go2rtc 19781/19782, FTPS 19783, passive 19790-19799
+#                (10 more per further camera: up to 19829)
 #   cams         19880
 #
 # Secrets: every password and token is random per run, in run/secrets-a and
@@ -85,9 +87,10 @@ fi
 B_CAMS="${TWOPROXY_B_CAMS:-1}"
 [[ "$B_CAMS" =~ ^[1-4]$ ]] || die "TWOPROXY_B_CAMS is 1 to 4"
 SIMS=$((1 + B_CAMS))   # sim 1 is A's, sims 2.. are B's
+B_PASSIVE="19790-$((19789 + 10 * B_CAMS))"   # 10 per camera with FTP (cam-proxy spec 2026-10-05 §7)
 
 new_run
-ports=($PROXY_A_PORT 19681 19682 19683 $(seq 19690 19699) $PROXY_B_PORT 19781 19782 19783 $(seq 19790 19799) $CAMS_PORT)
+ports=($PROXY_A_PORT 19681 19682 19683 $(seq 19690 19699) $PROXY_B_PORT 19781 19782 19783 $(seq 19790 $((19789 + 10 * B_CAMS))) $CAMS_PORT)
 for n in $(seq 1 $SIMS); do for o in 0 1 2 3 4 5; do ports+=("$(sim_port "$n" $o)"); done; done
 require_ports_free "${ports[@]}"
 [ -x "$MEDIAMTX_BIN" ] || die "MediaMTX missing at $MEDIAMTX_BIN (cam-sim scripts/install-mediamtx.sh, or set MEDIAMTX_BIN)"
@@ -150,11 +153,10 @@ runenv_put CAMS_COOKIE_SECRET "$(gen_token)"
 runenv_put SESSION_EMAIL "$SESSION_EMAIL"
 
 # cam-proxy configs (schema: <src>/config.schema.json). One camera: the
-# released "camera" object. Several (proxy B with TWOPROXY_B_CAMS > 1): P1's
-# "cameras" list, each with its own FTP user (spec 2026-10-05 §4.2), FTP on
-# for the first camera only (P1 Ruling P1-2: one FTP camera until the
-# per-camera users of phase 2; the other cam-sims don't upload); an older
-# proxy refuses it in validate_proxy_config.
+# legacy "camera" object. Several (proxy B with TWOPROXY_B_CAMS > 1): the
+# "cameras" list, each camera uploading by FTP as its own user (spec
+# 2026-10-05 §4.2, §7: one FTP server for all, P2); an older proxy refuses it
+# in validate_proxy_config.
 camera_json() { # camera_json SIM_N ID NAME
   jq -n --arg id "$2" --arg name "$3" --argjson http "$(sim_port "$1" 0)" --argjson rtsp "$(sim_port "$1" 3)" \
     --argjson onvif "$(sim_port "$1" 4)" --argjson bc "$(sim_port "$1" 5)" \
@@ -175,15 +177,15 @@ proxy_config() { # proxy_config X PORT FTP_PORT PASSIVE CAMERAS_JSON_ARRAY
     ftp: { enabled: true, port: $ftp, passive: $passive, tls: true, stream: "sub", publicHost: "127.0.0.1" }
   } + (if ($cams | length) == 1
        then { camera: $cams[0] } | .ftp.user = "camera"
-       else { cameras: ($cams | to_entries | map(.value + { ftp: { user: .value.id, enabled: (.key == 0) } })) } end)' > "$RUN/proxy-$x/config.json"
+       else { cameras: ($cams | map(. + { ftp: { user: .id } })) } end)' > "$RUN/proxy-$x/config.json"
 }
 proxy_config a $PROXY_A_PORT 19683 19690-19699 "[$(camera_json 1 cam1 Alpha)]"
 b_cams="$(for i in $(seq 1 "$B_CAMS"); do camera_json $((1 + i)) "cam$i" "$([ "$i" = 1 ] && echo Bravo || echo "Bravo $i")"; done | jq -s -c .)"
-proxy_config b $PROXY_B_PORT 19783 19790-19799 "$b_cams"
+proxy_config b $PROXY_B_PORT 19783 "$B_PASSIVE" "$b_cams"
 validate_proxy_config "$RUN/proxy-a/config.json" "$PROXY_A_SRC" "$RUN/secrets-a"
 if [ "$B_CAMS" -gt 1 ]; then
   ( validate_proxy_config "$RUN/proxy-b/config.json" "$PROXY_B_SRC" "$RUN/secrets-b" ) \
-    || die "proxy B ($PROXY_B_REF) refuses a config with $B_CAMS cameras: TWOPROXY_B_CAMS > 1 needs a cam-proxy with P1 (v2026.10.05.6 or newer)"
+    || die "proxy B ($PROXY_B_REF) refuses a config with $B_CAMS cameras: TWOPROXY_B_CAMS > 1 needs a cam-proxy with P1+P2 (v2026.10.05.7 or newer)"
 else
   validate_proxy_config "$RUN/proxy-b/config.json" "$PROXY_B_SRC" "$RUN/secrets-b"
 fi
@@ -192,7 +194,7 @@ fi
 # (the first start generates the shared fixtures). Like the sim stack, but no
 # automatic events: every event in a check run is one the check triggered, so
 # it can say which proxy it must reach and which not. Each uploads its clips
-# (sub) by FTPS to its own proxy.
+# (sub) by FTPS to its own proxy, as its own FTP user there.
 start_sim() { # start_sim N NAME X FTP_PORT FTP_USER (FTP_PORT "": no uploads)
   local n="$1" d="$RUN/secrets-$3" ftp=()
   mkdir -p "$RUN/camsim-$n" "$FIXTURES"
@@ -213,7 +215,7 @@ start_sim() { # start_sim N NAME X FTP_PORT FTP_USER (FTP_PORT "": no uploads)
 }
 start_sim 1 Alpha a 19683 camera
 for i in $(seq 1 "$B_CAMS"); do
-  start_sim $((1 + i)) "$([ "$i" = 1 ] && echo Bravo || echo "Bravo $i")" b "$([ "$i" = 1 ] && echo 19783)" "$([ "$B_CAMS" = 1 ] && echo camera || echo "cam$i")"
+  start_sim $((1 + i)) "$([ "$i" = 1 ] && echo Bravo || echo "Bravo $i")" b 19783 "$([ "$B_CAMS" = 1 ] && echo camera || echo "cam$i")"
 done
 
 start_proxy "$RUN/proxy-a/config.json" cam-proxy-a "$PROXY_A_SRC" "$RUN/secrets-a"

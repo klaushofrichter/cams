@@ -470,15 +470,18 @@ archiveRouter.get('/api/archive/:via/items/:id/metadata', async (req, res) => {
 // --- ZIP (contract §5) ------------------------------------------------------
 
 // The ZIP's name is cams's own: archive-<camera>-<YYYYMMDD-HHMMSS>.zip.
-// cam-proxy names it after its own id of the first clip's camera, which two
-// proxies may share (both "cam1"): cams puts its own id for that camera
-// instead, else the camera it reaches the proxy through (`via`); both are
-// unique across proxies. The time is the proxy's, from its name, else
+// cam-proxy names it after its one camera's id, which two proxies may share
+// (both "cam1"), or "all" when it has several cameras. cams names it after
+// the cams camera of the clips (`cam`, which the browser sends when they are
+// all of one camera, if that camera uses this proxy), else its own id for
+// the proxy's camera, else the camera it reaches the proxy through (`via`);
+// all unique across proxies. The time is the proxy's, from its name, else
 // cams's clock (UTC).
 const ZIP_NAME = /^archive-([A-Za-z0-9_-]{1,64})-(\d{8}-\d{6})\.zip$/;
-function zipName(p: Pick<ArchiveProxy, 'via' | 'toCams'>, proxyName: string | undefined, now = new Date()): string {
+function zipName(p: Pick<ArchiveProxy, 'via' | 'toCams' | 'cams'>, proxyName: string | undefined, hint: unknown, now = new Date()): string {
   const m = proxyName ? ZIP_NAME.exec(proxyName) : null;
-  const cam = (m && p.toCams.get(m[1])) || p.via;
+  const named = typeof hint === 'string' && p.cams.includes(hint) ? hint : undefined;
+  const cam = named || (m && p.toCams.get(m[1])) || p.via;
   const time = m?.[2] ?? now.toISOString().replace(/[-:]/g, '').slice(0, 15).replace('T', '-');
   return `archive-${cam.replace(/[^A-Za-z0-9_-]/g, '_').slice(0, 64)}-${time}.zip`;
 }
@@ -491,7 +494,7 @@ archiveRouter.get('/api/archive/:via/zip', createArchiveRateLimit('zip'), async 
     // A ZIP of many 4K clips takes long: no idle cut while the proxy sends.
     const up = await p.client.open('/api/archive/zip', { ids: ids.join(',') }, { signal: viewerGone(res), idleMs: 60_000, timeoutMs: 60_000 });
     if (!up.ok || !up.body) return void (await passRefusal(up, res));
-    const headers: Record<string, string> = { 'Content-Type': 'application/zip', 'Content-Disposition': `attachment; filename="${zipName(p, attachment(up)?.name)}"` };
+    const headers: Record<string, string> = { 'Content-Type': 'application/zip', 'Content-Disposition': `attachment; filename="${zipName(p, attachment(up)?.name, req.query.cam)}"` };
     const len = header(up, 'content-length', /^\d{1,15}$/);
     if (len) headers['Content-Length'] = len;
     res.status(200).set(headers);

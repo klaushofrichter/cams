@@ -125,6 +125,21 @@ test('both cameras are listed, each with its own cam-proxy', async ({ page }) =>
   await expect(page.getByTestId('camera-picker').locator('option')).toHaveText(names);
 });
 
+// One upstream event stream per cam-proxy, whatever number of cameras it
+// serves (cam-proxy spec 2026-10-05 §12.2): cams is each proxy's only SSE
+// client. A proxy with several cameras says it filters its stream by a list
+// (`sse-cam-list`), which cams then subscribes with (?cam=<its ids>).
+test('one event stream per cam-proxy, for all its cameras', async ({ request }) => {
+  for (const [x, cams] of [['A', [A]], ['B', B_ALL]] as const) {
+    const url = env[`PROXY_${x}_URL`];
+    const list = (await (await request.get(`${url}/api/cameras`, { headers: { Authorization: `Bearer ${env[`PROXY_${x}_TOKEN`]}` } })).json()) as { id: string; features?: string[] }[];
+    expect(list.map((c) => c.id), `proxy ${x}'s cameras`).toEqual(cams.map((c) => c.replace(/^[ab]-/, '')));
+    if (cams.length > 1) for (const c of list) expect(c.features, `proxy ${x} ${c.id}`).toContain('sse-cam-list');
+    const status = (await (await request.get(`${url}/control/status`, { headers: { Authorization: `Bearer ${env[`PROXY_${x}_ADMIN_TOKEN`]}` } })).json()) as { sse: { clients: number } };
+    expect(status.sse.clients, `proxy ${x}'s SSE clients (${cams.length} cameras)`).toBe(1);
+  }
+});
+
 for (const cam of ALL) {
   test(`live view and snapshot: ${cam}`, async ({ page }) => {
     await page.goto(`/app/video?cam=${cam}`);
@@ -265,6 +280,49 @@ test('the Archive merges both proxies', async ({ page }) => {
     const bytes = readFileSync((await d.path())!);
     expect(bytes.subarray(0, 2).toString('latin1'), d.suggestedFilename()).toBe('PK');
     expect(bytes.length).toBeGreaterThan(10_000);
+  }
+});
+
+// Proxy B with several cameras (TWOPROXY_B_CAMS > 1): one Archive for all of
+// them, reached through its first camera; a clip of a neighbour is listed
+// with that camera, and a ZIP of it alone is named after it (cam-proxy itself
+// calls a multi-camera host's ZIPs "archive-all-…"). The clip is deleted
+// again: the later steps count this run's clips.
+test('a multi-camera proxy: one Archive for its cameras, a ZIP named after its clip’s camera', async ({ page }) => {
+  test.skip(B_ALL.length < 2, 'proxy B has one camera (TWOPROXY_B_CAMS)');
+  const N = B_ALL[1]; // b-cam2, "Bravo 2"
+  expect(clipOf[N], 'a clip of it from the step before').toBeTruthy();
+  const proxies = await getJson<{ proxies: { via: string; cams: string[]; ok: boolean }[] }>(page.request, `/api/archive?q=${RUN}`);
+  expect(proxies.body.proxies.find((p) => p.via === B)).toEqual({ via: B, cams: B_ALL, ok: true });
+  const res = await page.request.post(`/api/cameras/${N}/archive`, { data: { source: { type: 'event', eventId: clipOf[N], quality: 'sub' }, name: `${RUN} ${NAME[N]}`, labels: ['livestack'] }, timeout: 60_000 });
+  expect([201, 202], `archive ${clipOf[N]} of ${N}: ${res.status()} ${await res.text()}`).toContain(res.status());
+  let job = (await res.json()) as { id: string; via: string; state: string };
+  expect(job.via).toBe(B);
+  await expect
+    .poll(
+      async () => {
+        if (job.state === 'done' || job.state === 'failed' || job.state === 'cancelled') return job.state;
+        job = (await getJson<typeof job>(page.request, `/api/archive/${B}/jobs/${job.id}`)).body;
+        return job.state;
+      },
+      { timeout: 120_000, intervals: [2000] },
+    )
+    .toBe('done');
+  const list = await getJson<{ items: { via: string; id: number; camera: string | null; cam: string; name: string }[] }>(page.request, `/api/archive?q=${encodeURIComponent(`${RUN} ${NAME[N]}`)}`);
+  const item = list.body.items.find((x) => x.name === `${RUN} ${NAME[N]}`);
+  try {
+    expect(item && [item.camera, item.cam, item.via]).toEqual([N, 'cam2', B]);
+    await page.goto('/app/archive');
+    await page.getByTestId('archive-search').fill(`${RUN} ${NAME[N]}`);
+    const row = page.getByTestId('archive-row');
+    await expect(row).toHaveCount(1, { timeout: 30_000 });
+    await expect(row).toContainText(NAME[N]);
+    await row.getByTestId('archive-select').click();
+    const [zip] = await Promise.all([page.waitForEvent('download'), page.getByTestId('archive-bulk-zip').click()]);
+    expect(zip.suggestedFilename()).toMatch(new RegExp(`^archive-${N}-\\d{8}-\\d{6}\\.zip$`));
+    expect(readFileSync((await zip.path())!).subarray(0, 2).toString('latin1')).toBe('PK');
+  } finally {
+    if (item) await page.request.delete(`/api/archive/${B}/items/${item.id}`);
   }
 });
 

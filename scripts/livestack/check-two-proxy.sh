@@ -4,10 +4,12 @@
 #
 # 1. scripts/livestack/two-proxy.spec.ts (Playwright, Google Chrome, its own
 #    config two-proxy.config.ts: no web servers, cams' URL from run.env):
-#    both cameras listed; live view and snapshot per camera; stills, a clip
+#    both cameras listed; one SSE client per proxy, however many cameras it
+#    serves; live view and snapshot per camera; stills, a clip
 #    and a top-bar notice per camera; an event on one proxy never shows for
 #    the other's camera (both ways); the Archive merges both proxies (one clip
-#    archived on each, listed with its camera, one ZIP per proxy); proxy B
+#    archived on each, listed with its camera, one ZIP per proxy; with
+#    TWOPROXY_B_CAMS > 1 a neighbour's clip on proxy B and its ZIP's name); proxy B
 #    stopped (camera A goes on, B's proxy shows unreachable) and started again
 #    (its events flow, nothing old replayed). That step stops and starts
 #    proxy B through start-two-proxy-stack.sh --stop-proxy-b / --start-proxy-b.
