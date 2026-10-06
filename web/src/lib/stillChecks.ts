@@ -49,12 +49,12 @@ export function budgetBlock(u: UsageState): string | null {
   return null;
 }
 
-// "14 of 1000 Vision calls this month · 2 of 10 checks today" (every Vision call, automatic and checks, counts against the month), the price once past the free tier.
+// "14 of 1000 Vision calls this month · 2 of 10 manual checks done today" (every Vision call, automatic and checks, counts against the month), the price once past the free tier.
 export function usageLine(u: UsageState): string {
   if (u.kind !== 'ok') return '';
   const x = u.usage;
   const price = x.month.calls >= FREE_PER_MONTH ? ` (about ${PRICE_PER_CHECK} a check beyond ${FREE_PER_MONTH} a month)` : '';
-  return `${x.month.calls} of ${x.month.limit} Vision calls this month · ${x.checks.today} of ${x.checks.cap} checks today${price}`;
+  return `${x.month.calls} of ${x.month.limit} Vision calls this month · ${x.checks.today} of ${x.checks.cap} manual checks done today${price}`;
 }
 
 export interface ButtonState { label: string; disabled: boolean; reason: string | null }
