@@ -413,6 +413,16 @@ describe('StripPlayer', () => {
     expect(q('mode-badge')!.textContent!.trim()).toBe('● STILLS');
   });
 
+  // Klaus 2026-10-06 (screenshot): the line under the player read "● STILLS · STILLS";
+  // its source part says what the stills are, as for recorded stills.
+  it('the info line under live stills names the stills once', () => {
+    liveUi.update((u) => ({ ...u, playerState: 'connecting', stillsShowing: true, badge: '● STILLS', status: { id: 'den', online: true } }));
+    render({ glued: true, now: T + 2000, at: T + 12_000 });
+    expect(q('live-badge')!.textContent!.trim()).toBe('● STILLS');
+    expect(q('source-badge')!.textContent!.trim()).toBe('Stills 1 FPS');
+    expect(q('strip-info')!.textContent!.replace(/\s+/g, ' ').trim()).toBe('● STILLS · Stills 1 FPS');
+  });
+
   it('a click on the REC badge goes back to live; the LIVE badge is no button', () => {
     const onglue = vi.fn();
     const p = render({ onglue }) as unknown as { glued: boolean };
