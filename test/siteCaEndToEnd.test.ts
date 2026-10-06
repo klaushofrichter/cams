@@ -59,7 +59,7 @@ describe('site CA end to end', () => {
     resetClients();
     startProxyStreams({ backoffMinMs: 50, backoffMaxMs: 300, healthyMs: 200 });
     await expect.poll(() => proxyStates()).toEqual([{ cam: 'garage-cam3', up: true }, { cam: 'garage-cam5', up: true }]);
-    await expect.poll(() => fallbackPin('garage-cam5')).toBe(certFingerprint(fx('selfsigned.pem')));
+    await expect.poll(() => fallbackPin('garage-cam5', cameraHost('garage-cam5'))).toBe(certFingerprint(fx('selfsigned.pem')));
     await expect.poll(() => [cameraHost('garage-cam3'), cameraHost('garage-cam5')]).toEqual([cam3.host, cam5.host]); // from-proxy addresses
     expect((await getClient('garage-cam3')!.status()).model).toBe('RLC-1224A');
     expect((await getClient('garage-cam5')!.status()).model).toBe('RLC-1224A');

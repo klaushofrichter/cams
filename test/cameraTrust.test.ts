@@ -48,8 +48,15 @@ describe('cameraTrust', () => {
   it('a fallback pin wins over the CA', async () => {
     setCameras([site('cam3', '192.168.60.13')]);
     await addVerifiedCa(A, CA_A);
-    await setFallbackPin('cam3', 'cd'.repeat(32));
+    await setFallbackPin('cam3', { fingerprint: 'cd'.repeat(32), host: '192.168.60.13' });
     expect(cameraTrust(getCamera('cam3')!)).toEqual({ kind: 'pinned', fingerprint: 'cd'.repeat(32) });
+  });
+
+  it('a pin reported for another address doesn’t apply: back to the CA (a moved camera, security review of #227)', async () => {
+    setCameras([site('cam3', '192.168.60.14')]);
+    await addVerifiedCa(A, CA_A);
+    await setFallbackPin('cam3', { fingerprint: 'cd'.repeat(32), host: '192.168.60.13' });
+    expect(cameraTrust(getCamera('cam3')!)).toEqual({ kind: 'site-ca', ca: [CA_A], servername: 'cam3.test.internal' });
   });
 
   it('keeps the Pi’s Let’s Encrypt path', () => {
@@ -108,9 +115,9 @@ describe('the direct client with a site CA', () => {
     const c = await startTlsCamera('selfsigned', reply);
     stops.push(c.stop);
     setCameras([site('cam5', c.host)]);
-    await setFallbackPin('cam5', certFingerprint(pem('selfsigned')));
+    await setFallbackPin('cam5', { fingerprint: certFingerprint(pem('selfsigned')), host: c.host });
     expect((await getClient('cam5')!.cameraCertificate())?.subject).toBe('CERTIFICATE');
-    await setFallbackPin('cam5', 'ab'.repeat(32));
+    await setFallbackPin('cam5', { fingerprint: 'ab'.repeat(32), host: c.host });
     expect(await getClient('cam5')!.cameraCertificate()).toBeNull();
     await expect(getClient('cam5')!.status()).rejects.toMatchObject({ code: 'camera_error' });
   });

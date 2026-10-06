@@ -1,4 +1,4 @@
-import { getCamera, setReportedAddress, setReportedName } from '../cameraRegistry';
+import { cameraHost, getCamera, setReportedAddress, setReportedName } from '../cameraRegistry';
 import { logger } from '../logger';
 import { applyProxyTls } from '../tls/cameraTrust';
 import { ensureGroupCa } from '../tls/groupCa';
@@ -35,10 +35,10 @@ export function forgetProxyName(id: string): void {
 export const plausibleName = (v: unknown): v is string => typeof v === 'string' && v.length > 0 && v.length <= 64 && !/\p{C}/u.test(v);
 
 // The camera's entry in the proxy's camera list (no answer, no entry: undefined).
-async function readProxyEntry(id: string, timeoutMs: number): Promise<ProxyCameraEntry | undefined> {
+async function readProxyEntry(id: string, timeoutMs: number, maxAgeMs?: number): Promise<ProxyCameraEntry | undefined> {
   if (!getProxyClient(id)) return undefined;
   try {
-    return entryOf(id, await readProxyList(id, timeoutMs));
+    return entryOf(id, await readProxyList(id, timeoutMs, maxAgeMs === undefined ? {} : { maxAgeMs }));
   } catch (err) {
     logger.debug({ cameraId: id, message: (err as Error).message }, 'proxy_name_unread');
     return undefined;
@@ -53,8 +53,9 @@ export async function readProxyName(id: string, timeoutMs = 5000): Promise<strin
 
 // The name and, for a "from-proxy" camera, its address (spec
 // 2026-10-04-camera-address-from-proxy-design): read when the stream comes up.
-export async function refreshProxyName(id: string): Promise<void> {
-  const mine = await readProxyEntry(id, 5000);
+// `fresh`: not from a list read in the last 2 s (a camera that just moved).
+export async function refreshProxyName(id: string, o: { fresh?: boolean } = {}): Promise<void> {
+  const mine = await readProxyEntry(id, 5000, o.fresh ? 0 : undefined);
   // The stream may have gone down (or the proxy been switched off) meanwhile.
   if (!mine || !proxyStates().some((s) => s.cam === id && s.up)) return;
   if (plausibleName(mine.name)) setReportedName(id, mine.name);
@@ -103,5 +104,11 @@ proxyHub.on('message', (m: { cam: string; type: string; data: Record<string, unk
   if (m.type !== 'camera') return;
   if (plausibleName(m.data.name)) setReportedName(m.cam, m.data.name);
   // cam-proxy's `camera` message carries the address too (it may carry only that).
-  if (m.data.address !== undefined) setReportedAddress(m.cam, m.data.address);
+  if (m.data.address !== undefined) {
+    const before = cameraHost(m.cam);
+    setReportedAddress(m.cam, m.data.address);
+    // A pin is for one address: a pinned proxy's camera that moved has its
+    // list entry (and with it its pin) read again now.
+    if (cameraHost(m.cam) !== before && groupOf(m.cam)?.pins) void refreshProxyName(m.cam, { fresh: true });
+  }
 });

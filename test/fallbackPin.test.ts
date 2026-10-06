@@ -32,6 +32,7 @@ beforeEach(async () => {
   f = await startFakeProxy({ tls: { key: fx('proxy-a.key'), cert: fx('proxy-a.pem') } });
   f.caPem = fx('ca-a.pem');
   f.cameraNames.set('cam5', 'Shed');
+  f.cameraAddresses.set('cam5', '192.0.2.15');
   f.cameraTls.set('cam5', { mode: 'pinned', servername: null, fingerprint: formatFingerprint(LEAF), notAfter: null, lastPush: { at: 1, outcome: 'refused' } });
   f.cameraTls.set('cam1', { mode: 'site-ca', servername: 'cam3.test.internal', fingerprint: 'ee'.repeat(32), notAfter: 2, lastPush: null });
 });
@@ -58,23 +59,34 @@ describe('fallback pins', () => {
   it('pins what the proxy reports for a camera that refused the import, and keeps it', async () => {
     cams([A]);
     startProxyStreams(OPTS);
-    await expect.poll(() => fallbackPin('shed')).toBe(LEAF);
+    await expect.poll(() => fallbackPin('shed', cameraHost('shed'))).toBe(LEAF);
     expect(cameraTrust(getCamera('shed')!)).toEqual({ kind: 'pinned', fingerprint: LEAF });
-    expect(fallbackPin('den')).toBeUndefined();
+    expect(fallbackPin('den', cameraHost('den'))).toBeUndefined();
     loadTlsState(); // a restart
-    expect(fallbackPin('shed')).toBe(LEAF);
+    expect(fallbackPin('shed', cameraHost('shed'))).toBe(LEAF);
   });
 
   it('clears the pin when the proxy reports the camera on the site CA again', async () => {
     cams([A]);
     startProxyStreams(OPTS);
-    await expect.poll(() => fallbackPin('shed')).toBe(LEAF);
+    await expect.poll(() => fallbackPin('shed', cameraHost('shed'))).toBe(LEAF);
     stopProxyStreams();
     resetProxyClients(); // a fresh client: the camera list isn't served from the last 2 s
     f.cameraTls.set('cam5', { mode: 'site-ca', servername: 'cam5.test.internal', fingerprint: 'ff'.repeat(32), notAfter: 3, lastPush: { at: 2, outcome: 'pushed' } });
     startProxyStreams(OPTS);
-    await expect.poll(() => fallbackPin('shed')).toBeUndefined();
+    await expect.poll(() => fallbackPin('shed', cameraHost('shed'))).toBeUndefined();
   });
+
+  it('a camera that moves: its old pin no longer applies, and the list is read again for the new one', async () => {
+    cams([A]);
+    startProxyStreams(OPTS);
+    await expect.poll(() => fallbackPin('shed', '192.0.2.15')).toBe(LEAF);
+    f.cameraAddresses.set('cam5', '192.0.2.16');
+    f.push({ cam: 'cam5', type: 'camera', data: { address: '192.0.2.16' } });
+    await expect.poll(() => cameraHost('shed')).toBe('192.0.2.16');
+    await expect.poll(() => fallbackPin('shed', '192.0.2.16'), { timeout: 3000 }).toBe(LEAF);
+    expect(fallbackPin('shed', '192.0.2.15')).toBeUndefined();
+  }, 15_000);
 
   it('re-reads the list while the stream stays up', async () => {
     setListRefreshMs(200);
@@ -83,7 +95,7 @@ describe('fallback pins', () => {
     startProxyStreams(OPTS);
     await expect.poll(() => proxyStates().every((s) => s.up)).toBe(true);
     f.cameraTls.set('cam5', { mode: 'pinned', servername: null, fingerprint: LEAF, notAfter: null, lastPush: null });
-    await expect.poll(() => fallbackPin('shed'), { timeout: 5000 }).toBe(LEAF); // the list is shared for 2 s, so the first re-read after that sees it
+    await expect.poll(() => fallbackPin('shed', cameraHost('shed')), { timeout: 5000 }).toBe(LEAF); // the list is shared for 2 s, so the first re-read after that sees it
   });
 
   it('a pinned loopback http proxy whose CA wasn’t there at start gets it when the list is read again', async () => {
@@ -117,7 +129,7 @@ describe('fallback pins', () => {
       await expect.poll(() => cameraHost('den')).toBe(reset.host);
       await expect.poll(() => cameraTrust(getCamera('den')!).kind).toBe('site-ca');
       await expect(getClient('den')!.status()).rejects.toMatchObject({ code: 'camera_error' });
-      expect(fallbackPin('den')).toBeUndefined();
+      expect(fallbackPin('den', cameraHost('den'))).toBeUndefined();
       expect(cameraTrust(getCamera('den')!)).toEqual({ kind: 'site-ca', ca: [fx('ca-a.pem')], servername: 'cam3.test.internal' });
       expect(reset.received()).toBe(0);
     } finally {
@@ -129,26 +141,27 @@ describe('fallback pins', () => {
   it('keeps a pin while the proxy reports a mode it doesn’t know', async () => {
     cams([A]);
     startProxyStreams(OPTS);
-    await expect.poll(() => fallbackPin('shed')).toBe(LEAF);
+    await expect.poll(() => fallbackPin('shed', cameraHost('shed'))).toBe(LEAF);
     stopProxyStreams();
     resetProxyClients();
     f.cameraTls.set('cam5', { mode: 'public', servername: null, fingerprint: 'ff'.repeat(32), notAfter: null, lastPush: null });
     startProxyStreams(OPTS);
     await expect.poll(() => proxyStates().every((s) => s.up)).toBe(true);
     await new Promise((r) => setTimeout(r, 200));
-    expect(fallbackPin('shed')).toBe(LEAF);
+    expect(fallbackPin('shed', cameraHost('shed'))).toBe(LEAF);
   });
 
   it('ignores a tls block from a proxy without a pin', async () => {
     const plain = await startFakeProxy();
     plain.cameraNames.set('cam5', 'Shed');
+    plain.cameraAddresses.set('cam5', '192.0.2.15');
     plain.cameraTls.set('cam5', { mode: 'pinned', fingerprint: LEAF });
     try {
       cams(undefined, plain.url);
       startProxyStreams(OPTS);
       await expect.poll(() => proxyStates().every((s) => s.up)).toBe(true);
       await new Promise((r) => setTimeout(r, 200));
-      expect(fallbackPin('shed')).toBeUndefined();
+      expect(fallbackPin('shed', cameraHost('shed'))).toBeUndefined();
     } finally {
       stopProxyStreams();
       await plain.stop();
