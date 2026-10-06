@@ -51,6 +51,16 @@
 - **Ruling: P3 builds the site-CA fetch (`server/tls/`) and its HTTPS fake-proxy mode** — why: spec §13.3 "its pin path is tested against a fake proxy with a test CA" in P3; P5 reuses the same modules for the runtime — cost if wrong: none; the modules are small and tested here.
 - **Ruling: CA fingerprints are compared as 64 lowercase hex digits; input may be `SHA256:` + hex, with or without colons, any case** — why: cam-proxy emits `SHA256:` + upper-case hex without colons (spec §10.4, cam-proxy P5 Ruling P5-8), and Node gives `AB:CD:…` — cost if wrong: a base64 (OpenSSH-style) fingerprint is refused with a clear message.
 
+Rulings made while doing Tasks 11 and 12 (2026-10-05, after cam-proxy v2026.10.05.7 with P1+P2):
+
+- **Ruling: Task 12 is the two-proxy stack with `TWOPROXY_B_CAMS=3`, not a new `start-multi-stack.sh`/`check-multi.sh`** — why: cams main already had `start-two-proxy-stack.sh` running proxy B with N cam-sims and cams' `cameras.json` from the generator, and its Playwright checks already cover the plan's checks 1, 2, 4 and 5 (listing, stills, per-camera events); the two missing ones (one SSE client per proxy, the Archive of a multi-camera proxy) were added there — cost if wrong: a multi-camera run also starts proxy A and its camera (~1 min more).
+- **Ruling: proxy B's cameras each upload by FTP as their own user (no more "FTP on the first camera only")** — why: that was P1 Ruling P1-2 "until phase 2", and v2026.10.05.7 has P2 — cost if wrong: `TWOPROXY_B_CAMS` > 1 needs v2026.10.05.7 or newer (the script says so).
+- **Ruling: a ZIP whose clips are all of one cams camera is named after it (the browser sends `cam`, the server uses it only if that camera is in the proxy's group); a mixed one keeps the `via` camera's name** — why: the real multi-camera proxy names every ZIP `archive-all-…`, so cams named a ZIP of Loft's clips after Silo (found by Task 11's spec; the fake proxy named it after the first clip's camera and hid it) — cost if wrong: a mixed ZIP is named after the camera cams reaches the proxy through, as before.
+- **Ruling: the fake proxy names its ZIPs as cam-proxy does (its one camera, else `all`)** — why: "keep the fake proxy in step" — cost if wrong: none.
+- **Ruling: the e2e shows the `sse-cam-list` path from the proxy's side (it lists the feature, honours `?cam=loft,silo`, and has one SSE client per cams server); that cams sends the list is covered by Task 3's unit tests** — why: cam-proxy doesn't report a client's query — cost if wrong: a cams change that dropped the filter (correct, only more traffic) wouldn't fail the e2e.
+- **Ruling: the real-proxy Archive spec runs on desktop only** — why: the proxy allows 4 ZIPs and 10 new clips a minute per client address, which desktop, phone and their retries would share — cost if wrong: the phone Archive layout is checked against the fake proxy only.
+- **Ruling: Task 11 adds no third camera to the e2e proxy that cams doesn't map** — why: an unmapped proxy camera's messages are dropped by cams either way, so it would prove nothing observable; Task 3 covers the drop — cost if wrong: none.
+
 ## File Structure
 
 | File | Responsibility |
