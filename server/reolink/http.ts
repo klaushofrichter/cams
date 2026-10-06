@@ -1,7 +1,6 @@
 import http, { IncomingMessage } from 'node:http';
 import https from 'node:https';
-import { connect as tlsConnect } from 'node:tls';
-import { normalizeFingerprint } from '../tls/fingerprint';
+import { LEGACY_UNVERIFIED_CAMERA, pinnedConnection } from '../tls/leafPin';
 
 // How a camera's certificate is checked (cam-proxy spec 2026-10-05 §12.3):
 //   public:      today's check against public CAs and the camera's
@@ -45,27 +44,6 @@ export class TimeoutError extends Error {
   }
 }
 
-// The leaf pin is checked on the socket at secureConnect, before the request
-// is written: Node skips checkServerIdentity when the chain doesn't verify
-// (a self-signed certificate), so it can't carry this check.
-export function pinnedConnection(fingerprint: string, timeoutMs: number): NonNullable<https.RequestOptions['createConnection']> {
-  return (opts, oncreate) => {
-    const host = String(opts.hostname ?? opts.host ?? '').replace(/^\[(.*)\]$/, '$1');
-    const socket = tlsConnect({ host, port: Number(opts.port ?? 443), rejectUnauthorized: false });
-    socket.setTimeout(timeoutMs, () => socket.destroy(new TimeoutError()));
-    const onError = (err: Error) => oncreate(err, socket);
-    socket.once('error', onError);
-    socket.once('secureConnect', () => {
-      socket.off('error', onError);
-      socket.setTimeout(0);
-      if (normalizeFingerprint(socket.getPeerCertificate().fingerprint256) === fingerprint) return oncreate(null, socket);
-      socket.destroy();
-      oncreate(tlsError('ERR_TLS_CERT_PIN_MISMATCH', 'camera certificate does not match its pinned fingerprint'), socket);
-    });
-    return undefined;
-  };
-}
-
 export function tlsOptions(trust: CameraTrust, timeoutMs: number): https.RequestOptions {
   switch (trust.kind) {
     case 'public':
@@ -73,9 +51,9 @@ export function tlsOptions(trust: CameraTrust, timeoutMs: number): https.Request
     case 'site-ca':
       return { ca: trust.ca, rejectUnauthorized: true, ...(trust.servername && { servername: trust.servername }) };
     case 'pinned':
-      return { createConnection: pinnedConnection(trust.fingerprint, timeoutMs), agent: undefined };
+      return { createConnection: pinnedConnection(trust.fingerprint, timeoutMs, () => new TimeoutError()), agent: undefined };
     case 'none':
-      return { rejectUnauthorized: false };
+      return { ...LEGACY_UNVERIFIED_CAMERA };
     case 'unavailable':
       throw tlsError('ERR_TLS_CA_UNVERIFIED', trust.reason);
   }

@@ -4,8 +4,8 @@ import { IncomingMessage } from 'node:http';
 import type { CameraConfig } from '../cameraRegistry';
 import { logger } from '../logger';
 import { TimeInfo, timeInfoFromGetTime } from '../recordings/clipNames';
-import { normalizeFingerprint } from '../tls/fingerprint';
-import { type CameraTarget, type CameraTrust, openRequest, readBody, requestWasWritten, ResponseTooLargeError, splitHost, trustOf } from './http';
+import { connectPinned } from '../tls/leafPin';
+import { type CameraTarget, type CameraTrust, openRequest, readBody, requestWasWritten, ResponseTooLargeError, splitHost, TimeoutError, trustOf } from './http';
 import { Semaphore } from './semaphore';
 
 // camera_address_unknown: a from-proxy camera whose proxy hasn't reported its
@@ -229,7 +229,6 @@ export class ReolinkClient {
     const base = { host, port: port ?? 443 };
     const options =
       trust.kind === 'site-ca' ? { ...base, ca: trust.ca, ...(trust.servername && { servername: trust.servername }) }
-      : trust.kind === 'pinned' ? { ...base, rejectUnauthorized: false }
       : trust.kind === 'public' ? { ...base, servername: trust.servername, ca: trust.ca ?? this.opts.tlsCa }
       : { ...base, servername: host, ca: this.opts.tlsCa }; // none: as today, verified against the address
     return new Promise((resolve) => {
@@ -241,14 +240,18 @@ export class ReolinkClient {
         socket.destroy();
         resolve(v);
       };
-      const socket = tlsConnect(options, () => {
+      const onSecure = () => {
         const c = socket.getPeerCertificate();
-        if (trust.kind === 'pinned' && normalizeFingerprint(c?.fingerprint256) !== trust.fingerprint) return finish(null);
         const t = c?.valid_to ? Date.parse(c.valid_to) : NaN;
         // A throw here would be an uncaught exception in a socket listener.
         if (!c || Number.isNaN(t)) return finish(null);
         finish({ subject: String(c.subject?.CN ?? ''), issuer: String(c.issuer?.O ?? c.issuer?.CN ?? ''), validTo: new Date(t).toISOString() });
-      });
+      };
+      // A pinned camera: shown only when its certificate matches the pin.
+      const socket =
+        trust.kind === 'pinned'
+          ? connectPinned(base, trust.fingerprint, this.timeoutMs, () => new TimeoutError(), (err) => (err ? finish(null) : onSecure()))
+          : tlsConnect(options, onSecure);
       // The socket's idle timeout doesn't cover a stalled handshake: an
       // explicit deadline does.
       const timer = setTimeout(() => finish(null), this.timeoutMs);
