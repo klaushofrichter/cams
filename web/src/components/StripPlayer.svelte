@@ -58,7 +58,7 @@
   // Glued: what the live stream is, from the camera's streams (spec 2026-09-28).
   const liveSource = $derived.by(() => {
     const u = $liveUi;
-    if (u.playerState !== 'playing' && u.stillsShowing) return 'STILLS';
+    if (u.playerState !== 'playing' && u.stillsShowing) return BADGE.still; // not "STILLS" twice (Klaus 2026-10-06)
     const s = u.quality === 'main' ? u.status?.streams?.main : u.status?.streams?.sub;
     return `${u.quality === 'main' ? '4K' : 'SD'} ${s?.fps ?? (u.quality === 'main' ? 20 : 10)} FPS`;
   });
