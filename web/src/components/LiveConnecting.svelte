@@ -33,7 +33,7 @@
     pointer-events: none;
   }
   /* Over the stills: out of the way at the bottom, above the still's caption. */
-  .connecting.stills { top: auto; bottom: 12px; transform: translateX(-50%); padding: 6px 14px; }
+  .connecting.stills { top: auto; bottom: var(--live-connecting-bottom, 12px); transform: translateX(-50%); padding: 6px 14px; }
   .text { display: grid; gap: 2px; min-width: 0; }
   .title { font-size: 14px; font-weight: 600; }
   [data-state='unavailable'] .title { font-weight: 500; }
