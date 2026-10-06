@@ -66,7 +66,9 @@ export const CAM_PROXY_IMAGE = `ghcr.io/klaushofrichter/cam-proxy:${CAM_PROXY_TA
 // The real cam-proxy for Silo (e2e/realProxy.ts). Test-only tokens. It runs
 // on GitHub Actions (an ephemeral runner), or with CAMS_E2E_REAL_PROXY=1, and
 // only on Linux (host networking: it listens on every interface, so never on
-// a laptop on the home LAN). A plain CI=true doesn't turn it on.
+// a laptop on the home LAN). A plain CI=true doesn't turn it on, and
+// CAMS_E2E_REAL_PROXY=0 turns it off (scripts/e2e-time-of-day.ts: the
+// container's clock can't be shifted).
 export const REAL_PROXY = {
   port: 8091,
   go2rtcRtsp: 8092,
@@ -75,6 +77,7 @@ export const REAL_PROXY = {
   adminToken: 'e2e-real-proxy-admin-not-a-secret-000000',
 };
 export function realProxyOn(env: NodeJS.ProcessEnv = process.env, platform: string = process.platform): boolean {
+  if (env.CAMS_E2E_REAL_PROXY === '0') return false;
   return (env.GITHUB_ACTIONS === 'true' || env.CAMS_E2E_REAL_PROXY === '1') && platform === 'linux';
 }
 export const REAL_PROXY_ON = realProxyOn();

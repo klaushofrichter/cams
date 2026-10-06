@@ -134,7 +134,10 @@ The Google OAuth client must list the redirect URI: `http://localhost:8080/auth/
 ```bash
 npm test                 # vitest: server + web libraries (node) and Svelte components (jsdom)
 npm run build && npm run test:e2e   # Playwright, desktop and phone viewports
+npm run build && npm run test:e2e:times   # the Video specs at fixed Chicago times of day
 ```
+
+`test:e2e:times` (`scripts/e2e-time-of-day.ts`) runs the Video specs at 00:30, 06:00, 12:10, 18:30, 20:30 and 23:50 Chicago time (and once with the servers in a zone a day ahead), each time starting the whole stack with its clock moved there: `e2e/clockShift.cjs` shifts `Date` in every Node process, `e2e/clock.ts` in the browser. The demo recordings sit at fixed times of day and the Video page collapses the hours far from now, so a spec can pass at noon and fail in the evening (issue #213). `--at HH:MM` runs one time; arguments after `--` go to Playwright. It needs the e2e ports free.
 
 Both suites need **ffmpeg** on the `PATH`, and e2e needs **Google Chrome**. The e2e suite signs its own session cookie with a test secret (`e2e/session.ts`), so it never talks to Google; the expired-session spec answers the redirect to Google itself (`fakeGoogle`).
 
@@ -156,7 +159,7 @@ Both suites need **ffmpeg** on the `PATH`, and e2e needs **Google Chrome**. The 
 
 ## Deployment and releases
 
-`main` is built and published as `ghcr.io/klaushofrichter/cams:main` but never deployed. Every PR to `main` or `production` runs `test`, `e2e` and `codeql`; `production` requires all three (strict, with an owner override). Merging a PR from `main` to `production` deploys through the in-cluster runner, smoke-tests the public URL and creates a `vYYYY.MM.DD.N` release. The release notes come from the `[Unreleased]` section of `CHANGELOG.md`, which the workflow then empties on `main`.
+`main` is built and published as `ghcr.io/klaushofrichter/cams:main` but never deployed. Every PR to `main` or `production` runs `test`, `e2e`, `e2e-time-of-day` and `codeql`; `production` requires all three (strict, with an owner override). Merging a PR from `main` to `production` deploys through the in-cluster runner, smoke-tests the public URL and creates a `vYYYY.MM.DD.N` release. The release notes come from the `[Unreleased]` section of `CHANGELOG.md`, which the workflow then empties on `main`.
 
 ## Security
 

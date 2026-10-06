@@ -1,8 +1,9 @@
 import { readFileSync } from 'fs';
-import { expect, test, type Download, type Page } from '@playwright/test';
+import { type Download, type Page } from '@playwright/test';
+import { expect, test } from './clock';
 import { signIn } from './session';
-import { chicagoMs } from './fakeProxyData';
-import { eventCount } from './hours';
+import { chicagoMs, outsideDemoClips } from './fakeProxyData';
+import { eventCount, expandAllHours } from './hours';
 
 // The Video page (spec docs/superpowers/specs/2026-10-04-video-page-design.md):
 // Live and History are one page whose mode follows the player. The old URLs
@@ -41,7 +42,7 @@ test('the REC badge says SD over a clip and Still over the stills', async ({ pag
   await page.goto(`/app/video?cam=cam1&date=${chicagoToday()}&at=${clipAt}`);
   await expect(badge(page)).toHaveText(/^REC \d{2}:\d{2}:\d{2}( [AP]M)? · SD$/);
   await expect(badge(page)).toHaveAttribute('aria-label', /^REC .* · SD, back to live$/);
-  const stillAt = Date.now() - 5 * 60_000; // Barn: a still every second
+  const stillAt = outsideDemoClips(Date.now() - 5 * 60_000); // Barn: a still every second (not in a demo clip)
   const stillDay = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Chicago' }).format(new Date(stillAt));
   await page.goto(`/app/video?cam=barn&date=${stillDay}&at=${stillAt}`);
   await expect(page.getByTestId('source-badge')).toHaveText('Stills 1 FPS');
@@ -120,7 +121,9 @@ test('the snapshot saves a JPEG in both modes, named live, rec or still', async 
   };
   expect(await save()).toMatch(/^cam1-live-\d{4}-\d{2}-\d{2}-\d{2}-\d{2}-\d{2}\.jpg$/);
 
-  // A recording's frame: the clip's own picture, at the moment shown.
+  // A recording's frame: the clip's own picture, at the moment shown. Its
+  // hour may be collapsed, more than 6 h from now (issue #213).
+  await expandAllHours(page);
   await page.locator('[data-testid="event-card"][data-clip-id*="-120505-"]').click();
   const video = page.getByTestId('clip-video');
   await expect.poll(() => video.evaluate((v: HTMLVideoElement) => v.readyState >= 2 && v.currentTime > 0.5), { timeout: 15_000 }).toBe(true);
@@ -129,8 +132,8 @@ test('the snapshot saves a JPEG in both modes, named live, rec or still', async 
   expect(await save()).toMatch(/^cam1-rec-\d{4}-\d{2}-\d{2}-\d{2}-\d{2}-\d{2}\.jpg$/);
   await expect(page.getByTestId('snapshot-error')).toHaveCount(0);
 
-  // The proxy's still (Den's fake proxy keeps one every 10 s of the last minutes).
-  const at = Math.floor((Date.now() - 120_000) / 60_000) * 60_000 + 20_000;
+  // The proxy's still (Den's fake proxy keeps one every 10 s of the last minutes; not in a demo clip).
+  const at = outsideDemoClips(Math.floor((Date.now() - 120_000) / 60_000) * 60_000 + 20_000, 60_000);
   await page.goto(`/app/video?cam=cam1&at=${at}`);
   await expect(page.getByTestId('source-badge')).toHaveText(/Stills 1 FPS|Preview 1 FPS/);
   await expect(page.getByTestId('strip-still').or(page.getByTestId('strip-preview'))).toBeVisible();
@@ -173,7 +176,7 @@ test('the timeline popup shows the clip’s types, or Still, in one box size', a
   await expect(person).toHaveText('2x');
   await expect(person.locator('svg')).toBeVisible();
   await expect(page.getByTestId('scrub-kind').first()).toHaveAttribute('data-kind', 'person'); // its only type
-  const stillAt = Math.floor((Date.now() - 3 * 60_000) / 1000) * 1000; // Den's preview tiles: the last ten minutes
+  const stillAt = outsideDemoClips(Math.floor((Date.now() - 3 * 60_000) / 1000) * 1000); // Den's preview tiles: the last ten minutes
   const stillDay = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Chicago' }).format(new Date(stillAt));
   await page.goto(`/app/video?cam=cam1&date=${stillDay}&at=${stillAt}`);
   await expect(page.getByTestId('source-badge')).toHaveText(/Stills 1 FPS|Preview 1 FPS/);
@@ -189,10 +192,13 @@ test('the timeline popup shows the clip’s types, or Still, in one box size', a
 // plays, the popup follows the time moving under it.
 test('the timeline popup follows playback under a resting pointer', async ({ page }, info) => {
   test.skip(info.project.name === 'phone', 'hover: desktop only');
-  const at = Math.floor((Date.now() - 4 * 60_000) / 1000) * 1000; // Den's preview tiles: the last ten minutes
+  const at = outsideDemoClips(Math.floor((Date.now() - 4 * 60_000) / 1000) * 1000); // Den's preview tiles: the last ten minutes, not a demo clip
   const day = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Chicago' }).format(new Date(at));
   await page.goto(`/app/video?cam=cam1&date=${day}&at=${at}`);
   await expect(page.getByTestId('source-badge')).toHaveText(/Stills 1 FPS|Preview 1 FPS/);
+  // The page has its first picture before the bar is measured and hovered
+  // (issue #213: a bar that moves afterwards leaves the pointer elsewhere).
+  await expect(page.getByTestId('strip-still').or(page.getByTestId('strip-preview'))).toBeVisible();
   await page.getByTestId('play-toggle').click();
   await expect(page.getByTestId('play-toggle')).toHaveAttribute('aria-pressed', 'true');
   const bar = (await page.getByTestId('timeline').boundingBox())!;

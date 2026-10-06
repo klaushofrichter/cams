@@ -16,6 +16,7 @@ import { execFileSync } from 'child_process';
 import { mkdtempSync, readFileSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
+import { DEMO_CLIPS } from 'cam-sim';
 import type { FakeProxy } from '../test/proxy/fakeProxy';
 
 export const FAKE_PROXY_PORT = 8095;
@@ -49,6 +50,22 @@ export const personDetectionMs = (): number => chicagoMs(chicagoToday(), '08:15:
 export const secondPersonMs = (): number => chicagoMs(chicagoToday(), '08:15:24');
 // The still 2 s into Den's motion recording of today.
 export const motionStillMs = (): number => chicagoMs(chicagoToday(), '12:05:07');
+
+// A second of stills, not of a recording: `t`, or as many `step`s earlier
+// as it takes to leave cam-sim's demo recordings (every e2e camera has them,
+// today's and yesterday's, at fixed Chicago times) with 5 s to spare. Specs
+// that want "a few minutes ago, stills" otherwise land on a clip a few
+// minutes after one starts (12:05:05 + 5 min: "SD 10 FPS", issue #213).
+export function outsideDemoClips(t: number, step = 1000, now = Date.now()): number {
+  const spare = 5000;
+  const spans = DEMO_CLIPS.map((c) => {
+    const date = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Chicago' }).format(new Date(now - c.daysAgo * 86_400_000));
+    const hms = (x: string) => `${x.slice(0, 2)}:${x.slice(2, 4)}:${x.slice(4, 6)}`;
+    return [chicagoMs(date, hms(c.start)) - spare, chicagoMs(date, hms(c.end)) + spare];
+  });
+  while (spans.some(([a, b]) => t >= a && t < b)) t -= step;
+  return t;
+}
 
 export function seed(fake: FakeProxy): { jpeg: Buffer; sprite: Buffer } {
   const { jpeg, sprite, mp4, detection, motion, person } = media();
