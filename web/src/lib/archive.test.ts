@@ -77,8 +77,18 @@ describe('the API', () => {
     const items = [...Array.from({ length: 201 }, (_, i) => item('den', i + 1)), item('cam2', 7)];
     const urls = zipUrls(items);
     expect(urls).toHaveLength(3);
-    expect(urls[1]).toBe('/api/archive/den/zip?ids=201');
-    expect(urls[2]).toBe('/api/archive/cam2/zip?ids=7');
+    expect(urls[1]).toBe('/api/archive/den/zip?ids=201&cam=den');
+    expect(urls[2]).toBe('/api/archive/cam2/zip?ids=7&cam=cam2');
+  });
+
+  // A multi-camera proxy names its ZIPs "all": cams names one after the
+  // camera of its clips when they are all of one camera (the server checks it).
+  it('names the camera of a ZIP whose clips are all of one camera', () => {
+    const silo = item('silo', 1, { camera: 'silo' }), loft = item('silo', 2, { camera: 'loft' }), ghost = item('silo', 3, { camera: null });
+    expect(zipUrls([loft])).toEqual(['/api/archive/silo/zip?ids=2&cam=loft']);
+    expect(zipUrls([silo, loft])).toEqual(['/api/archive/silo/zip?ids=1,2']);
+    expect(zipUrls([ghost])).toEqual(['/api/archive/silo/zip?ids=3']);
+    expect(zipUrls([item('silo', 4, { camera: 'a&b' })])).toEqual(['/api/archive/silo/zip?ids=4&cam=a%26b']);
   });
 });
 

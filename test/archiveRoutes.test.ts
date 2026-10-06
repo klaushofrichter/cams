@@ -311,10 +311,23 @@ describe('ZIP (contract §5)', () => {
     expect(r.headers['content-disposition']).toMatch(/^attachment; filename="archive-den-\d{8}-\d{6}\.zip"$/);
   });
 
-  it('names a ZIP of a shared proxy after the first clip’s camera', async () => {
+  // A multi-camera cam-proxy names every ZIP "archive-all-…" (its archive
+  // API, since v2026.10.05.7); the fake does too, as it serves cam1 and barn.
+  it('names a ZIP of a multi-camera proxy after the camera the browser names, if it uses that proxy', async () => {
     const x = a.archive.add('barn');
-    const r = await get(`/api/archive/den/zip?ids=${x.id}`);
-    expect(r.headers['content-disposition']).toMatch(/^attachment; filename="archive-barn-\d{8}-\d{6}\.zip"$/);
+    const zip = async (q: string) => (await get(`/api/archive/den/zip?ids=${x.id}${q}`)).headers['content-disposition'];
+    expect(await zip('&cam=barn')).toMatch(/^attachment; filename="archive-barn-\d{8}-\d{6}\.zip"$/);
+    // Clips of several cameras, or a camera of another proxy or none: the proxy it is reached through.
+    expect(await zip('')).toMatch(/^attachment; filename="archive-den-\d{8}-\d{6}\.zip"$/);
+    expect(await zip('&cam=cam2')).toMatch(/^attachment; filename="archive-den-\d{8}-\d{6}\.zip"$/);
+    expect(await zip('&cam=nope%22')).toMatch(/^attachment; filename="archive-den-\d{8}-\d{6}\.zip"$/);
+  });
+
+  it('names a ZIP of a one-camera proxy after its camera, as cams calls it', async () => {
+    a.cameraNames.delete('barn');
+    const x = a.archive.add('cam1');
+    expect((await get(`/api/archive/den/zip?ids=${x.id}`)).headers['content-disposition']).toMatch(/^attachment; filename="archive-den-\d{8}-\d{6}\.zip"$/);
+    expect((await get(`/api/archive/den/zip?ids=${x.id}&cam=barn`)).headers['content-disposition']).toMatch(/^attachment; filename="archive-barn-\d{8}-\d{6}\.zip"$/);
   });
 
   it('streams the proxy’s ZIP as it comes, with its length and name', async () => {
