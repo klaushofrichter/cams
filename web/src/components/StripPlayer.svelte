@@ -449,6 +449,8 @@
   }
   /* The live stream's own 16:9 stage fills the screen too, centred. */
   .box:fullscreen :global(.stage), .box.fill :global(.stage) { position: absolute; inset: 0; aspect-ratio: auto; border-radius: 0; }
+  /* Live's connecting bar over stills: above the fullscreen controls. */
+  .box:fullscreen, .box.fill { --live-connecting-bottom: calc(80px + env(safe-area-inset-bottom, 0px)); }
   .box.fill .mode { top: calc(8px + env(safe-area-inset-top, 0px)); right: calc(8px + env(safe-area-inset-right, 0px)); }
   :global(html.player-fill), :global(html.player-fill body) { overflow: hidden; background: var(--player-bg); }
   .live { color: var(--danger); font-weight: 600; }
@@ -461,7 +463,9 @@
   .mode.live.on { background: var(--danger); }
   button.mode { cursor: pointer; }
   button.mode:hover { outline: 2px solid var(--accent); }
-  .live.stills { color: var(--warning-ink); }
+  /* Amber text: --warning-ink is for text on the amber badge, and alone it
+     was white on white (light) or near black (dark). */
+  .live.stills { color: var(--warning); }
   .tile-wrap { overflow: hidden; }
   .tile { position: absolute; left: 0; top: 0; transform-origin: 0 0; }
   .empty { display: grid; place-content: center; gap: 4px; text-align: center; color: var(--muted); background: var(--strip-empty); }
