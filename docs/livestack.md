@@ -8,7 +8,8 @@ through the APIs a browser uses.
 
 The automated suites test each repo on its own: cams' unit tests and e2e use
 cam-sim and a fake cam-proxy. The one round trip with the real cam-proxy in CI
-is the e2e camera **Silo** (`e2e/realProxy.spec.ts`), and it runs only on
+is the e2e cameras **Silo** and **Loft**, two cameras of one cam-proxy
+(`e2e/realProxy.spec.ts`), and it runs only on
 GitHub Actions (the released cam-proxy image with host networking; skipped on
 a Mac). Nothing in CI talks to the real camera.
 

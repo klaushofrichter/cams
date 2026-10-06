@@ -1,6 +1,6 @@
-// The e2e cameras: five cam-sim processes (github.com/klaushofrichter/cam-sim)
+// The e2e cameras: six cam-sim processes (github.com/klaushofrichter/cam-sim)
 // started by playwright.config.ts. e2e/cameras.json points Den, Porch, Shed,
-// Barn and Silo at their HTTP ports. Credentials and the control token are test-only.
+// Barn, Silo and Loft at their HTTP ports. Credentials and the control token are test-only.
 import type { Page } from '@playwright/test';
 
 export const CONTROL_TOKEN = 'e2e-control-token-not-a-secret';
@@ -10,7 +10,7 @@ type Sim = { name: string; http: number; https: number; control: number; onvif: 
 // A partial write's resets show at once (the firmware waits for a reboot).
 const STRICT = { name: 'settings.strictPartial' };
 
-export const SIMS: Record<'den' | 'porch' | 'shed' | 'barn' | 'silo', Sim> = {
+export const SIMS: Record<'den' | 'porch' | 'shed' | 'barn' | 'silo' | 'loft', Sim> = {
   den: { name: 'Den', http: 8098, https: 8198, control: 8298, onvif: 8398, rtsp: 8498, baichuan: 8598, faults: [STRICT] },
   // Porch always rejects SetWhiteLed, so settings.spec.ts can exercise a
   // partial save without making Den unreliable for the live specs.
@@ -26,6 +26,9 @@ export const SIMS: Record<'den' | 'porch' | 'shed' | 'barn' | 'silo', Sim> = {
   // the real cam-proxy (e2e/realProxy.ts), which fetches its recordings over
   // Baichuan (spec 2026-10-02-recordings-via-proxy-design).
   silo: { name: 'Silo', http: 8090, https: 8190, control: 8290, onvif: 8390, rtsp: 8490, baichuan: 8590, faults: [STRICT, { name: 'downloads.refuse' }] },
+  // Loft: Silo's neighbour on the same real cam-proxy (a multi-camera host,
+  // cam-proxy spec 2026-10-05), refusing HTTP Download like Silo.
+  loft: { name: 'Loft', http: 8086, https: 8186, control: 8286, onvif: 8386, rtsp: 8486, baichuan: 8586, faults: [STRICT, { name: 'downloads.refuse' }] },
 };
 
 export function simEnv(s: Sim): Record<string, string> {
@@ -42,7 +45,7 @@ export function simEnv(s: Sim): Record<string, string> {
     // one machine need their own ports.
     CAMSIM_ONVIF_PORT: String(s.onvif),
     CAMSIM_RTSP_PORT: String(s.rtsp),
-    // cam-sim's Baichuan server (port 9000 by default); five simulators on one
+    // cam-sim's Baichuan server (port 9000 by default); six simulators on one
     // machine need their own ports.
     CAMSIM_BAICHUAN_PORT: String(s.baichuan),
     CAMSIM_FAULTS: JSON.stringify(s.faults),
