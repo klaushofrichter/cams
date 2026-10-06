@@ -45,8 +45,8 @@ describe('the check button', () => {
 
 describe('words', () => {
   it('shows the usage, and the price past the free tier', () => {
-    expect(usageLine(usage())).toBe('14 of 1000 Vision calls this month · 2 of 10 checks today');
-    expect(usageLine(usage({ month: { calls: 1200, limit: 2000 } }))).toBe('1200 of 2000 Vision calls this month · 2 of 10 checks today (about $0.0023 a check beyond 1000 a month)');
+    expect(usageLine(usage())).toBe('14 of 1000 Vision calls this month · 2 of 10 manual checks done today');
+    expect(usageLine(usage({ month: { calls: 1200, limit: 2000 } }))).toBe('1200 of 2000 Vision calls this month · 2 of 10 manual checks done today (about $0.0023 a check beyond 1000 a month)');
     expect(usageLine({ kind: 'unknown' })).toBe('');
   });
 
