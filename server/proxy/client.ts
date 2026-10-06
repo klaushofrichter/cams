@@ -1,6 +1,9 @@
+import type { Dispatcher } from 'undici';
 import { getCamera } from '../cameraRegistry';
 import { proxyEnabled } from '../proxyState';
-import { groupOf } from './groups';
+import { groupDispatcher, groupTlsFailed } from '../tls/groupCa';
+import { fetchWith, SiteCaError } from '../tls/siteCa';
+import { groupOf, type ProxyGroup } from './groups';
 
 // Talks to a camera's cam-proxy with its client token (Bearer). The token
 // never leaves the server: errors and logs name the proxy's host only.
@@ -23,12 +26,22 @@ export class ProxyError extends Error {
 
 type Query = Record<string, string | number | undefined>;
 
+export interface ProxyClientOptions {
+  timeoutMs?: number;
+  // A site-CA proxy (spec 2026-10-05 §12.3): the dispatcher that trusts only
+  // its pinned CA, and what to do when its certificate stops verifying.
+  dispatcher?: () => Promise<Dispatcher | undefined>;
+  onTlsError?: () => void;
+}
+
+const tlsFailure = (err: unknown): boolean => /CERT|ERR_TLS_|SIGNATURE|UNABLE_TO|ALTNAME/.test(String((err as { cause?: { code?: unknown } }).cause?.code ?? ''));
+
 export class ProxyClient {
   private readonly base: URL;
 
   constructor(
     private readonly p: { url: string; token: string },
-    private readonly o: { timeoutMs?: number } = {},
+    private readonly o: ProxyClientOptions = {},
   ) {
     this.base = new URL(p.url);
   }
@@ -56,6 +69,12 @@ export class ProxyClient {
     init: { method?: 'GET' | 'HEAD' | 'POST' | 'PUT' | 'PATCH' | 'DELETE'; body?: string; headers?: Record<string, string>; signal?: AbortSignal; timeoutMs?: number | null; idleMs?: number } = {},
   ): Promise<Response> {
     init.signal?.throwIfAborted(); // an already-aborted signal never fires its listener
+    let dispatcher: Dispatcher | undefined;
+    try {
+      dispatcher = await this.o.dispatcher?.();
+    } catch (err) {
+      throw new ProxyError('proxy_unreachable', `cam-proxy ${this.host()}: ${err instanceof SiteCaError ? err.message.replace(/^cam-proxy [^:]+: /, '') : 'its site CA is not verified'}`);
+    }
     const ctl = new AbortController();
     const onAbort = () => ctl.abort(init.signal?.reason);
     init.signal?.addEventListener('abort', onAbort, { once: true });
@@ -63,7 +82,7 @@ export class ProxyClient {
     const headerTimer = ms === undefined ? undefined : setTimeout(() => ctl.abort(new Error('timeout')), ms);
     let res: Response;
     try {
-      res = await fetch(this.urlOf(path, query), {
+      res = await fetchWith(dispatcher)(this.urlOf(path, query), {
         method: init.method ?? 'GET',
         body: init.body,
         headers: { ...init.headers, ...(init.body !== undefined ? { 'Content-Type': 'application/json' } : {}), Authorization: `Bearer ${this.p.token}` },
@@ -73,6 +92,7 @@ export class ProxyClient {
     } catch (err) {
       init.signal?.removeEventListener('abort', onAbort);
       if (init.signal?.aborted) throw err;
+      if (dispatcher && tlsFailure(err)) this.o.onTlsError?.();
       throw new ProxyError('proxy_unreachable', `cam-proxy ${this.host()} unreachable (${(err as Error).name})`);
     } finally {
       clearTimeout(headerTimer);
@@ -171,8 +191,17 @@ export function proxyClientFor(id: string): ProxyClient | undefined {
   const g = groupOf(id);
   if (!g) return undefined;
   let client = clients.get(g.key);
-  if (!client) clients.set(g.key, (client = new ProxyClient({ url: g.url, token: g.token })));
+  if (!client) clients.set(g.key, (client = new ProxyClient({ url: g.url, token: g.token }, trustOf(g))));
   return client;
+}
+
+const trustOf = (g: ProxyGroup): Pick<ProxyClientOptions, 'dispatcher' | 'onTlsError'> =>
+  g.pins ? { dispatcher: () => groupDispatcher(g), onTlsError: () => groupTlsFailed(g) } : {};
+
+// For another client of the same proxy (the admin token's): the same trust.
+export function groupTrustOptions(id: string): Pick<ProxyClientOptions, 'dispatcher' | 'onTlsError'> {
+  const g = groupOf(id);
+  return g ? trustOf(g) : {};
 }
 
 // Undefined for a camera without a cam-proxy or with it switched off.

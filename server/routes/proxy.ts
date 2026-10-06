@@ -7,7 +7,7 @@ import { logger } from '../logger';
 import { setProxyEnabled } from '../proxyState';
 import { proxyHub, startProxyStream, stopProxyStream } from '../proxy/stream';
 import { parseObjects, parseSummary } from '../proxy/analyses';
-import { ProxyClient, ProxyError, proxyCameraId } from '../proxy/client';
+import { groupTrustOptions, ProxyClient, ProxyError, proxyCameraId } from '../proxy/client';
 import { entryOf, readProxyList, type ProxyCameraEntry } from '../proxy/cameraList';
 import { knownCamera, proxyTarget } from './common';
 
@@ -91,7 +91,7 @@ proxyRouter.post('/api/cameras/:id/proxy/login-link', async (req: Request, res: 
   if (!info.reachable) return void res.status(502).json({ error: 'proxy_unavailable' });
   if (!info.webUrl) return void res.status(409).json({ error: 'no_login_link' });
   try {
-    const r = await new ProxyClient({ url: proxy.url, token: proxy.adminToken }, { timeoutMs: 3000 }).open('/control/login-links', undefined, { method: 'POST' });
+    const r = await new ProxyClient({ url: proxy.url, token: proxy.adminToken }, { timeoutMs: 3000, ...groupTrustOptions(id) }).open('/control/login-links', undefined, { method: 'POST' });
     const body = (await r.json().catch(() => null)) as { code?: unknown } | null;
     if (!r.ok || typeof body?.code !== 'string' || !/^[A-Za-z0-9_-]{8,128}$/.test(body.code)) {
       logger.warn({ cameraId: id, status: r.status }, 'proxy_login_link_refused');

@@ -3,6 +3,7 @@ import { listProxied, proxyActive } from '../cameraRegistry';
 import { logger } from '../logger';
 import { getProxyClient, ProxyError, type ProxyClient } from './client';
 import { supportsCamList } from './cameraList';
+import { ensureGroupCa } from '../tls/groupCa';
 import { activeMembers, groupOf, proxyGroups, remoteIds, type ProxyGroup } from './groups';
 
 // One upstream subscription to a cam-proxy's event stream (SSE), shared by
@@ -242,6 +243,11 @@ export function startProxyStreams(o: StreamOptions = {}): void {
   stopProxyStreams();
   shuttingDown = false;
   options = o;
+  // Every pinned proxy's CA up front: an http:// loopback proxy needs it for
+  // its cameras even though its own channel doesn't.
+  for (const g of proxyGroups()) {
+    if (g.pins) void ensureGroupCa(g).catch((err: unknown) => logger.warn({ proxy: new URL(g.url).host, message: (err as Error).message }, 'proxy_site_ca_unverified'));
+  }
   for (const g of proxyGroups()) {
     const members = activeMembers(g);
     if (members.length) run(g, members);
