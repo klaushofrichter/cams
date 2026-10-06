@@ -113,6 +113,15 @@ describe('a site-CA proxy over HTTPS', () => {
     expect(link.body.url).toMatch(/^https:\/\/192\.168\.1\.230:8443\/control\/login-link\?code=fake-code-1$/);
   });
 
+  it('renames a camera through the proxy over the pinned channel', async () => {
+    const f = await siteProxy();
+    setCameras([{ id: 'den', name: 'Den', host: '127.0.0.1:9', protocol: 'http', user: 'u', password: 'p', proxy: { url: f.url, token: FAKE_TOKEN, adminToken: FAKE_ADMIN_TOKEN, camera: 'cam1', tlsServername: 'proxy.test.internal', caFingerprint: [A] } }]);
+    resetProxyClients();
+    const r = await request(createApp()).put('/api/cameras/den/name').set('Cookie', auth).send({ name: 'Backyard' });
+    expect([r.status, r.body]).toEqual([200, { name: 'Backyard' }]);
+    expect(f.nameRequests).toEqual([{ cam: 'cam1', name: 'Backyard' }]);
+  });
+
   it('keeps plain http without a pin (the Pi), never asking for /tls/ca.pem', async () => {
     fake = await startFakeProxy();
     setCameras([{ id: 'cam1', name: 'Den', host: 'from-proxy', protocol: 'https', tlsServername: 'cam1.skylar.technology', user: 'u', password: 'p', proxy: { url: fake.url, token: FAKE_TOKEN } }]);

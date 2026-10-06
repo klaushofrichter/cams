@@ -6,14 +6,16 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { mkdtempSync, readFileSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
-import { getCamera, setCameras } from '../server/cameraRegistry';
+import { cameraHost, getCamera, setCameras } from '../server/cameraRegistry';
 import { resetProxyClients } from '../server/proxy/client';
 import { setListRefreshMs } from '../server/proxy/names';
 import { proxyStates, startProxyStreams, stopProxyStreams } from '../server/proxy/stream';
 import { loadProxyState } from '../server/proxyState';
 import { cameraTrust } from '../server/tls/cameraTrust';
 import { certFingerprint, formatFingerprint } from '../server/tls/fingerprint';
+import { getClient, resetClients } from '../server/reolink/clients';
 import { fallbackPin, loadTlsState } from '../server/tls/store';
+import { startTlsCamera } from './helpers/tlsCamera';
 import { FAKE_TOKEN, startFakeProxy, type FakeProxy } from './proxy/fakeProxy';
 
 const fx = (n: string) => readFileSync(join(__dirname, 'fixtures/site-ca', n), 'utf8');
@@ -82,6 +84,59 @@ describe('fallback pins', () => {
     await expect.poll(() => proxyStates().every((s) => s.up)).toBe(true);
     f.cameraTls.set('cam5', { mode: 'pinned', servername: null, fingerprint: LEAF, notAfter: null, lastPush: null });
     await expect.poll(() => fallbackPin('shed'), { timeout: 5000 }).toBe(LEAF); // the list is shared for 2 s, so the first re-read after that sees it
+  });
+
+  it('a pinned loopback http proxy whose CA wasn’t there at start gets it when the list is read again', async () => {
+    const plain = await startFakeProxy(); // http on 127.0.0.1, cams next to the proxy
+    plain.cameraNames.set('cam5', 'Shed');
+    try {
+      setListRefreshMs(200);
+      cams([A], plain.url);
+      startProxyStreams(OPTS);
+      await expect.poll(() => proxyStates().every((s) => s.up)).toBe(true);
+      await new Promise((r) => setTimeout(r, 100));
+      expect(cameraTrust(getCamera('den')!).kind).toBe('unavailable'); // /tls/ca.pem answered 404
+      plain.caPem = fx('ca-a.pem');
+      await expect.poll(() => cameraTrust(getCamera('den')!).kind, { timeout: 5000 }).toBe('site-ca');
+    } finally {
+      stopProxyStreams();
+      await plain.stop();
+    }
+  });
+
+  it('keeps the CA for a site-ca camera serving an unexpected certificate: no pin, nothing sent', async () => {
+    // cam-proxy 4e13ca2: site-ca with the health problem "serves an unexpected
+    // certificate" (a reset camera); only an admin push moves it to pinned.
+    const reset = await startTlsCamera('selfsigned');
+    try {
+      f.cameraAddresses.set('cam1', reset.host);
+      f.cameraTls.set('cam1', { mode: 'site-ca', servername: 'cam3.test.internal', fingerprint: certFingerprint(fx('cam-a.pem')), notAfter: 2, lastPush: { at: 1, outcome: 'pushed' } });
+      cams([A]);
+      resetClients();
+      startProxyStreams(OPTS);
+      await expect.poll(() => cameraHost('den')).toBe(reset.host);
+      await expect.poll(() => cameraTrust(getCamera('den')!).kind).toBe('site-ca');
+      await expect(getClient('den')!.status()).rejects.toMatchObject({ code: 'camera_error' });
+      expect(fallbackPin('den')).toBeUndefined();
+      expect(cameraTrust(getCamera('den')!)).toEqual({ kind: 'site-ca', ca: [fx('ca-a.pem')], servername: 'cam3.test.internal' });
+      expect(reset.received()).toBe(0);
+    } finally {
+      await reset.stop();
+      resetClients();
+    }
+  });
+
+  it('keeps a pin while the proxy reports a mode it doesn’t know', async () => {
+    cams([A]);
+    startProxyStreams(OPTS);
+    await expect.poll(() => fallbackPin('shed')).toBe(LEAF);
+    stopProxyStreams();
+    resetProxyClients();
+    f.cameraTls.set('cam5', { mode: 'public', servername: null, fingerprint: 'ff'.repeat(32), notAfter: null, lastPush: null });
+    startProxyStreams(OPTS);
+    await expect.poll(() => proxyStates().every((s) => s.up)).toBe(true);
+    await new Promise((r) => setTimeout(r, 200));
+    expect(fallbackPin('shed')).toBe(LEAF);
   });
 
   it('ignores a tls block from a proxy without a pin', async () => {

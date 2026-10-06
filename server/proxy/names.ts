@@ -1,6 +1,9 @@
 import { getCamera, setReportedAddress, setReportedName } from '../cameraRegistry';
 import { logger } from '../logger';
 import { applyProxyTls } from '../tls/cameraTrust';
+import { ensureGroupCa } from '../tls/groupCa';
+import { verifiedCas } from '../tls/store';
+import { groupOf } from './groups';
 import { getProxyClient } from './client';
 import { entryOf, readProxyList, type ProxyCameraEntry } from './cameraList';
 import { proxyHub, proxyStates } from './stream';
@@ -56,6 +59,13 @@ export async function refreshProxyName(id: string): Promise<void> {
   if (!mine || !proxyStates().some((s) => s.cam === id && s.up)) return;
   if (plausibleName(mine.name)) setReportedName(id, mine.name);
   setReportedAddress(id, mine.address);
+  // A pinned proxy whose CA isn't verified yet (it didn't answer when cams
+  // started): asked again now. An https one is asked on every request
+  // anyway; a loopback http one only here.
+  const g = groupOf(id);
+  if (g?.pins && !verifiedCas(g.pins).length) {
+    await ensureGroupCa(g).catch((err: unknown) => logger.warn({ proxy: new URL(g.url).host, message: (err as Error).message }, 'proxy_site_ca_unverified'));
+  }
   await applyProxyTls(id, mine.tls);
 }
 

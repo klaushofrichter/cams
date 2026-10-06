@@ -1,4 +1,3 @@
-// server/tls/cameraTrust.ts
 import type { CameraConfig } from '../cameraRegistry';
 import { groupOf } from '../proxy/groups';
 import type { CameraTrust } from '../reolink/http';
