@@ -11,6 +11,8 @@ export interface ProxyGroup {
   token: string;
   members: string[]; // every cams camera on this proxy, config order, switched on or off
   remoteOf: ReadonlyMap<string, string>; // cams id → the proxy's id for it
+  pins: string[] | null; // the site CA's fingerprints (spec §12.1); null: no site CA
+  tlsServername: string | null; // the name on the proxy's certificate
 }
 
 let built: { from: readonly CameraConfig[]; groups: ProxyGroup[] } | undefined;
@@ -23,7 +25,7 @@ export function proxyGroups(): ProxyGroup[] {
     if (!c.proxy) continue;
     const key = proxyGroupKey(c.proxy);
     let g = byKey.get(key);
-    if (!g) byKey.set(key, (g = { key, url: c.proxy.url.replace(/\/+$/, ''), token: c.proxy.token, members: [], remoteOf: new Map() }));
+    if (!g) byKey.set(key, (g = { key, url: c.proxy.url.replace(/\/+$/, ''), token: c.proxy.token, members: [], remoteOf: new Map(), pins: c.proxy.caFingerprint ?? null, tlsServername: c.proxy.tlsServername ?? null }));
     g.members.push(c.id);
     g.remoteOf.set(c.id, c.proxy.camera ?? c.id);
   }

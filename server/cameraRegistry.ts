@@ -29,8 +29,8 @@ export interface CameraConfig {
   // adminToken: optional, the proxy's admin token, used only to mint one-time
   // sign-in links into its UI for a signed-in user (Klaus, 2026-09-28).
   // caFingerprint / tlsServername: the proxy's site CA pin(s) and TLS name
-  // (cam-proxy spec 2026-10-05 §12.1), equal across a group; checked here,
-  // used from multi-camera P5 on (until then cams warns at start).
+  // (cam-proxy spec 2026-10-05 §12.1), equal across a group: with a pin,
+  // cams trusts only that CA for the proxy and its cameras (server/tls/).
   proxy?: ProxyConfig;
 }
 
@@ -67,10 +67,9 @@ export function loadCameras(file: string | undefined = process.env.CAMERAS_FILE)
     throw new Error(`camera registry ${basename(file)} is not valid JSON`);
   }
   const list = parseCameras(parsed, basename(file));
-  // The pins are checked but not used before multi-camera P5: say so, so a
-  // generated pinned file doesn't run unpinned silently.
-  const pinned = list.filter((c) => c.proxy?.caFingerprint).map((c) => c.id);
-  if (pinned.length) logger.warn({ cameras: pinned }, 'proxy_pin_not_enforced');
+  // https without a name to check and without a pinned proxy: unverified, as
+  // before P5 (server/tls/leafPin.ts LEGACY_UNVERIFIED_CAMERA). Said once, at start.
+  for (const c of list) if (c.protocol === 'https' && !c.tlsServername && !c.proxy?.caFingerprint) logger.warn({ cameraId: c.id }, 'camera_tls_unverified');
   return list;
 }
 
@@ -108,9 +107,12 @@ export function parseCameras(parsed: unknown, label: string): CameraConfig[] {
     }
     // An address from the proxy is only trusted behind a certificate check:
     // a compromised proxy must not point the camera login at another host
-    // (security review 2026-10-04).
-    if (e.host === FROM_PROXY && ((e.protocol ?? 'https') !== 'https' || e.tlsServername === undefined)) {
-      throw new Error(`camera registry entry ${i}: host "${FROM_PROXY}" needs protocol "https" and a tlsServername`);
+    // (security review 2026-10-04). With a pinned site CA that check is the
+    // CA (or the leaf pin the proxy reports over the pinned channel), so a
+    // camera on the leaf-pin fallback needs no name (spec 2026-10-05 §12.1).
+    const pinned = typeof e.proxy === 'object' && e.proxy !== null && (e.proxy as Record<string, unknown>).caFingerprint !== undefined;
+    if (e.host === FROM_PROXY && ((e.protocol ?? 'https') !== 'https' || (e.tlsServername === undefined && !pinned))) {
+      throw new Error(`camera registry entry ${i}: host "${FROM_PROXY}" needs protocol "https" and a tlsServername (or a proxy caFingerprint)`);
     }
     const proxy = e.proxy === undefined ? undefined : proxyOf(e.proxy, i);
     const camera: CameraConfig = {

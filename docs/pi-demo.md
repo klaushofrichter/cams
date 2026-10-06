@@ -116,6 +116,11 @@ user), nothing else is needed; otherwise make `data/` writable for it
      `cam1.skylar.technology` (required with `"from-proxy"`) checks the camera's Let's Encrypt certificate
      by name while it is reached by address.
 
+   The Pi has no site CA (cam-proxy spec 2026-10-05 §11): its `cameras.json`
+   has no `caFingerprint`, the proxy stays at `http://127.0.0.1:8480`, and
+   cam1 keeps its Let's Encrypt certificate checked against
+   `cam1.skylar.technology`.
+
    Copy the secrets over without printing them, for example with `jq` on the
    Pi reading `/srv/cam-proxy/config/.env`, or write the file locally and `scp` it.
    A one-camera `cameras.json` like `deploy/pi/cameras.example.json` keeps

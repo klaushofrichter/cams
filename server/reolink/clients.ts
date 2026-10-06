@@ -1,4 +1,6 @@
 import { addressEvents, cameraHost, getCamera, hostFromProxy } from '../cameraRegistry';
+import { cameraTrust } from '../tls/cameraTrust';
+import { trustEvents } from '../tls/store';
 import { ReolinkClient } from './client';
 
 // One client per camera for the life of the process, so the token cache and
@@ -9,13 +11,15 @@ import { ReolinkClient } from './client';
 const clients = new Map<string, ReolinkClient>();
 
 addressEvents.on('address', ({ cam }: { cam: string }) => clients.delete(cam));
+// Its trust changed (a site CA verified, a fallback pin set or cleared).
+trustEvents.on('trust', ({ cam }: { cam: string }) => clients.delete(cam));
 
 export function getClient(id: string): ReolinkClient | undefined {
   const existing = clients.get(id);
   if (existing) return existing;
   const cam = getCamera(id);
   if (!cam) return undefined;
-  const client = new ReolinkClient(hostFromProxy(cam) ? { ...cam, host: cameraHost(id) ?? '' } : cam);
+  const client = new ReolinkClient(hostFromProxy(cam) ? { ...cam, host: cameraHost(id) ?? '' } : cam, { trust: cameraTrust(cam) });
   // Not cached while the address is unknown: the next call sees it once reported.
   if (!hostFromProxy(cam) || cameraHost(id)) clients.set(id, client);
   return client;

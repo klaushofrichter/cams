@@ -1,6 +1,7 @@
 import { X509Certificate } from 'crypto';
 import { Agent, fetch as undiciFetch, type Dispatcher } from 'undici';
 import { formatFingerprint, normalizeFingerprint } from './fingerprint';
+import { CA_FETCH_CONNECT } from './leafPin';
 import { pinTransportOk } from './loopback';
 
 // A cam-proxy's site CA (cam-proxy spec 2026-10-05 §10.1.4): cams pins its
@@ -23,7 +24,7 @@ export async function fetchPinnedCa(url: string, pins: string[], o: { timeoutMs?
   const base = new URL(url);
   if (!pinTransportOk(base)) throw new SiteCaError('ca_insecure', `cam-proxy ${base.host}: a pinned site CA needs an https url (or a loopback http one)`);
   const target = new URL(`${base.pathname.replace(/\/+$/, '')}/tls/ca.pem`, base);
-  const dispatcher = base.protocol === 'https:' ? new Agent({ connect: { rejectUnauthorized: false } }) : undefined;
+  const dispatcher = base.protocol === 'https:' ? new Agent({ connect: { ...CA_FETCH_CONNECT } }) : undefined;
   let text: string;
   try {
     const res = await undiciFetch(target, { dispatcher, redirect: 'error', signal: AbortSignal.timeout(o.timeoutMs ?? 10_000) });
