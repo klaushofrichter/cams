@@ -53,9 +53,9 @@ describe('the cameras file', () => {
   // camera login (user, password) at another host.
   it('requires https and a tlsServername with "from-proxy"', () => {
     expect(loadCameras(file('def.json', [den]))[0].protocol).toBe('https');
-    expect(() => loadCameras(file('http.json', [{ ...den, protocol: 'http' }]))).toThrow('camera registry entry 0: host "from-proxy" needs protocol "https" and a tlsServername');
+    expect(() => loadCameras(file('http.json', [{ ...den, protocol: 'http' }]))).toThrow('camera registry entry 0: host "from-proxy" needs protocol "https" and a tlsServername (or a proxy caFingerprint)');
     const { tlsServername: _t, ...noName } = den;
-    expect(() => loadCameras(file('nosni.json', [noName]))).toThrow('camera registry entry 0: host "from-proxy" needs protocol "https" and a tlsServername');
+    expect(() => loadCameras(file('nosni.json', [noName]))).toThrow('camera registry entry 0: host "from-proxy" needs protocol "https" and a tlsServername (or a proxy caFingerprint)');
   });
   it('refuses "from-proxy" without a proxy, and still refuses a missing host', () => {
     const { proxy: _p, ...noProxy } = den;

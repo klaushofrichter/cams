@@ -3,7 +3,7 @@ import { getCamera, proxyActive, setReportedName } from '../cameraRegistry';
 import { cameraNameProblem, cameraRefusalReason } from '../cameraName';
 import { logger } from '../logger';
 import { currentUser } from '../middleware/requireAuth';
-import { errorBody, ProxyClient, ProxyError } from '../proxy/client';
+import { errorBody, groupTrustOptions, ProxyClient, ProxyError } from '../proxy/client';
 import { plausibleName } from '../proxy/names';
 import { CameraError } from '../reolink/client';
 import { getClient } from '../reolink/clients';
@@ -26,7 +26,7 @@ const invalid = (reason: string): Answer => ({ status: 400, body: { error: 'inva
 async function viaProxy(id: string, proxy: { url: string; adminToken: string }, name: string): Promise<Answer> {
   let res: globalThis.Response;
   try {
-    res = await new ProxyClient({ url: proxy.url, token: proxy.adminToken }, { timeoutMs: PROXY_TIMEOUT_MS }).open('/control/camera/name', undefined, { method: 'PUT', body: JSON.stringify({ name }) });
+    res = await new ProxyClient({ url: proxy.url, token: proxy.adminToken }, { timeoutMs: PROXY_TIMEOUT_MS, ...groupTrustOptions(id) }).open('/control/camera/name', undefined, { method: 'PUT', body: JSON.stringify({ name }) });
   } catch (err) {
     if (!(err instanceof ProxyError)) throw err;
     logger.warn({ cameraId: id, code: err.code, message: err.message }, 'camera_rename_failed');

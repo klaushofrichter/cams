@@ -1,10 +1,10 @@
 import { randomBytes } from 'crypto';
-import { connect as tlsConnect } from 'tls';
 import { IncomingMessage } from 'node:http';
 import type { CameraConfig } from '../cameraRegistry';
 import { logger } from '../logger';
 import { TimeInfo, timeInfoFromGetTime } from '../recordings/clipNames';
-import { CameraTarget, openRequest, readBody, requestWasWritten, ResponseTooLargeError, splitHost } from './http';
+import { connectPinned, connectVerified } from '../tls/leafPin';
+import { type CameraTarget, type CameraTrust, openRequest, readBody, requestWasWritten, ResponseTooLargeError, splitHost, TimeoutError, trustOf } from './http';
 import { Semaphore } from './semaphore';
 
 // camera_address_unknown: a from-proxy camera whose proxy hasn't reported its
@@ -61,8 +61,11 @@ function isTlsCertError(code: string): boolean {
   // UNABLE_TO_VERIFY_LEAF_SIGNATURE is a certificate-verification failure
   // too, but its code contains neither "ERR_TLS_" nor "CERT" - catch it via
   // "SIGNATURE" as well. (SELF_SIGNED_CERT_IN_CHAIN and other *_CERT_*
-  // codes already match the CERT check above.)
-  return code.startsWith('ERR_TLS_') || code.includes('CERT') || code.includes('SIGNATURE');
+  // codes already match the CERT check above.) A site CA's name constraint
+  // refusing a leaf is one too: OpenSSL's PERMITTED_/EXCLUDED_SUBTREE_VIOLATION,
+  // which Node 26 reports as UNSPECIFIED (its verify error for any code it
+  // has no name for; nothing but a certificate check gives it).
+  return code.startsWith('ERR_TLS_') || code.includes('CERT') || code.includes('SIGNATURE') || code.includes('SUBTREE') || code === 'UNSPECIFIED';
 }
 
 export function classifyNetworkError(err: unknown, requestSent = requestWasWritten(err)): CameraError {
@@ -98,12 +101,14 @@ export class ReolinkClient {
   constructor(
     private readonly cam: CameraConfig,
     // `tlsCa` is a test seam: extra trusted CA certificates for cameraCertificate().
-    private readonly opts: { timeoutMs?: number; maxConcurrent?: number; now?: () => number; tlsCa?: string | Buffer } = {},
+    // `trust`: how the camera's certificate is checked (server/tls/cameraTrust.ts);
+    // without it, today's rule from tlsServername.
+    private readonly opts: { timeoutMs?: number; maxConcurrent?: number; now?: () => number; tlsCa?: string | Buffer; trust?: CameraTrust } = {},
   ) {
     this.gate = new Semaphore(opts.maxConcurrent ?? 2);
     this.timeoutMs = opts.timeoutMs ?? DEFAULT_TIMEOUT_MS;
-    this.target = { protocol: cam.protocol, host: cam.host, tlsServername: cam.tlsServername };
-    if (cam.protocol === 'https' && !cam.tlsServername) {
+    this.target = { protocol: cam.protocol, host: cam.host, tlsServername: cam.tlsServername, ...(opts.trust && { trust: opts.trust }) };
+    if (cam.protocol === 'https' && trustOf(this.target).kind === 'none') {
       logger.warn({ cameraId: cam.id }, 'camera TLS certificate is not verified (no tlsServername configured)');
     }
   }
@@ -211,11 +216,20 @@ export class ReolinkClient {
     // Same host parsing as requests (bracketed IPv6 included). This only
     // reads the certificate for display: nothing is sent, and it runs outside
     // the API gate because it opens no camera session. The certificate is
-    // verified against tlsServername like every other request: an invalid or
+    // verified like every other request to this camera (its trust: public
+    // name, site CA or leaf pin; unverified ones as before against the
+    // address): an invalid or
     // expired one shows as "not available" here, and expiry is alerted on
     // separately (Grafana, cam1-cert-push).
     const { hostname, port } = splitHost(this.cam.host);
     const host = hostname.replace(/^\[(.*)\]$/, '$1');
+    const trust = trustOf(this.target);
+    if (trust.kind === 'unavailable') return null;
+    const base = { host, port: port ?? 443 };
+    const options =
+      trust.kind === 'site-ca' ? { ...base, ca: trust.ca, ...(trust.servername && { servername: trust.servername }) }
+      : trust.kind === 'public' ? { ...base, servername: trust.servername, ca: trust.ca ?? this.opts.tlsCa }
+      : { ...base, servername: host, ca: this.opts.tlsCa }; // none: as today, verified against the address
     return new Promise((resolve) => {
       let done = false;
       const finish = (v: { subject: string; issuer: string; validTo: string } | null) => {
@@ -225,13 +239,18 @@ export class ReolinkClient {
         socket.destroy();
         resolve(v);
       };
-      const socket = tlsConnect({ host, port: port ?? 443, servername: this.cam.tlsServername ?? host, ca: this.opts.tlsCa }, () => {
+      const onSecure = () => {
         const c = socket.getPeerCertificate();
         const t = c?.valid_to ? Date.parse(c.valid_to) : NaN;
         // A throw here would be an uncaught exception in a socket listener.
         if (!c || Number.isNaN(t)) return finish(null);
         finish({ subject: String(c.subject?.CN ?? ''), issuer: String(c.issuer?.O ?? c.issuer?.CN ?? ''), validTo: new Date(t).toISOString() });
-      });
+      };
+      // A pinned camera: shown only when its certificate matches the pin.
+      const socket =
+        trust.kind === 'pinned'
+          ? connectPinned(base, trust.fingerprint, this.timeoutMs, () => new TimeoutError(), (err) => (err ? finish(null) : onSecure()))
+          : connectVerified(options, onSecure);
       // The socket's idle timeout doesn't cover a stalled handshake: an
       // explicit deadline does.
       const timer = setTimeout(() => finish(null), this.timeoutMs);

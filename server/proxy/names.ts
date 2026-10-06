@@ -1,5 +1,9 @@
-import { getCamera, setReportedAddress, setReportedName } from '../cameraRegistry';
+import { cameraHost, getCamera, setReportedAddress, setReportedName } from '../cameraRegistry';
 import { logger } from '../logger';
+import { applyProxyTls } from '../tls/cameraTrust';
+import { ensureGroupCa } from '../tls/groupCa';
+import { verifiedCas } from '../tls/store';
+import { groupOf } from './groups';
 import { getProxyClient } from './client';
 import { entryOf, readProxyList, type ProxyCameraEntry } from './cameraList';
 import { proxyHub, proxyStates } from './stream';
@@ -31,10 +35,10 @@ export function forgetProxyName(id: string): void {
 export const plausibleName = (v: unknown): v is string => typeof v === 'string' && v.length > 0 && v.length <= 64 && !/\p{C}/u.test(v);
 
 // The camera's entry in the proxy's camera list (no answer, no entry: undefined).
-async function readProxyEntry(id: string, timeoutMs: number): Promise<ProxyCameraEntry | undefined> {
+async function readProxyEntry(id: string, timeoutMs: number, maxAgeMs?: number): Promise<ProxyCameraEntry | undefined> {
   if (!getProxyClient(id)) return undefined;
   try {
-    return entryOf(id, await readProxyList(id, timeoutMs));
+    return entryOf(id, await readProxyList(id, timeoutMs, maxAgeMs === undefined ? {} : { maxAgeMs }));
   } catch (err) {
     logger.debug({ cameraId: id, message: (err as Error).message }, 'proxy_name_unread');
     return undefined;
@@ -49,19 +53,45 @@ export async function readProxyName(id: string, timeoutMs = 5000): Promise<strin
 
 // The name and, for a "from-proxy" camera, its address (spec
 // 2026-10-04-camera-address-from-proxy-design): read when the stream comes up.
-export async function refreshProxyName(id: string): Promise<void> {
-  const mine = await readProxyEntry(id, 5000);
+// `fresh`: not from a list read in the last 2 s (a camera that just moved).
+export async function refreshProxyName(id: string, o: { fresh?: boolean } = {}): Promise<void> {
+  const mine = await readProxyEntry(id, 5000, o.fresh ? 0 : undefined);
   // The stream may have gone down (or the proxy been switched off) meanwhile.
   if (!mine || !proxyStates().some((s) => s.cam === id && s.up)) return;
   if (plausibleName(mine.name)) setReportedName(id, mine.name);
   setReportedAddress(id, mine.address);
+  // A pinned proxy whose CA isn't verified yet (it didn't answer when cams
+  // started): asked again now. An https one is asked on every request
+  // anyway; a loopback http one only here.
+  const g = groupOf(id);
+  if (g?.pins && !verifiedCas(g.pins).length) {
+    await ensureGroupCa(g).catch((err: unknown) => logger.warn({ proxy: new URL(g.url).host, message: (err as Error).message }, 'proxy_site_ca_unverified'));
+  }
+  await applyProxyTls(id, mine.tls);
+}
+
+// The list is read again while the stream stays up, so a camera replaced
+// meanwhile gets its new pin (and name) without a restart.
+const REFRESH_MS = 15 * 60_000;
+let refreshMs = REFRESH_MS;
+const refreshTimers = new Map<string, NodeJS.Timeout>();
+// Tests: a shorter interval (no argument: the default again).
+export function setListRefreshMs(ms = REFRESH_MS): void {
+  refreshMs = ms;
 }
 
 proxyHub.on('state', (s: { cam: string; up: boolean }) => {
   if (!getCamera(s.cam)?.proxy) return;
   clearTimeout(downTimers.get(s.cam));
   downTimers.delete(s.cam);
-  if (s.up) return void refreshProxyName(s.cam);
+  clearInterval(refreshTimers.get(s.cam));
+  refreshTimers.delete(s.cam);
+  if (s.up) {
+    const timer = setInterval(() => void refreshProxyName(s.cam), refreshMs);
+    timer.unref();
+    refreshTimers.set(s.cam, timer);
+    return void refreshProxyName(s.cam);
+  }
   const timer = setTimeout(() => {
     downTimers.delete(s.cam);
     setReportedName(s.cam, null);
@@ -74,5 +104,11 @@ proxyHub.on('message', (m: { cam: string; type: string; data: Record<string, unk
   if (m.type !== 'camera') return;
   if (plausibleName(m.data.name)) setReportedName(m.cam, m.data.name);
   // cam-proxy's `camera` message carries the address too (it may carry only that).
-  if (m.data.address !== undefined) setReportedAddress(m.cam, m.data.address);
+  if (m.data.address !== undefined) {
+    const before = cameraHost(m.cam);
+    setReportedAddress(m.cam, m.data.address);
+    // A pin is for one address: a pinned proxy's camera that moved has its
+    // list entry (and with it its pin) read again now.
+    if (cameraHost(m.cam) !== before && groupOf(m.cam)?.pins) void refreshProxyName(m.cam, { fresh: true });
+  }
 });

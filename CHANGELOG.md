@@ -8,6 +8,6 @@ published as [GitHub releases](https://github.com/klaushofrichter/cams/releases)
 
 ## [Unreleased]
 
-### Fixed
-- Archive: a ZIP of one camera's clips from a cam-proxy with several cameras is named after that camera (it was named after the proxy's first camera).
+### Added
+- A cam-proxy with a site CA is pinned by its CA fingerprint (`caFingerprint`): cams reaches it over HTTPS and verifies its cameras against that CA, or against the camera's own certificate when the proxy reports it couldn't install one.
 

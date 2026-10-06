@@ -3,12 +3,14 @@ import { closeEventStreams } from './routes/events';
 import { assertRequiredEnv } from './config';
 import { loadCameras, setCameras } from './cameraRegistry';
 import { loadProxyState } from './proxyState';
+import { loadTlsState } from './tls/store';
 import { logger } from './logger';
 import { startProxyStreams, stopProxyStreams } from './proxy/stream';
 
 assertRequiredEnv();
 setCameras(loadCameras());
 loadProxyState();
+loadTlsState();
 const port = Number(process.env.PORT) || 8080;
 const server = createApp().listen(port, () => {
   logger.info({ port }, 'cams listening');
