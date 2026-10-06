@@ -8,6 +8,3 @@ published as [GitHub releases](https://github.com/klaushofrichter/cams/releases)
 
 ## [Unreleased]
 
-### Fixed
-- Archive: a ZIP of one camera's clips from a cam-proxy with several cameras is named after that camera (it was named after the proxy's first camera).
-
