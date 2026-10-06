@@ -58,6 +58,12 @@ describe('cameraTrust', () => {
     expect(groupOf('cam1')?.pins).toBeNull();
   });
 
+  it('keeps the cluster’s path to the Pi (LAN http, no pin)', () => {
+    setCameras([{ id: 'cam1', name: 'Den', host: 'from-proxy', protocol: 'https', tlsServername: 'cam1.skylar.technology', user: 'cams', password: 'pw', proxy: { url: 'http://192.168.1.220:8480', token: T } }]);
+    expect(cameraTrust(getCamera('cam1')!)).toEqual({ kind: 'public', servername: 'cam1.skylar.technology' });
+    expect(groupOf('cam1')).toMatchObject({ pins: null, tlsServername: null });
+  });
+
   it('keeps http and unverified https as they are', () => {
     setCameras([
       { id: 'a', name: 'a', host: '127.0.0.1:1', protocol: 'http', user: 'u', password: 'p' },
