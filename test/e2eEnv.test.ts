@@ -21,6 +21,9 @@ describe('realProxyOn', () => {
     expect(realProxyOn({ CAMS_E2E_REAL_PROXY: '1' }, 'darwin')).toBe(false);
     expect(realProxyOn({ CAMS_E2E_REAL_PROXY: '1' }, 'win32')).toBe(false);
   });
+  it('is off with CAMS_E2E_REAL_PROXY=0, even on GitHub Actions (the time-of-day runs)', () => {
+    expect(realProxyOn({ GITHUB_ACTIONS: 'true', CAMS_E2E_REAL_PROXY: '0' }, 'linux')).toBe(false);
+  });
   it('is off by default', () => {
     expect(realProxyOn({}, 'linux')).toBe(false);
     expect(realProxyOn({ CAMS_E2E_REAL_PROXY: 'true' }, 'linux')).toBe(false);

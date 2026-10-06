@@ -15,6 +15,7 @@
     "dev:web": "vite --config web/vite.config.mts",
     "test": "vitest run",
     "test:e2e": "playwright test",
+    "test:e2e:times": "tsx scripts/e2e-time-of-day.ts",
     "icons": "node scripts/gen-icons.mjs",
     "check:svelte": "npx --yes svelte-check@4.7.6 --workspace web --tsconfig ./tsconfig.json --threshold error",
     "lint:types": "tsc --noEmit -p tsconfig.check.json"

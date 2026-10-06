@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { chicagoMs, motionStillMs, personDetectionMs, secondPersonMs, vehicleDetectionMs } from '../e2e/fakeProxyData';
+import { chicagoMs, motionStillMs, outsideDemoClips, personDetectionMs, secondPersonMs, vehicleDetectionMs } from '../e2e/fakeProxyData';
 
 // The e2e fake proxy's seeded stills for Den's demo recordings (issue #157)
 // must fall on today's cards in America/Chicago, the cameras' and the
@@ -36,5 +36,25 @@ describe('e2e fixture times', () => {
   it('turns a Chicago wall-clock time into the instant, in both offsets', () => {
     expect(new Date(chicagoMs('2026-10-03', '12:05:07')).toISOString()).toBe('2026-10-03T17:05:07.000Z');
     expect(new Date(chicagoMs('2026-12-15', '12:05:07')).toISOString()).toBe('2026-12-15T18:05:07.000Z');
+  });
+
+  // Issue #213: "a few minutes ago, stills" must not land on a demo recording.
+  describe('outsideDemoClips', () => {
+    const now = chicagoMs('2026-10-05', '12:10:20');
+    it('keeps a second away from every demo recording', () => {
+      const t = chicagoMs('2026-10-05', '12:04:00');
+      expect(outsideDemoClips(t, 1000, now)).toBe(t);
+    });
+    it('moves a second inside today\'s 12:05:05 recording to 5 s before it, or more', () => {
+      expect(chicago(outsideDemoClips(chicagoMs('2026-10-05', '12:05:20'), 1000, now))).toBe('2026-10-05T12:04:59');
+      expect(chicago(outsideDemoClips(chicagoMs('2026-10-05', '12:05:33'), 1000, now))).toBe('2026-10-05T12:04:59');
+    });
+    it('steps by whole minutes when asked', () => {
+      expect(chicago(outsideDemoClips(chicagoMs('2026-10-05', '12:05:20'), 60_000, now))).toBe('2026-10-05T12:04:20');
+    });
+    it('knows yesterday\'s recordings too (22:15:10 to 22:15:40)', () => {
+      const late = chicagoMs('2026-10-05', '00:05:00');
+      expect(chicago(outsideDemoClips(chicagoMs('2026-10-04', '22:15:30'), 1000, late))).toBe('2026-10-04T22:15:04');
+    });
   });
 });
