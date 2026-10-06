@@ -61,8 +61,11 @@ function isTlsCertError(code: string): boolean {
   // UNABLE_TO_VERIFY_LEAF_SIGNATURE is a certificate-verification failure
   // too, but its code contains neither "ERR_TLS_" nor "CERT" - catch it via
   // "SIGNATURE" as well. (SELF_SIGNED_CERT_IN_CHAIN and other *_CERT_*
-  // codes already match the CERT check above.)
-  return code.startsWith('ERR_TLS_') || code.includes('CERT') || code.includes('SIGNATURE');
+  // codes already match the CERT check above.) A site CA's name constraint
+  // refusing a leaf is one too: OpenSSL's PERMITTED_/EXCLUDED_SUBTREE_VIOLATION,
+  // which Node 26 reports as UNSPECIFIED (its verify error for any code it
+  // has no name for; nothing but a certificate check gives it).
+  return code.startsWith('ERR_TLS_') || code.includes('CERT') || code.includes('SIGNATURE') || code.includes('SUBTREE') || code === 'UNSPECIFIED';
 }
 
 export function classifyNetworkError(err: unknown, requestSent = requestWasWritten(err)): CameraError {

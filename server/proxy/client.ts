@@ -34,7 +34,7 @@ export interface ProxyClientOptions {
   onTlsError?: () => void;
 }
 
-const tlsFailure = (err: unknown): boolean => /CERT|ERR_TLS_|SIGNATURE|UNABLE_TO|ALTNAME/.test(String((err as { cause?: { code?: unknown } }).cause?.code ?? ''));
+const tlsFailure = (err: unknown): boolean => /CERT|ERR_TLS_|SIGNATURE|UNABLE_TO|ALTNAME|SUBTREE|^UNSPECIFIED$/.test(String((err as { cause?: { code?: unknown } }).cause?.code ?? ''));
 
 export class ProxyClient {
   private readonly base: URL;

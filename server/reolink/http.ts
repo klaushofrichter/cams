@@ -1,11 +1,35 @@
 import http, { IncomingMessage } from 'node:http';
 import https from 'node:https';
+import { connect as tlsConnect } from 'node:tls';
+import { normalizeFingerprint } from '../tls/fingerprint';
+
+// How a camera's certificate is checked (cam-proxy spec 2026-10-05 §12.3):
+//   public:      today's check against public CAs and the camera's
+//                tlsServername (cam1's Let's Encrypt certificate);
+//                `ca` is a test seam only
+//   site-ca:     only the pinned site CA(s) of the camera's proxy, against
+//                its .internal name, or its address (the leaf's IP SAN)
+//   pinned:      the SHA-256 of the leaf and nothing else: a camera that
+//                refused the import (its factory certificate)
+//   none:        unverified (today's https camera without a tlsServername)
+//   unavailable: a site-CA camera before its CA was ever verified: refused
+export type CameraTrust =
+  | { kind: 'public'; servername: string; ca?: string | Buffer }
+  | { kind: 'site-ca'; ca: string[]; servername?: string }
+  | { kind: 'pinned'; fingerprint: string }
+  | { kind: 'none' }
+  | { kind: 'unavailable'; reason: string };
 
 export interface CameraTarget {
   protocol: 'https' | 'http';
   host: string; // "ip" or "ip:port"
-  tlsServername?: string;
+  tlsServername?: string; // without `trust`: a public-CA check against this name
+  trust?: CameraTrust;
 }
+
+export const trustOf = (t: CameraTarget): CameraTrust => t.trust ?? (t.tlsServername ? { kind: 'public', servername: t.tlsServername } : { kind: 'none' });
+
+const tlsError = (code: string, message: string) => Object.assign(new Error(message), { code });
 
 export interface OpenOptions {
   method?: 'GET' | 'POST';
@@ -18,6 +42,42 @@ export class TimeoutError extends Error {
   constructor() {
     super('camera did not respond in time');
     this.name = 'TimeoutError';
+  }
+}
+
+// The leaf pin is checked on the socket at secureConnect, before the request
+// is written: Node skips checkServerIdentity when the chain doesn't verify
+// (a self-signed certificate), so it can't carry this check.
+export function pinnedConnection(fingerprint: string, timeoutMs: number): NonNullable<https.RequestOptions['createConnection']> {
+  return (opts, oncreate) => {
+    const host = String(opts.hostname ?? opts.host ?? '').replace(/^\[(.*)\]$/, '$1');
+    const socket = tlsConnect({ host, port: Number(opts.port ?? 443), rejectUnauthorized: false });
+    socket.setTimeout(timeoutMs, () => socket.destroy(new TimeoutError()));
+    const onError = (err: Error) => oncreate(err, socket);
+    socket.once('error', onError);
+    socket.once('secureConnect', () => {
+      socket.off('error', onError);
+      socket.setTimeout(0);
+      if (normalizeFingerprint(socket.getPeerCertificate().fingerprint256) === fingerprint) return oncreate(null, socket);
+      socket.destroy();
+      oncreate(tlsError('ERR_TLS_CERT_PIN_MISMATCH', 'camera certificate does not match its pinned fingerprint'), socket);
+    });
+    return undefined;
+  };
+}
+
+export function tlsOptions(trust: CameraTrust, timeoutMs: number): https.RequestOptions {
+  switch (trust.kind) {
+    case 'public':
+      return { servername: trust.servername, rejectUnauthorized: true, ...(trust.ca && { ca: trust.ca }) };
+    case 'site-ca':
+      return { ca: trust.ca, rejectUnauthorized: true, ...(trust.servername && { servername: trust.servername }) };
+    case 'pinned':
+      return { createConnection: pinnedConnection(trust.fingerprint, timeoutMs), agent: undefined };
+    case 'none':
+      return { rejectUnauthorized: false };
+    case 'unavailable':
+      throw tlsError('ERR_TLS_CA_UNVERIFIED', trust.reason);
   }
 }
 
@@ -51,10 +111,14 @@ export function splitHost(host: string): { hostname: string; port?: number } {
 // timeoutMs is an inactivity timeout, so it also catches a stalled stream.
 export function openRequest(target: CameraTarget, path: string, opts: OpenOptions): Promise<IncomingMessage> {
   const { hostname, port } = splitHost(target.host);
-  const tls =
-    target.protocol === 'https'
-      ? { servername: target.tlsServername, rejectUnauthorized: Boolean(target.tlsServername) }
-      : {};
+  let tls: https.RequestOptions = {};
+  if (target.protocol === 'https') {
+    try {
+      tls = tlsOptions(trustOf(target), opts.timeoutMs);
+    } catch (err) {
+      return Promise.reject(err);
+    }
+  }
   const lib = target.protocol === 'https' ? https : http;
   return new Promise((resolve, reject) => {
     const req = lib.request(
