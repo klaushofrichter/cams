@@ -4,7 +4,8 @@ import { IncomingMessage } from 'node:http';
 import type { CameraConfig } from '../cameraRegistry';
 import { logger } from '../logger';
 import { TimeInfo, timeInfoFromGetTime } from '../recordings/clipNames';
-import { CameraTarget, openRequest, readBody, requestWasWritten, ResponseTooLargeError, splitHost } from './http';
+import { normalizeFingerprint } from '../tls/fingerprint';
+import { type CameraTarget, type CameraTrust, openRequest, readBody, requestWasWritten, ResponseTooLargeError, splitHost, trustOf } from './http';
 import { Semaphore } from './semaphore';
 
 // camera_address_unknown: a from-proxy camera whose proxy hasn't reported its
@@ -101,12 +102,14 @@ export class ReolinkClient {
   constructor(
     private readonly cam: CameraConfig,
     // `tlsCa` is a test seam: extra trusted CA certificates for cameraCertificate().
-    private readonly opts: { timeoutMs?: number; maxConcurrent?: number; now?: () => number; tlsCa?: string | Buffer } = {},
+    // `trust`: how the camera's certificate is checked (server/tls/cameraTrust.ts);
+    // without it, today's rule from tlsServername.
+    private readonly opts: { timeoutMs?: number; maxConcurrent?: number; now?: () => number; tlsCa?: string | Buffer; trust?: CameraTrust } = {},
   ) {
     this.gate = new Semaphore(opts.maxConcurrent ?? 2);
     this.timeoutMs = opts.timeoutMs ?? DEFAULT_TIMEOUT_MS;
-    this.target = { protocol: cam.protocol, host: cam.host, tlsServername: cam.tlsServername };
-    if (cam.protocol === 'https' && !cam.tlsServername) {
+    this.target = { protocol: cam.protocol, host: cam.host, tlsServername: cam.tlsServername, ...(opts.trust && { trust: opts.trust }) };
+    if (cam.protocol === 'https' && trustOf(this.target).kind === 'none') {
       logger.warn({ cameraId: cam.id }, 'camera TLS certificate is not verified (no tlsServername configured)');
     }
   }
@@ -214,11 +217,21 @@ export class ReolinkClient {
     // Same host parsing as requests (bracketed IPv6 included). This only
     // reads the certificate for display: nothing is sent, and it runs outside
     // the API gate because it opens no camera session. The certificate is
-    // verified against tlsServername like every other request: an invalid or
+    // verified like every other request to this camera (its trust: public
+    // name, site CA or leaf pin; unverified ones as before against the
+    // address): an invalid or
     // expired one shows as "not available" here, and expiry is alerted on
     // separately (Grafana, cam1-cert-push).
     const { hostname, port } = splitHost(this.cam.host);
     const host = hostname.replace(/^\[(.*)\]$/, '$1');
+    const trust = trustOf(this.target);
+    if (trust.kind === 'unavailable') return null;
+    const base = { host, port: port ?? 443 };
+    const options =
+      trust.kind === 'site-ca' ? { ...base, ca: trust.ca, ...(trust.servername && { servername: trust.servername }) }
+      : trust.kind === 'pinned' ? { ...base, rejectUnauthorized: false }
+      : trust.kind === 'public' ? { ...base, servername: trust.servername, ca: trust.ca ?? this.opts.tlsCa }
+      : { ...base, servername: host, ca: this.opts.tlsCa }; // none: as today, verified against the address
     return new Promise((resolve) => {
       let done = false;
       const finish = (v: { subject: string; issuer: string; validTo: string } | null) => {
@@ -228,8 +241,9 @@ export class ReolinkClient {
         socket.destroy();
         resolve(v);
       };
-      const socket = tlsConnect({ host, port: port ?? 443, servername: this.cam.tlsServername ?? host, ca: this.opts.tlsCa }, () => {
+      const socket = tlsConnect(options, () => {
         const c = socket.getPeerCertificate();
+        if (trust.kind === 'pinned' && normalizeFingerprint(c?.fingerprint256) !== trust.fingerprint) return finish(null);
         const t = c?.valid_to ? Date.parse(c.valid_to) : NaN;
         // A throw here would be an uncaught exception in a socket listener.
         if (!c || Number.isNaN(t)) return finish(null);
