@@ -14,7 +14,8 @@ import { normalizeFingerprint } from './fingerprint';
 //    fetched; the PEM's fingerprint against the pin is the check, no token
 //    is sent, nothing but the PEM is read;
 //  - an https camera without tlsServername and without a pinned proxy:
-//    unverified exactly as before P5 (cams warns about it at start).
+//    unverified exactly as before P5 (loadCameras warns about it at start,
+//    camera_tls_unverified).
 
 const pinMismatch = () => Object.assign(new Error('camera certificate does not match its pinned fingerprint'), { code: 'ERR_TLS_CERT_PIN_MISMATCH' });
 

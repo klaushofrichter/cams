@@ -66,7 +66,11 @@ export function loadCameras(file: string | undefined = process.env.CAMERAS_FILE)
   } catch {
     throw new Error(`camera registry ${basename(file)} is not valid JSON`);
   }
-  return parseCameras(parsed, basename(file));
+  const list = parseCameras(parsed, basename(file));
+  // https without a name to check and without a pinned proxy: unverified, as
+  // before P5 (server/tls/leafPin.ts LEGACY_UNVERIFIED_CAMERA). Said once, at start.
+  for (const c of list) if (c.protocol === 'https' && !c.tlsServername && !c.proxy?.caFingerprint) logger.warn({ cameraId: c.id }, 'camera_tls_unverified');
+  return list;
 }
 
 // The registry's checks on a parsed file (also the generator's, before it

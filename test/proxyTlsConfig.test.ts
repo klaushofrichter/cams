@@ -73,4 +73,19 @@ describe('site-CA proxy fields', () => {
       warn.mockRestore();
     }
   });
+
+  it('warns at start, once per camera, about an https camera it can’t verify', () => {
+    const warn = vi.spyOn(logger, 'warn').mockImplementation(() => undefined);
+    try {
+      loadCameras(file([
+        { id: 'a', name: 'a', host: '192.168.1.5', user: 'u', password: 'p' }, // https, no name, no pin
+        { id: 'b', name: 'b', host: '192.168.1.6', protocol: 'http', user: 'u', password: 'p' },
+        { id: 'c', name: 'c', host: '192.168.1.7', tlsServername: 'c.example', user: 'u', password: 'p' },
+        { id: 'd', name: 'd', host: '192.168.1.8', user: 'u', password: 'p', proxy: { url: 'https://192.168.1.230:8443', token: T, caFingerprint: A } },
+      ]));
+      expect(warn.mock.calls.filter((c) => c[1] === 'camera_tls_unverified')).toEqual([[{ cameraId: 'a' }, 'camera_tls_unverified']]);
+    } finally {
+      warn.mockRestore();
+    }
+  });
 });
