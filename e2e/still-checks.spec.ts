@@ -66,7 +66,7 @@ test('check a second: the boxes, the findings, the ✧ mark and a list entry', a
     // The Pi's budget as the design gives it (the fake allows 1000 checks a day for the suite).
     await page.route('**/api/cameras/cam1/analytics', (r) => r.fulfill({ json: { enabled: true, paused: null, month: { calls: 14, limit: 1000 }, today: { calls: 2, cap: 30 }, checks: { today: 2, cap: 10 } } }));
     await page.reload();
-    await expect(page.getByTestId('still-check-usage')).toHaveText('14 of 1000 Vision calls this month · 2 of 10 checks today');
+    await expect(page.getByTestId('still-check-usage')).toHaveText('14 of 1000 Vision calls this month · 2 of 10 manual checks done today');
     await page.getByTestId('checks-chip').click();
     const size = info.project.name === 'phone' ? 'phone' : 'desktop';
     for (const theme of ['light', 'dark'] as const) {
