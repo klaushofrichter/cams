@@ -101,7 +101,7 @@ describe('the check button', () => {
     await openAt(AT);
     expect(button().disabled).toBe(false);
     expect(button().textContent).toContain('✧ Check with Vision');
-    expect(q('still-check-usage')?.textContent).toBe('14 of 1000 Vision calls this month · 2 of 10 checks today');
+    expect(q('still-check-usage')?.textContent).toBe('14 of 1000 Vision calls this month · 2 of 10 manual checks done today');
   });
 
   for (const [name, u, reason] of [
@@ -157,7 +157,7 @@ describe('a check', () => {
     expect(q('still-check-result')?.textContent).toContain('✧ Vision: Person 84% — Confirms the Person event');
     expect(button().textContent).toMatch(/✧ Checked/);
     expect(button().disabled).toBe(true);
-    expect(q('still-check-usage')?.textContent).toContain('3 of 10 checks today');
+    expect(q('still-check-usage')?.textContent).toContain('3 of 10 manual checks done today');
     // The marks: ✧ on the second, a dotted corner on the minute; the chip's count.
     const second = target!.querySelector(`[data-testid="timeline-second"][data-ts="${AT}"]`)!;
     expect(second.classList.contains('checked')).toBe(true);
