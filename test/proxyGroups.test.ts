@@ -2,8 +2,7 @@
 // Proxy groups (cam-proxy spec 2026-10-05 §12.1): the entries with the same
 // proxy url + token are one proxy, with one client, one stream and one
 // Archive entry.
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { logger } from '../server/logger';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { mkdtempSync, writeFileSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
@@ -102,16 +101,6 @@ describe('registry checks for a group', () => {
     expect(loadCameras(file([entry('den', { url: 'http://127.0.0.1:8480', token: T, caFingerprint: pin })]))[0].proxy?.caFingerprint).toEqual(['ab'.repeat(32)]);
     expect(() => loadCameras(file([entry('den', { url: 'http://127.0.0.1:8480', token: T, tlsServername: 'proxy.x.internal' })]))).toThrow('camera registry entry 0: proxy tlsServername needs an https url');
     expect(() => loadCameras(file([entry('den', { url: 'https://a:8443', token: T, caFingerprint: 'abc' })]))).toThrow('camera registry entry 0: proxy caFingerprint must be a SHA-256 fingerprint or a list of them');
-  });
-
-  it('warns that a pin isn’t enforced yet (P5)', () => {
-    const warn = vi.spyOn(logger, 'warn').mockImplementation(() => undefined);
-    try {
-      loadCameras(file([entry('den', { url: 'https://192.168.1.230:8443', token: T, caFingerprint: 'ab'.repeat(32) })]));
-      expect(warn).toHaveBeenCalledWith({ cameras: ['den'] }, 'proxy_pin_not_enforced');
-    } finally {
-      warn.mockRestore();
-    }
   });
 
   it('loads the Pi’s one-camera shape unchanged', () => {
