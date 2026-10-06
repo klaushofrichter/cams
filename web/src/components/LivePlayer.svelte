@@ -3,6 +3,7 @@
   import { LiveSession, type PlayerState } from '../lib/liveSession';
   import { liveUrl, type Quality } from '../lib/live';
   import { mpegtsPlayer } from '../lib/mpegtsPlayer';
+  import { whenPainted } from '../lib/liveConnectStill';
 
   let {
     cameraId,
@@ -23,11 +24,26 @@
     if (!videoA || !videoB) return;
     // untrack: a parent re-creating its callback must not restart the stream.
     const report = untrack(() => onstate);
+    const videos: [HTMLVideoElement, HTMLVideoElement] = [videoA, videoB];
     session?.stop();
     active = 0;
-    session = new LiveSession([videoA, videoB], url, mpegtsPlayer, (s) => report(s), (i) => (active = i));
+    // "playing" once the first frame is on screen (Klaus, 2026-10-06): the
+    // still shown while connecting stays until then, so no black flash.
+    let cancelPaint: (() => void) | null = null;
+    const onState = (s: PlayerState) => {
+      cancelPaint?.();
+      cancelPaint = null;
+      if (s !== 'playing') return report(s);
+      cancelPaint = whenPainted(videos[untrack(() => active)], () => {
+        cancelPaint = null;
+        report('playing');
+      });
+    };
+    session = new LiveSession(videos, url, mpegtsPlayer, onState, (i) => (active = i));
     session.start();
     return () => {
+      cancelPaint?.();
+      cancelPaint = null;
       session?.stop();
       session = null;
     };

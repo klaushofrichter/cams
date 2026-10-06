@@ -159,5 +159,78 @@ describe('LiveBox', () => {
       });
     });
   });
-});
 
+  // Klaus, 2026-10-06: a camera with a gateway shows a still less than 60 s
+  // old while live connects, instead of a black player.
+  describe('a recent still while connecting', () => {
+    let stillAt = 0;
+    let stillAsks = 0;
+    beforeEach(() => {
+      stillAsks = 0;
+      vi.stubGlobal('URL', Object.assign(URL, { createObjectURL: () => 'blob:still', revokeObjectURL: () => undefined }));
+      vi.stubGlobal('fetch', async (url: string) => {
+        if (url.includes('/still/latest.jpg')) {
+          stillAsks++;
+          return new Response(new Blob([new Uint8Array([0xff, 0xd8, 0xff])]), { status: 200, headers: { 'X-Still-Time': String(stillAt), 'Content-Type': 'image/jpeg' } });
+        }
+        return new Response('{}', { status: 200 });
+      });
+    });
+    const open = () => {
+      preferences.set(null);
+      liveUi.update((u) => ({ ...u, status: { id: 'cam1', online: true }, playerState: 'connecting', stillsShowing: false }));
+      target = document.createElement('div');
+      document.body.appendChild(target);
+      component = mount(LiveBox, { target, props: { cameraId: 'cam1', visible: true, audible: true, proxy: true } });
+      flushSync();
+    };
+    const settle = async () => {
+      for (let i = 0; i < 10; i++) await Promise.resolve();
+      flushSync();
+    };
+    const q = (id: string) => target!.querySelector(`[data-testid="${id}"]`);
+
+    it('shows it at once, over the player, marked as stills', async () => {
+      stillAt = Date.now() - 10_000;
+      open();
+      await vi.waitFor(() => expect(q('live-still')).not.toBeNull());
+      await settle();
+      expect(stillAsks).toBe(1);
+      expect(q('live-still')!.classList.contains('overlay')).toBe(true);
+      expect(get(liveUi)).toMatchObject({ stillsShowing: true, badge: '● STILLS' });
+      expect(q('live-connecting')!.classList.contains('stills')).toBe(true);
+    });
+
+    it('hands over to live once it plays', async () => {
+      stillAt = Date.now() - 10_000;
+      open();
+      await vi.waitFor(() => expect(q('live-still')).not.toBeNull());
+      liveUi.update((u) => ({ ...u, playerState: 'playing' }));
+      flushSync();
+      expect(q('live-still')).toBeNull();
+      expect(get(liveUi).stillsShowing).toBe(false);
+    });
+
+    it('stays as today with a still 60 s old or older', async () => {
+      stillAt = Date.now() - 61_000;
+      open();
+      await vi.waitFor(() => expect(stillAsks).toBe(1));
+      await settle();
+      expect(q('live-still')).toBeNull();
+      expect(q('live-connecting')!.classList.contains('stills')).toBe(false);
+      expect(get(liveUi)).toMatchObject({ stillsShowing: false, badge: '● …' });
+    });
+
+    it('asks for nothing without a gateway', async () => {
+      stillAt = Date.now();
+      preferences.set(null);
+      liveUi.update((u) => ({ ...u, status: { id: 'cam1', online: true }, playerState: 'connecting', stillsShowing: false }));
+      target = document.createElement('div');
+      document.body.appendChild(target);
+      component = mount(LiveBox, { target, props: { cameraId: 'cam1', visible: true, audible: true, proxy: false } });
+      flushSync();
+      await settle();
+      expect(stillAsks).toBe(0);
+    });
+  });
+});

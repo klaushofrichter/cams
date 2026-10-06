@@ -32,7 +32,11 @@
   }
 
   // Live video not playing for 5 s (connecting or reconnecting): a camera
-  // with a cam-proxy shows its stills meanwhile.
+  // with a cam-proxy shows its stills meanwhile. Before that (Klaus,
+  // 2026-10-06) it shows one only if it is less than 60 s old (`freshOnly`),
+  // so the player isn't black while it connects; the same LiveStill goes on
+  // into the fallback. LivePlayer reports playing once the first frame is on
+  // screen, so the still stays until then.
   let stuck = $state(false);
   const playerState = $derived($liveUi.playerState); // not every liveUi change: that would restart the 5 s
   $effect(() => {
@@ -89,7 +93,7 @@
     <!-- Muted here, not by changing `muted`, so the user's choice comes back
          once it is on screen again. -->
     <LivePlayer {cameraId} {quality} {muted} onstate={(s) => setState(s)} />
-    {#if proxy && stuck}<LiveStill {cameraId} active={visible} overlay onactive={(on) => setStills(on)} />{/if}
+    {#if proxy && notPlaying}<LiveStill {cameraId} active={visible} overlay freshOnly={!stuck} onactive={(on) => setStills(on)} />{/if}
   {:else if $liveUi.status && !$liveUi.status.online && proxy}
     <LiveStill {cameraId} active={visible} onactive={(on) => setStills(on)} />
   {/if}
