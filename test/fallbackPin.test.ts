@@ -3,7 +3,7 @@
 // §10.1.4): its proxy reports the served fingerprint in /api/cameras
 // (tls.mode "pinned"), and cams pins it, over the verified channel only.
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { mkdtempSync, readFileSync } from 'fs';
+import { existsSync, mkdtempSync, readFileSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
 import { cameraHost, getCamera, setCameras } from '../server/cameraRegistry';
@@ -62,7 +62,9 @@ describe('fallback pins', () => {
     await expect.poll(() => fallbackPin('shed', cameraHost('shed'))).toBe(LEAF);
     expect(cameraTrust(getCamera('shed')!)).toEqual({ kind: 'pinned', fingerprint: LEAF });
     expect(fallbackPin('den', cameraHost('den'))).toBeUndefined();
-    loadTlsState(); // a restart
+    // A restart, once the pin is on disk (it is written right after it is set).
+    await expect.poll(() => existsSync(process.env.PROXY_TLS_FILE!) && readFileSync(process.env.PROXY_TLS_FILE!, 'utf8').includes(LEAF)).toBe(true);
+    loadTlsState();
     expect(fallbackPin('shed', cameraHost('shed'))).toBe(LEAF);
   });
 
