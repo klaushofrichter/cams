@@ -88,7 +88,7 @@ stack can run next to them.
 |---|---|---|---|
 | sim | http 19080, https 19443, control+UI 19943, rtsp 19554, onvif 19800, baichuan 19900 | 19480 (go2rtc 19555/19984, FTPS 19221, passive 19230-19239) | 19580, camera `simcam` |
 | real | none: the camera (https, onvif 8000, rtsp 554, baichuan 9000) | 19481 (go2rtc 19556/19985, no FTP) | 19581, camera `cam1` |
-| two proxies | #n (A = 1, B = 2…): base 19600 + 10·(n-1): http +0, https +1, control+UI +2, rtsp +3, onvif +4, baichuan +5 | A 19680 (go2rtc 19681/19682, FTPS 19683, passive 19690-19699); B 19780 (go2rtc 19781/19782, FTPS 19783, passive 19790-19799) | 19880, cameras `a-cam1`, `b-cam1` |
+| two proxies | #n (A = 1, B = 2…): base 19600 + 10·(n-1): http +0, https +1, control+UI +2, rtsp +3, onvif +4, baichuan +5 | A 19680 (go2rtc 19681/19682, FTPS 19683, passive 19690-19699); B 19780 (go2rtc 19781/19782, FTPS 19783, passive 19790-19799, 10 more per further camera) | 19880, cameras `a-cam1`, `b-cam1` (… `b-camN`) |
 
 The stacks share the work dir, its `run/` and its pids file: one stack at a
 time (a start refuses while one runs), and `stop-stack.sh` stops whichever it is.
@@ -218,9 +218,11 @@ next ones still run):
 | # | Check | Proves |
 |---|---|---|
 | 1 | both cameras listed | the generated `cameras.json`: both cameras, their proxy's names, each with a proxy; the picker shows both |
+| 1a | one event stream per cam-proxy | each proxy lists its cameras, and has exactly one SSE client (cams), however many cameras it serves; a proxy with several says `sse-cam-list` |
 | 2, 3 | live view and snapshot, per camera | the Video page: name, online, its proxy reachable, the live stream plays (`● LIVE`, the top bar's indicator streaming), the camera's Snap |
 | 4 | stills, a clip and a notice per camera | a person event on each cam-sim: each proxy's stills and latest still through cams; the event's recording listed and its clip played (FTP to its own proxy); the top bar shows "Person on Alpha" and "Person on Bravo" |
 | 5, 6 | an event on one camera never shows for the other | a vehicle event on one cam-sim: cams relays it and shows its notice for that camera, and nothing (no camera event, no clip, no notice) for the other, both ways. Both proxies say `cam1`: a mix-up in cams' per-proxy fan-out shows here |
+| 7a | a multi-camera proxy's Archive (`TWOPROXY_B_CAMS` > 1; else skipped) | `/api/archive` lists proxy B once, via `b-cam1`, with all its cameras; Bravo 2's clip, archived through cams, is kept on proxy B, listed with `b-cam2`; a ZIP of it alone is named `archive-b-cam2-…` (the proxy itself says `archive-all-…`); the clip is deleted again |
 | 7 | the Archive merges both proxies | one clip archived on each (`POST /api/cameras/<id>/archive`, job polled to `done`); `/api/archive` lists both with the right camera and its proxy (`via`), both proxies ok; the Archive page shows both rows, each with its camera; selecting both and **Download ZIP** gives two ZIPs, one per proxy, each a ZIP named by its proxy |
 | 8 | proxy B down | `--stop-proxy-b`: cams relays B's proxy as down; B's "Proxy" mark is unreachable and its stills answer 502; camera A plays live, has stills, and its events and notices go on; the Archive lists A's clip and says Bravo's proxy didn't answer |
 | 9 | proxy B back | `--start-proxy-b`: B's proxy up again; for 15 s nothing for B is relayed or shown (no old event replayed as a notice); a new event on B shows "Person on Bravo", once; the Archive lists both again |
@@ -236,24 +238,29 @@ Playwright, cam-sim, fake proxy or cams server may be on the stack's ports
 ports (19600-19899) clash with none of the e2e suites' (8090-8099,
 8190-8598, 18480-18602) or the other stacks'.
 
-**A multi-camera proxy B (cam-proxy P1, released in v2026.10.05.6).**
-`TWOPROXY_B_CAMS=N` (1 to 4, default 1) starts N cam-sims behind proxy B
-("Bravo", "Bravo 2", …; cams ids `b-cam1` … `b-camN`) and writes proxy B's
-config with P1's `cameras` list instead of `camera`: each camera its own FTP
-user, FTP on for the first one only (P1 Ruling P1-2, until phase 2's
-per-camera users; the other cam-sims don't upload, their recordings still come
-over Baichuan). The newest release has P1, so no ref is needed:
+**The multi-camera stack: proxy B with several cameras (cam-proxy P1+P2,
+released in v2026.10.05.7; cams P3 plan Task 12).** `TWOPROXY_B_CAMS=N` (1 to
+4, default 1) starts N cam-sims behind proxy B ("Bravo", "Bravo 2", …; cams
+ids `b-cam1` … `b-camN`) and writes proxy B's config with the `cameras` list
+instead of `camera`, each camera uploading its clips by FTPS as its own user
+(P2; proxy B's passive range grows by 10 ports per camera). The newest
+release has P1+P2, so no ref is needed:
 
 ```sh
-TWOPROXY_B_CAMS=2 scripts/livestack/start-two-proxy-stack.sh
+TWOPROXY_B_CAMS=3 scripts/livestack/start-two-proxy-stack.sh
+scripts/livestack/check-two-proxy.sh
+scripts/livestack/stop-stack.sh
 ```
 
-A cam-proxy without P1 (`TWOPROXY_PROXY_B_REF` older than v2026.10.05.6)
-refuses that config, and the script stops there and says so. The checks then
-cover every camera: live view, snapshot, stills, a clip and a notice for
-Bravo 2 too; an event on any camera never shows for the others (also between
-Bravo and Bravo 2, on the same proxy); with proxy B down, both of its cameras
-show it unreachable. The Archive and the restart steps use Bravo.
+That is cams → one cam-proxy → three cam-sims (proxy B), next to proxy A's
+one camera. A cam-proxy without P1+P2 (`TWOPROXY_PROXY_B_REF` older than
+v2026.10.05.7) refuses that config, and the script stops there and says so.
+The checks then cover every camera: live view, snapshot, stills, a clip and a
+notice for Bravo 2 and 3 too; an event on any camera never shows for the
+others (also between neighbours on proxy B); one SSE client on proxy B for its
+three cameras (1a); the Archive of the multi-camera proxy and its ZIP name
+(7a); with proxy B down, all of its cameras show it unreachable. The other
+Archive steps and the restart step use Bravo.
 
 ## What the 23 checks prove
 
@@ -310,3 +317,4 @@ day and can take minutes on the real camera. Neither is ever a repair.
 | cams #211 (P3) + 2 × cam-proxy v2026.10.05.5 | 8/9: both Archive ZIPs downloaded as `archive.zip` (cams accepted only the plain `filename="…"`; fixed in #215) |
 | cams main b19923b (P3 + #215) + 2 × cam-proxy v2026.10.05.6 | 9/9, generator re-run no-op |
 | same, proxy B with two cam-sims (`TWOPROXY_B_CAMS=2`, P1) | 11/11, generator re-run no-op |
+| RESULT_PLACEHOLDER |
