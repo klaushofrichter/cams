@@ -5,12 +5,10 @@
 // and the clients check the binding where they attach the secret: a secret
 // is never sent anywhere else, whatever the configuration says. File mode
 // (everything from cameras.json, confirmed by definition) has the guard off.
-import { createHash } from 'crypto';
-
 let on = false;
-const bindings = new Map<string, Set<string>>(); // sha256(secret) → endpoints
-
-const id = (secret: string) => createHash('sha256').update(secret).digest('hex');
+// secret → endpoints, in memory only (the secrets themselves are in memory
+// anyway: the fleet holds them).
+const bindings = new Map<string, Set<string>>();
 const pinsOf = (pins: readonly string[] | null | undefined) => [...(pins ?? [])].sort().join(',');
 
 export const proxyEndpoint = (e: { url: string; pins: readonly string[] | null; tlsServername: string | null }): string =>
@@ -27,12 +25,11 @@ export function clearSecretBindings(): void {
 }
 export function bindSecret(secret: string, endpoint: string): void {
   if (!secret) return;
-  const k = id(secret);
-  let set = bindings.get(k);
-  if (!set) bindings.set(k, (set = new Set()));
+  let set = bindings.get(secret);
+  if (!set) bindings.set(secret, (set = new Set()));
   set.add(endpoint);
 }
 // True when the secret may go to this endpoint (always, with the guard off).
 export function secretAllowed(secret: string, endpoint: string): boolean {
-  return !on || !!bindings.get(id(secret))?.has(endpoint);
+  return !on || !!bindings.get(secret)?.has(endpoint);
 }
