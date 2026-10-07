@@ -14,6 +14,7 @@ import { getRecordings } from '../server/recordings/service';
 import { SESSION_COOKIE, signSession } from '../server/session';
 import { FAKE_JPEG, zipNames } from './proxy/fakeArchive';
 import { FAKE_TOKEN, startFakeProxy, type FakeProxy } from './proxy/fakeProxy';
+import { k } from './helpers/fleet';
 
 const EMAIL = 'klaus@klaushofrichter.net';
 const auth = `${SESSION_COOKIE}=${signSession(EMAIL)}`;
@@ -104,7 +105,7 @@ describe('create (contract §2)', () => {
     a.recordings.set('cam1', [{ id: 'RecS03_20260928_140000_140020_6D28808_1A2B3C.mp4', start: SPAN.start, end: SPAN.end, stream: 'sub', body: MP4 }]);
     const r = await send('post', '/api/cameras/den/archive', { source: { type: 'event', eventId: EVENT, quality: 'sub' } });
     expect(r.status).toBe(201);
-    expect(spy).toHaveBeenCalledWith('den', EVENT, 'sub');
+    expect(spy).toHaveBeenCalledWith(k('den'), EVENT, 'sub');
     expect(r.body.item).toMatchObject({ original: true, quality: 'sd', source: { type: 'recording', recording: 'RecS03_20260928_140000_140020_6D28808_1A2B3C.mp4', stream: 'sub' } });
     expect(a.archive.creates.at(-1)?.body).toEqual({ source: { type: 'recording', id: 'RecS03_20260928_140000_140020_6D28808_1A2B3C.mp4' } });
   });

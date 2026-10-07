@@ -1,6 +1,9 @@
 import { randomBytes } from 'crypto';
 import { IncomingMessage } from 'node:http';
-import type { CameraConfig } from '../cameraRegistry';
+import type { FileCameraConfig } from '../cameraRegistry';
+
+// What the client needs of a camera (the id only for log lines).
+type ClientCamera = Omit<FileCameraConfig, 'id'> & { id: string };
 import { logger } from '../logger';
 import { TimeInfo, timeInfoFromGetTime } from '../recordings/clipNames';
 import { connectPinned, connectVerified } from '../tls/leafPin';
@@ -9,7 +12,7 @@ import { Semaphore } from './semaphore';
 
 // camera_address_unknown: a from-proxy camera whose proxy hasn't reported its
 // address yet (spec 2026-10-04-camera-address-from-proxy-design).
-export type CameraErrorCode = 'camera_offline' | 'camera_auth_failed' | 'camera_error' | 'camera_address_unknown';
+export type CameraErrorCode = 'camera_offline' | 'camera_auth_failed' | 'camera_error' | 'camera_address_unknown' | 'camera_credentials_missing' | 'camera_unconfirmed' | 'camera_unverified_tls';
 
 // Messages are for logs only and never contain URLs, tokens or passwords;
 // clients see just the code.
@@ -99,7 +102,7 @@ export class ReolinkClient {
   private readonly target: CameraTarget;
 
   constructor(
-    private readonly cam: CameraConfig,
+    private readonly cam: ClientCamera,
     // `tlsCa` is a test seam: extra trusted CA certificates for cameraCertificate().
     // `trust`: how the camera's certificate is checked (server/tls/cameraTrust.ts);
     // without it, today's rule from tlsServername.

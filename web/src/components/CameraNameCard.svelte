@@ -2,7 +2,8 @@
   import { untrack } from 'svelte';
   import SettingsCard from './SettingsCard.svelte';
   import SaveState from './SaveState.svelte';
-  import { cameraById } from '../lib/stores';
+  import { cameraById, me } from '../lib/stores';
+  import { showsAdminControls } from '../lib/session';
   import { CAMERA_NAME_MAX, cameraNameProblem, renameCamera } from '../lib/cameraName';
 
   // Settings → camera → Name (design camera-name-design.md). The camera
@@ -11,6 +12,8 @@
   let { cameraId }: { cameraId: string } = $props();
 
   const current = $derived($cameraById(cameraId)?.name ?? '');
+  // Renaming is for account admins (migration P4); a viewer sees the name.
+  const admin = $derived(showsAdminControls($me));
   let draft = $state('');
   let base = $state(''); // the name the draft started from
   let shownFor = '';
@@ -65,6 +68,9 @@
 </script>
 
 <SettingsCard id="name" title="Camera name" description="Stored on the camera: the on-screen text, the Reolink app and cam-proxy show it too.">
+  {#if !admin}
+    <p data-testid="camera-name-readonly">{current}</p>
+  {:else}
   <label>Name
     <input data-testid="camera-name-input" aria-invalid={!!shownError} aria-describedby="camera-name-help" autocomplete="off" spellcheck="false" bind:value={draft} oninput={edited} />
     <small id="camera-name-help" class="muted">
@@ -73,9 +79,12 @@
     </small>
   </label>
   {#if shownError}<span class="err" role="alert" data-testid="camera-name-error">{shownError}</span>{/if}
+  {/if}
   {#snippet footer()}
-    <SaveState state={saveState} message={saveState === 'error' ? 'Not saved' : ''} />
-    <button class="primary" data-testid="save-camera-name" disabled={!dirty || !!problem || saveState === 'saving'} onclick={save}>Save</button>
+    {#if admin}
+      <SaveState state={saveState} message={saveState === 'error' ? 'Not saved' : ''} />
+      <button class="primary" data-testid="save-camera-name" disabled={!dirty || !!problem || saveState === 'saving'} onclick={save}>Save</button>
+    {:else}<span class="muted">Account admins rename cameras.</span>{/if}
   {/snippet}
 </SettingsCard>
 

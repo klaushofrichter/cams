@@ -1,5 +1,7 @@
 import type { Dispatcher } from 'undici';
 import { getCamera } from '../cameraRegistry';
+import type { CamKey } from '../fleet';
+import { proxyEndpoint, secretAllowed } from '../secretGuard';
 import { proxyEnabled } from '../proxyState';
 import { groupDispatcher, groupTlsFailed } from '../tls/groupCa';
 import { fetchWith, SiteCaError } from '../tls/siteCa';
@@ -8,7 +10,7 @@ import { groupOf, type ProxyGroup } from './groups';
 // Talks to a camera's cam-proxy with its client token (Bearer). The token
 // never leaves the server: errors and logs name the proxy's host only.
 
-export type ProxyErrorCode = 'proxy_unreachable' | 'proxy_unauthorized' | 'proxy_error';
+export type ProxyErrorCode = 'proxy_unreachable' | 'proxy_unauthorized' | 'proxy_error' | 'proxy_unconfirmed';
 
 export class ProxyError extends Error {
   constructor(
@@ -32,6 +34,9 @@ export interface ProxyClientOptions {
   // its pinned CA, and what to do when its certificate stops verifying.
   dispatcher?: () => Promise<Dispatcher | undefined>;
   onTlsError?: () => void;
+  // The pins and TLS name this client trusts: with the URL, the endpoint the
+  // token must be bound to (server/secretGuard.ts).
+  endpoint?: { pins: string[] | null; tlsServername: string | null };
 }
 
 const tlsFailure = (err: unknown): boolean => /CERT|ERR_TLS_|SIGNATURE|UNABLE_TO|ALTNAME|SUBTREE|^UNSPECIFIED$/.test(String((err as { cause?: { code?: unknown } }).cause?.code ?? ''));
@@ -69,6 +74,10 @@ export class ProxyClient {
     init: { method?: 'GET' | 'HEAD' | 'POST' | 'PUT' | 'PATCH' | 'DELETE'; body?: string; headers?: Record<string, string>; signal?: AbortSignal; timeoutMs?: number | null; idleMs?: number } = {},
   ): Promise<Response> {
     init.signal?.throwIfAborted(); // an already-aborted signal never fires its listener
+    // The token goes only to the endpoint an admin confirmed (cams-admin mode).
+    if (!secretAllowed(this.p.token, proxyEndpoint({ url: this.p.url, pins: this.o.endpoint?.pins ?? null, tlsServername: this.o.endpoint?.tlsServername ?? null }))) {
+      throw new ProxyError('proxy_unconfirmed', `cam-proxy ${this.host()}: not a confirmed endpoint for this token`);
+    }
     let dispatcher: Dispatcher | undefined;
     try {
       dispatcher = await this.o.dispatcher?.();
@@ -182,51 +191,57 @@ export async function errorBody(res: Response): Promise<{ error?: string; reason
   }
 }
 
-// One client per cam-proxy (group: url + token) for the life of the process.
+// One client per cam-proxy (group: account + url + token) and endpoint (its
+// pins and TLS name): a confirmed pin or TLS-name change on the same URL and
+// token gets a new client at once (security re-review N1).
 const clients = new Map<string, ProxyClient>();
+const clientKey = (g: ProxyGroup) => `${g.key}\u0000${[...(g.pins ?? [])].sort().join(',')}\u0000${g.tlsServername ?? ''}`;
 
 // The group's client whether or not the camera's proxy is switched on (the
 // Settings page's proxy info asks even then).
-export function proxyClientFor(id: string): ProxyClient | undefined {
+export function proxyClientFor(id: CamKey): ProxyClient | undefined {
   const g = groupOf(id);
   if (!g) return undefined;
-  let client = clients.get(g.key);
-  if (!client) clients.set(g.key, (client = new ProxyClient({ url: g.url, token: g.token }, trustOf(g))));
+  const k = clientKey(g);
+  let client = clients.get(k);
+  if (!client) clients.set(k, (client = new ProxyClient({ url: g.url, token: g.token }, trustOf(g))));
   return client;
 }
 
-const trustOf = (g: ProxyGroup): Pick<ProxyClientOptions, 'dispatcher' | 'onTlsError'> =>
-  g.pins ? { dispatcher: () => groupDispatcher(g), onTlsError: () => groupTlsFailed(g) } : {};
+const trustOf = (g: ProxyGroup): Pick<ProxyClientOptions, 'dispatcher' | 'onTlsError' | 'endpoint'> => ({
+  ...(g.pins ? { dispatcher: () => groupDispatcher(g), onTlsError: () => groupTlsFailed(g) } : {}),
+  endpoint: { pins: g.pins, tlsServername: g.tlsServername },
+});
 
 // For another client of the same proxy (the admin token's): the same trust.
-export function groupTrustOptions(id: string): Pick<ProxyClientOptions, 'dispatcher' | 'onTlsError'> {
+export function groupTrustOptions(id: CamKey): Pick<ProxyClientOptions, 'dispatcher' | 'onTlsError' | 'endpoint'> {
   const g = groupOf(id);
   return g ? trustOf(g) : {};
 }
 
 // Undefined for a camera without a cam-proxy or with it switched off.
-export function getProxyClient(id: string): ProxyClient | undefined {
+export function getProxyClient(id: CamKey): ProxyClient | undefined {
   return proxyEnabled(id) ? proxyClientFor(id) : undefined;
 }
 
 // The proxy's id for a camera: `proxy.camera`, or else ours.
 // Taken from the configuration, never from the request.
-export function proxyCameraId(id: string): string {
+export function proxyCameraId(id: CamKey): string {
   const camera = getCamera(id);
   if (!camera) throw new Error('unknown camera');
-  return camera.proxy?.camera ?? camera.id;
+  return camera.proxy?.camera ?? camera.camsId;
 }
 
 // The client for a camera whose cam-proxy is in use. The proxy can be
 // switched off between two calls: then proxy_unreachable.
-export function requireProxyClient(id: string): ProxyClient {
+export function requireProxyClient(id: CamKey): ProxyClient {
   const client = getProxyClient(id);
   if (!client) throw new ProxyError('proxy_unreachable', 'the camera has no cam-proxy in use');
   return client;
 }
 
 // A path of the proxy's API for one of its cameras (`rest` starts with "/").
-export function proxyPath(id: string, rest: string): string {
+export function proxyPath(id: CamKey, rest: string): string {
   return `/api/cameras/${encodeURIComponent(proxyCameraId(id))}${rest}`;
 }
 

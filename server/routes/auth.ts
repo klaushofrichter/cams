@@ -2,7 +2,8 @@ import express, { NextFunction, Router, Request, Response } from 'express';
 import { createHash, timingSafeEqual } from 'crypto';
 import { OAuth2Client } from 'google-auth-library';
 import { expiredSessionKind, SESSION_COOKIE, SESSION_MAX_AGE_MS, signSession, signTokenSession } from '../session';
-import { getAllowedEmails } from '../allowedEmails';
+import { membershipsOf, tokenAccount } from '../membership';
+import { configMode, pullSoon } from '../configSource';
 import { createApiRateLimit, createAuthRateLimit, createTokenFailureLimit } from '../middleware/rateLimit';
 import { RETURN_COOKIE, rememberReturn, safeReturnPath } from '../middleware/requireAuth';
 import { requireSameOrigin } from '../middleware/requireSameOrigin';
@@ -89,7 +90,8 @@ authRouter.get('/auth/google/callback', authRateLimit, async (req: Request, res:
     return;
   }
 
-  if (!getAllowedEmails().includes(email)) {
+  const memberships = membershipsOf(email);
+  if (!memberships.length) {
     if (attempt === 'first') {
       redirectToGoogle(req, res, 'reselect');
       return;
@@ -107,8 +109,17 @@ authRouter.get('/auth/google/callback', authRateLimit, async (req: Request, res:
   }
 
   clearState(res);
-  res.cookie(SESSION_COOKIE, signSession(email), { ...cookieOptions(), maxAge: SESSION_MAX_AGE_MS });
   setLoginHint(res, email);
+  pullSoon('login'); // roles may have changed: a fresh configuration soon
+  // Several accounts (cams-admin mode): a session without an account, and the
+  // picker; the return path stays for after the choice (R4-13).
+  if (memberships.length > 1) {
+    res.cookie(SESSION_COOKIE, signSession(email), { ...cookieOptions(), maxAge: SESSION_MAX_AGE_MS });
+    res.redirect(302, '/app/accounts');
+    return;
+  }
+  const acc = configMode() === 'cams-admin' ? memberships[0].account.id : undefined;
+  res.cookie(SESSION_COOKIE, signSession(email, acc), { ...cookieOptions(), maxAge: SESSION_MAX_AGE_MS });
   const returnTo = safeReturnPath(req.cookies?.[RETURN_COOKIE]);
   res.clearCookie(RETURN_COOKIE, cookieOptions());
   res.redirect(302, returnTo ?? '/');
@@ -126,6 +137,8 @@ const next404 = (res: Response): void => {
   res.status(404).type('text/plain').send('Not found');
 };
 const digest = (value: string): Buffer => createHash('sha256').update(value, 'utf8').digest();
+
+let lastUnresolvedLog = 0;
 
 function tokenMatches(presented: unknown, expected: string): boolean {
   const candidate = typeof presented === 'string' && presented.length > 0 && presented.length <= MAX_TOKEN_BYTES ? presented : '';
@@ -165,8 +178,21 @@ authRouter.post(
       else res.status(401).json({ error: 'invalid_token' });
       return;
     }
+    // The token's account (R4-14): without one, no session (cams still runs).
+    const t = tokenAccount();
+    if (!t.ok) {
+      const now = Date.now();
+      if (now - lastUnresolvedLog > 60_000) {
+        lastUnresolvedLog = now;
+        logger.error({ kind: 'auth', reason: t.reason }, 'token_account_unresolved');
+      }
+      if (form) res.redirect(303, '/?login=unavailable');
+      else res.status(503).json({ error: 'token_account_ambiguous' });
+      return;
+    }
     res.locals.tokenOk = true;
-    res.cookie(SESSION_COOKIE, signTokenSession(tokenUser(), tokenFingerprint(expected)), { ...cookieOptions(), maxAge: SESSION_MAX_AGE_MS });
+    const acc = configMode() === 'cams-admin' ? t.account.id : undefined;
+    res.cookie(SESSION_COOKIE, signTokenSession(tokenUser(), tokenFingerprint(expected), acc), { ...cookieOptions(), maxAge: SESSION_MAX_AGE_MS });
     // No Google renewal for this browser (it would be for another account).
     clearLoginHint(res);
     clearState(res);

@@ -5,6 +5,7 @@ import { AnalysisStore, dayWindow, getAnalysisStore, parseAnalysis, parseObjects
 import { proxyHub } from '../server/proxy/stream';
 import { attachAnalyses, cardFor } from '../server/recordings/analysis';
 import { FAKE_TOKEN, startFakeProxy, type FakeProxy } from './proxy/fakeProxy';
+import { k } from './helpers/fleet';
 
 const T = Date.parse('2026-09-30T15:48:20-05:00');
 const box = { x0: 0.1, y0: 0.2, x1: 0.3, y1: 0.9 };
@@ -137,78 +138,78 @@ describe('AnalysisStore', () => {
   it('fetches the day from the proxy once, under the proxy’s name for the camera', async () => {
     fake.analyses.set('cam1', [{ ...a(), provider: 'google-vision', objects: [] }]);
     const s = new AnalysisStore();
-    expect(await s.forDay('den', '2026-09-30', day, NOW)).toEqual([a()]);
-    await s.forDay('den', '2026-09-30', day, NOW + 30_000);
+    expect(await s.forDay(k('den'), '2026-09-30', day, NOW)).toEqual([a()]);
+    await s.forDay(k('den'), '2026-09-30', day, NOW + 30_000);
     expect(asked()).toBe(1);
   });
 
   it('asks again after 60 s for today, and after an hour for a past day', async () => {
     const s = new AnalysisStore();
-    await s.forDay('den', '2026-09-30', day, NOW);
-    await s.forDay('den', '2026-09-30', day, NOW + 61_000);
+    await s.forDay(k('den'), '2026-09-30', day, NOW);
+    await s.forDay(k('den'), '2026-09-30', day, NOW + 61_000);
     expect(asked()).toBe(2);
     const past = [card('2026-09-29T10:00:00-05:00', '2026-09-29T10:00:20-05:00')];
-    await s.forDay('den', '2026-09-29', past, NOW);
-    await s.forDay('den', '2026-09-29', past, NOW + 30 * 60_000);
+    await s.forDay(k('den'), '2026-09-29', past, NOW);
+    await s.forDay(k('den'), '2026-09-29', past, NOW + 30 * 60_000);
     expect(asked()).toBe(3);
-    await s.forDay('den', '2026-09-29', past, NOW + 61 * 60_000);
+    await s.forDay(k('den'), '2026-09-29', past, NOW + 61 * 60_000);
     expect(asked()).toBe(4);
   });
 
   it('overlays received messages on the cached day; a message wins over a record fetched before it', async () => {
     fake.analyses.set('cam1', [{ ...a({ status: 'skipped', reason: 'limit', stillTs: null, summary: [] }), provider: 'google-vision', objects: [] }]);
     const s = new AnalysisStore();
-    await s.forDay('den', '2026-09-30', day, NOW);
-    s.ingest('den', a(), NOW);
-    s.ingest('den', a({ eventId: 2, start: T + 60_000 }), NOW);
-    const got = await s.forDay('den', '2026-09-30', day, NOW + 1000);
+    await s.forDay(k('den'), '2026-09-30', day, NOW);
+    s.ingest(k('den'), a(), NOW);
+    s.ingest(k('den'), a({ eventId: 2, start: T + 60_000 }), NOW);
+    const got = await s.forDay(k('den'), '2026-09-30', day, NOW + 1000);
     expect(got.map((x) => [x.eventId, x.status])).toEqual([[1, 'ok'], [2, 'ok']]);
     expect(asked()).toBe(1);
   });
 
   it('keeps a record fetched after the message arrived: it knows the end (issue #109)', async () => {
     const s = new AnalysisStore();
-    s.ingest('den', a({ end: null }), NOW);
+    s.ingest(k('den'), a({ end: null }), NOW);
     fake.analyses.set('cam1', [{ ...a(), provider: 'google-vision', objects: [] }]);
-    expect((await s.forDay('den', '2026-09-30', day, NOW + 1000)).map((x) => x.end)).toEqual([T + 5000]);
+    expect((await s.forDay(k('den'), '2026-09-30', day, NOW + 1000)).map((x) => x.end)).toEqual([T + 5000]);
   });
 
   it('serves an expired day as it was while the proxy fails (issue #109)', async () => {
     fake.analyses.set('cam1', [{ ...a(), provider: 'google-vision', objects: [] }]);
     const s = new AnalysisStore();
-    await s.forDay('den', '2026-09-30', day, NOW);
+    await s.forDay(k('den'), '2026-09-30', day, NOW);
     fake.analysesStatus = 500;
-    expect(await s.forDay('den', '2026-09-30', day, NOW + 61_000)).toEqual([a()]);
-    expect(await s.forDay('den', '2026-09-30', day, NOW + 70_000)).toEqual([a()]);
+    expect(await s.forDay(k('den'), '2026-09-30', day, NOW + 61_000)).toEqual([a()]);
+    expect(await s.forDay(k('den'), '2026-09-30', day, NOW + 70_000)).toEqual([a()]);
     expect(asked()).toBe(2);
   });
 
   it('asks again after 60 s for a day fetched before its end, even once it is over (issue #109)', async () => {
     const s = new AnalysisStore();
     const lateNight = Date.parse('2026-09-30T23:59:30-05:00');
-    await s.forDay('den', '2026-09-30', day, lateNight);
-    await s.forDay('den', '2026-09-30', day, lateNight + 61_000);
+    await s.forDay(k('den'), '2026-09-30', day, lateNight);
+    await s.forDay(k('den'), '2026-09-30', day, lateNight + 61_000);
     expect(asked()).toBe(2);
-    await s.forDay('den', '2026-09-30', day, lateNight + 30 * 60_000);
+    await s.forDay(k('den'), '2026-09-30', day, lateNight + 30 * 60_000);
     expect(asked()).toBe(2);
   });
 
   it('forgets received messages two days after their start (issue #109)', async () => {
     const s = new AnalysisStore();
-    s.ingest('den', a(), NOW);
-    s.ingest('den', a({ eventId: 2, start: T + 2 * 86_400_000 }), T + 2 * 86_400_000 + 1);
-    expect(await s.forDay('den', '2026-09-30', day, NOW)).toEqual([]);
+    s.ingest(k('den'), a(), NOW);
+    s.ingest(k('den'), a({ eventId: 2, start: T + 2 * 86_400_000 }), T + 2 * 86_400_000 + 1);
+    expect(await s.forDay(k('den'), '2026-09-30', day, NOW)).toEqual([]);
   });
 
   it('keeps the analyses from the stream messages, ignoring other types and an older proxy’s shape (issue #109)', async () => {
     vi.useFakeTimers({ now: NOW, toFake: ['Date'] }); // the listener ingests at the real clock; the store forgets old ones
     resetAnalysisStore();
     fake.offline = true;
-    proxyHub.emit('message', { cam: 'den', type: 'analysis', data: a() });
-    proxyHub.emit('message', { cam: 'den', type: 'analysis', data: { eventId: 2, status: 'ok', objects: [] } });
-    proxyHub.emit('message', { cam: 'den', type: 'clip', data: a({ eventId: 3 }) });
+    proxyHub.emit('message', { cam: k('den'), type: 'analysis', data: a() });
+    proxyHub.emit('message', { cam: k('den'), type: 'analysis', data: { eventId: 2, status: 'ok', objects: [] } });
+    proxyHub.emit('message', { cam: k('den'), type: 'clip', data: a({ eventId: 3 }) });
     try {
-      expect(await getAnalysisStore().forDay('den', '2026-09-30', day, NOW)).toEqual([a()]);
+      expect(await getAnalysisStore().forDay(k('den'), '2026-09-30', day, NOW)).toEqual([a()]);
     } finally {
       vi.useRealTimers();
     }
@@ -216,23 +217,23 @@ describe('AnalysisStore', () => {
 
   it('answers with the received messages alone while the proxy is away, and asks again next time', async () => {
     const s = new AnalysisStore();
-    s.ingest('den', a(), NOW);
+    s.ingest(k('den'), a(), NOW);
     fake.offline = true;
-    expect(await s.forDay('den', '2026-09-30', day, NOW)).toEqual([a()]);
+    expect(await s.forDay(k('den'), '2026-09-30', day, NOW)).toEqual([a()]);
     fake.offline = false;
-    await s.forDay('den', '2026-09-30', day, NOW + 31_000);
+    await s.forDay(k('den'), '2026-09-30', day, NOW + 31_000);
     expect(asked()).toBe(1);
   });
 
   it('remembers a failure for 30 s: one request for loads within it, another after', async () => {
     fake.analysesStatus = 500;
     const s = new AnalysisStore();
-    s.ingest('den', a(), NOW);
-    expect(await s.forDay('den', '2026-09-30', day, NOW)).toEqual([a()]);
-    expect(await s.forDay('den', '2026-09-30', day, NOW + 29_000)).toEqual([a()]);
+    s.ingest(k('den'), a(), NOW);
+    expect(await s.forDay(k('den'), '2026-09-30', day, NOW)).toEqual([a()]);
+    expect(await s.forDay(k('den'), '2026-09-30', day, NOW + 29_000)).toEqual([a()]);
     expect(asked()).toBe(1);
     fake.analysesStatus = null;
-    await s.forDay('den', '2026-09-30', day, NOW + 31_000);
+    await s.forDay(k('den'), '2026-09-30', day, NOW + 31_000);
     expect(asked()).toBe(2);
   });
 
@@ -240,31 +241,31 @@ describe('AnalysisStore', () => {
     fake.analysesStall = true;
     const s = new AnalysisStore({ timeoutMs: 300 });
     const t0 = Date.now();
-    expect(await s.forDay('den', '2026-09-30', day, NOW)).toEqual([]);
+    expect(await s.forDay(k('den'), '2026-09-30', day, NOW)).toEqual([]);
     expect(Date.now() - t0).toBeLessThan(1500);
-    await s.forDay('den', '2026-09-30', day, NOW + 1000);
+    await s.forDay(k('den'), '2026-09-30', day, NOW + 1000);
     expect(asked()).toBe(1);
     // The 30 s count from when it failed, not from when it was asked (issue #109).
-    await s.forDay('den', '2026-09-30', day, NOW + 30_100);
+    await s.forDay(k('den'), '2026-09-30', day, NOW + 30_100);
     expect(asked()).toBe(1);
   });
 
   it('remembers an older proxy without /analyses as an empty day', async () => {
     fake.analysesStatus = 404;
     const s = new AnalysisStore();
-    expect(await s.forDay('den', '2026-09-30', day, NOW)).toEqual([]);
-    await s.forDay('den', '2026-09-30', day, NOW + 1000);
+    expect(await s.forDay(k('den'), '2026-09-30', day, NOW)).toEqual([]);
+    await s.forDay(k('den'), '2026-09-30', day, NOW + 1000);
     expect(asked()).toBe(1);
   });
 
   it('makes one request for loads of the same day at once', async () => {
     const s = new AnalysisStore();
-    await Promise.all([1, 2, 3].map(() => s.forDay('den', '2026-09-30', day, NOW)));
+    await Promise.all([1, 2, 3].map(() => s.forDay(k('den'), '2026-09-30', day, NOW)));
     expect(asked()).toBe(1);
   });
 
   it('has nothing for a day without cards', async () => {
-    expect(await new AnalysisStore().forDay('den', '2026-09-30', [], NOW)).toEqual([]);
+    expect(await new AnalysisStore().forDay(k('den'), '2026-09-30', [], NOW)).toEqual([]);
     expect(asked()).toBe(0);
   });
 });

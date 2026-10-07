@@ -16,6 +16,7 @@ import { SESSION_COOKIE, signSession } from '../server/session';
 import { createSimCamera, type SimState } from './camera/sim';
 import { FAKE_TOKEN, startFakeProxy, type FakeProxy } from './proxy/fakeProxy';
 import { recordingOf, seedRecordings } from './proxy/seedRecordings';
+import { k } from './helpers/fleet';
 
 // Spec 2026-10-02 (recordings via cam-proxy): for a camera with a cam-proxy
 // the day's list and the month's days come from the proxy's recordings API,
@@ -196,10 +197,10 @@ describe('the day’s list and the month’s days through cam-proxy', () => {
     fake.recordingsBusy = 1;
     const rec = getRecordings();
     const ctl = new AbortController();
-    const first = rec.events('cam1', today(), ctl.signal).catch((e: unknown) => e);
+    const first = rec.events(k('cam1'), today(), ctl.signal).catch((e: unknown) => e);
     await vi.waitFor(() => expect(recordingAsks().length).toBe(1));
     ctl.abort(new Error('left'));
-    const second = rec.events('cam1', today(), new AbortController().signal); // before the abandoned list has settled
+    const second = rec.events(k('cam1'), today(), new AbortController().signal); // before the abandoned list has settled
     expect(await first).toMatchObject({ message: 'left' });
     expect((await second).length).toBeGreaterThan(0);
   }, 15_000);
@@ -209,7 +210,7 @@ describe('the day’s list and the month’s days through cam-proxy', () => {
     const seen = vi.fn();
     process.on('unhandledRejection', seen);
     try {
-      await expect(getRecordings().events('cam1', today(), AbortSignal.abort(new Error('gone')))).rejects.toThrow('gone');
+      await expect(getRecordings().events(k('cam1'), today(), AbortSignal.abort(new Error('gone')))).rejects.toThrow('gone');
       await sleep(200);
       expect(seen).not.toHaveBeenCalled();
     } finally {
@@ -229,7 +230,7 @@ describe('the day’s list and the month’s days through cam-proxy', () => {
   });
 
   it('asks the camera, not the proxy, while the cam-proxy is switched off', async () => {
-    await setProxyEnabled('cam1', false);
+    await setProxyEnabled(k('cam1'), false);
     const searches = state.searches;
     const day = await events();
     expect(state.searches).toBe(searches + 2);

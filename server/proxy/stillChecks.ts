@@ -2,6 +2,7 @@ import { logger } from '../logger';
 import { dayWindow, parseObjects, parseSummary, type StillObject, type SummaryEntry } from './analyses';
 import { getProxyClient, proxyPath, ProxyError } from './client';
 import { proxyHub } from './stream';
+import type { CamKey } from '../fleet';
 
 // cam-proxy's still checks (cams #179, cam-proxy's still checks API): Vision
 // on a second picked by hand. Not events: kept in their own list, shown on
@@ -90,7 +91,7 @@ export class CheckStore {
   private failed = new Map<string, number>();
   private gen = new Map<string, number>();
 
-  async forDay(cam: string, date: string, cards: { start: string }[], now = Date.now()): Promise<StillCheck[]> {
+  async forDay(cam: CamKey, date: string, cards: { start: string }[], now = Date.now()): Promise<StillCheck[]> {
     if (!cards.length) return [];
     const win = dayWindow(date, cards[0].start);
     if (!win) return [];
@@ -104,13 +105,13 @@ export class CheckStore {
     return this.inflight.get(key) ?? this.fetch(cam, key, win, now);
   }
 
-  invalidate(cam: string): void {
+  invalidate(cam: CamKey): void {
     this.gen.set(cam, (this.gen.get(cam) ?? 0) + 1);
     for (const k of this.days.keys()) if (k.startsWith(`${cam}|`)) this.days.delete(k);
     for (const k of this.inflight.keys()) if (k.startsWith(`${cam}|`)) this.inflight.delete(k);
   }
 
-  private fetch(cam: string, key: string, win: [number, number], now: number): Promise<StillCheck[]> {
+  private fetch(cam: CamKey, key: string, win: [number, number], now: number): Promise<StillCheck[]> {
     const gen = this.gen.get(cam) ?? 0;
     const work = (async () => {
       const client = getProxyClient(cam);
@@ -147,6 +148,6 @@ export function resetCheckStore(): void {
 }
 
 // A new check: the camera's days are fetched again (its cards may be confirmed).
-proxyHub.on('message', (m: { cam: string; type: string }) => {
+proxyHub.on('message', (m: { cam: CamKey; type: string }) => {
   if (m.type === 'still-check' || m.type === 'reset') store.invalidate(m.cam);
 });

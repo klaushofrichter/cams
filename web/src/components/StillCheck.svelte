@@ -1,6 +1,8 @@
 <script lang="ts">
   // A text expression keeps its spaces (whitespace at an element's edge is dropped).
   const SEP = ' — ';
+  import { me } from '../lib/stores';
+  import { showsAdminControls } from '../lib/session';
   import { checkButton, CheckError, confirmsLine, findings, requestCheck, reusedLine, usageLine, type CheckResult, type DayCheck, type UsageState } from '../lib/stillChecks';
 
   // "✧ Check with Vision" under the Timeline's large still (cams #179, spec
@@ -61,10 +63,12 @@
 
 <div class="check" data-testid="still-check">
   <div class="row">
+    {#if showsAdminControls($me)}
     <button class="go" data-testid="still-check-button" disabled={btn.disabled} title={btn.reason ?? (check ? 'Checked by hand: the result is shown' : 'Send this still to Google Vision')}
       aria-busy={running === ts} onclick={() => void run()}>
       {#if running === ts}<span class="spinner" aria-hidden="true" data-testid="still-check-spinner"></span>{/if}{btn.label}
     </button>
+    {/if}
     {#if onaround}
       <!-- Any second, checked or not, a gap too (an FTP clip may cover it): the proxy says when nothing does. -->
       <button class="around" data-testid="still-around-button" title="Save a clip from 10 s before to 10 s after this second" onclick={() => onaround(ts)}>Save clip around this</button>

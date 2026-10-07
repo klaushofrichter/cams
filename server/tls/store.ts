@@ -4,6 +4,14 @@ import { basename, dirname, join } from 'path';
 import { allCameras } from '../cameraRegistry';
 import { logger } from '../logger';
 import { certFingerprint, normalizeFingerprint } from './fingerprint';
+import { accountIdOf, camsIdOf, fileAccount, type AccountRef, type CamKey } from '../fleet';
+import { accountRefOf, backupOnce, isFileAccount } from '../stateLayout';
+
+// Pins are keyed by camera: today's layout by the file account's camsId
+// ("cam1"); the account layout (v: 2, after the first cams-admin start,
+// M §11.5) by the key ("acc_…/cam1"). CAs stay content-addressed.
+let layout: 'old' | 'accounts' = 'old';
+const entryKey = (cam: CamKey): string => (layout === 'old' && isFileAccount(accountRefOf(accountIdOf(cam))) ? camsIdOf(cam) : cam);
 
 // What cams keeps of its cam-proxies' TLS (cam-proxy spec 2026-10-05
 // §10.1.4, §12.3): every site CA it verified against a pin (fingerprint →
@@ -15,6 +23,7 @@ import { certFingerprint, normalizeFingerprint } from './fingerprint';
 // CA or pin would let another host take the camera login (it carries the
 // password). So never the temp folder, and a file another user owns or could
 // write is refused at start (security review of PR #227).
+export const tlsStateFile = (): string | undefined => file();
 const file = (): string | undefined =>
   process.env.PROXY_TLS_FILE || (process.env.PREFS_FILE ? join(dirname(process.env.PREFS_FILE), 'proxy-tls.json') : undefined);
 
@@ -40,6 +49,7 @@ const fingerprintOf = (pem: string): string | null => {
 export function loadTlsState(): void {
   cas = new Map();
   pins = new Map();
+  layout = 'old';
   const path = file();
   if (!path) {
     if (allCameras().some((c) => c.proxy?.caFingerprint)) throw new Error('a cam-proxy caFingerprint needs a data folder for proxy-tls.json: set PROXY_TLS_FILE or PREFS_FILE');
@@ -59,7 +69,8 @@ export function loadTlsState(): void {
     return;
   }
   try {
-    const parsed = JSON.parse(text) as { cas?: Record<string, unknown>; pins?: Record<string, unknown> };
+    const parsed = JSON.parse(text) as { cas?: Record<string, unknown>; pins?: Record<string, unknown>; v?: unknown };
+    if (parsed.v === 2) layout = 'accounts';
     // Re-checked: a CA is kept only under its own fingerprint.
     for (const [fp, pem] of Object.entries(parsed.cas ?? {})) if (typeof pem === 'string' && fingerprintOf(pem) === fp) cas.set(fp, pem);
     for (const [cam, v] of Object.entries(parsed.pins ?? {})) {
@@ -80,7 +91,7 @@ function save(): Promise<void> {
     if (!target) return; // no data folder: only possible without a pinned proxy
     await fs.mkdir(dirname(target), { recursive: true });
     const tmp = `${target}.${process.pid}.tmp`;
-    await fs.writeFile(tmp, JSON.stringify({ cas: Object.fromEntries(cas), pins: Object.fromEntries(pins) }), { mode: 0o600 });
+    await fs.writeFile(tmp, JSON.stringify({ cas: Object.fromEntries(cas), pins: Object.fromEntries(pins), ...(layout === 'accounts' && { v: 2 }) }), { mode: 0o600 });
     await fs.rename(tmp, target).catch(async (err: unknown) => {
       await fs.rm(tmp, { force: true });
       throw err;
@@ -100,16 +111,49 @@ export async function addVerifiedCa(fingerprint: string, pem: string): Promise<v
 
 // The pin for this camera at this address (none for another address: a
 // camera moved or replaced waits for its proxy's report).
-export const fallbackPin = (cam: string, host: string | undefined): string | undefined => {
-  const p = pins.get(cam);
+export const fallbackPin = (cam: CamKey, host: string | undefined): string | undefined => {
+  const p = pins.get(entryKey(cam));
   return p && host !== undefined && p.host === host ? p.fingerprint : undefined;
 };
 
-export async function setFallbackPin(cam: string, pin: FallbackPin | null): Promise<void> {
-  const now = pins.get(cam);
+// Today's layout holds the file account's pins only: a pin for another
+// account moves the file into the account layout first.
+async function upgradeFor(cam: CamKey): Promise<void> {
+  if (layout === 'accounts' || isFileAccount(accountRefOf(accountIdOf(cam)))) return;
+  await toAccountLayout(fileAccount());
+}
+
+async function toAccountLayout(account: AccountRef): Promise<void> {
+  const target = file();
+  if (target) await backupOnce(target).catch(() => undefined);
+  pins = new Map([...pins].map(([k, v]) => [k.includes('/') ? k : `${account.id}/${k}`, v]));
+  layout = 'accounts';
+}
+
+// The first start in cams-admin mode: pins "cam1" → "<account id>/cam1"
+// (a .pre-accounts.bak copy kept). True if it moved.
+export async function moveTlsPinsToAccounts(account: AccountRef): Promise<boolean> {
+  await writing;
+  loadTlsState();
+  const target = file();
+  if (layout === 'accounts' || !target) return false;
+  try {
+    await fs.access(target);
+  } catch {
+    return false;
+  }
+  await toAccountLayout(account);
+  await save();
+  logger.info('proxy_tls_state_moved_to_accounts');
+  return true;
+}
+
+export async function setFallbackPin(cam: CamKey, pin: FallbackPin | null): Promise<void> {
+  await upgradeFor(cam);
+  const now = pins.get(entryKey(cam));
   if (now?.fingerprint === pin?.fingerprint && now?.host === pin?.host) return;
-  if (pin) pins.set(cam, { fingerprint: pin.fingerprint, host: pin.host });
-  else pins.delete(cam);
+  if (pin) pins.set(entryKey(cam), { fingerprint: pin.fingerprint, host: pin.host });
+  else pins.delete(entryKey(cam));
   await save();
   trustEvents.emit('trust', { cam });
 }

@@ -17,6 +17,7 @@ import { SESSION_COOKIE, signSession } from '../server/session';
 import { createSimCamera, type SimCameraOptions, type SimState } from './camera/sim';
 import { FAKE_TOKEN, startFakeProxy, type FakeProxy } from './proxy/fakeProxy';
 import { recordingOf, seedRecordings } from './proxy/seedRecordings';
+import { k } from './helpers/fleet';
 
 // Spec 2026-10-02: the clip download of a camera with a cam-proxy. Sub: the
 // proxy's recordings, its FTP copy (-proxy.mp4), the camera. Main (4K): the
@@ -96,7 +97,7 @@ describe('the clip download through cam-proxy’s recordings', () => {
       expect(Buffer.compare(r.body, recordingOf(list, ev.id, q).body)).toBe(0);
     }
     expect(state.downloads).toBe(0);
-    expect(getRecordings().downloadsState('cam1')).toBe('proxy-recordings');
+    expect(getRecordings().downloadsState(k('cam1'))).toBe('proxy-recordings');
   });
 
   it('a sub download takes the FTP copy (-proxy.mp4) when the proxy’s recordings answer 502', async () => {
@@ -184,7 +185,7 @@ describe('the clip download through cam-proxy’s recordings', () => {
     const before = fake.requests.length;
     const ctl = new AbortController();
     ctl.abort();
-    await expect(getRecordings().openDownload('cam1', ev.id, 'sub', ctl.signal)).rejects.toMatchObject({ name: 'AbortError' });
+    await expect(getRecordings().openDownload(k('cam1'), ev.id, 'sub', ctl.signal)).rejects.toMatchObject({ name: 'AbortError' });
     expect(fake.requests.length).toBe(before);
     expect(state.downloads).toBe(0);
   });
@@ -226,7 +227,7 @@ describe('the clip download through cam-proxy’s recordings', () => {
       vi.restoreAllMocks();
     }
     const cut = lines.find((l) => l[1] === 'proxy_recording_cut')!;
-    expect(cut[0]).toMatchObject({ cameraId: 'cam1', clipId: ev.id });
+    expect(cut[0]).toMatchObject({ cameraId: k('cam1'), clipId: ev.id });
     expect(inspect(lines, { depth: 8 })).not.toContain(FAKE_TOKEN);
   });
 
@@ -237,7 +238,7 @@ describe('the clip download through cam-proxy’s recordings', () => {
     fake.recordingStallAfter = 50;
     const ctl = new AbortController();
     try {
-      const got = await getRecordings().openDownload('cam1', ev.id, 'sub', ctl.signal);
+      const got = await getRecordings().openDownload(k('cam1'), ev.id, 'sub', ctl.signal);
       ctl.abort();
       got.stream.destroy();
       await sleep(100);
@@ -289,10 +290,10 @@ describe('the clip download through cam-proxy’s recordings', () => {
   // Task 5 review, item 2: a read-only question leaves the downloads note alone.
   it('does not change the downloads state when the full-quality question fails at the proxy', async () => {
     const { ev } = await seeded();
-    expect(getRecordings().downloadsState('cam1')).toBe('proxy-recordings');
+    expect(getRecordings().downloadsState(k('cam1'))).toBe('proxy-recordings');
     fake.recordingsOverride = { status: 503, body: { error: 'camera_offline' } };
     expect(await fullQuality(ev.id)).toEqual({ available: false });
-    expect(getRecordings().downloadsState('cam1')).toBe('proxy-recordings');
+    expect(getRecordings().downloadsState(k('cam1'))).toBe('proxy-recordings');
   });
 
   // Final review, minor 5: with the proxy failing, 4K is offered only when the
@@ -362,8 +363,8 @@ describe('the clip download through cam-proxy’s recordings', () => {
 describe('what the Archive stores for a plain save', () => {
   it('names the SD card’s file of the requested stream, and the proxy archives it', async () => {
     const { list, ev } = await seeded();
-    expect(await getRecordings().archiveSource('cam1', ev.id, 'sub')).toEqual({ type: 'recording', id: recordingOf(list, ev.id, 'sub').id });
-    expect(await getRecordings().archiveSource('cam1', ev.id, 'main')).toEqual({ type: 'recording', id: recordingOf(list, ev.id, 'main').id });
+    expect(await getRecordings().archiveSource(k('cam1'), ev.id, 'sub')).toEqual({ type: 'recording', id: recordingOf(list, ev.id, 'sub').id });
+    expect(await getRecordings().archiveSource(k('cam1'), ev.id, 'main')).toEqual({ type: 'recording', id: recordingOf(list, ev.id, 'main').id });
     const r = await request(createApp()).post('/api/cameras/cam1/archive').set('Cookie', auth).send({ source: { type: 'event', eventId: ev.id, quality: 'main' }, labels: ['4K'] });
     expect(r.status).toBe(201);
     expect(r.body.item).toMatchObject({ original: true, quality: '4k', labels: ['4K'], bytes: recordingOf(list, ev.id, 'main').body.length, source: { type: 'recording', stream: 'main' } });
@@ -374,6 +375,6 @@ describe('what the Archive stores for a plain save', () => {
     ftpCopy(ev.start);
     fake.recordingsOverride = { status: 502, body: { error: 'recordings_unavailable', reason: 'timeout' } };
     await binary(download(ev.id, 'sub')); // the failure is noted
-    expect(await getRecordings().archiveSource('cam1', ev.id, 'sub')).toEqual({ type: 'clip', clipId: 8 });
+    expect(await getRecordings().archiveSource(k('cam1'), ev.id, 'sub')).toEqual({ type: 'clip', clipId: 8 });
   });
 });

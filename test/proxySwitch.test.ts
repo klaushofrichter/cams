@@ -14,6 +14,8 @@ import { findProxyClip, openProxyClip } from '../server/recordings/proxyClips';
 import { getRecordings } from '../server/recordings/service';
 import { SESSION_COOKIE, signSession } from '../server/session';
 import { FAKE_ADMIN_TOKEN, FAKE_TOKEN, JPEG, startFakeProxy, type FakeProxy } from './proxy/fakeProxy';
+import { k } from './helpers/fleet';
+import { fileAccount } from '../server/fleet';
 
 // The per-camera "use cam-proxy" switch: one server-side setting per camera,
 // for all users, kept across restarts.
@@ -47,14 +49,14 @@ const put = (id: string, body: unknown) => request(createApp()).put(`/api/camera
 
 describe('proxy state file', () => {
   it('is on by default and remembers a switch across a restart', async () => {
-    expect(proxyEnabled('den')).toBe(true);
-    await setProxyEnabled('den', false);
+    expect(proxyEnabled(k('den'))).toBe(true);
+    await setProxyEnabled(k('den'), false);
     expect(JSON.parse(await fs.readFile(file, 'utf8'))).toEqual({ den: false });
     loadProxyState(); // a restart
-    expect(proxyEnabled('den')).toBe(false);
-    await setProxyEnabled('den', true);
+    expect(proxyEnabled(k('den'))).toBe(false);
+    await setProxyEnabled(k('den'), true);
     loadProxyState();
-    expect(proxyEnabled('den')).toBe(true);
+    expect(proxyEnabled(k('den'))).toBe(true);
   });
 
   it('lives next to the preferences file when PROXY_STATE_FILE is unset', async () => {
@@ -64,7 +66,7 @@ describe('proxy state file', () => {
     process.env.PREFS_FILE = join(dir, 'preferences.json');
     try {
       loadProxyState();
-      await setProxyEnabled('den', false);
+      await setProxyEnabled(k('den'), false);
       expect(JSON.parse(await fs.readFile(join(dir, 'proxy-state.json'), 'utf8'))).toEqual({ den: false });
     } finally {
       if (prefs === undefined) delete process.env.PREFS_FILE;
@@ -75,7 +77,7 @@ describe('proxy state file', () => {
   it('reads a corrupt file as all on', async () => {
     await fs.writeFile(file, 'not json');
     loadProxyState();
-    expect(proxyEnabled('den')).toBe(true);
+    expect(proxyEnabled(k('den'))).toBe(true);
   });
 });
 
@@ -95,28 +97,28 @@ describe('PUT /api/cameras/:id/proxy', () => {
     const off = await put('den', { enabled: false });
     expect(off.status).toBe(200);
     expect(off.body).toEqual({ enabled: false });
-    expect(listCameras().find((c) => c.id === 'den')).toMatchObject({ proxy: false, proxyConfigured: true });
-    expect(listCameras().find((c) => c.id === 'shed')).toMatchObject({ proxy: false, proxyConfigured: false });
+    expect(listCameras(fileAccount().id).find((c) => c.id === 'den')).toMatchObject({ proxy: false, proxyConfigured: true });
+    expect(listCameras(fileAccount().id).find((c) => c.id === 'shed')).toMatchObject({ proxy: false, proxyConfigured: false });
     expect(listProxied()).toEqual([]);
-    expect(getProxyClient('den')).toBeUndefined();
+    expect(getProxyClient(k('den'))).toBeUndefined();
     const before = fake.requests.length;
     expect((await request(createApp()).get(`/api/cameras/den/stills?from=${M}&to=${M + 60_000}`).set('Cookie', auth)).status).toBe(404);
-    expect(await findProxyClip('den', M, M + 10_000)).toBeNull();
+    expect(await findProxyClip(k('den'), M, M + 10_000)).toBeNull();
     expect(fake.requests.length).toBe(before); // the proxy was never asked
 
     expect((await put('den', { enabled: true })).body).toEqual({ enabled: true });
-    expect(listCameras().find((c) => c.id === 'den')).toMatchObject({ proxy: true, proxyConfigured: true });
+    expect(listCameras(fileAccount().id).find((c) => c.id === 'den')).toMatchObject({ proxy: true, proxyConfigured: true });
     const s = await request(createApp()).get(`/api/cameras/den/stills?from=${M}&to=${M + 60_000}`).set('Cookie', auth);
     expect(s.body).toEqual([M + 1000]);
   });
 
   it('stops the camera’s event stream when off and restarts it when on', async () => {
     startProxyStreams({ backoffMinMs: 50, backoffMaxMs: 400, healthyMs: 200 });
-    await expect.poll(() => proxyStates().find((s) => s.cam === 'den')?.up).toBe(true);
+    await expect.poll(() => proxyStates(fileAccount().id).find((s) => s.cam === k('den'))?.up).toBe(true);
     await put('den', { enabled: false });
-    expect(proxyStates().find((s) => s.cam === 'den')).toBeUndefined();
+    expect(proxyStates(fileAccount().id).find((s) => s.cam === k('den'))).toBeUndefined();
     await put('den', { enabled: true });
-    await expect.poll(() => proxyStates().find((s) => s.cam === 'den')?.up).toBe(true);
+    await expect.poll(() => proxyStates(fileAccount().id).find((s) => s.cam === k('den'))?.up).toBe(true);
   });
 });
 
@@ -125,13 +127,13 @@ describe('switch edge cases (review)', () => {
     process.env.PROXY_STATE_FILE = await fs.mkdtemp(join(tmpdir(), 'cams-proxy-state-dir-')); // a folder: rename fails
     const res = await put('den', { enabled: false });
     expect(res.status).toBe(500);
-    expect(proxyEnabled('den')).toBe(true);
-    expect(listCameras().find((c) => c.id === 'den')?.proxy).toBe(true);
+    expect(proxyEnabled(k('den'))).toBe(true);
+    expect(listCameras(fileAccount().id).find((c) => c.id === 'den')?.proxy).toBe(true);
   });
 
   it('tells every browser that the camera list changed, and that the proxy is gone (I2)', async () => {
     startProxyStreams({ backoffMinMs: 50, backoffMaxMs: 400, healthyMs: 200 });
-    await expect.poll(() => proxyStates().find((s) => s.cam === 'den')?.up).toBe(true);
+    await expect.poll(() => proxyStates(fileAccount().id).find((s) => s.cam === k('den'))?.up).toBe(true);
     const server = http.createServer(createApp()).listen(0, '127.0.0.1');
     await new Promise((r) => server.once('listening', r));
     const base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
@@ -149,7 +151,7 @@ describe('switch edge cases (review)', () => {
       proxyHub.off('state', onState);
       await expect.poll(() => frames.some((f) => f.startsWith('event: cameras'))).toBe(true);
       expect(frames.some((f) => f.startsWith('event: change') && f.includes('"reset"') && f.includes('"den"'))).toBe(true);
-      expect(states).toEqual([{ cam: 'den', up: false }]); // once (M6)
+      expect(states).toEqual([{ cam: k('den'), up: false }]); // once (M6)
     } finally {
       req.destroy();
       server.closeAllConnections();
@@ -158,27 +160,27 @@ describe('switch edge cases (review)', () => {
   });
 
   it('stops reporting recordings as coming from the proxy when it is off (I3)', async () => {
-    expect(getRecordings().downloadsState('den')).toBe('proxy-recordings');
+    expect(getRecordings().downloadsState(k('den'))).toBe('proxy-recordings');
     await put('den', { enabled: false });
-    expect(getRecordings().downloadsState('den')).toBe('ok');
+    expect(getRecordings().downloadsState(k('den'))).toBe('ok');
   });
 
   it('starts no event stream at boot for a camera switched off (I3)', async () => {
     await fs.writeFile(file, JSON.stringify({ den: false }));
     loadProxyState();
     startProxyStreams({ backoffMinMs: 50, backoffMaxMs: 400, healthyMs: 200 });
-    expect(proxyStates()).toEqual([]);
+    expect(proxyStates(fileAccount().id)).toEqual([]);
   });
 
   it('fails a clip open with a proxy error, not a crash, once switched off (M5)', async () => {
-    await setProxyEnabled('den', false);
-    await expect(openProxyClip('den', 1)).rejects.toMatchObject({ name: 'ProxyError' });
+    await setProxyEnabled(k('den'), false);
+    await expect(openProxyClip(k('den'), 1)).rejects.toMatchObject({ name: 'ProxyError' });
   });
 
   it('starts no stream after shutdown began (M7)', () => {
     stopProxyStreams(true);
-    startProxyStream('den');
-    expect(proxyStates()).toEqual([]);
+    startProxyStream(k('den'));
+    expect(proxyStates(fileAccount().id)).toEqual([]);
   });
 });
 
@@ -245,7 +247,7 @@ describe('POST /api/cameras/:id/proxy/login-link', () => {
 
   it('never shows the admin token in the camera list', async () => {
     withAdmin();
-    expect(JSON.stringify(listCameras())).not.toContain(FAKE_ADMIN_TOKEN);
+    expect(JSON.stringify(listCameras(fileAccount().id))).not.toContain(FAKE_ADMIN_TOKEN);
   });
 
   // Issue #69: a public address with a path or a query.

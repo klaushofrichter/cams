@@ -1,0 +1,3 @@
+[
+  {"id": "cam1", "name": "Den", "host": "127.0.0.1:8098", "protocol": "http", "user": "e2e", "password": "e2e-not-a-real-password", "proxy": {"url": "http://127.0.0.1:8095", "token": "e2e-fake-proxy-token-not-a-secret-000000"}}
+]

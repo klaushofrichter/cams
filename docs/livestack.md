@@ -262,6 +262,20 @@ three cameras (1a); the Archive of the multi-camera proxy and its ZIP name
 (7a); with proxy B down, all of its cameras show it unreachable. The other
 Archive steps and the restart step use Bravo.
 
+## 5. cams-admin mode and the cut-over rehearsal (migration P4)
+
+The cams side of the cut-over rehearsal (cams-admin `docs/migration-p4-runbook.md` §R step 4) runs on **cams-admin's local stack** (cams-admin, real cam-proxies and cam-sims, all on 127.0.0.1; its `docs/localstack.md`), not on this harness's sims:
+
+```bash
+(cd ~/Development/cams-admin && LOCALSTACK_DIR=$W scripts/localstack/start.sh --no-s3)
+LOCALSTACK_DIR=$W scripts/livestack/rehearse-cutover.sh
+(cd ~/Development/cams-admin && LOCALSTACK_DIR=$W scripts/localstack/stop.sh)
+```
+
+Two real cams processes from this repo's build (`cluster` on :29610 with both proxies of account `beta`, `pi` on :29611 with the first proxy only) go through: P2 managed tokens and their `cameras.json`; `export-config` (no password, hashes only); `admin-enroll` (code on stdin, fingerprint printed); imports (dry run, apply, again = no changes; the Pi file with `hideUnlisted`); `shadow` with 0 differences on both and its rollback; `cams-admin` mode (the Pi sees only its proxy: routes are default-deny), the token sign-in, cams's own tokens active (managed 4, legacy 0); a start with cams-admin unreachable (the signed cache); Rotate now with a request loop (0 failures); a held camera host confirmed; the rollback to `file` keeping preferences. PASS/FAIL per step and `result.json` in `$W/rehearse-cams` (test data, mode 600, never in git). In this stack cams-admin's bridge answers `tokens.apply` without installing the token on the real cam-proxy, so the proxies can't check cams-admin's tokens: the rotation is checked on cams's side (its `tokens.json` against the token rows, its report) and the request loop asks the cameras.
+
+The browser checks of cams-admin mode (two accounts with the same `cam1`, the picker, a viewer, a held change, an offline start) are e2e specs against a fake cams-admin: `e2e/accounts.spec.ts`, `viewer.spec.ts`, `held.spec.ts`, `offline-start.spec.ts` (projects `admin-desktop`, `admin-phone`).
+
 ## What the 23 checks prove
 
 check-stack.sh signs a cams session cookie with the run's `COOKIE_SECRET`

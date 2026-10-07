@@ -9,7 +9,8 @@ import { proxyHub, startProxyStream, stopProxyStream } from '../proxy/stream';
 import { parseObjects, parseSummary } from '../proxy/analyses';
 import { groupTrustOptions, ProxyClient, ProxyError, proxyCameraId } from '../proxy/client';
 import { entryOf, readProxyList, type ProxyCameraEntry } from '../proxy/cameraList';
-import { knownCamera, proxyTarget } from './common';
+import { knownCamera, outId, proxyTarget } from './common';
+import { accountIdOf, type CamKey } from '../fleet';
 
 // Stills and preview sprites from a camera's cam-proxy, for the Timeline
 // page (Plan 6). cams signs the browser in; the proxy's token is added here.
@@ -20,13 +21,13 @@ const bad = (res: Response, detail: string) => void res.status(400).json({ error
 
 // A camera with a cam-proxy in use: its client, the proxy's id for it
 // (encoded) and cams's own URL base for it.
-function proxied(req: Request, res: Response): { client: ProxyClient; cam: string; base: string } | undefined {
+function proxied(req: Request, res: Response): { id: CamKey; client: ProxyClient; cam: string; base: string } | undefined {
   const t = proxyTarget(req, res);
-  return t && { client: t.client, cam: encodeURIComponent(proxyCameraId(t.id)), base: `/api/cameras/${encodeURIComponent(t.id)}` };
+  return t && { id: t.id, client: t.client, cam: encodeURIComponent(proxyCameraId(t.id)), base: `/api/cameras/${encodeURIComponent(outId(t.id))}` };
 }
 
 // A camera with a cam-proxy configured, switched on or not.
-function configured(req: Request, res: Response): { id: string; proxy: NonNullable<CameraConfig['proxy']> } | undefined {
+function configured(req: Request, res: Response): { id: CamKey; proxy: NonNullable<CameraConfig['proxy']> } | undefined {
   const id = knownCamera(req, res);
   const proxy = id ? getCamera(id)?.proxy : undefined;
   if (id && !proxy) res.status(404).json({ error: 'no_proxy' });
@@ -49,7 +50,7 @@ proxyRouter.put('/api/cameras/:id/proxy', async (req: Request, res: Response) =>
   }
   // Every open browser re-reads the camera list (which cameras use a proxy),
   // and it and the recordings cache reload this camera's events.
-  proxyHub.emit('cameras');
+  proxyHub.emit('cameras', { accountId: accountIdOf(id) });
   proxyHub.emit('message', { cam: id, type: 'reset', data: {} });
   logger.info({ cameraId: id, enabled }, 'proxy_switched');
   res.json({ enabled });
@@ -59,7 +60,7 @@ proxyRouter.put('/api/cameras/:id/proxy', async (req: Request, res: Response) =>
 // 2026-09-28). cams only knows the proxy's internal URL; the proxy reports
 // where people reach it (its publicUrl). Asked directly (even with the proxy
 // switched off), with a short timeout.
-async function proxyInfo(id: string): Promise<{ reachable: boolean; webUrl: string | null }> {
+async function proxyInfo(id: CamKey): Promise<{ reachable: boolean; webUrl: string | null }> {
   let list: ProxyCameraEntry[];
   try {
     list = await readProxyList(id, 3000, { maxAgeMs: 0 });
@@ -118,7 +119,7 @@ function range(req: Request, res: Response): [number, number] | undefined {
   return [Number(from), Number(to)];
 }
 
-function proxyFailed(err: unknown, id: string, res: Response): void {
+function proxyFailed(err: unknown, id: CamKey, res: Response): void {
   // The browser left (a tile scrolled away, a page closed): nothing to answer.
   if (res.destroyed) return;
   if (!(err instanceof ProxyError)) throw err;
@@ -150,7 +151,7 @@ proxyRouter.get('/api/cameras/:id/previews', async (req: Request, res: Response)
     const ok = (Array.isArray(list) ? list : []).filter((m): m is { minute: number; url: string; present?: unknown } => Number.isSafeInteger(m?.minute) && (m.minute as number) % 60_000 === 0);
     res.json(ok.map((m) => ({ ...m, url: `${p.base}/previews/${m.minute}.jpg${spriteVersion(m.present)}` })));
   } catch (err) {
-    proxyFailed(err, String(req.params.id), res);
+    proxyFailed(err, p.id, res);
   }
 });
 
@@ -161,7 +162,7 @@ proxyRouter.get('/api/cameras/:id/stills', async (req: Request, res: Response) =
   try {
     res.json(await p.client.json<number[]>(`/api/cameras/${p.cam}/stills`, { from: r[0], to: r[1] }));
   } catch (err) {
-    proxyFailed(err, String(req.params.id), res);
+    proxyFailed(err, p.id, res);
   }
 });
 
@@ -183,7 +184,7 @@ proxyRouter.get('/api/cameras/:id/analyses/:eventId', async (req: Request, res: 
     });
   } catch (err) {
     if (err instanceof ProxyError && err.status === 404 && !res.headersSent) return void res.status(404).json({ error: 'not_found' });
-    proxyFailed(err, String(req.params.id), res);
+    proxyFailed(err, p.id, res);
   }
 });
 
@@ -213,7 +214,7 @@ for (const kind of ['previews', 'stills'] as const) {
     try {
       await relayImage(res, p.client, `/api/cameras/${p.cam}/${kind}/${ts}.jpg`, (up) => ({ 'Cache-Control': up.headers.get('cache-control') ?? 'no-store' }));
     } catch (err) {
-      proxyFailed(err, String(req.params.id), res);
+      proxyFailed(err, p.id, res);
     }
   });
 }
@@ -230,6 +231,6 @@ proxyRouter.get('/api/cameras/:id/still/latest.jpg', async (req: Request, res: R
     if (ts === undefined) return void res.status(404).json({ error: 'not_found' });
     await relayImage(res, p.client, `/api/cameras/${p.cam}/stills/${ts}.jpg`, () => ({ 'Cache-Control': 'no-store', 'X-Still-Time': String(ts) }));
   } catch (err) {
-    proxyFailed(err, String(req.params.id), res);
+    proxyFailed(err, p.id, res);
   }
 });

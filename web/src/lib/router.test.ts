@@ -69,3 +69,11 @@ describe('navigation items', () => {
     expect(NAV_ITEMS.filter((i) => isActive(i, parseRoute('/app/about', ''))).map((i) => i.id)).toEqual(['about']);
   });
 });
+
+describe('the account picker page (migration P4)', () => {
+  it('/app/accounts is its own page, not in the navigation', async () => {
+    const { parseRoute, NAV_ITEMS } = await import('./router');
+    expect(parseRoute('/app/accounts', '').page).toBe('accounts');
+    expect(NAV_ITEMS.some((i) => i.page === 'accounts')).toBe(false);
+  });
+});

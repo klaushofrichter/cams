@@ -5,6 +5,7 @@
   import ThemeToggle from './ThemeToggle.svelte';
   import Clock from './Clock.svelte';
   import LiveNotice from './LiveNotice.svelte';
+  import AccountMenu from './AccountMenu.svelte';
   import { cameraById, me, drawerOpen, selectedCameraId } from '../lib/stores';
   import { liveStatus } from '../lib/liveStatus';
 
@@ -37,6 +38,7 @@
   {/if}
   <div class="spacer"></div>
   <LiveNotice />
+  <div class="desktop-only"><AccountMenu /></div>
   <Clock />
   {#if $me}
     <a class="version" data-testid="version-link" href={REPO_URL} target="_blank" rel="noopener noreferrer" title="cams on GitHub">{$me.version}</a>

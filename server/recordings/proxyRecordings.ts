@@ -2,6 +2,7 @@ import { Readable } from 'stream';
 import { logger } from '../logger';
 import { errorBody, proxyPath, ProxyError, requireProxyClient } from '../proxy/client';
 import { RecordingError } from './errors';
+import type { CamKey } from '../fleet';
 
 // A camera's SD-card recordings through its cam-proxy's recordings API
 // (cam-proxy spec 2026-10-02-baichuan-recordings-design, section 2): the proxy
@@ -22,7 +23,7 @@ export interface ProxyRecording {
 // used in a URL later, so nothing else passes.
 const REC_ID = /^Rec[MS][0-9A-Za-z]{2}_(DST)?\d{8}_\d{6}_\d{6}_[0-9A-Za-z_]+\.mp4$/;
 
-function base(cameraId: string): string {
+function base(cameraId: CamKey): string {
   return proxyPath(cameraId, '/recordings');
 }
 
@@ -65,7 +66,7 @@ function pause(ms: number, signal?: AbortSignal): Promise<void> {
 // parameter (since v2026.10.02.4). 503 recordings_unavailable busy (the
 // proxy's Search queue is full): one retry after its Retry-After (at most 5 s,
 // cut short by `signal`); a second busy answer is the caller's.
-export async function listProxyDay(cameraId: string, date: string, stream: 'sub' | 'main', signal?: AbortSignal): Promise<ProxyRecording[]> {
+export async function listProxyDay(cameraId: CamKey, date: string, stream: 'sub' | 'main', signal?: AbortSignal): Promise<ProxyRecording[]> {
   try {
     return await listOnce(cameraId, date, stream, signal);
   } catch (err) {
@@ -76,7 +77,7 @@ export async function listProxyDay(cameraId: string, date: string, stream: 'sub'
 }
 
 // Entries that aren't a well-formed recording of that stream are dropped.
-async function listOnce(cameraId: string, date: string, stream: 'sub' | 'main', signal?: AbortSignal): Promise<ProxyRecording[]> {
+async function listOnce(cameraId: CamKey, date: string, stream: 'sub' | 'main', signal?: AbortSignal): Promise<ProxyRecording[]> {
   const body = await requireProxyClient(cameraId).json<unknown>(base(cameraId), { date, stream }, { signal });
   if (!Array.isArray(body)) throw new ProxyError('proxy_error', 'cam-proxy sent a recordings list that is not a list');
   return body
@@ -96,7 +97,7 @@ async function listOnce(cameraId: string, date: string, stream: 'sub' | 'main', 
 }
 
 // The days (YYYY-MM-DD) of a camera-local month (YYYY-MM) with recordings.
-export async function listProxyDays(cameraId: string, month: string): Promise<string[]> {
+export async function listProxyDays(cameraId: CamKey, month: string): Promise<string[]> {
   const body = await requireProxyClient(cameraId).json<{ days?: unknown } | null>(`${base(cameraId)}/days`, { month });
   if (!body || !Array.isArray(body.days)) throw new ProxyError('proxy_error', 'cam-proxy sent a day list without days');
   const last = new Date(Date.UTC(Number(month.slice(0, 4)), Number(month.slice(5, 7)), 0)).getUTCDate();
@@ -113,7 +114,7 @@ export async function listProxyDays(cameraId: string, month: string): Promise<st
 export const RECORDING_HEADER_TIMEOUT_MS = 120_000;
 
 export async function openProxyRecording(
-  cameraId: string,
+  cameraId: CamKey,
   id: string,
   signal?: AbortSignal,
   opts: { headerTimeoutMs?: number; idleMs?: number } = {},
@@ -140,7 +141,7 @@ export function fallsBack(err: unknown, signal?: AbortSignal): boolean {
 
 // `what`: the clip id, or the day or month being listed. ProxyError messages
 // name the proxy's host only, never its token.
-export function logProxyFailure(cameraId: string, what: string, err: unknown): void {
+export function logProxyFailure(cameraId: CamKey, what: string, err: unknown): void {
   const e = err instanceof ProxyError ? err : undefined;
   const fields = { cameraId, what, code: e?.code ?? 'error', status: e?.status, upstream: e?.upstream, reason: e?.reason, message: (err as Error).message };
   if (e?.status === 400) logger.error(fields, 'proxy_recordings_failed');
@@ -150,7 +151,7 @@ export function logProxyFailure(cameraId: string, what: string, err: unknown): v
 // Whether the proxy knows a recording, without a transfer (its HEAD answers
 // from the list). Any failure throws a ProxyError: a HEAD has no body, so a
 // gone recording and an older proxy's 404 look the same here.
-export async function headProxyRecording(cameraId: string, id: string): Promise<void> {
+export async function headProxyRecording(cameraId: CamKey, id: string): Promise<void> {
   const client = requireProxyClient(cameraId);
   const res = await client.open(`${base(cameraId)}/${encodeURIComponent(id)}`, undefined, { method: 'HEAD' });
   await res.body?.cancel();

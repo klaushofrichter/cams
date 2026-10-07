@@ -1,9 +1,11 @@
 import express, { Router, Request, Response } from 'express';
 import { join, resolve } from 'path';
 import { readFile } from 'fs/promises';
-import { currentUser, noStore, rememberReturn, requireAuthPage, RETURN_COOKIE, safeReturnPath } from '../middleware/requireAuth';
+import { authState, currentUser, noStore, rememberReturn, requireAuthPage, RETURN_COOKIE, safeReturnPath } from '../middleware/requireAuth';
 import { createApiRateLimit } from '../middleware/rateLimit';
 import { cookieOptions, loginMethods } from '../loginConfig';
+import { configMode } from '../configSource';
+import { fleetAccounts } from '../fleet';
 
 // The start page, told which sign-ins this server has (spec
 // 2026-10-04-pi-deployment-design): the build ships
@@ -14,7 +16,10 @@ function sendLanding(file: string, res: Response): void {
   readFile(file, 'utf8')
     .then((html) => {
       const methods = loginMethods().join(' ');
-      res.type('html').send(html.replace(LOGIN_META, `<meta name="cams-login" content="${methods}" />`));
+      // cams-admin mode without any configuration yet (never enrolled and
+      // pulled, or no cache): the start page says so.
+      const none = configMode() === 'cams-admin' && fleetAccounts().length === 0 ? '<meta name="cams-config" content="none" />' : '';
+      res.type('html').send(html.replace(LOGIN_META, `<meta name="cams-login" content="${methods}" />${none}`));
     })
     .catch(() => res.status(404).type('text/plain').send('Not found'));
 }
@@ -36,6 +41,8 @@ export function pagesRouter(dir: string): Router {
   // tab signed in again) goes to the remembered page or Live; ?returnTo= is
   // ignored then, so a third-party link can't open a chosen /app page.
   router.get('/', (req: Request, res: Response) => {
+    // Signed in but several accounts and none chosen: the picker.
+    if (authState(req).kind === 'choose') return void res.redirect(302, '/app/accounts');
     if (currentUser(req)) {
       const back = safeReturnPath(req.cookies?.[RETURN_COOKIE]);
       if (req.cookies?.[RETURN_COOKIE] !== undefined) res.clearCookie(RETURN_COOKIE, cookieOptions());

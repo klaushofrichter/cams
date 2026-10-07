@@ -3,6 +3,8 @@ import { mkdtempSync, writeFileSync } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
 import { getCamera, listCameras, loadCameras, setCameras } from '../server/cameraRegistry';
+import { k } from './helpers/fleet';
+import { fileAccount } from '../server/fleet';
 
 const dir = mkdtempSync(join(tmpdir(), 'cams-reg-'));
 function file(name: string, content: string): string {
@@ -90,7 +92,7 @@ describe('web UI link or note', () => {
       { ...cam1, protocol: 'https', id: 'b', webUiNote: 'Website not available - simulated camera' },
       { ...cam1, protocol: 'https', id: 'c', webUiUrl: null },
     ]);
-    expect(listCameras()).toEqual([
+    expect(listCameras(fileAccount().id)).toEqual([
       { id: 'a', name: 'Den', webUiUrl: 'https://192.168.1.103:9443/', proxy: false, proxyConfigured: false },
       { id: 'b', name: 'Den', webUiUrl: null, webUiNote: 'Website not available - simulated camera', proxy: false, proxyConfigured: false },
       { id: 'c', name: 'Den', webUiUrl: null, proxy: false, proxyConfigured: false },
@@ -101,9 +103,9 @@ describe('web UI link or note', () => {
 describe('listCameras / getCamera', () => {
   it('exposes id, name and webUiUrl', () => {
     setCameras([{ ...cam1, protocol: 'https' }]);
-    expect(listCameras()).toEqual([{ id: 'cam1', name: 'Den', webUiUrl: 'https://10.0.0.5/', proxy: false, proxyConfigured: false }]);
-    expect(getCamera('cam1')).toEqual({ ...cam1, protocol: 'https' });
-    expect(getCamera('nope')).toBeUndefined();
+    expect(listCameras(fileAccount().id)).toEqual([{ id: 'cam1', name: 'Den', webUiUrl: 'https://10.0.0.5/', proxy: false, proxyConfigured: false }]);
+    expect(getCamera(k('cam1'))).toEqual({ ...cam1, protocol: 'https', id: k('cam1'), camsId: 'cam1', accountId: fileAccount().id, credentials: 'ok' });
+    expect(getCamera(k('nope'))).toBeUndefined();
   });
 });
 
@@ -148,7 +150,7 @@ describe('proxy', () => {
 
   it('says proxy and proxyConfigured in the summary, and nothing else about it', () => {
     setCameras(load({ url: 'http://p:8480', token: TOKEN }));
-    const summary = listCameras();
+    const summary = listCameras(fileAccount().id);
     expect(summary).toEqual([{ id: 'cam1', name: 'Den', webUiUrl: 'https://10.0.0.5/', proxy: true, proxyConfigured: true }]);
     expect(JSON.stringify(summary)).not.toContain('p:8480');
     expect(JSON.stringify(summary)).not.toContain(TOKEN);

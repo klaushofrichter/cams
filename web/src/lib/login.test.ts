@@ -30,3 +30,17 @@ describe('signInWithToken', () => {
     expect(loginErrorMessage(500)).toBe('Sign-in failed. Try again.');
   });
 });
+
+describe('cams-admin mode without a configuration (migration P4)', () => {
+  it('reads <meta name="cams-config" content="none">', async () => {
+    const { noConfiguration } = await import('./login');
+    const doc = (content: string | null) => ({ querySelector: () => (content === null ? null : ({ content } as HTMLMetaElement)) }) as unknown as Pick<Document, 'querySelector'>;
+    expect(noConfiguration(doc('none'))).toBe(true);
+    expect(noConfiguration(doc(null))).toBe(false);
+    expect(noConfiguration(doc(''))).toBe(false);
+  });
+  it('a token sign-in without an account says so', async () => {
+    const { loginErrorMessage } = await import('./login');
+    expect(loginErrorMessage(503)).toMatch(/no account/i);
+  });
+});

@@ -4,6 +4,7 @@ import { readFileSync, writeFileSync, rmSync } from 'fs';
 import { createApp } from '../server/app';
 import { setCameras } from '../server/cameraRegistry';
 import { DEFAULT_PREFERENCES } from '../server/preferences';
+import { fileAccount } from '../server/fleet';
 import { SESSION_COOKIE, signSession } from '../server/session';
 
 const as = (email: string) => `${SESSION_COOKIE}=${signSession(email)}`;
@@ -126,14 +127,14 @@ describe('preferences', () => {
     const saved = process.env.PREFS_FILE;
     process.env.PREFS_FILE = dir; // a directory: the rename onto it fails
     try {
-      await expect(savePreferences('klaus@klaushofrichter.net', { timelineZoom: 6 })).rejects.toThrow();
+      await expect(savePreferences(fileAccount(), 'klaus@klaushofrichter.net', { timelineZoom: 6 })).rejects.toThrow();
       expect(readdirSync(join(dir, '..')).filter((n) => n.startsWith(`${dir.split('/').pop()}.tmp-`))).toEqual([]);
     } finally {
       process.env.PREFS_FILE = saved;
       rmSync(dir, { recursive: true, force: true });
     }
     // a later save still works
-    await expect(savePreferences('klaus@klaushofrichter.net', { timelineZoom: 1 })).resolves.toMatchObject({ timelineZoom: 1 });
+    await expect(savePreferences(fileAccount(), 'klaus@klaushofrichter.net', { timelineZoom: 1 })).resolves.toMatchObject({ timelineZoom: 1 });
   });
 
   it('survives a corrupted file by falling back to defaults', async () => {

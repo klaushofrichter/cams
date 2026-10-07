@@ -17,6 +17,8 @@ import { getRecordings, resetRecordings } from '../server/recordings/service';
 import { SESSION_COOKIE, signSession } from '../server/session';
 import { createSimCamera, type SimState } from './camera/sim';
 import { FAKE_TOKEN, JPEG, startFakeProxy, type FakeProxy } from './proxy/fakeProxy';
+import { k } from './helpers/fleet';
+import { fileSafe } from '../server/fleet';
 
 // Plan 7 (Klaus, 2026-09-27): for a camera with a cam-proxy, clips and
 // thumbnails come from the proxy first; the camera is asked only when the
@@ -85,9 +87,9 @@ describe('proxy first (Plan 7)', () => {
   // Issue #76: the dialog tells "no copy" from "could not ask".
   it('finds the proxy clip for composing: null when it has none, an error when the proxy fails', async () => {
     const { ev } = await firstEvent(createApp());
-    expect(await getRecordings().proxyClipOf('cam1', ev.id)).toBeNull();
+    expect(await getRecordings().proxyClipOf(k('cam1'), ev.id)).toBeNull();
     fake.offline = true;
-    await expect(getRecordings().proxyClipOf('cam1', ev.id)).rejects.toThrow();
+    await expect(getRecordings().proxyClipOf(k('cam1'), ev.id)).rejects.toThrow();
   });
 
   it('asks the camera when the proxy has no clip for the event', async () => {
@@ -241,7 +243,7 @@ describe('proxy first (Plan 7)', () => {
     it('serves the detection still, not a thumbnail cached before it (its own key)', async () => {
       const app = createApp();
       const c = await card(app, 'person');
-      writeFileSync(join(cacheDir, `cam1_${c.id}.jpg`), Buffer.concat([JPEG, Buffer.from('old-thumbnail')]));
+      writeFileSync(join(cacheDir, `${fileSafe(k('cam1'))}_${c.id}.jpg`), Buffer.concat([JPEG, Buffer.from('old-thumbnail')]));
       fake.events.set('cam1', [event(2, 'person', c.start + 6000)]);
       fake.stills.set('cam1', new Map([[c.start + 2000, STILL], [c.start + 6000, DET]]));
       expect(Buffer.compare((await thumb(app, c.id)).body, DET)).toBe(0);
@@ -259,7 +261,7 @@ describe('proxy first (Plan 7)', () => {
         expect(Buffer.compare((await thumb(app, c.id)).body, STILL)).toBe(0);
         fake.eventsStatus = null;
         expect(Buffer.compare((await thumb(app, c.id)).body, DET)).toBe(0);
-        expect(existsSync(join(cacheDir, `cam1_${c.id}.det.jpg`))).toBe(true);
+        expect(existsSync(join(cacheDir, `${fileSafe(k('cam1'))}_${c.id}.det.jpg`))).toBe(true);
       } finally {
         delete process.env.DETECTION_RETRY_MS;
       }
@@ -273,7 +275,7 @@ describe('proxy first (Plan 7)', () => {
         fake.events.set('cam1', [event(2, 'person', c.start + 6000)]);
         fake.stills.set('cam1', new Map([[c.start + 2000, STILL]]));
         expect(Buffer.compare((await thumb(app, c.id)).body, STILL)).toBe(0);
-        expect(existsSync(join(cacheDir, `cam1_${c.id}.det.jpg`))).toBe(false);
+        expect(existsSync(join(cacheDir, `${fileSafe(k('cam1'))}_${c.id}.det.jpg`))).toBe(false);
         fake.stills.get('cam1')!.set(c.start + 6000, DET);
         expect(Buffer.compare((await thumb(app, c.id)).body, DET)).toBe(0);
       } finally {
@@ -323,10 +325,10 @@ describe('proxy first (Plan 7)', () => {
         expect(first.thumb).toBe('d928');
         expect(first.counts).toEqual({ person: 2 });
         expect(Buffer.compare((await thumbV(app, c.id, first.thumb!)).body, DET)).toBe(0);
-        expect(existsSync(join(cacheDir, `cam1_${c.id}.det-d928.jpg`))).toBe(true);
+        expect(existsSync(join(cacheDir, `${fileSafe(k('cam1'))}_${c.id}.det-d928.jpg`))).toBe(true);
         // Vision confirms the second event; cam-proxy announces the analysis.
         fake.events.get('cam1')![2].analysis = confirmed(c.start + 46_000);
-        proxyHub.emit('message', { cam: 'cam1', type: 'analysis', data: {} });
+        proxyHub.emit('message', { cam: k('cam1'), type: 'analysis', data: {} });
         const later = await listed(app, c.id);
         expect(later.thumb).toBe('c930');
         expect(Buffer.compare((await thumbV(app, c.id, later.thumb!)).body, SECOND)).toBe(0);

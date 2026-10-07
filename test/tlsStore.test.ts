@@ -7,6 +7,7 @@ import { join } from 'path';
 import { setCameras } from '../server/cameraRegistry';
 import { certFingerprint } from '../server/tls/fingerprint';
 import { addVerifiedCa, fallbackPin, loadTlsState, setFallbackPin, trustEvents, verifiedCas } from '../server/tls/store';
+import { k } from './helpers/fleet';
 
 const pem = (n: string) => readFileSync(join(__dirname, 'fixtures/site-ca', `${n}.pem`), 'utf8');
 const CA_A = pem('ca-a'), CA_B = pem('ca-b');
@@ -37,13 +38,13 @@ describe('TLS store', () => {
     const on = (e: { cam: string }) => seen.push(e.cam);
     trustEvents.on('trust', on);
     try {
-      await setFallbackPin('cam5', { fingerprint: LEAF, host: HOST });
-      await setFallbackPin('cam5', { fingerprint: LEAF, host: HOST });
+      await setFallbackPin(k('cam5'), { fingerprint: LEAF, host: HOST });
+      await setFallbackPin(k('cam5'), { fingerprint: LEAF, host: HOST });
       loadTlsState();
-      expect(fallbackPin('cam5', HOST)).toBe(LEAF);
-      await setFallbackPin('cam5', null);
-      expect(fallbackPin('cam5', HOST)).toBeUndefined();
-      expect(seen).toEqual(['cam5', 'cam5']);
+      expect(fallbackPin(k('cam5'), HOST)).toBe(LEAF);
+      await setFallbackPin(k('cam5'), null);
+      expect(fallbackPin(k('cam5'), HOST)).toBeUndefined();
+      expect(seen).toEqual([k('cam5'), k('cam5')]);
     } finally {
       trustEvents.off('trust', on);
     }
@@ -53,9 +54,9 @@ describe('TLS store', () => {
     writeFileSync(file, JSON.stringify({ cas: { [A]: CA_B, [B]: CA_B }, pins: { cam5: { fingerprint: 'nope', host: HOST }, cam6: { fingerprint: LEAF, host: HOST }, cam7: LEAF } }), { mode: 0o600 });
     loadTlsState();
     expect(verifiedCas([A, B])).toEqual([CA_B]);
-    expect(fallbackPin('cam5', HOST)).toBeUndefined();
-    expect(fallbackPin('cam6', HOST)).toBe(LEAF);
-    expect(fallbackPin('cam7', HOST)).toBeUndefined(); // a pin without its address
+    expect(fallbackPin(k('cam5'), HOST)).toBeUndefined();
+    expect(fallbackPin(k('cam6'), HOST)).toBe(LEAF);
+    expect(fallbackPin(k('cam7'), HOST)).toBeUndefined(); // a pin without its address
   });
 
   it('starts empty from a missing or corrupt file', () => {
@@ -65,10 +66,10 @@ describe('TLS store', () => {
   });
 
   it('binds a pin to the camera’s address: another address isn’t pinned (security review of #227)', async () => {
-    await setFallbackPin('cam5', { fingerprint: LEAF, host: HOST });
-    expect(fallbackPin('cam5', HOST)).toBe(LEAF);
-    expect(fallbackPin('cam5', '192.168.60.16')).toBeUndefined();
-    expect(fallbackPin('cam5', undefined)).toBeUndefined();
+    await setFallbackPin(k('cam5'), { fingerprint: LEAF, host: HOST });
+    expect(fallbackPin(k('cam5'), HOST)).toBe(LEAF);
+    expect(fallbackPin(k('cam5'), '192.168.60.16')).toBeUndefined();
+    expect(fallbackPin(k('cam5'), undefined)).toBeUndefined();
   });
 
   it('refuses a file others can read or write (integrity: a planted pin would let a host take the camera login)', () => {

@@ -12,10 +12,11 @@ import { getRecordings } from '../recordings/service';
 import { RecordingError } from '../recordings/errors';
 import { extent } from '../recordings/extent';
 import { knownCamera, sendCameraError, sendFileQuietly } from './common';
+import type { CamKey } from '../fleet';
 
 export const recordingsRouter = Router();
 
-function fail(err: unknown, cameraId: string, res: Response, next: NextFunction): void {
+function fail(err: unknown, cameraId: CamKey, res: Response, next: NextFunction): void {
   if (res.headersSent) {
     res.destroy();
     return;

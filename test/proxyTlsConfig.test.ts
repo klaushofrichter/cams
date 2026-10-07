@@ -7,6 +7,7 @@ import { join } from 'path';
 import { loadCameras, setCameras } from '../server/cameraRegistry';
 import { logger } from '../server/logger';
 import { groupOf } from '../server/proxy/groups';
+import { k } from './helpers/fleet';
 
 const T = 't'.repeat(40), A = 'aa'.repeat(32), B = 'bb'.repeat(32);
 const file = (body: unknown) => {
@@ -30,12 +31,12 @@ describe('site-CA proxy fields', () => {
 
   it('puts pins and name on the group', () => {
     setCameras(loadCameras(file([entry('cam3'), entry('cam4')])));
-    expect(groupOf('cam4')).toMatchObject({ members: ['cam3', 'cam4'], pins: [A], tlsServername: 'proxy.garage.internal' });
+    expect(groupOf(k('cam4'))).toMatchObject({ members: [k('cam3'), k('cam4')], pins: [A], tlsServername: 'proxy.garage.internal' });
   });
 
   it('a group without a site CA has no pins and no name', () => {
     setCameras(loadCameras(file([{ id: 'cam1', name: 'Den', host: 'from-proxy', protocol: 'https', tlsServername: 'cam1.skylar.technology', user: 'u', password: 'p', proxy: { url: 'http://127.0.0.1:8480', token: T } }])));
-    expect(groupOf('cam1')).toMatchObject({ pins: null, tlsServername: null });
+    expect(groupOf(k('cam1'))).toMatchObject({ pins: null, tlsServername: null });
   });
 
   it('refuses a bad pin, a bad name, a name on http and a pin on a LAN http URL', () => {

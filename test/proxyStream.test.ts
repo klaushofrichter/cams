@@ -8,6 +8,7 @@ import { ProxyStream, startProxyStreams, stopProxyStreams } from '../server/prox
 import { getAnalysisStore, resetAnalysisStore } from '../server/proxy/analyses';
 import { SESSION_COOKIE, signSession } from '../server/session';
 import { FAKE_TOKEN, startFakeProxy, type FakeProxy } from './proxy/fakeProxy';
+import { k } from './helpers/fleet';
 
 const cleanup: (() => unknown)[] = [];
 afterEach(async () => {
@@ -214,7 +215,7 @@ describe('GET /api/events/stream (to browsers)', () => {
     const change = c.frames.find((f) => f.startsWith('event: change'))!;
     expect(JSON.parse(change.split('data: ')[1])).toEqual({ cam: 'den', type: 'analysis', ts: start });
     expect(c.frames.join('\n')).not.toContain('Fan'); // the objects stay on the server
-    const got = await getAnalysisStore().forDay('den', '2026-09-30', [{ start: '2026-09-30T15:48:24-05:00', end: '2026-09-30T15:48:40-05:00' }], start);
+    const got = await getAnalysisStore().forDay(k('den'), '2026-09-30', [{ start: '2026-09-30T15:48:24-05:00', end: '2026-09-30T15:48:40-05:00' }], start);
     expect(got.map((x) => x.eventId)).toEqual([9]);
   });
 

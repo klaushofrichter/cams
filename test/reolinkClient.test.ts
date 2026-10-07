@@ -6,11 +6,11 @@ import express from 'express';
 import { createSimCamera, SimState } from './camera/sim';
 import { CameraError, ReolinkClient, classifyNetworkError } from '../server/reolink/client';
 import { Semaphore } from '../server/reolink/semaphore';
-import type { CameraConfig } from '../server/cameraRegistry';
+import type { FileCameraConfig } from '../server/cameraRegistry';
 
 let server: Server;
 let state: SimState;
-let cam: CameraConfig;
+let cam: FileCameraConfig;
 
 // Guards a regression test against a permanent hang: on the pre-fix
 // deadlock, the awaited promise never settles, so without this the test
