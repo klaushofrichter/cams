@@ -6,7 +6,7 @@ import { currentUser } from '../middleware/requireAuth';
 import { errorBody, groupTrustOptions, ProxyClient, ProxyError } from '../proxy/client';
 import { plausibleName } from '../proxy/names';
 import { CameraError } from '../reolink/client';
-import { getClient } from '../reolink/clients';
+import { requireClient } from '../reolink/clients';
 import { knownCamera } from './common';
 import type { CamKey } from '../fleet';
 
@@ -54,11 +54,10 @@ async function viaProxy(id: CamKey, proxy: { url: string; adminToken: string }, 
 // SetDevName with the whole DevName object (only `name` replaced), then
 // GetDevName: the firmware may answer 200 to a write it ignored.
 async function direct(id: CamKey, name: string): Promise<Answer> {
-  const client = getClient(id)!;
-  const read = async () => ((await client.command<{ DevName?: Record<string, unknown> }>('GetDevName', { channel: 0 })).DevName ?? {}) as Record<string, unknown>;
+  const read = async () => ((await requireClient(id).command<{ DevName?: Record<string, unknown> }>('GetDevName', { channel: 0 })).DevName ?? {}) as Record<string, unknown>;
   try {
     const before = await read();
-    await client.command('SetDevName', { DevName: { ...before, name } });
+    await requireClient(id).command('SetDevName', { DevName: { ...before, name } });
     const after = await read();
     if (!plausibleName(after.name)) return { status: 502, body: { error: 'camera_error' } };
     return { status: 200, body: { name: after.name } };
@@ -66,6 +65,7 @@ async function direct(id: CamKey, name: string): Promise<Answer> {
     if (!(err instanceof CameraError)) throw err;
     if (err.code === 'camera_error' && (err.rspCode === -54 || err.rspCode === -56)) return invalid(cameraRefusalReason(err.rspCode));
     logger.warn({ cameraId: id, code: err.code, message: err.message }, 'camera_rename_failed');
+    if (err.code === 'camera_credentials_missing') return { status: 503, body: { error: err.code } };
     return err.code === 'camera_error' ? { status: 502, body: { error: 'camera_error' } } : { status: 503, body: { error: 'camera_offline' } };
   }
 }

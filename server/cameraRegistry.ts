@@ -52,7 +52,7 @@ export interface CameraConfig extends Omit<FileCameraConfig, 'id'> {
   id: CamKey;
   camsId: string;
   accountId: string;
-  credentials: 'ok' | 'missing' | 'mismatch';
+  credentials: 'ok' | 'missing' | 'mismatch' | 'unconfirmed'; // unconfirmed: held as new, no secrets
 }
 
 export interface CameraSummary {

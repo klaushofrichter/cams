@@ -8,3 +8,5 @@ published as [GitHub releases](https://github.com/klaushofrichter/cams/releases)
 
 ## [Unreleased]
 
+- cams can take its accounts, users and cameras from cams-admin (`CONFIG_SOURCE=cams-admin`; `file` stays the default and the way back). One cams serves several accounts, and nothing crosses between them. Without cams-admin it keeps working from its last configuration. (The account picker and the admin banners follow in the next release.)
+

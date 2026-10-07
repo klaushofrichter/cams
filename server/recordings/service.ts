@@ -6,7 +6,7 @@ import { Readable } from 'stream';
 import { pipeline } from 'stream/promises';
 import { setTimeout as sleep } from 'timers/promises';
 import { proxyActive } from '../cameraRegistry';
-import { getClient } from '../reolink/clients';
+import { requireClient } from '../reolink/clients';
 import { logger } from '../logger';
 import { CameraError } from '../reolink/client';
 import { clipDate, clipIdOf, clipTimes, CLIP_ID, parseClipName, ParsedClip, TimeInfo, Trigger } from './clipNames';
@@ -265,9 +265,7 @@ export class RecordingsService {
   }
 
   private client(cameraId: CamKey) {
-    const c = getClient(cameraId);
-    if (!c) throw new RecordingError('unknown_clip', 'unknown camera');
-    return c;
+    return requireClient(cameraId);
   }
 
   // Per camera: proxy still lookups and fetches for thumbnails, three at a time.

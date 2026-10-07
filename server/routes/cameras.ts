@@ -1,6 +1,6 @@
 import { Router, Request, Response, NextFunction } from 'express';
 import { pipeline } from 'stream/promises';
-import { getClient } from '../reolink/clients';
+import { requireClient } from '../reolink/clients';
 import { CameraError } from '../reolink/client';
 import { logger } from '../logger';
 import { proxyActive, setReportedName } from '../cameraRegistry';
@@ -33,7 +33,7 @@ camerasRouter.get('/api/cameras/:id/status', async (req: Request, res: Response,
   const id = knownCamera(req, res);
   if (!id) return;
   try {
-    const { name, ...status } = await getClient(id)!.status();
+    const { name, ...status } = await requireClient(id).status();
     offlineSince.delete(id);
     // A camera without a cam-proxy in use: cams reads its name itself (the
     // page shows it from /api/cameras and the event stream).
@@ -51,7 +51,7 @@ camerasRouter.get('/api/cameras/:id/snapshot.jpg', async (req: Request, res: Res
   const id = knownCamera(req, res);
   if (!id) return;
   try {
-    const jpeg = await getClient(id)!.snapshot();
+    const jpeg = await requireClient(id).snapshot();
     res.type('image/jpeg').send(jpeg);
   } catch (err) {
     sendCameraError(err, id, res, next);
@@ -85,7 +85,7 @@ camerasRouter.get('/api/cameras/:id/live', async (req: Request, res: Response, n
     release();
   });
   try {
-    const upstream = await getClient(id)!.openLive(quality, abort.signal);
+    const upstream = await requireClient(id).openLive(quality, abort.signal);
     if (abort.signal.aborted) {
       upstream.destroy();
       return;
