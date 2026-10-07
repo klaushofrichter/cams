@@ -11,7 +11,7 @@ import { enroll } from '../server/admin/enroll';
 import { writeKeyFile } from '../server/admin/keyfile';
 import type { Snapshot } from '../server/admin/snapshot';
 import { createApp } from '../server/app';
-import { cameraHost, setCameras } from '../server/cameraRegistry';
+import { cameraHost, getCamera, setCameras } from '../server/cameraRegistry';
 import { pullNow, startConfig, stopConfig } from '../server/configSource';
 import { camKey, setFileAccountId, DEFAULT_FILE_ACCOUNT_ID } from '../server/fleet';
 import { loadProxyState } from '../server/proxyState';
@@ -128,13 +128,13 @@ describe('held changes', () => {
       { id: 'cam_AAAAAAAAAAAAAAAAAAA2', camsId: 'cam2', name: 'New', proxyId: 'prx_AAAAAAAAAAAAAAAAAAAA', proxyCameraId: 'cam2', host: '192.0.2.7', protocol: 'http', tlsServername: null, cameraUser: 'cams', webUiUrl: null, webUiNote: null },
     ] }));
     await pullNow();
-    const cams = (await request(createApp()).get('/api/cameras').set('Cookie', ADMIN)).body as { id: string; credentials?: string; proxy: boolean }[];
-    expect(cams.find((c) => c.id === 'cam2')).toMatchObject({ credentials: 'unconfirmed', proxy: false });
+    const two = getCamera(camKey(ALPHA, 'cam2'))!;
+    expect(two).toMatchObject({ credentials: 'unconfirmed', password: '' });
+    expect(two.proxy).toBeUndefined();
     const h = (await heldList()).find((x) => x.camsId === 'cam2')!;
     expect(h.isNew).toBe(true);
     expect((await act('keep', [{ camsId: 'cam2', digest: h.digest }])).status).toBe(409); // a new camera has nothing old to keep
     expect((await act('confirm', [{ camsId: 'cam2', digest: h.digest }])).status).toBe(200);
-    const after = (await request(createApp()).get('/api/cameras').set('Cookie', ADMIN)).body as { id: string; credentials?: string }[];
-    expect(after.find((c) => c.id === 'cam2')?.credentials).toBe('missing'); // confirmed; its password isn't here yet
+    expect(getCamera(camKey(ALPHA, 'cam2'))?.credentials).toBe('missing'); // confirmed; its password isn't here yet
   });
 });
