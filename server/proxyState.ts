@@ -2,6 +2,10 @@ import { readFileSync, promises as fs } from 'fs';
 import { tmpdir } from 'os';
 import { dirname, join } from 'path';
 import { logger } from './logger';
+import { accountIdOf, camsIdOf, fileAccount, type CamKey } from './fleet';
+
+// The file's key for a camera (old layout: the file account's camsId).
+const entryKey = (cam: CamKey): string => (accountIdOf(cam) === fileAccount().id ? camsIdOf(cam) : cam);
 
 // The per-camera "use cam-proxy" switch, for all users: `{ "<cameraId>": false }`
 // for cameras switched off; a camera not listed uses its proxy. Kept in a
@@ -33,17 +37,17 @@ export function loadProxyState(): void {
   }
 }
 
-export function proxyEnabled(cameraId: string): boolean {
-  return !off.has(cameraId);
+export function proxyEnabled(cameraId: CamKey): boolean {
+  return !off.has(entryKey(cameraId));
 }
 
 // Writes are serialized and atomic (temp file, then rename). The new value
 // takes effect only once it is on disk, so a failed write changes nothing.
-export function setProxyEnabled(cameraId: string, enabled: boolean): Promise<void> {
+export function setProxyEnabled(cameraId: CamKey, enabled: boolean): Promise<void> {
   const run = writing.then(async () => {
     const next = new Set(off);
-    if (enabled) next.delete(cameraId);
-    else next.add(cameraId);
+    if (enabled) next.delete(entryKey(cameraId));
+    else next.add(entryKey(cameraId));
     const target = file();
     await fs.mkdir(dirname(target), { recursive: true });
     const tmp = `${target}.${process.pid}.tmp`;

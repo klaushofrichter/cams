@@ -5,6 +5,7 @@ import { getProxyClient, ProxyError, type ProxyClient } from './client';
 import { supportsCamList } from './cameraList';
 import { ensureGroupCa } from '../tls/groupCa';
 import { activeMembers, groupOf, proxyGroups, remoteIds, type ProxyGroup } from './groups';
+import type { CamKey } from '../fleet';
 
 // One upstream subscription to a cam-proxy's event stream (SSE), shared by
 // every cams camera on that proxy (cam-proxy spec 2026-10-05 §12.2). It
@@ -183,8 +184,8 @@ proxyHub.setMaxListeners(0);
 interface Running {
   group: ProxyGroup;
   stream: ProxyStream;
-  members: string[]; // the cams cameras it serves now (switched on), config order
-  joined: Map<string, number>; // a camera switched back on → when (its replay is dropped)
+  members: CamKey[]; // the cams cameras it serves now (switched on), config order
+  joined: Map<CamKey, number>; // a camera switched back on → when (its replay is dropped)
 }
 const running = new Map<string, Running>(); // by group key
 
@@ -203,7 +204,7 @@ const camList = (r: Running) => remoteIds(r.group, r.members).join(',');
 const JOIN_SLACK_MS = 5000;
 const JOIN_WINDOW_MS = 60_000;
 
-function stale(r: Running, cam: string, m: { type: string; data: Record<string, unknown> }): boolean {
+function stale(r: Running, cam: CamKey, m: { type: string; data: Record<string, unknown> }): boolean {
   const at = r.joined.get(cam);
   if (at === undefined || m.type !== 'camera-event') return false;
   if (Date.now() - at > JOIN_WINDOW_MS) {
@@ -218,7 +219,7 @@ function fanOut(r: Running, m: { remote: string | null; type: string; data: Reco
   for (const cam of to) if (!stale(r, cam, m)) proxyHub.emit('message', { cam, type: m.type, data: m.data });
 }
 
-function run(group: ProxyGroup, members: string[]): void {
+function run(group: ProxyGroup, members: CamKey[]): void {
   const client = getProxyClient(members[0]);
   if (!client) return;
   const r: Running = { group, members, joined: new Map(), stream: undefined as unknown as ProxyStream };
@@ -256,7 +257,7 @@ export function startProxyStreams(o: StreamOptions = {}): void {
 
 // One camera's proxy switched back on: it joins its proxy's stream (opened
 // if it was the only one).
-export function startProxyStream(cam: string): void {
+export function startProxyStream(cam: CamKey): void {
   if (shuttingDown || !proxyActive(cam)) return;
   const g = groupOf(cam);
   if (!g) return;
@@ -273,7 +274,7 @@ export function startProxyStream(cam: string): void {
 // One camera's proxy switched off: it leaves the stream (closed with the
 // last one). Browsers hear that its proxy is gone and reload its events
 // from the camera.
-export function stopProxyStream(cam: string): void {
+export function stopProxyStream(cam: CamKey): void {
   const g = groupOf(cam);
   const r = g && running.get(g.key);
   if (!r || !r.members.includes(cam)) return;
@@ -297,8 +298,9 @@ export function stopProxyStreams(final = false): void {
   running.clear();
 }
 
-export function proxyStates(): { cam: string; up: boolean }[] {
-  const up = new Map<string, boolean>();
+// One account's cameras whose proxy stream runs, and whether it is up.
+export function proxyStates(accountId: string): { cam: CamKey; up: boolean }[] {
+  const up = new Map<CamKey, boolean>();
   for (const r of running.values()) for (const cam of r.members) up.set(cam, r.stream.up());
-  return listProxied().filter((cam) => up.has(cam)).map((cam) => ({ cam, up: up.get(cam)! }));
+  return listProxied(accountId).filter((cam) => up.has(cam)).map((cam) => ({ cam, up: up.get(cam)! }));
 }

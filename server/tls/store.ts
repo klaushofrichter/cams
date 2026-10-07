@@ -4,6 +4,10 @@ import { basename, dirname, join } from 'path';
 import { allCameras } from '../cameraRegistry';
 import { logger } from '../logger';
 import { certFingerprint, normalizeFingerprint } from './fingerprint';
+import { accountIdOf, camsIdOf, fileAccount, type CamKey } from '../fleet';
+
+// The file's key for a camera (old layout: the file account's camsId).
+const entryKey = (cam: CamKey): string => (accountIdOf(cam) === fileAccount().id ? camsIdOf(cam) : cam);
 
 // What cams keeps of its cam-proxies' TLS (cam-proxy spec 2026-10-05
 // §10.1.4, §12.3): every site CA it verified against a pin (fingerprint →
@@ -100,16 +104,16 @@ export async function addVerifiedCa(fingerprint: string, pem: string): Promise<v
 
 // The pin for this camera at this address (none for another address: a
 // camera moved or replaced waits for its proxy's report).
-export const fallbackPin = (cam: string, host: string | undefined): string | undefined => {
-  const p = pins.get(cam);
+export const fallbackPin = (cam: CamKey, host: string | undefined): string | undefined => {
+  const p = pins.get(entryKey(cam));
   return p && host !== undefined && p.host === host ? p.fingerprint : undefined;
 };
 
-export async function setFallbackPin(cam: string, pin: FallbackPin | null): Promise<void> {
-  const now = pins.get(cam);
+export async function setFallbackPin(cam: CamKey, pin: FallbackPin | null): Promise<void> {
+  const now = pins.get(entryKey(cam));
   if (now?.fingerprint === pin?.fingerprint && now?.host === pin?.host) return;
-  if (pin) pins.set(cam, { fingerprint: pin.fingerprint, host: pin.host });
-  else pins.delete(cam);
+  if (pin) pins.set(entryKey(cam), { fingerprint: pin.fingerprint, host: pin.host });
+  else pins.delete(entryKey(cam));
   await save();
   trustEvents.emit('trust', { cam });
 }

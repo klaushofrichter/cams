@@ -2,7 +2,8 @@ import { randomBytes } from 'crypto';
 import { promises as fs } from 'fs';
 import { tmpdir } from 'os';
 import { dirname, join } from 'path';
-import { getCamera } from './cameraRegistry';
+import { resolveCamera } from './cameraRegistry';
+import { fileAccount } from './fleet';
 import { logger } from './logger';
 
 export interface Preferences {
@@ -145,8 +146,8 @@ export function validatePreferencesPatch(body: unknown): { ok: true; patch: Part
   const details: string[] = [];
   // Own keys only: `in` would accept inherited names such as 'toString'.
   for (const k of Object.keys(b)) if (!Object.prototype.hasOwnProperty.call(DEFAULT_PREFERENCES, k)) details.push(`${k}: unknown field`);
-  if ('defaultCamera' in b && b.defaultCamera !== null && !(typeof b.defaultCamera === 'string' && getCamera(b.defaultCamera))) details.push('defaultCamera: a configured camera id or null');
-  if ('lastCamera' in b && b.lastCamera !== null && !(typeof b.lastCamera === 'string' && getCamera(b.lastCamera))) details.push('lastCamera: a configured camera id or null');
+  if ('defaultCamera' in b && b.defaultCamera !== null && !resolveCamera(fileAccount().id, b.defaultCamera)) details.push('defaultCamera: a configured camera id or null');
+  if ('lastCamera' in b && b.lastCamera !== null && !resolveCamera(fileAccount().id, b.lastCamera)) details.push('lastCamera: a configured camera id or null');
   if ('liveQuality' in b && b.liveQuality !== 'sub' && b.liveQuality !== 'main') details.push('liveQuality: sub or main');
   let eventFilter: EventKind[] | null = null;
   if ('eventFilter' in b && !(eventFilter = eventFilterOf(b.eventFilter))) details.push('eventFilter: a list of person, vehicle, pet and motion');

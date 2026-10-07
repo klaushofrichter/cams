@@ -1,6 +1,7 @@
 import { getClient } from '../../server/reolink/clients';
 import { clipTimes, parseClipName } from '../../server/recordings/clipNames';
 import type { FakeProxy, FakeRecording } from './fakeProxy';
+import { k } from '../helpers/fleet';
 
 // Gives the fake cam-proxy the SD recordings cam-sim holds for `date`, as the
 // real proxy lists them (it runs the same Search against the same camera).
@@ -8,7 +9,7 @@ import type { FakeProxy, FakeRecording } from './fakeProxy';
 // replaces them (a real MP4 for thumbnails). This uses the camera's Search:
 // read the sim's counters after it.
 export async function seedRecordings(fake: FakeProxy, cameraId: string, date: string, body?: (stream: 'sub' | 'main', id: string) => Buffer): Promise<FakeRecording[]> {
-  const client = getClient(cameraId);
+  const client = getClient(k(cameraId));
   if (!client) throw new Error(`no camera ${cameraId}`);
   const time = await client.timeInfo();
   const list: FakeRecording[] = [];

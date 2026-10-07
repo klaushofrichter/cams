@@ -3,6 +3,7 @@ import { parseProxyEvents, type ProxyEvent } from '../recordings/detection';
 import { CATEGORIES, dayWindow } from './analyses';
 import { getProxyClient, proxyPath, ProxyError } from './client';
 import { proxyHub } from './stream';
+import type { CamKey } from '../fleet';
 
 // cam-proxy's person, vehicle and pet events of a camera's day, for the
 // cards' per-type counts ("Person 2x", Klaus 2026-10-04) and their
@@ -25,7 +26,7 @@ export class AiEventStore {
 
   // The day's AI events, oldest first; null when the proxy can't tell (an
   // error, or a camera without one).
-  async forDay(cam: string, date: string, cards: { start: string }[], now = Date.now()): Promise<ProxyEvent[] | null> {
+  async forDay(cam: CamKey, date: string, cards: { start: string }[], now = Date.now()): Promise<ProxyEvent[] | null> {
     if (!cards.length) return [];
     const win = dayWindow(date, cards[0].start);
     if (!win) return null;
@@ -39,13 +40,13 @@ export class AiEventStore {
     return this.inflight.get(key) ?? this.fetch(cam, key, win, now);
   }
 
-  invalidate(cam: string): void {
+  invalidate(cam: CamKey): void {
     this.gen.set(cam, (this.gen.get(cam) ?? 0) + 1);
     for (const k of this.days.keys()) if (k.startsWith(`${cam}|`)) this.days.delete(k);
     for (const k of this.inflight.keys()) if (k.startsWith(`${cam}|`)) this.inflight.delete(k);
   }
 
-  private fetch(cam: string, key: string, win: [number, number], now: number): Promise<ProxyEvent[] | null> {
+  private fetch(cam: CamKey, key: string, win: [number, number], now: number): Promise<ProxyEvent[] | null> {
     const gen = this.gen.get(cam) ?? 0;
     const work = (async () => {
       const client = getProxyClient(cam);
@@ -80,6 +81,6 @@ export function resetAiEventStore(): void {
 }
 
 // A camera's new event or analysis: its days are read again.
-proxyHub.on('message', (m: { cam: string; type: string }) => {
+proxyHub.on('message', (m: { cam: CamKey; type: string }) => {
   if (m.type === 'camera-event' || m.type === 'analysis' || m.type === 'reset') store.invalidate(m.cam);
 });

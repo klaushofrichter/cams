@@ -6,8 +6,10 @@ import { proxyEnabled } from './proxyState';
 import { proxyGroupKey } from './proxy/groupKey';
 import { fingerprintList } from './tls/fingerprint';
 import { pinTransportOk } from './tls/loopback';
+import { camKey, fileAccount, fleetAccount, fleetCamera, fleetCameras, fleetEvents, parseKey, setFleet, type CamKey } from './fleet';
 
-export interface CameraConfig {
+// A camera as cameras.json has it (id = the camsId).
+export interface FileCameraConfig {
   id: string;
   name: string;
   // IP or hostname, optionally with :port; or "from-proxy" (with a proxy):
@@ -34,10 +36,27 @@ export interface CameraConfig {
   proxy?: ProxyConfig;
 }
 
-export interface ProxyConfig { url: string; token: string; adminToken?: string; camera?: string; caFingerprint?: string[]; tlsServername?: string }
+export interface ProxyConfig {
+  url: string;
+  token: string;
+  adminToken?: string;
+  camera?: string;
+  caFingerprint?: string[];
+  tlsServername?: string;
+  proxyId?: string; // the cams-admin proxy id (cams-admin mode)
+}
+
+// A camera inside cams: keyed by account (migration P4, R4-8). `camsId` is
+// the id the browser and the URLs use, unique within the account only.
+export interface CameraConfig extends Omit<FileCameraConfig, 'id'> {
+  id: CamKey;
+  camsId: string;
+  accountId: string;
+  credentials: 'ok' | 'missing' | 'mismatch';
+}
 
 export interface CameraSummary {
-  id: string;
+  id: string; // the camsId
   name: string;
   webUiUrl: string | null;
   webUiNote?: string;
@@ -48,13 +67,11 @@ export interface CameraSummary {
 const ID_PATTERN = /^[a-z0-9][a-z0-9-]{0,31}$/;
 const FIELDS = ['id', 'name', 'host', 'user', 'password'] as const;
 
-let cameras: CameraConfig[] = [];
-
 // The registry comes from the cams-cameras Secret, mounted as a file. A
 // configured path that doesn't exist yet (Secret not created) means "no
 // cameras" so the app still starts; anything present but wrong fails startup
 // with a message naming the problem, never a half-loaded list.
-export function loadCameras(file: string | undefined = process.env.CAMERAS_FILE): CameraConfig[] {
+export function loadCameras(file: string | undefined = process.env.CAMERAS_FILE): FileCameraConfig[] {
   if (!file) return [];
   if (!existsSync(file)) {
     logger.warn({ file: basename(file) }, 'camera registry file not found; no cameras configured');
@@ -75,7 +92,7 @@ export function loadCameras(file: string | undefined = process.env.CAMERAS_FILE)
 
 // The registry's checks on a parsed file (also the generator's, before it
 // writes one). `label` names the file in errors.
-export function parseCameras(parsed: unknown, label: string): CameraConfig[] {
+export function parseCameras(parsed: unknown, label: string): FileCameraConfig[] {
   if (!Array.isArray(parsed)) throw new Error(`camera registry ${label} must be a JSON array`);
 
   const seen = new Set<string>();
@@ -115,7 +132,7 @@ export function parseCameras(parsed: unknown, label: string): CameraConfig[] {
       throw new Error(`camera registry entry ${i}: host "${FROM_PROXY}" needs protocol "https" and a tlsServername (or a proxy caFingerprint)`);
     }
     const proxy = e.proxy === undefined ? undefined : proxyOf(e.proxy, i);
-    const camera: CameraConfig = {
+    const camera: FileCameraConfig = {
       id: e.id as string,
       name: e.name as string,
       host: e.host as string,
@@ -137,11 +154,11 @@ export function parseCameras(parsed: unknown, label: string): CameraConfig[] {
 // 2026-10-05 §12.1): their pins and TLS names are equal, and their admin
 // tokens can't disagree (an entry without one keeps no sign-in link, as
 // before).
-function checkProxyGroups(list: CameraConfig[]): void {
-  const first = new Map<string, { i: number; c: CameraConfig }>();
+function checkProxyGroups(list: FileCameraConfig[]): void {
+  const first = new Map<string, { i: number; c: FileCameraConfig }>();
   list.forEach((c, i) => {
     if (!c.proxy) return;
-    const key = proxyGroupKey(c.proxy);
+    const key = proxyGroupKey('', c.proxy);
     const f = first.get(key);
     if (!f) return void first.set(key, { i, c });
     for (const field of ['caFingerprint', 'tlsServername'] as const) {
@@ -153,7 +170,7 @@ function checkProxyGroups(list: CameraConfig[]): void {
   const admin = new Map<string, { i: number; id: string; token: string }>();
   list.forEach((c, i) => {
     if (!c.proxy?.adminToken) return;
-    const key = proxyGroupKey(c.proxy);
+    const key = proxyGroupKey('', c.proxy);
     const first = admin.get(key);
     if (!first) return void admin.set(key, { i, id: c.id, token: c.proxy.adminToken });
     if (first.token !== c.proxy.adminToken) {
@@ -201,16 +218,41 @@ function proxyOf(v: unknown, i: number): ProxyConfig {
   };
 }
 
-export function setCameras(list: CameraConfig[]): void {
-  cameras = list;
+// File entries as cameras of one account (credentials present: the file has them).
+export function keyed(accountId: string, list: FileCameraConfig[]): CameraConfig[] {
+  return list.map(({ id, ...rest }) => ({ ...rest, id: camKey(accountId, id), camsId: id, accountId, credentials: 'ok' as const }));
+}
+
+// File mode (and tests): every camera into the file account, as before P4.
+export function setCameras(list: FileCameraConfig[]): void {
+  const account = fileAccount();
+  setFleet([{ ...account, users: null, cameras: keyed(account.id, list) }]);
   reported.clear();
   reportedAddress.clear();
+}
+
+// A new fleet: forget what was reported for cameras that are gone.
+fleetEvents.on('applied', () => {
+  for (const m of [reported, reportedAddress]) for (const key of m.keys()) if (!fleetCamera(key)) m.delete(key);
+});
+
+// The ONLY way from a URL's camera id to a key: within the given account.
+export function resolveCamera(accountId: string, camsId: unknown): CamKey | undefined {
+  if (typeof camsId !== 'string') return undefined;
+  const parsed = parseKey(`${accountId}/${camsId}`);
+  if (!parsed) return undefined;
+  const key = camKey(parsed.accountId, parsed.camsId);
+  return fleetCamera(key) ? key : undefined;
+}
+
+export function accountCameras(accountId: string): readonly CameraConfig[] {
+  return fleetAccount(accountId)?.cameras ?? [];
 }
 
 // A camera whose address comes from its cam-proxy (spec
 // 2026-10-04-camera-address-from-proxy-design): `"host": "from-proxy"`.
 export const FROM_PROXY = 'from-proxy';
-const reportedAddress = new Map<string, string>();
+const reportedAddress = new Map<CamKey, string>();
 // 'address' {cam, address}: a from-proxy camera's address changed (the
 // direct client is built again for it).
 export const addressEvents = new EventEmitter();
@@ -229,7 +271,7 @@ export const hostFromProxy = (cam: CameraConfig | undefined): boolean => cam?.ho
 // Where cams reaches the camera directly: the configured host, or for a
 // from-proxy camera the address its proxy last reported (undefined until
 // then). It stays while the proxy is away: the direct features need it most then.
-export function cameraHost(id: string): string | undefined {
+export function cameraHost(id: CamKey): string | undefined {
   const cam = getCamera(id);
   if (!cam) return undefined;
   return hostFromProxy(cam) ? reportedAddress.get(id) : cam.host;
@@ -237,7 +279,7 @@ export function cameraHost(id: string): string | undefined {
 
 // What the proxy reported; anything but an address is ignored. Announced
 // only on a change, and only for a from-proxy camera.
-export function setReportedAddress(id: string, address: unknown): void {
+export function setReportedAddress(id: CamKey, address: unknown): void {
   if (!hostFromProxy(getCamera(id))) return;
   if (!validCameraAddress(address)) {
     if (address !== undefined) logger.debug({ cameraId: id }, 'proxy_address_ignored');
@@ -252,18 +294,18 @@ export function setReportedAddress(id: string, address: unknown): void {
 // The camera's own name (design camera-name-design.md): the camera stores
 // it; cams shows what the camera (through its cam-proxy, or read directly)
 // last reported, and the registry name until then. The id never changes.
-const reported = new Map<string, string>();
+const reported = new Map<CamKey, string>();
 // 'name' {cam, name}: a camera's shown name changed (the browser relay).
 export const nameEvents = new EventEmitter();
 nameEvents.setMaxListeners(0);
 
-export function cameraName(id: string): string {
-  return reported.get(id) ?? getCamera(id)?.name ?? id;
+export function cameraName(id: CamKey): string {
+  return reported.get(id) ?? getCamera(id)?.name ?? (parseKey(id)?.camsId ?? id);
 }
 
 // What the camera reported (null: nothing now, e.g. its proxy is
 // unreachable, so the registry name again). Announced only on a change.
-export function setReportedName(id: string, name: string | null): void {
+export function setReportedName(id: CamKey, name: string | null): void {
   if (!getCamera(id)) return;
   const before = cameraName(id);
   if (name === null) reported.delete(id);
@@ -272,27 +314,29 @@ export function setReportedName(id: string, name: string | null): void {
   if (now !== before) nameEvents.emit('name', { cam: id, name: now });
 }
 
-export function listCameras(): CameraSummary[] {
-  return cameras.map((c) => ({ id: c.id, name: cameraName(c.id), ...webUiOf(c), proxy: proxyActive(c.id), proxyConfigured: !!c.proxy }));
+// The account's cameras for the browser: ids are camsIds.
+export function listCameras(accountId: string): CameraSummary[] {
+  return accountCameras(accountId).map((c) => ({ id: c.camsId, name: cameraName(c.id), ...webUiOf(c), proxy: proxyActive(c.id), proxyConfigured: !!c.proxy }));
 }
 
-// Ids of the cameras whose cam-proxy is in use.
-// Every configured camera, config order (the same array until setCameras).
+// Every configured camera of every account, config order (the same array
+// until the next fleet). Internal use only: never from a route.
 export function allCameras(): readonly CameraConfig[] {
-  return cameras;
+  return fleetCameras();
 }
 
-export function listProxied(): string[] {
-  return cameras.filter((c) => proxyActive(c.id)).map((c) => c.id);
+// Keys of the cameras whose cam-proxy is in use (one account, or all).
+export function listProxied(accountId?: string): CamKey[] {
+  return (accountId === undefined ? fleetCameras() : accountCameras(accountId)).filter((c) => proxyActive(c.id)).map((c) => c.id);
 }
 
 // A camera with a cam-proxy that isn't switched off on the Settings page.
-export function proxyActive(id: string): boolean {
+export function proxyActive(id: CamKey): boolean {
   return !!getCamera(id)?.proxy && proxyEnabled(id);
 }
 
-export function getCamera(id: string): CameraConfig | undefined {
-  return cameras.find((c) => c.id === id);
+export function getCamera(id: CamKey): CameraConfig | undefined {
+  return fleetCamera(id);
 }
 
 // The link to the camera's web page, or a note instead of one. A configured

@@ -14,6 +14,7 @@ import { composeRouter } from './compose';
 import { nameRouter } from './name';
 import { stillChecksRouter } from './stillChecks';
 import { archiveRouter } from './archive';
+import { sessionAccount } from './common';
 
 export const apiRouter = Router();
 
@@ -23,8 +24,8 @@ apiRouter.get('/api/me', (req: Request, res: Response) => {
   res.json({ email: currentUser(req)!.email, version: appVersion(), buildDate: buildDate() });
 });
 
-apiRouter.get('/api/cameras', (_req: Request, res: Response) => {
-  res.json(listCameras());
+apiRouter.get('/api/cameras', (req: Request, res: Response) => {
+  res.json(listCameras(sessionAccount(req, res).id));
 });
 
 apiRouter.use(camerasRouter);

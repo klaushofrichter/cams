@@ -7,7 +7,7 @@ import { tmpdir } from 'os';
 import { join } from 'path';
 import request from 'supertest';
 import { createApp } from '../server/app';
-import { setCameras, type CameraConfig } from '../server/cameraRegistry';
+import { setCameras, type FileCameraConfig } from '../server/cameraRegistry';
 import { resetProxyClients } from '../server/proxy/client';
 import { proxyHub, proxyStates, startProxyStreams, stopProxyStreams } from '../server/proxy/stream';
 import { loadProxyState } from '../server/proxyState';
@@ -15,6 +15,7 @@ import { SESSION_COOKIE, signSession } from '../server/session';
 import { certFingerprint } from '../server/tls/fingerprint';
 import { loadTlsState, verifiedCas } from '../server/tls/store';
 import { FAKE_ADMIN_TOKEN, FAKE_TOKEN, startFakeProxy, type FakeProxy } from './proxy/fakeProxy';
+import { fileAccount } from '../server/fleet';
 
 const fx = (n: string) => readFileSync(join(__dirname, 'fixtures/site-ca', n), 'utf8');
 const A = certFingerprint(fx('ca-a.pem')), B = certFingerprint(fx('ca-b.pem'));
@@ -27,7 +28,7 @@ async function siteProxy(leaf: 'proxy-a' | 'proxy-b' = 'proxy-a', port?: number)
   fake.caPem = fx(leaf === 'proxy-a' ? 'ca-a.pem' : 'ca-b.pem');
   return fake;
 }
-const cams = (url: string, pins: string[], more: Partial<NonNullable<CameraConfig['proxy']>> = {}): void => {
+const cams = (url: string, pins: string[], more: Partial<NonNullable<FileCameraConfig['proxy']>> = {}): void => {
   setCameras([{ id: 'den', name: 'Den', host: '127.0.0.1:9', protocol: 'http', user: 'u', password: 'p', proxy: { url, token: FAKE_TOKEN, camera: 'cam1', tlsServername: 'proxy.test.internal', caFingerprint: pins, ...more } }]);
   resetProxyClients();
 };
@@ -59,7 +60,7 @@ describe('a site-CA proxy over HTTPS', () => {
     proxyHub.on('message', on);
     try {
       startProxyStreams(OPTS);
-      await expect.poll(() => proxyStates()[0]?.up).toBe(true);
+      await expect.poll(() => proxyStates(fileAccount().id)[0]?.up).toBe(true);
       f.push({ cam: 'cam1', type: 'clip', data: { clipId: 1 } });
       await expect.poll(() => got.length).toBe(1);
       expect(paths().filter((p) => p === '/tls/ca.pem')).toHaveLength(1);
@@ -74,7 +75,7 @@ describe('a site-CA proxy over HTTPS', () => {
     cams(f.url, [B]);
     startProxyStreams(OPTS);
     await new Promise((r) => setTimeout(r, 400));
-    expect(proxyStates()[0]?.up).toBe(false);
+    expect(proxyStates(fileAccount().id)[0]?.up).toBe(false);
     expect(new Set(paths())).toEqual(new Set(['/tls/ca.pem']));
     expect(f.requests.every((r) => r.auth === undefined)).toBe(true);
   });
@@ -84,7 +85,7 @@ describe('a site-CA proxy over HTTPS', () => {
     cams(f.url, [A], { tlsServername: 'cam3.test.internal' });
     startProxyStreams(OPTS);
     await new Promise((r) => setTimeout(r, 400));
-    expect(proxyStates()[0]?.up).toBe(false);
+    expect(proxyStates(fileAccount().id)[0]?.up).toBe(false);
     expect(paths().includes('/api/stream')).toBe(false); // the TLS handshake failed before any request
   });
 
@@ -93,11 +94,11 @@ describe('a site-CA proxy over HTTPS', () => {
     const port = Number(new URL(f.url).port);
     cams(f.url, [A, B]);
     startProxyStreams(OPTS);
-    await expect.poll(() => proxyStates()[0]?.up).toBe(true);
+    await expect.poll(() => proxyStates(fileAccount().id)[0]?.up).toBe(true);
     await f.stop();
-    await expect.poll(() => proxyStates()[0]?.up).toBe(false); // it noticed
+    await expect.poll(() => proxyStates(fileAccount().id)[0]?.up).toBe(false); // it noticed
     await siteProxy('proxy-b', port); // same address, new CA
-    await expect.poll(() => proxyStates()[0]?.up, { timeout: 5000 }).toBe(true);
+    await expect.poll(() => proxyStates(fileAccount().id)[0]?.up, { timeout: 5000 }).toBe(true);
     expect(verifiedCas([A, B])).toHaveLength(2);
   });
 
@@ -127,7 +128,7 @@ describe('a site-CA proxy over HTTPS', () => {
     setCameras([{ id: 'cam1', name: 'Den', host: 'from-proxy', protocol: 'https', tlsServername: 'cam1.skylar.technology', user: 'u', password: 'p', proxy: { url: fake.url, token: FAKE_TOKEN } }]);
     resetProxyClients();
     startProxyStreams(OPTS);
-    await expect.poll(() => proxyStates()[0]?.up).toBe(true);
+    await expect.poll(() => proxyStates(fileAccount().id)[0]?.up).toBe(true);
     expect(paths().includes('/tls/ca.pem')).toBe(false);
   });
 });

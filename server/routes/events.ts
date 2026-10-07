@@ -2,6 +2,8 @@ import { Router, Request, Response } from 'express';
 import { getRecordings } from '../recordings/service';
 import { proxyHub, proxyStates } from '../proxy/stream';
 import { nameEvents } from '../cameraRegistry';
+import { accountIdOf, camsIdOf, fleetEvents, type CamKey } from '../fleet';
+import { sessionAccount } from './common';
 import '../proxy/names'; // keeps the cameras' names from their cam-proxies
 import '../proxy/stillChecks'; // drops a camera's cached checks on a new one
 
@@ -22,7 +24,7 @@ export function closeEventStreams(): void {
 export const eventStreamCount = () => clients;
 
 interface ProxyMessage {
-  cam: string;
+  cam: CamKey;
   type: string;
   data: Record<string, unknown>;
 }
@@ -52,9 +54,15 @@ eventsRouter.get('/api/events/stream', (req: Request, res: Response) => {
   res.flushHeaders();
   const send = (event: string, data: unknown) => res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
   res.write('retry: 5000\n\n');
-  for (const s of proxyStates()) send('proxy', s);
-  const onState = (s: { cam: string; up: boolean }) => send('proxy', s);
+  // Only the session's account, and only camsIds: nothing crosses accounts.
+  const account = sessionAccount(req, res).id;
+  const mine = (cam: CamKey) => accountIdOf(cam) === account;
+  for (const s of proxyStates(account)) send('proxy', { cam: camsIdOf(s.cam), up: s.up });
+  const onState = (s: { cam: CamKey; up: boolean }) => {
+    if (mine(s.cam)) send('proxy', { cam: camsIdOf(s.cam), up: s.up });
+  };
   const onMessage = (m: ProxyMessage) => {
+    if (!mine(m.cam)) return;
     // A new analysis (Vision): pages reload the day, and its cards get their
     // badge. A new still check (cams #179): the Timeline's marks and list, and
     // the cards it confirms.
@@ -65,22 +73,31 @@ eventsRouter.get('/api/events/stream', (req: Request, res: Response) => {
         m.type === 'camera-event' && typeof m.data.kind === 'string' && (m.data.phase === 'start' || m.data.phase === 'end')
           ? { kind: m.data.kind, phase: m.data.phase }
           : {};
-      send('change', { cam: m.cam, type: m.type, ts: tsOf(m), ...extra });
+      send('change', { cam: camsIdOf(m.cam), type: m.type, ts: tsOf(m), ...extra });
     } else if (m.type === 'archive') {
       // The Archive changed (cam-proxy's archive contract §7): the Archive
       // page reloads its list. Only the action and the ids travel, checked.
       const action = m.data.action;
       if (typeof action !== 'string' || !['add', 'update', 'delete', 'clear', 'expire'].includes(action)) return;
       const ids = Array.isArray(m.data.ids) ? m.data.ids.filter((x): x is number => Number.isSafeInteger(x)).slice(0, 1000) : [];
-      send('archive', { cam: m.cam, action, ids });
+      send('archive', { cam: camsIdOf(m.cam), action, ids });
     }
   };
   // A camera's proxy was switched on or off (Settings): re-read /api/cameras.
-  const onCameras = () => send('cameras', {});
+  const onCameras = (e?: { accountId?: string }) => {
+    if (e?.accountId === account) send('cameras', {});
+  };
+  // A new configuration for this account (cams-admin): the same.
+  const onApplied = (e: { accountIds: string[] }) => {
+    if (e.accountIds.includes(account)) send('cameras', {});
+  };
   // A camera's shown name changed (renamed here, in the Reolink app or on the
   // camera; or its proxy came or went): pages switch to it, no reload.
-  const onName = (n: { cam: string; name: string }) => send('camera', n);
+  const onName = (n: { cam: CamKey; name: string }) => {
+    if (mine(n.cam)) send('camera', { cam: camsIdOf(n.cam), name: n.name });
+  };
   nameEvents.on('name', onName);
+  fleetEvents.on('applied', onApplied);
   proxyHub.on('state', onState);
   proxyHub.on('message', onMessage);
   proxyHub.on('cameras', onCameras);
@@ -96,6 +113,7 @@ eventsRouter.get('/api/events/stream', (req: Request, res: Response) => {
     proxyHub.off('message', onMessage);
     proxyHub.off('cameras', onCameras);
     nameEvents.off('name', onName);
+    fleetEvents.off('applied', onApplied);
   };
   req.on('close', finish);
   res.on('finish', finish);

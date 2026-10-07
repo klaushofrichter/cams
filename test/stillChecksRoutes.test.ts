@@ -11,6 +11,7 @@ import { attachAnalyses, cardHolding } from '../server/recordings/analysis';
 import { getRecordings, type EventClip } from '../server/recordings/service';
 import { SESSION_COOKIE, signSession } from '../server/session';
 import { FAKE_TOKEN, JPEG, startFakeProxy, type FakeAnalysis, type FakeProxy } from './proxy/fakeProxy';
+import { k } from './helpers/fleet';
 
 // Still checks through cams (cams #179, spec 2026-10-04-still-checks-ui-design),
 // against the fake cam-proxy implementing cam-proxy's still checks contract.
@@ -255,9 +256,9 @@ describe('checks on the cards (confirm only)', () => {
     expect(r1.body.events[0]).not.toHaveProperty('analysis');
     fake.checks.set('cam1', [{ id: 4, stillTs: T + 5000, provider: 'google-vision', summary: [person], objects: [], requestedAt: T, tookMs: 1, image: JPEG }]);
     expect((await get(`/api/cameras/den/events?date=${day}`)).body.events[0]).not.toHaveProperty('analysis'); // cached
-    proxyHub.emit('message', { cam: 'den', type: 'still-check', data: {} });
+    proxyHub.emit('message', { cam: k('den'), type: 'still-check', data: {} });
     const r2 = await get(`/api/cameras/den/events?date=${day}`);
     expect(r2.body.events[0].analysis.best).toEqual({ person: { score: 0.84, subtype: 'person' } });
-    expect(await getCheckStore().forDay('den', day, [])).toEqual([]);
+    expect(await getCheckStore().forDay(k('den'), day, [])).toEqual([]);
   });
 });

@@ -1,6 +1,7 @@
 import { getProxyClient, proxyPath } from '../proxy/client';
 import { CATEGORIES, parseSummary, SLACK_MS, type Category, type SummaryEntry } from '../proxy/analyses';
 import { cardFor } from './analysis';
+import type { CamKey } from '../fleet';
 
 // Issue #157: the moment a card's person, vehicle or pet was detected, for
 // its thumbnail. cam-proxy keeps one event per AI type, starting at the second
@@ -56,7 +57,7 @@ export function detectionMoments(events: ProxyEvent[], start: number, end: numbe
 
 // The person, vehicle and pet events from a card's cam-proxy that may be
 // the card's (starting in [start − 5 s, end]): one request.
-export async function proxyCardEvents(cameraId: string, start: number, end: number): Promise<ProxyEvent[]> {
+export async function proxyCardEvents(cameraId: CamKey, start: number, end: number): Promise<ProxyEvent[]> {
   const client = getProxyClient(cameraId);
   if (!client) return [];
   const body = await client.json<unknown>(proxyPath(cameraId, '/events'), { from: start - SLACK_MS, to: end, limit: 1000 });

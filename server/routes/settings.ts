@@ -11,7 +11,8 @@ import {
 } from '../reolink/settings';
 import { logger } from '../logger';
 import { currentUser } from '../middleware/requireAuth';
-import { sendCameraError as fail } from './common';
+import { knownCamera, sendCameraError as fail } from './common';
+import type { CamKey } from '../fleet';
 
 export const settingsRouter = Router();
 
@@ -40,8 +41,10 @@ function expectedChange(key: string, commands: SettingsCommand[], after: unknown
 }
 
 function cameraOr404(req: Request, res: Response) {
-  const cam = getCamera(String(req.params.id));
-  const client = cam && getClient(cam.id);
+  const key = knownCamera(req, res);
+  if (!key) return null;
+  const cam = getCamera(key);
+  const client = cam && getClient(key);
   if (!cam || !client) {
     res.status(404).json({ error: 'unknown_camera' });
     return null;
@@ -191,7 +194,7 @@ settingsRouter.put('/api/cameras/:id/light', async (req, res, next) => {
 // A camera takes about a minute to come back; a second reboot in that time
 // (a double click, a second tab) would only restart it again.
 const REBOOT_COOLDOWN_MS = 120_000;
-const rebootedAt = new Map<string, number>();
+const rebootedAt = new Map<CamKey, number>();
 export function resetRebootCooldowns(): void {
   rebootedAt.clear();
 }

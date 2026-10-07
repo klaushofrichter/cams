@@ -1,6 +1,7 @@
 import { getProxyClient, proxyCameraId, type ProxyClient } from './client';
 import { activeMembers, proxyGroups, type ProxyGroup } from './groups';
 import { LABEL, QUALITIES } from '../archiveRules';
+import { accountIdOf, camsIdOf, type CamKey } from '../fleet';
 
 // The Archive (cam-proxy's archive contract, docs/archive.md there): one per
 // cam-proxy. cams reaches a proxy through a camera that uses it (`via`, the
@@ -10,37 +11,41 @@ import { LABEL, QUALITIES } from '../archiveRules';
 // the browser.
 
 export interface ArchiveProxy {
-  via: string; // the cams camera id the proxy is reached through
+  via: string; // the camsId (within the account) the proxy is reached through: what URLs carry
+  viaKey: CamKey; // the same camera's key
   client: ProxyClient;
-  cams: string[]; // the cams cameras that use this proxy
-  toCams: Map<string, string>; // the proxy's camera id → cams's
+  cams: CamKey[]; // the cams cameras that use this proxy
+  toCams: Map<string, string>; // the proxy's camera id → cams's camsId (same account)
   group: ProxyGroup; // the same object as the event stream's (spec 2026-10-05 §12.4)
 }
 
-// The proxies in use (a switched-off camera is left out, as everywhere).
-export function archiveProxies(): ArchiveProxy[] {
+// One account's proxies in use (a switched-off camera is left out, as
+// everywhere). Never another account's: a proxy group belongs to one account.
+export function archiveProxies(accountId: string): ArchiveProxy[] {
   const out: ArchiveProxy[] = [];
   for (const group of proxyGroups()) {
+    if (group.accountId !== accountId) continue;
     const cams = activeMembers(group);
     const client = cams.length ? getProxyClient(cams[0]) : undefined;
     if (!client) continue;
     const toCams = new Map<string, string>();
     for (const id of cams) {
       const remote = group.remoteOf.get(id)!;
-      if (!toCams.has(remote)) toCams.set(remote, id);
+      if (!toCams.has(remote)) toCams.set(remote, camsIdOf(id));
     }
-    out.push({ via: cams[0], client, cams, toCams, group });
+    out.push({ via: camsIdOf(cams[0]), viaKey: cams[0], client, cams, toCams, group });
   }
   return out;
 }
 
-export function archiveProxy(via: string): ArchiveProxy | undefined {
-  return archiveProxies().find((p) => p.via === via);
+// `via` is a camsId of the account (from a URL): resolved within it only.
+export function archiveProxy(accountId: string, via: string): ArchiveProxy | undefined {
+  return archiveProxies(accountId).find((p) => p.via === via);
 }
 
 // The proxy (and its id for the camera) of one cams camera.
-export function proxyOfCamera(id: string): { proxy: ArchiveProxy; remote: string } | undefined {
-  const proxy = archiveProxies().find((p) => p.cams.includes(id));
+export function proxyOfCamera(id: CamKey): { proxy: ArchiveProxy; remote: string } | undefined {
+  const proxy = archiveProxies(accountIdOf(id)).find((p) => p.cams.includes(id));
   return proxy && { proxy, remote: proxyCameraId(id) };
 }
 

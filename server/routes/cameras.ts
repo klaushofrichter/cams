@@ -5,13 +5,14 @@ import { CameraError } from '../reolink/client';
 import { logger } from '../logger';
 import { proxyActive, setReportedName } from '../cameraRegistry';
 import { plausibleName } from '../proxy/names';
-import { knownCamera, sendCameraError } from './common';
+import { knownCamera, outId, sendCameraError } from './common';
+import type { CamKey } from '../fleet';
 
 export const MAX_LIVE_PER_CAMERA = 4;
 // Per camera: the responses of its open live streams.
-const liveStreams = new Map<string, Set<Response>>();
+const liveStreams = new Map<CamKey, Set<Response>>();
 
-export function liveStreamCount(id: string): number {
+export function liveStreamCount(id: CamKey): number {
   return liveStreams.get(id)?.size ?? 0;
 }
 
@@ -26,7 +27,7 @@ function errorDetail(err: unknown): string {
 
 // Since when each camera has been found offline (issue #69: the Live panel
 // says so); forgotten when it answers again.
-const offlineSince = new Map<string, number>();
+const offlineSince = new Map<CamKey, number>();
 
 camerasRouter.get('/api/cameras/:id/status', async (req: Request, res: Response, next: NextFunction) => {
   const id = knownCamera(req, res);
@@ -37,12 +38,12 @@ camerasRouter.get('/api/cameras/:id/status', async (req: Request, res: Response,
     // A camera without a cam-proxy in use: cams reads its name itself (the
     // page shows it from /api/cameras and the event stream).
     if (!proxyActive(id) && plausibleName(name)) setReportedName(id, name);
-    res.json({ id, online: true, ...status });
+    res.json({ id: outId(id), online: true, ...status });
   } catch (err) {
     if (!(err instanceof CameraError)) return next(err);
     logger.warn({ cameraId: id, code: err.code, message: err.message }, 'camera_status_failed');
     if (!offlineSince.has(id)) offlineSince.set(id, Date.now());
-    res.json({ id, online: false, error: err.code, offlineSince: offlineSince.get(id) });
+    res.json({ id: outId(id), online: false, error: err.code, offlineSince: offlineSince.get(id) });
   }
 });
 

@@ -1,5 +1,6 @@
 import type { Dispatcher } from 'undici';
 import { getCamera } from '../cameraRegistry';
+import type { CamKey } from '../fleet';
 import { proxyEnabled } from '../proxyState';
 import { groupDispatcher, groupTlsFailed } from '../tls/groupCa';
 import { fetchWith, SiteCaError } from '../tls/siteCa';
@@ -187,7 +188,7 @@ const clients = new Map<string, ProxyClient>();
 
 // The group's client whether or not the camera's proxy is switched on (the
 // Settings page's proxy info asks even then).
-export function proxyClientFor(id: string): ProxyClient | undefined {
+export function proxyClientFor(id: CamKey): ProxyClient | undefined {
   const g = groupOf(id);
   if (!g) return undefined;
   let client = clients.get(g.key);
@@ -199,34 +200,34 @@ const trustOf = (g: ProxyGroup): Pick<ProxyClientOptions, 'dispatcher' | 'onTlsE
   g.pins ? { dispatcher: () => groupDispatcher(g), onTlsError: () => groupTlsFailed(g) } : {};
 
 // For another client of the same proxy (the admin token's): the same trust.
-export function groupTrustOptions(id: string): Pick<ProxyClientOptions, 'dispatcher' | 'onTlsError'> {
+export function groupTrustOptions(id: CamKey): Pick<ProxyClientOptions, 'dispatcher' | 'onTlsError'> {
   const g = groupOf(id);
   return g ? trustOf(g) : {};
 }
 
 // Undefined for a camera without a cam-proxy or with it switched off.
-export function getProxyClient(id: string): ProxyClient | undefined {
+export function getProxyClient(id: CamKey): ProxyClient | undefined {
   return proxyEnabled(id) ? proxyClientFor(id) : undefined;
 }
 
 // The proxy's id for a camera: `proxy.camera`, or else ours.
 // Taken from the configuration, never from the request.
-export function proxyCameraId(id: string): string {
+export function proxyCameraId(id: CamKey): string {
   const camera = getCamera(id);
   if (!camera) throw new Error('unknown camera');
-  return camera.proxy?.camera ?? camera.id;
+  return camera.proxy?.camera ?? camera.camsId;
 }
 
 // The client for a camera whose cam-proxy is in use. The proxy can be
 // switched off between two calls: then proxy_unreachable.
-export function requireProxyClient(id: string): ProxyClient {
+export function requireProxyClient(id: CamKey): ProxyClient {
   const client = getProxyClient(id);
   if (!client) throw new ProxyError('proxy_unreachable', 'the camera has no cam-proxy in use');
   return client;
 }
 
 // A path of the proxy's API for one of its cameras (`rest` starts with "/").
-export function proxyPath(id: string, rest: string): string {
+export function proxyPath(id: CamKey, rest: string): string {
   return `/api/cameras/${encodeURIComponent(proxyCameraId(id))}${rest}`;
 }
 

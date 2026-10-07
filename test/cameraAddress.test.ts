@@ -6,13 +6,15 @@ import { tmpdir } from 'os';
 import { join } from 'path';
 import request from 'supertest';
 import { createApp } from '../server/app';
-import { cameraHost, listCameras, loadCameras, setCameras, setReportedAddress, type CameraConfig } from '../server/cameraRegistry';
+import { cameraHost, listCameras, loadCameras, setCameras, setReportedAddress, type FileCameraConfig } from '../server/cameraRegistry';
 import { resetProxyClients } from '../server/proxy/client';
 import { startProxyStreams, stopProxyStreams } from '../server/proxy/stream';
 import { getClient, resetClients } from '../server/reolink/clients';
 import { CameraError } from '../server/reolink/client';
 import { SESSION_COOKIE, signSession } from '../server/session';
 import { FAKE_TOKEN, startFakeProxy, type FakeProxy } from './proxy/fakeProxy';
+import { k } from './helpers/fleet';
+import { fileAccount } from '../server/fleet';
 
 // Spec 2026-10-04-camera-address-from-proxy-design: a camera with
 // "host": "from-proxy" is reached at the address its cam-proxy reports.
@@ -66,26 +68,26 @@ describe('the cameras file', () => {
 });
 
 describe('the reported address', () => {
-  const cams = (list: CameraConfig[]) => setCameras(list);
+  const cams = (list: FileCameraConfig[]) => setCameras(list);
   it('is unknown until reported; then used; invalid values are ignored; explicit hosts never change', () => {
     cams([{ ...den, protocol: 'https' }, { id: 'shed', name: 'Shed', host: '10.0.0.9', protocol: 'https', user: 'u', password: 'p' }]);
-    expect(cameraHost('den')).toBeUndefined();
-    expect(listCameras().find((c) => c.id === 'den')?.webUiUrl).toBeNull();
-    setReportedAddress('den', '192.0.2.20');
-    expect(cameraHost('den')).toBe('192.0.2.20');
-    expect(listCameras().find((c) => c.id === 'den')?.webUiUrl).toBe('https://192.0.2.20/');
-    for (const bad of ['', 'http://x', 'a b', '1.2.3.4:0', '1.2.3.4:70000', 7, null]) setReportedAddress('den', bad);
-    expect(cameraHost('den')).toBe('192.0.2.20');
-    setReportedAddress('shed', '10.0.0.1');
-    expect(cameraHost('shed')).toBe('10.0.0.9');
+    expect(cameraHost(k('den'))).toBeUndefined();
+    expect(listCameras(fileAccount().id).find((c) => c.id === 'den')?.webUiUrl).toBeNull();
+    setReportedAddress(k('den'), '192.0.2.20');
+    expect(cameraHost(k('den'))).toBe('192.0.2.20');
+    expect(listCameras(fileAccount().id).find((c) => c.id === 'den')?.webUiUrl).toBe('https://192.0.2.20/');
+    for (const bad of ['', 'http://x', 'a b', '1.2.3.4:0', '1.2.3.4:70000', 7, null]) setReportedAddress(k('den'), bad);
+    expect(cameraHost(k('den'))).toBe('192.0.2.20');
+    setReportedAddress(k('shed'), '10.0.0.1');
+    expect(cameraHost(k('shed'))).toBe('10.0.0.9');
   });
 
   it('the direct client answers camera_address_unknown without a network call, then uses the address; a change drops the client', async () => {
     cams([{ ...den, protocol: 'http' }]);
-    const err = await getClient('den')!.status().catch((e: unknown) => e);
+    const err = await getClient(k('den'))!.status().catch((e: unknown) => e);
     expect(err).toBeInstanceOf(CameraError);
     expect((err as CameraError).code).toBe('camera_address_unknown');
-    expect(await getClient('den')!.cameraCertificate()).toBeNull();
+    expect(await getClient(k('den'))!.cameraCertificate()).toBeNull();
     // A tiny camera that refuses the login: proves the request went to it.
     const hits: string[] = [];
     const cam = http.createServer((req, res) => {
@@ -96,18 +98,18 @@ describe('the reported address', () => {
     cam.listen(0, '127.0.0.1');
     await new Promise((r) => cam.once('listening', r));
     cleanup.push(() => cam.close());
-    const before = getClient('den');
-    setReportedAddress('den', `127.0.0.1:${(cam.address() as AddressInfo).port}`);
-    expect(getClient('den')).not.toBe(before);
-    const e2 = await getClient('den')!.status().catch((e: unknown) => e);
+    const before = getClient(k('den'));
+    setReportedAddress(k('den'), `127.0.0.1:${(cam.address() as AddressInfo).port}`);
+    expect(getClient(k('den'))).not.toBe(before);
+    const e2 = await getClient(k('den'))!.status().catch((e: unknown) => e);
     expect((e2 as CameraError).code).toBe('camera_auth_failed');
     expect(hits.some((u) => u.includes('cmd=Login'))).toBe(true);
     // A known address changes to another: the cached client is dropped and
     // the next request goes to the new address only.
-    const known = getClient('den');
-    expect(getClient('den')).toBe(known); // cached while the address stays
-    setReportedAddress('den', '127.0.0.1:9');
-    const moved = getClient('den');
+    const known = getClient(k('den'));
+    expect(getClient(k('den'))).toBe(known); // cached while the address stays
+    setReportedAddress(k('den'), '127.0.0.1:9');
+    const moved = getClient(k('den'));
     expect(moved).not.toBe(known);
     const n = hits.length;
     const e3 = await moved!.status().catch((e: unknown) => e);
@@ -136,16 +138,16 @@ describe('from the cam-proxy', () => {
     cleanup.push(() => fake.stop());
     fake.cameraAddresses.set('cam1', '192.0.2.20');
     const base = await serve(fake);
-    await until(() => cameraHost('den') === '192.0.2.20');
+    await until(() => cameraHost(k('den')) === '192.0.2.20');
     // A message with the address alone (no name told yet), and one with both.
     fake.push({ cam: 'cam1', type: 'camera', data: { address: '192.0.2.21' } });
-    await until(() => cameraHost('den') === '192.0.2.21');
+    await until(() => cameraHost(k('den')) === '192.0.2.21');
     fake.push({ cam: 'cam1', type: 'camera', data: { name: 'Den', address: '127.0.0.1:9' } });
-    await until(() => cameraHost('den') === '127.0.0.1:9');
+    await until(() => cameraHost(k('den')) === '127.0.0.1:9');
     fake.offline = true;
     fake.dropStreams();
     await new Promise((r) => setTimeout(r, 300));
-    expect(cameraHost('den')).toBe('127.0.0.1:9');
+    expect(cameraHost(k('den'))).toBe('127.0.0.1:9');
     // The status route still answers from the camera directly (offline here).
     const st = await request(base).get('/api/cameras/den/status').set('Cookie', auth);
     expect(st.body).toMatchObject({ id: 'den', online: false, error: 'camera_offline' });

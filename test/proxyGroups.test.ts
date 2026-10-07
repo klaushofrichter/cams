@@ -6,14 +6,17 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { mkdtempSync, writeFileSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
-import { loadCameras, setCameras, type CameraConfig } from '../server/cameraRegistry';
+import { loadCameras, setCameras, type FileCameraConfig } from '../server/cameraRegistry';
 import { getProxyClient, proxyClientFor, resetProxyClients } from '../server/proxy/client';
 import { activeMembers, groupOf, proxyGroups, remoteIds } from '../server/proxy/groups';
 import { archiveProxies } from '../server/proxy/archive';
 import { loadProxyState, setProxyEnabled } from '../server/proxyState';
+import { k } from './helpers/fleet';
+import { camsIdOf } from '../server/fleet';
+import { fileAccount } from '../server/fleet';
 
 const T = 'a'.repeat(40), T2 = 'b'.repeat(40), ADMIN = 'c'.repeat(40);
-const cam = (id: string, proxy?: CameraConfig['proxy']): CameraConfig => ({ id, name: id, host: '127.0.0.1:9', protocol: 'http', user: 'u', password: 'p', ...(proxy && { proxy }) });
+const cam = (id: string, proxy?: FileCameraConfig['proxy']): FileCameraConfig => ({ id, name: id, host: '127.0.0.1:9', protocol: 'http', user: 'u', password: 'p', ...(proxy && { proxy }) });
 const file = (body: unknown) => {
   const f = join(mkdtempSync(join(tmpdir(), 'cams-groups-')), 'cameras.json');
   writeFileSync(f, JSON.stringify(body));
@@ -41,30 +44,30 @@ describe('proxy groups', () => {
       cam('gate', { url: 'http://a:8480', token: T2 }),
     ]);
     const gs = proxyGroups();
-    expect(gs.map((g) => g.members)).toEqual([['den', 'barn'], ['cam2'], ['gate']]);
-    expect(groupOf('barn')).toBe(gs[0]);
-    expect([...gs[0].remoteOf]).toEqual([['den', 'cam1'], ['barn', 'barn']]);
+    expect(gs.map((g) => g.members.map(camsIdOf))).toEqual([['den', 'barn'], ['cam2'], ['gate']]);
+    expect(groupOf(k('barn'))).toBe(gs[0]);
+    expect([...gs[0].remoteOf]).toEqual([[k('den'), 'cam1'], [k('barn'), 'barn']]);
     expect(remoteIds(gs[0])).toEqual(['barn', 'cam1']);
-    expect(groupOf('shed')).toBeUndefined();
+    expect(groupOf(k('shed'))).toBeUndefined();
   });
 
   it('has one client per proxy, and none for a switched-off camera', async () => {
     setCameras([cam('den', { url: 'http://a:8480', token: T, camera: 'cam1' }), cam('barn', { url: 'http://a:8480', token: T })]);
-    expect(getProxyClient('den')).toBe(getProxyClient('barn'));
-    await setProxyEnabled('barn', false);
-    expect(getProxyClient('barn')).toBeUndefined();
-    expect(proxyClientFor('barn')).toBe(getProxyClient('den'));
-    expect(activeMembers(groupOf('den')!)).toEqual(['den']);
+    expect(getProxyClient(k('den'))).toBe(getProxyClient(k('barn')));
+    await setProxyEnabled(k('barn'), false);
+    expect(getProxyClient(k('barn'))).toBeUndefined();
+    expect(proxyClientFor(k('barn'))).toBe(getProxyClient(k('den')));
+    expect(activeMembers(groupOf(k('den'))!)).toEqual([k('den')]);
   });
 
   it('builds the Archive proxies from the same group objects (spec §12.4)', async () => {
     setCameras([cam('den', { url: 'http://a:8480', token: T, camera: 'cam1' }), cam('barn', { url: 'http://a:8480', token: T }), cam('cam2', { url: 'http://b:8480', token: T, camera: 'cam1' })]);
-    const ps = archiveProxies();
-    expect(ps.map((p) => [p.via, p.cams])).toEqual([['den', ['den', 'barn']], ['cam2', ['cam2']]]);
-    expect(ps[0].group).toBe(groupOf('den'));
+    const ps = archiveProxies(fileAccount().id);
+    expect(ps.map((p) => [p.via, p.cams.map(camsIdOf)])).toEqual([['den', ['den', 'barn']], ['cam2', ['cam2']]]);
+    expect(ps[0].group).toBe(groupOf(k('den')));
     expect([...ps[0].toCams]).toEqual([['cam1', 'den'], ['barn', 'barn']]);
-    await setProxyEnabled('den', false);
-    expect(archiveProxies()[0].via).toBe('barn'); // as today: the first camera that uses it
+    await setProxyEnabled(k('den'), false);
+    expect(archiveProxies(fileAccount().id)[0].via).toBe('barn'); // as today: the first camera that uses it
   });
 });
 

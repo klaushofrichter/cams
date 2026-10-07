@@ -2,19 +2,20 @@ import { addressEvents, cameraHost, getCamera, hostFromProxy } from '../cameraRe
 import { cameraTrust } from '../tls/cameraTrust';
 import { trustEvents } from '../tls/store';
 import { ReolinkClient } from './client';
+import type { CamKey } from '../fleet';
 
 // One client per camera for the life of the process, so the token cache and
 // the concurrency gate are shared by every request for that camera. A
 // from-proxy camera's client is built for the address its proxy reported
 // (none yet: every request answers camera_address_unknown), and again when
 // that address changes (the token belongs to the old one).
-const clients = new Map<string, ReolinkClient>();
+const clients = new Map<CamKey, ReolinkClient>();
 
-addressEvents.on('address', ({ cam }: { cam: string }) => clients.delete(cam));
+addressEvents.on('address', ({ cam }: { cam: CamKey }) => clients.delete(cam));
 // Its trust changed (a site CA verified, a fallback pin set or cleared).
-trustEvents.on('trust', ({ cam }: { cam: string }) => clients.delete(cam));
+trustEvents.on('trust', ({ cam }: { cam: CamKey }) => clients.delete(cam));
 
-export function getClient(id: string): ReolinkClient | undefined {
+export function getClient(id: CamKey): ReolinkClient | undefined {
   const existing = clients.get(id);
   if (existing) return existing;
   const cam = getCamera(id);

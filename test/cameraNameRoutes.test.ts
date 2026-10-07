@@ -4,13 +4,15 @@ import http from 'http';
 import type { AddressInfo } from 'net';
 import request from 'supertest';
 import { createApp } from '../server/app';
-import { cameraName, listCameras, setCameras, type CameraConfig } from '../server/cameraRegistry';
+import { cameraName, listCameras, setCameras, type FileCameraConfig } from '../server/cameraRegistry';
 import { cameraNameProblem } from '../server/cameraName';
 import { resetProxyClients } from '../server/proxy/client';
 import { setNameGraceMs } from '../server/proxy/names';
 import { startProxyStreams, stopProxyStreams } from '../server/proxy/stream';
 import { SESSION_COOKIE, signSession } from '../server/session';
 import { FAKE_ADMIN_TOKEN, FAKE_TOKEN, startFakeProxy, type FakeProxy } from './proxy/fakeProxy';
+import { k } from './helpers/fleet';
+import { fileAccount } from '../server/fleet';
 
 // The camera's name (design reolink/camera-name-design.md): shown from the
 // camera (through its cam-proxy, or read directly), the registry name until
@@ -38,7 +40,7 @@ async function fakeProxy(): Promise<FakeProxy> {
 
 // den: through the fake proxy's cam1; shed: no proxy.
 function cameras(fake: FakeProxy | null, o: { adminToken?: boolean; shedHost?: string } = {}): void {
-  const list: CameraConfig[] = [{ id: 'shed', name: 'Shed', host: o.shedHost ?? '127.0.0.1:9', protocol: 'http', user: 'u', password: 'p' }];
+  const list: FileCameraConfig[] = [{ id: 'shed', name: 'Shed', host: o.shedHost ?? '127.0.0.1:9', protocol: 'http', user: 'u', password: 'p' }];
   if (fake) list.unshift({ id: 'den', name: 'Den', host: '127.0.0.1:9', protocol: 'http', user: 'u', password: 'p', proxy: { url: fake.url, token: FAKE_TOKEN, camera: 'cam1', ...(o.adminToken !== false && { adminToken: FAKE_ADMIN_TOKEN }) } });
   setCameras(list);
   resetProxyClients();
@@ -78,7 +80,7 @@ function browser(base: string) {
   return { frames, named };
 }
 
-const shown = (id: string) => listCameras().find((c) => c.id === id)?.name;
+const shown = (id: string) => listCameras(fileAccount().id).find((c) => c.id === id)?.name;
 
 describe('the shown name', () => {
   it("is the registry name until the proxy answers, then the proxy's", async () => {
@@ -107,7 +109,7 @@ describe('the shown name', () => {
     fake.push({ cam: 'barn', type: 'camera', data: { name: 'Elsewhere' } }); // another camera of the proxy
     await new Promise((r) => setTimeout(r, 150));
     expect(b.named()).toEqual([{ cam: 'den', name: 'Porch Light' }]);
-    expect(cameraName('shed')).toBe('Shed');
+    expect(cameraName(k('shed'))).toBe('Shed');
   });
 
   // A proxy restart or a network blip must not flash the registry name in

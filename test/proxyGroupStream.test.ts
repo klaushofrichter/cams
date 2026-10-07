@@ -7,19 +7,22 @@ import { tmpdir } from 'os';
 import { join } from 'path';
 import request from 'supertest';
 import { createApp } from '../server/app';
-import { setCameras, type CameraConfig } from '../server/cameraRegistry';
+import { setCameras, type FileCameraConfig } from '../server/cameraRegistry';
 import { resetProxyClients } from '../server/proxy/client';
 import { proxyHub, proxyStates, startProxyStreams, stopProxyStreams } from '../server/proxy/stream';
 import { loadProxyState } from '../server/proxyState';
 import { SESSION_COOKIE, signSession } from '../server/session';
 import { FAKE_TOKEN, startFakeProxy, type FakeProxy } from './proxy/fakeProxy';
+import { fileAccount } from '../server/fleet';
+import { camsIdOf, type CamKey } from '../server/fleet';
+import { k } from './helpers/fleet';
 
 const auth = `${SESSION_COOKIE}=${signSession('klaus@klaushofrichter.net')}`;
 const OPTS = { backoffMinMs: 50, backoffMaxMs: 400, healthyMs: 200 };
-const cam = (id: string, proxy?: CameraConfig['proxy']): CameraConfig => ({ id, name: id, host: '127.0.0.1:9', protocol: 'http', user: 'u', password: 'p', ...(proxy && { proxy }) });
+const cam = (id: string, proxy?: FileCameraConfig['proxy']): FileCameraConfig => ({ id, name: id, host: '127.0.0.1:9', protocol: 'http', user: 'u', password: 'p', ...(proxy && { proxy }) });
 const fakes: FakeProxy[] = [];
-let got: { cam: string; type: string; data: Record<string, unknown> }[];
-const onMessage = (m: { cam: string; type: string; data: Record<string, unknown> }) => got.push(m);
+let got: { cam: CamKey; type: string; data: Record<string, unknown> }[];
+const onMessage = (m: { cam: CamKey; type: string; data: Record<string, unknown> }) => got.push(m);
 
 beforeEach(() => {
   process.env.PROXY_STATE_FILE = join(mkdtempSync(join(tmpdir(), 'cams-gs-')), 'proxy-state.json');
@@ -43,7 +46,7 @@ async function fake(): Promise<FakeProxy> {
   return f;
 }
 const streamAsks = (f: FakeProxy) => f.requests.filter((r) => r.path === '/api/stream');
-const allUp = (ids: string[]) => ids.every((id) => proxyStates().find((s) => s.cam === id)?.up);
+const allUp = (ids: string[]) => ids.every((id) => proxyStates(fileAccount().id).find((s) => s.cam === k(id))?.up);
 
 describe('one stream per proxy', () => {
   it('opens one upstream for two cameras, asking for both ids', async () => {
@@ -53,7 +56,7 @@ describe('one stream per proxy', () => {
     await expect.poll(() => allUp(['den', 'barn'])).toBe(true);
     expect(a.streamConnections()).toBe(1);
     expect(streamAsks(a).at(-1)?.query.cam).toBe('barn,cam1');
-    expect(proxyStates()).toEqual([{ cam: 'den', up: true }, { cam: 'barn', up: true }]);
+    expect(proxyStates(fileAccount().id)).toEqual([{ cam: k('den'), up: true }, { cam: k('barn'), up: true }]);
   });
 
   it('fans each message out to the camera mapped from its cam', async () => {
@@ -64,7 +67,7 @@ describe('one stream per proxy', () => {
     a.push({ cam: 'cam1', type: 'clip', data: { clipId: 1 } });
     a.push({ cam: 'barn', type: 'clip', data: { clipId: 2 } });
     await expect.poll(() => got.length).toBe(2);
-    expect(got.map((m) => [m.cam, m.data.clipId])).toEqual([['den', 1], ['barn', 2]]);
+    expect(got.map((m) => [camsIdOf(m.cam), m.data.clipId])).toEqual([['den', 1], ['barn', 2]]);
   });
 
   it('drops cameras it doesn’t map', async () => {
@@ -77,7 +80,7 @@ describe('one stream per proxy', () => {
     a.push({ cam: 'cam1', type: 'clip', data: { clipId: 1 } });
     await expect.poll(() => got.length).toBe(1);
     await new Promise((r) => setTimeout(r, 100));
-    expect(got.map((m) => m.cam)).toEqual(['den']);
+    expect(got.map((m) => camsIdOf(m.cam))).toEqual(['den']);
   });
 
   it('sends a reset and the state to every camera of the proxy', async () => {
@@ -89,10 +92,10 @@ describe('one stream per proxy', () => {
     await expect.poll(() => got.length).toBe(1);
     a.oldestId = 100; // the proxy lost our place
     a.dropStreams();
-    await expect.poll(() => got.filter((m) => m.type === 'reset').map((m) => m.cam).sort()).toEqual(['barn', 'den']);
+    await expect.poll(() => got.filter((m) => m.type === 'reset').map((m) => camsIdOf(m.cam)).sort()).toEqual(['barn', 'den']);
     a.offline = true;
     a.dropStreams();
-    await expect.poll(() => proxyStates().every((s) => !s.up)).toBe(true);
+    await expect.poll(() => proxyStates(fileAccount().id).every((s) => !s.up)).toBe(true);
   });
 
   it('resumes both cameras after a drop, missing nothing, doubling nothing', async () => {
@@ -107,7 +110,7 @@ describe('one stream per proxy', () => {
     a.push({ cam: 'cam1', type: 'clip', data: { clipId: 3 } });
     await expect.poll(() => got.length).toBe(3);
     await new Promise((r) => setTimeout(r, 150));
-    expect(got.map((m) => [m.cam, m.data.clipId])).toEqual([['den', 1], ['barn', 2], ['den', 3]]);
+    expect(got.map((m) => [camsIdOf(m.cam), m.data.clipId])).toEqual([['den', 1], ['barn', 2], ['den', 3]]);
   });
 
   it('keeps today’s one stream per one-camera proxy (the cluster: the Pi’s and its own)', async () => {
@@ -128,18 +131,18 @@ describe('the Settings switch on a shared proxy', () => {
     setCameras([cam('den', { url: a.url, token: FAKE_TOKEN, camera: 'cam1' }), cam('barn', { url: a.url, token: FAKE_TOKEN })]);
     startProxyStreams(OPTS);
     await expect.poll(() => allUp(['den', 'barn'])).toBe(true);
-    const states: { cam: string; up: boolean }[] = [];
-    const onState = (s: { cam: string; up: boolean }) => states.push(s);
+    const states: { cam: CamKey; up: boolean }[] = [];
+    const onState = (s: { cam: CamKey; up: boolean }) => states.push(s);
     proxyHub.on('state', onState);
     try {
       expect((await put('barn', false)).status).toBe(200);
       await expect.poll(() => streamAsks(a).at(-1)?.query.cam).toBe('cam1');
       await expect.poll(() => a.streamConnections()).toBe(1);
-      expect(states).toContainEqual({ cam: 'barn', up: false });
-      expect(proxyStates()).toEqual([{ cam: 'den', up: true }]);
+      expect(states).toContainEqual({ cam: k('barn'), up: false });
+      expect(proxyStates(fileAccount().id)).toEqual([{ cam: k('den'), up: true }]);
       expect((await put('den', false)).status).toBe(200);
       await expect.poll(() => a.streamConnections()).toBe(0);
-      expect(proxyStates()).toEqual([]);
+      expect(proxyStates(fileAccount().id)).toEqual([]);
       expect((await put('barn', true)).status).toBe(200);
       await expect.poll(() => allUp(['barn'])).toBe(true);
       expect(streamAsks(a).at(-1)?.query.cam).toBe('barn');

@@ -18,6 +18,7 @@ import { ReolinkClient } from '../server/reolink/client';
 import { SESSION_COOKIE, signSession } from '../server/session';
 import { createSimCamera, SimState } from './camera/sim';
 import * as thumbnailModule from '../server/recordings/thumbnail';
+import { k } from './helpers/fleet';
 
 // Partial mock: real implementation by default, so every test except the
 // one below (fix round 1, item 8) exercises the actual ffmpeg wrapper.
@@ -141,9 +142,9 @@ describe('recordings API', () => {
     const thumbs = [thumb(a)];
     await vi.waitFor(() => expect(state.downloads).toBe(1));
     thumbs.push(thumb(b));
-    await vi.waitFor(() => expect(getRecordings().transferQueueLength('cam1')).toBe(1));
+    await vi.waitFor(() => expect(getRecordings().transferQueueLength(k('cam1'))).toBe(1));
     thumbs.push(thumb(c));
-    await vi.waitFor(() => expect(getRecordings().transferQueueLength('cam1')).toBe(2));
+    await vi.waitFor(() => expect(getRecordings().transferQueueLength(k('cam1'))).toBe(2));
     const video = await request(app).get(`/api/cameras/cam1/clips/${d}/video`).set('Cookie', auth);
     expect(video.status).toBe(200);
     await Promise.all(thumbs);
@@ -162,9 +163,9 @@ describe('recordings API', () => {
     const thumbs = [thumb(a)];
     await vi.waitFor(() => expect(state.downloads).toBe(1));
     thumbs.push(thumb(b));
-    await vi.waitFor(() => expect(getRecordings().transferQueueLength('cam1')).toBe(1));
+    await vi.waitFor(() => expect(getRecordings().transferQueueLength(k('cam1'))).toBe(1));
     thumbs.push(thumb(c));
-    await vi.waitFor(() => expect(getRecordings().transferQueueLength('cam1')).toBe(2));
+    await vi.waitFor(() => expect(getRecordings().transferQueueLength(k('cam1'))).toBe(2));
     const video = await request(app).get(`/api/cameras/cam1/clips/${c}/video`).set('Cookie', auth);
     expect(video.status).toBe(200);
     await Promise.all(thumbs);
@@ -499,9 +500,9 @@ describe('recordings API', () => {
     const doneThird = third.then(() => {}).catch(() => {});
     // Wait until the third actually reached openDownload() and queued for
     // the gate before aborting it, and until its abort left the queue.
-    await vi.waitFor(() => expect(getRecordings().transferQueueLength('cam1')).toBe(1));
+    await vi.waitFor(() => expect(getRecordings().transferQueueLength(k('cam1'))).toBe(1));
     third.abort();
-    await vi.waitFor(() => expect(getRecordings().transferQueueLength('cam1')).toBe(0));
+    await vi.waitFor(() => expect(getRecordings().transferQueueLength(k('cam1'))).toBe(0));
     first.abort();
     await Promise.all([doneFirst, doneThird]);
     await vi.waitFor(() => expect(state.activeDownloads).toBe(0));
@@ -599,7 +600,7 @@ describe('invalidateAround', () => {
     await request(createApp()).get(`/api/cameras/cam1/events?date=${today()}`).set('Cookie', auth);
     await request(createApp()).get(`/api/cameras/cam1/events?date=${today()}`).set('Cookie', auth);
     const cached = search.mock.calls.length;
-    await getRecordings().invalidateAround('cam1', Date.now());
+    await getRecordings().invalidateAround(k('cam1'), Date.now());
     await request(createApp()).get(`/api/cameras/cam1/events?date=${today()}`).set('Cookie', auth);
     expect(search.mock.calls.length).toBeGreaterThan(cached);
     search.mockRestore();

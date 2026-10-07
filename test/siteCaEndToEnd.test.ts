@@ -18,6 +18,8 @@ import { certFingerprint, formatFingerprint } from '../server/tls/fingerprint';
 import { fallbackPin, loadTlsState } from '../server/tls/store';
 import { startTlsCamera } from './helpers/tlsCamera';
 import { FAKE_TOKEN, startFakeProxy, type FakeProxy } from './proxy/fakeProxy';
+import { k } from './helpers/fleet';
+import { fileAccount } from '../server/fleet';
 
 const fx = (n: string) => readFileSync(join(__dirname, 'fixtures/site-ca', n), 'utf8');
 const reply = (cmd: string) => (cmd === 'Login' ? [{ cmd, code: 0, value: { Token: { name: 'tok', leaseTime: 3600 } } }] : [{ cmd, code: 0, value: { DevInfo: { model: 'RLC-1224A', firmVer: 'v3' } } }]);
@@ -58,11 +60,11 @@ describe('site CA end to end', () => {
     resetProxyClients();
     resetClients();
     startProxyStreams({ backoffMinMs: 50, backoffMaxMs: 300, healthyMs: 200 });
-    await expect.poll(() => proxyStates()).toEqual([{ cam: 'garage-cam3', up: true }, { cam: 'garage-cam5', up: true }]);
-    await expect.poll(() => fallbackPin('garage-cam5', cameraHost('garage-cam5'))).toBe(certFingerprint(fx('selfsigned.pem')));
-    await expect.poll(() => [cameraHost('garage-cam3'), cameraHost('garage-cam5')]).toEqual([cam3.host, cam5.host]); // from-proxy addresses
-    expect((await getClient('garage-cam3')!.status()).model).toBe('RLC-1224A');
-    expect((await getClient('garage-cam5')!.status()).model).toBe('RLC-1224A');
+    await expect.poll(() => proxyStates(fileAccount().id)).toEqual([{ cam: k('garage-cam3'), up: true }, { cam: k('garage-cam5'), up: true }]);
+    await expect.poll(() => fallbackPin(k('garage-cam5'), cameraHost(k('garage-cam5')))).toBe(certFingerprint(fx('selfsigned.pem')));
+    await expect.poll(() => [cameraHost(k('garage-cam3')), cameraHost(k('garage-cam5'))]).toEqual([cam3.host, cam5.host]); // from-proxy addresses
+    expect((await getClient(k('garage-cam3'))!.status()).model).toBe('RLC-1224A');
+    expect((await getClient(k('garage-cam5'))!.status()).model).toBe('RLC-1224A');
     expect(f.streamConnections()).toBe(1);
   });
 });

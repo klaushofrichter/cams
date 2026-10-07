@@ -8,6 +8,7 @@ import { plausibleName } from '../proxy/names';
 import { CameraError } from '../reolink/client';
 import { getClient } from '../reolink/clients';
 import { knownCamera } from './common';
+import type { CamKey } from '../fleet';
 
 // Renaming a camera (design camera-name-design.md): the camera stores the
 // name, every signed-in user may change it. A camera whose cam-proxy is in
@@ -23,7 +24,7 @@ const PROXY_TIMEOUT_MS = 20_000; // the proxy writes, then re-reads the camera
 type Answer = { status: number; body: Record<string, unknown> };
 const invalid = (reason: string): Answer => ({ status: 400, body: { error: 'invalid_name', reason } });
 
-async function viaProxy(id: string, proxy: { url: string; adminToken: string }, name: string): Promise<Answer> {
+async function viaProxy(id: CamKey, proxy: { url: string; adminToken: string }, name: string): Promise<Answer> {
   let res: globalThis.Response;
   try {
     res = await new ProxyClient({ url: proxy.url, token: proxy.adminToken }, { timeoutMs: PROXY_TIMEOUT_MS, ...groupTrustOptions(id) }).open('/control/camera/name', undefined, { method: 'PUT', body: JSON.stringify({ name }) });
@@ -52,7 +53,7 @@ async function viaProxy(id: string, proxy: { url: string; adminToken: string }, 
 
 // SetDevName with the whole DevName object (only `name` replaced), then
 // GetDevName: the firmware may answer 200 to a write it ignored.
-async function direct(id: string, name: string): Promise<Answer> {
+async function direct(id: CamKey, name: string): Promise<Answer> {
   const client = getClient(id)!;
   const read = async () => ((await client.command<{ DevName?: Record<string, unknown> }>('GetDevName', { channel: 0 })).DevName ?? {}) as Record<string, unknown>;
   try {
