@@ -3,6 +3,8 @@
   import { liveUi, saveSnapshot, toggleMute, toggleQuality } from '../lib/liveUi';
   import { getJson } from '../lib/api';
   import { putJson } from '../lib/settings';
+  import { me } from '../lib/stores';
+  import { showsAdminControls } from '../lib/session';
   import { currentPlayer, LIVE_ONLY, saveRecordingSnapshot, type Mode } from '../lib/videoMode';
 
   // The Video page's controls (spec 2026-10-04): sound, quality, light,
@@ -98,7 +100,8 @@
       {$liveUi.quality === 'main' ? '4K' : 'SD'}
     </button>
   {/if}
-  {#if light !== null}
+  <!-- Switching the light changes the camera: account admins only (migration P4). -->
+  {#if light !== null && showsAdminControls($me)}
     <button data-testid="light-toggle" aria-pressed={light} disabled={live && lightBusy} aria-disabled={live ? undefined : 'true'} aria-describedby={live ? undefined : 'live-only-note'}
       onclick={() => liveOnly(toggleLight)} title={lightTip} aria-label={lightName}>
       <Icon name={light ? 'lightOn' : 'light'} size={18} />

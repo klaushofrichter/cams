@@ -8,12 +8,15 @@
   import { triggerDownload } from '../lib/download';
   import { eventStream } from '../lib/eventStream';
   import { navigate, route } from '../lib/router';
-  import { cameraById, cameras } from '../lib/stores';
+  import { cameraById, cameras, me } from '../lib/stores';
+  import { showsAdminControls } from '../lib/session';
   import {
     clickSelect, zipDelays, dateTime, deleteItems, durationText, expiresText, filterItems, formatBytes, headerState, itemKey, labelChoices, listArchive, NO_FILTERS,
     PREDEFINED_LABELS, qualityText, sortItems, stillRecorded, toggleAll, videoHref, zipUrls,
     type ArchiveItem, type EditMode, type Filters, type ProxyState, type SortKey, type SortOrder,
   } from '../lib/archive';
+  // Viewers watch and download; editing and deleting is for account admins (migration P4).
+  const admin = $derived(showsAdminControls($me));
 
   // The Archive (cams spec 2026-10-05-archive-design): every cam-proxy's
   // archived clips in one list, sortable, filtered, selected one by one, by
@@ -253,11 +256,13 @@
   {#if selected.size}
     <div class="bulk" data-testid="archive-bulk" role="toolbar" aria-label="Selected clips">
       <span data-testid="archive-selected-count">{selected.size} selected</span>
-      <button data-testid="archive-bulk-delete" onclick={() => (confirming = true)}><Icon name="trash" size={16} /> Delete</button>
+      {#if admin}<button data-testid="archive-bulk-delete" onclick={() => (confirming = true)}><Icon name="trash" size={16} /> Delete</button>{/if}
       <button data-testid="archive-bulk-zip" onclick={downloadZip}><Icon name="download" size={16} /> Download ZIP</button>
-      <button data-testid="archive-bulk-labels" onclick={() => (editing = { kind: 'labels', items: chosen })}><Icon name="tag" size={16} /> Set labels</button>
-      <button data-testid="archive-bulk-retention" onclick={() => (editing = { kind: 'retention', items: chosen })}>Set retention</button>
-      {#if chosen.length === 1}<button data-testid="archive-bulk-edit" onclick={() => (editing = { kind: 'one', item: chosen[0] })}><Icon name="edit" size={16} /> Edit</button>{/if}
+      {#if admin}
+        <button data-testid="archive-bulk-labels" onclick={() => (editing = { kind: 'labels', items: chosen })}><Icon name="tag" size={16} /> Set labels</button>
+        <button data-testid="archive-bulk-retention" onclick={() => (editing = { kind: 'retention', items: chosen })}>Set retention</button>
+        {#if chosen.length === 1}<button data-testid="archive-bulk-edit" onclick={() => (editing = { kind: 'one', item: chosen[0] })}><Icon name="edit" size={16} /> Edit</button>{/if}
+      {/if}
       <button class="link" data-testid="archive-clear-selection" onclick={() => (selected = new Set())}>Clear</button>
     </div>
   {/if}
@@ -285,7 +290,7 @@
               {@render labelList(x)}
               <span class="muted" data-testid="archive-expires">Expires {expiresText(x.expiresAt, now)} · archived {dateTime(x.createdAt).slice(0, 10)}</span>
             </div>
-            <button class="icon" data-testid="archive-edit" aria-label={`Edit ${x.name}`} onclick={() => (editing = { kind: 'one', item: x })}><Icon name="edit" size={18} /></button>
+            {#if admin}<button class="icon" data-testid="archive-edit" aria-label={`Edit ${x.name}`} onclick={() => (editing = { kind: 'one', item: x })}><Icon name="edit" size={18} /></button>{/if}
           </li>
         {/each}
       </ul>
@@ -317,7 +322,7 @@
                 <td>{@render labelList(x)}</td>
                 <td class="nowrap" data-testid="archive-expires">{expiresText(x.expiresAt, now)}</td>
                 <td class="nowrap">{dateTime(x.createdAt).slice(0, 16)}</td>
-                <td><button class="icon" data-testid="archive-edit" aria-label={`Edit ${x.name}`} onclick={() => (editing = { kind: 'one', item: x })}><Icon name="edit" size={18} /></button></td>
+                <td>{#if admin}<button class="icon" data-testid="archive-edit" aria-label={`Edit ${x.name}`} onclick={() => (editing = { kind: 'one', item: x })}><Icon name="edit" size={18} /></button>{/if}</td>
               </tr>
             {/each}
           </tbody>

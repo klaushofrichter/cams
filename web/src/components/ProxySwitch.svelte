@@ -1,6 +1,7 @@
 <script lang="ts">
   import { openProxyClick } from '../lib/proxyLink';
-  import { cameras, cameraById } from '../lib/stores';
+  import { cameras, cameraById, me } from '../lib/stores';
+  import { showsAdminControls } from '../lib/session';
   import { putJson } from '../lib/settings';
   import { getJson } from '../lib/api';
   import Icon from './Icon.svelte';
@@ -54,10 +55,12 @@
 </script>
 
 {#if camera?.proxyConfigured}
-  <label class="row">
-    <input type="checkbox" data-testid="proxy-toggle" checked={!!camera.proxy} disabled={saving} onchange={toggle} />
-    Use cam-proxy
-  </label>
+  {#if showsAdminControls($me)}
+    <label class="row">
+      <input type="checkbox" data-testid="proxy-toggle" checked={!!camera.proxy} disabled={saving} onchange={toggle} />
+      Use cam-proxy
+    </label>
+  {/if}
   <p class="muted" data-testid="proxy-note">
     {#if camera.proxy}
       Clips, event thumbnails, stills and events come from the camera's cam-proxy first, and from the camera when the proxy can't help.
@@ -68,8 +71,9 @@
   </p>
   {#if info?.webUrl}
     <p class="link">
+      <!-- The signed-in link (a one-time login) is for admins; viewers get the plain address. -->
       <a data-testid="proxy-web-link" href={info.webUrl} target="_blank" rel="noopener noreferrer"
-        onclick={(e) => openProxyClick(e, cameraId, info!.webUrl!)}>Open this camera's cam-proxy <Icon name="external" size={14} /></a>
+        onclick={(e) => (showsAdminControls($me) ? openProxyClick(e, cameraId, info!.webUrl!) : undefined)}>Open this camera's cam-proxy <Icon name="external" size={14} /></a>
     </p>
   {:else if info && !info.reachable}
     <p class="muted" data-testid="proxy-unreachable">The cam-proxy isn't answering right now.</p>

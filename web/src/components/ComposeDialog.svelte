@@ -5,7 +5,8 @@
   import { aroundLength, aroundPreset, aroundRanges, cancelJob, composedName, formatSeconds, generateMaxS, madeOf, PLAIN_MAX_S, planAround, rollKeyStep, rollValueText, secondsPast, sliderBounds, fullQualityAvailable, isAvailable, isPlain, ORIGINAL_4K_LABEL, pollJob, presetRolls, resultLength, rollRange, saveMaxS, SIZE_LABELS, snapRoll, startJob, videoUrl, type AroundPlan, type ComposeSize, type JobView, type RollRange, type SaveSize } from '../lib/compose';
   import { localClock } from '../lib/clock';
   import ArchiveStep from './ArchiveStep.svelte';
-  import { cameraById } from '../lib/stores';
+  import { cameraById, me } from '../lib/stores';
+  import { showsAdminControls } from '../lib/session';
   import type { ArchiveSource } from '../lib/archive';
 
   // Every download of a clip goes through this dialog (Klaus, 2026-09-29): SD
@@ -391,7 +392,8 @@
       <button data-testid="compose-generate" disabled={starting} onclick={generate}>{starting ? 'Starting…' : ready ? 'Generate again' : 'Generate'}</button>
     {/if}
     {#if composable}
-      <button data-testid="compose-archive" disabled={!archiveSource || busy || starting} onclick={() => (archiving = true)}>Archive</button>
+      <!-- Archiving keeps a clip on the proxy: account admins only (migration P4); viewers download. -->
+      {#if showsAdminControls($me)}<button data-testid="compose-archive" disabled={!archiveSource || busy || starting} onclick={() => (archiving = true)}>Archive</button>{/if}
     {/if}
     <a data-testid="compose-save" class="primary" download onclick={onSave}
       href={fullMissing ? undefined : plain ? (length.ok ? downloadUrl(camera, clip!.id, is4k ? 'main' : 'sub') : undefined) : ready && job ? videoUrl(camera, job.id, false, name) : undefined}

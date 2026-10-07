@@ -179,3 +179,19 @@ describe('images, videos and the event stream', () => {
     expect(fetch).toHaveBeenCalledTimes(2);
   });
 });
+
+describe('several accounts, none chosen (migration P4, R4-13)', () => {
+  const choose = () => new Response(JSON.stringify({ error: 'choose_account' }), { status: 409, headers: { 'Content-Type': 'application/json' } });
+  it('a 409 choose_account opens the account picker, once', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => choose()));
+    await expect(getJson('/api/cameras')).rejects.toThrow();
+    await expect(getJson('/api/preferences')).rejects.toThrow();
+    expect(assign.mock.calls).toEqual([['/app/accounts']]);
+  });
+  it('not on the picker page itself', async () => {
+    page('/app/accounts');
+    vi.stubGlobal('fetch', vi.fn(async () => choose()));
+    await expect(getJson('/api/cameras')).rejects.toThrow();
+    expect(assign).not.toHaveBeenCalled();
+  });
+});

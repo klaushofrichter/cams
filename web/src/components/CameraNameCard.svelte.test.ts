@@ -167,3 +167,18 @@ describe('CameraNameCard', () => {
     expect(error()).toBeNull();
   });
 });
+
+describe('CameraNameCard for a viewer (migration P4, M §9.5)', () => {
+  it('shows the name, no editing and no Save', async () => {
+    const { me } = await import('../lib/stores');
+    me.set({ email: 'v@example.org', version: 'v', buildDate: null, role: 'viewer' });
+    try {
+      render('den');
+      expect(q('save-camera-name')).toBeNull();
+      expect(q('camera-name-input')).toBeNull();
+      expect(q('camera-name-readonly')).not.toBeNull();
+    } finally {
+      me.set(null);
+    }
+  });
+});

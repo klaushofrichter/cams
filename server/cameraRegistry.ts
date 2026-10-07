@@ -62,6 +62,7 @@ export interface CameraSummary {
   webUiNote?: string;
   proxy: boolean; // whether cams uses this camera's cam-proxy now (never its URL or token)
   proxyConfigured: boolean; // whether the camera has a cam-proxy at all (the switch on Settings)
+  credentials?: 'missing' | 'mismatch'; // cams-admin mode: no usable password here (the camera login)
 }
 
 const ID_PATTERN = /^[a-z0-9][a-z0-9-]{0,31}$/;
@@ -316,7 +317,7 @@ export function setReportedName(id: CamKey, name: string | null): void {
 
 // The account's cameras for the browser: ids are camsIds.
 export function listCameras(accountId: string): CameraSummary[] {
-  return accountCameras(accountId).map((c) => ({ id: c.camsId, name: cameraName(c.id), ...webUiOf(c), proxy: proxyActive(c.id), proxyConfigured: !!c.proxy }));
+  return accountCameras(accountId).map((c) => ({ id: c.camsId, name: cameraName(c.id), ...webUiOf(c), proxy: proxyActive(c.id), proxyConfigured: !!c.proxy, ...(c.credentials !== 'ok' && { credentials: c.credentials }) }));
 }
 
 // Every configured camera of every account, config order (the same array

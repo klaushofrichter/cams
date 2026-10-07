@@ -286,3 +286,20 @@ describe('Archive page', () => {
     expect(q('archive-sort')).not.toBeNull();
   });
 });
+
+describe('Archive page for a viewer (migration P4, M §9.5)', () => {
+  it('no edit, label, retention or delete controls; selecting for a ZIP download stays', async () => {
+    const { me } = await import('../lib/stores');
+    me.set({ email: 'v@example.org', version: 'v', buildDate: null, role: 'viewer', accounts: 1 });
+    try {
+      await render();
+      expect(all('archive-edit')).toEqual([]);
+      expect(rows().length).toBe(3);
+      click(all('archive-select')[0]);
+      expect(q('archive-bulk-zip')).not.toBeNull();
+      for (const id of ['archive-bulk-delete', 'archive-bulk-labels', 'archive-bulk-retention', 'archive-bulk-edit']) expect([id, q(id)]).toEqual([id, null]);
+    } finally {
+      me.set(null);
+    }
+  });
+});

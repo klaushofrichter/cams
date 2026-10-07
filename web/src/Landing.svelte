@@ -2,10 +2,13 @@
   import Logo from './components/Logo.svelte';
   import CameraIllustration from './components/CameraIllustration.svelte';
   import LoginOptions from './components/LoginOptions.svelte';
-  import { loginMethods } from './lib/login';
+  import { loginMethods, noConfiguration, UNAVAILABLE_MESSAGE } from './lib/login';
   const methods = loginMethods();
   // A form post with a wrong token comes back as /?login=failed.
   const failed = new URLSearchParams(location.search).get('login') === 'failed';
+  // A form post when the token has no account (migration P4): /?login=unavailable.
+  const unavailable = new URLSearchParams(location.search).get('login') === 'unavailable';
+  const none = noConfiguration();
   const year = new Date().getFullYear();
 </script>
 
@@ -24,6 +27,8 @@
         recorded event with AI detection of people, vehicles and pets, clip downloads and camera settings, from any
         browser.
       </p>
+      {#if none}<p class="notice" data-testid="no-configuration">No cameras are configured yet.</p>{/if}
+      {#if unavailable}<p class="notice" role="alert" data-testid="login-unavailable">{UNAVAILABLE_MESSAGE}</p>{/if}
       <LoginOptions {methods} {failed} />
       <ul class="chips">
         <li>● Live view</li>
@@ -39,6 +44,7 @@
 </div>
 
 <style>
+  .notice { margin: 0 0 14px; padding: 10px 14px; border-radius: 10px; background: var(--surface-2); border: 1px solid var(--border); color: var(--muted); }
   .landing {
     min-height: 100vh;
     display: flex;
