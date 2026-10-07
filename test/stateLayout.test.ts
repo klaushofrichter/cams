@@ -41,10 +41,19 @@ describe('layout helpers', () => {
   it('entryFor finds by id, else by name; withEntry re-keys a by-name match to the id', () => {
     const l = { v: 2 as const, accounts: { acc_OLD: { name: 'home', data: 1 }, acc_X: { name: 'x', data: 2 } } };
     expect(entryFor(l, { id: 'acc_X', name: 'other', displayName: '' })).toBe(2);
-    expect(entryFor(l, { id: 'acc_NEW', name: 'home', displayName: '' })).toBe(1);
+    expect(entryFor(l, { id: 'acc_NEW', name: 'home', displayName: '' })).toBe(1); // the file account (home): by name too
     expect(entryFor(l, { id: 'acc_NONE', name: 'none', displayName: '' })).toBeUndefined();
     expect(withEntry(l, { id: 'acc_NEW', name: 'home', displayName: '' }, 3)).toEqual({ v: 2, accounts: { acc_NEW: { name: 'home', data: 3 }, acc_X: { name: 'x', data: 2 } } });
     expect(toAccounts({ a: 1 }, { id: 'acc_H', name: 'home', displayName: '' })).toEqual({ v: 2, accounts: { acc_H: { name: 'home', data: { a: 1 } } } });
+  });
+
+  it('the by-name fallback is for the file account only: another account never reads or takes over a same-named entry', () => {
+    const l = { v: 2 as const, accounts: { acc_GONE: { name: 'beta', data: 1 } } };
+    const beta = { id: 'acc_NEWBETA', name: 'beta', displayName: '' };
+    expect(entryFor(l, beta)).toBeUndefined();
+    expect(withEntry(l, beta, 2).accounts).toEqual({ acc_GONE: { name: 'beta', data: 1 }, acc_NEWBETA: { name: 'beta', data: 2 } });
+    const home = { id: 'acc_NEWHOME', name: fileAccount().name, displayName: '' };
+    expect(entryFor({ v: 2, accounts: { acc_OLD: { name: fileAccount().name, data: 3 } } }, home)).toBe(3);
   });
 
   it('backupOnce copies once, keeping the mode', async () => {

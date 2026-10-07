@@ -28,8 +28,11 @@ export function asAccountLayout<T>(parsed: unknown, dataOk: (d: unknown) => d is
 // Whether a parsed file claims the account layout (v: 2), valid or not.
 export const claimsAccountLayout = (parsed: unknown): boolean => isObject(parsed) && parsed.v === 2;
 
+// By id; by name only for the file account (its id may be named later, R4-10):
+// another account never reads a same-named entry (a renamed or reused name).
 export function entryFor<T>(l: AccountLayout<T>, account: AccountRef): T | undefined {
   if (Object.prototype.hasOwnProperty.call(l.accounts, account.id)) return l.accounts[account.id].data;
+  if (!isFileAccount(account)) return undefined;
   return Object.values(l.accounts).find((e) => e.name === account.name)?.data;
 }
 
@@ -37,7 +40,8 @@ export function entryFor<T>(l: AccountLayout<T>, account: AccountRef): T | undef
 // re-keyed to the account's id.
 export function withEntry<T>(l: AccountLayout<T>, account: AccountRef, data: T): AccountLayout<T> {
   const accounts: AccountLayout<T>['accounts'] = {};
-  for (const [id, e] of Object.entries(l.accounts)) if (id !== account.id && e.name !== account.name) accounts[id] = e;
+  const byName = isFileAccount(account);
+  for (const [id, e] of Object.entries(l.accounts)) if (id !== account.id && !(byName && e.name === account.name)) accounts[id] = e;
   accounts[account.id] = { name: account.name, data };
   return { v: 2, accounts: Object.fromEntries(Object.entries(accounts).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))) };
 }

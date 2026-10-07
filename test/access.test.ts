@@ -105,6 +105,38 @@ describe('the access table', () => {
     expect((await request(app).get('/api/nothing-here')).status).toBe(404);
   });
 
+  it('writes are denied by default: a prefixed sub-router\'s or a RegExp route without a line is refused (any role)', async () => {
+    const app = express();
+    app.use(createApiRateLimit());
+    app.use((_req, res, next) => {
+      res.locals.principal = { email: 'a@example.org', via: 'google', account: { id: ALPHA, name: 'alpha', displayName: 'Alpha' }, role: 'admin' };
+      next();
+    });
+    app.use('/api', accessMiddleware());
+    const sub = express.Router();
+    sub.put('/danger', (_req, res) => void res.json({ reached: true }));
+    app.use('/api/thing', sub);
+    app.put(/^\/api\/regex$/, (_req, res) => void res.json({ reached: true }));
+    app.post('/api/unlisted/:x', (_req, res) => void res.json({ reached: true }));
+    for (const [m, path] of [['put', '/api/thing/danger'], ['put', '/api/regex'], ['post', '/api/unlisted/1'], ['delete', '/api/nothing']] as const) {
+      const r = await request(app)[m](path);
+      expect([path, r.status, r.body.error]).toEqual([path, 403, 'no_access_rule']);
+    }
+  });
+
+  it('every /api route of the app is a plain string path (the walker sees it, the table covers it)', () => {
+    const app = createApp() as unknown as { router: { stack: { route?: { path: unknown }; handle?: { stack?: unknown[] }; name?: string; matchers?: unknown }[] } };
+    const odd: string[] = [];
+    const walk = (stack: { route?: { path: unknown }; handle?: { stack?: unknown[] } }[]) => {
+      for (const l of stack) {
+        if (l.route && typeof l.route.path !== 'string' && !(Array.isArray(l.route.path) && l.route.path.every((p) => typeof p === 'string'))) odd.push(String(l.route.path));
+        if (l.handle?.stack) walk(l.handle.stack as never);
+      }
+    };
+    walk(app.router.stack as never);
+    expect(odd).toEqual([]);
+  });
+
   it('file mode: everyone signed in is admin (today\'s behaviour)', async () => {
     restoreMode();
     setCameras([{ id: 'cam1', name: 'Den', host: '127.0.0.1:9', protocol: 'http', user: 'u', password: 'p' }]);

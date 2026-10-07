@@ -120,6 +120,13 @@ export function accessMiddleware(): RequestHandler {
     const path = `${req.baseUrl}${req.path}`;
     const line = TABLE.find((t) => t.method === method && t.re.test(path));
     if (!line) {
+      // Writes are denied by default, whatever registered them (a prefixed
+      // sub-router, a RegExp path): an unknown write path is refused too.
+      if (method !== 'GET') {
+        logger.error({ method, path }, 'no_access_rule');
+        res.status(403).json({ error: 'no_access_rule' });
+        return;
+      }
       registered ??= registeredApiRoutes(req.app as Express).map((r) => ({ method: r.method, re: compile(r.path) }));
       if (registered.some((r) => r.method === method && r.re.test(path))) {
         logger.error({ method, path }, 'no_access_rule');
