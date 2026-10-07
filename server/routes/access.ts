@@ -133,7 +133,10 @@ export function accessMiddleware(): RequestHandler {
         res.status(403).json({ error: 'no_access_rule' });
         return;
       }
-      return next(); // not a route: the JSON 404
+      // No line, not a plain string route: whatever else registered it (a
+      // prefixed sub-router, a RegExp path) is never reached — the JSON 404.
+      res.status(404).json({ error: 'not found' });
+      return;
     }
     if (line.need === 'signed-in') return next();
     const p = res.locals.principal as Principal | undefined;

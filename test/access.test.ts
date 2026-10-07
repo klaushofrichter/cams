@@ -124,6 +124,26 @@ describe('the access table', () => {
     }
   });
 
+  it('reads are denied by default too: a GET on a prefixed sub-router or a RegExp route without a line never reaches its handler', async () => {
+    const app = express();
+    app.use(createApiRateLimit());
+    app.use((_req, res, next) => {
+      res.locals.principal = { email: 'a@example.org', via: 'google', account: { id: ALPHA, name: 'alpha', displayName: 'Alpha' }, role: 'admin' };
+      next();
+    });
+    app.use('/api', accessMiddleware());
+    const sub = express.Router();
+    sub.get('/secret', (_req, res) => void res.json({ reached: true }));
+    app.use('/api/thing', sub);
+    app.get(/^\/api\/regex-read$/, (_req, res) => void res.json({ reached: true }));
+    app.use((_req, res) => void res.status(404).json({ error: 'not found' }));
+    for (const path of ['/api/thing/secret', '/api/regex-read']) {
+      const r = await request(app).get(path);
+      expect([path, r.body.reached]).toEqual([path, undefined]);
+      expect([path, r.status]).toEqual([path, 404]);
+    }
+  });
+
   it('every /api route of the app is a plain string path (the walker sees it, the table covers it)', () => {
     const app = createApp() as unknown as { router: { stack: { route?: { path: unknown }; handle?: { stack?: unknown[] }; name?: string; matchers?: unknown }[] } };
     const odd: string[] = [];
