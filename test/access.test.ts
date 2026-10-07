@@ -77,6 +77,15 @@ describe('the access table', () => {
     }
   });
 
+  it('a trailing slash or another letter case reaches the same route and the same rule (no way around the table)', async () => {
+    for (const path of ['/api/cameras/cam1/name/', '/API/cameras/cam1/name', '/api/Cameras/cam1/NAME/']) {
+      const r = await request(createApp()).put(path).set('Cookie', VIEWER).set('Origin', 'http://127.0.0.1').set('Host', '127.0.0.1').send({ name: 'x' });
+      expect([path, r.status, r.body.error]).toEqual([path, 403, 'forbidden_role']);
+    }
+    const ok = await request(createApp()).get('/api/cameras/').set('Cookie', VIEWER);
+    expect(ok.body.error).not.toBe('forbidden_role');
+  });
+
   it('a route added without a line is refused 403 no_access_rule (fail closed); an unknown path stays a 404', async () => {
     const app = express();
     app.use(createApiRateLimit()); // as the real app (CodeQL js/missing-rate-limiting)

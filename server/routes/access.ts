@@ -103,7 +103,9 @@ export function registeredApiRoutes(app: Express): { method: string; path: strin
 }
 
 const RANK: Record<Need, number> = { 'signed-in': 0, viewer: 1, admin: 2 };
-const compile = (path: string) => new RegExp(`^${path.replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/:[A-Za-z]+/g, '[^/]+')}$`);
+// As Express matches (not strict, not case-sensitive): an optional trailing
+// slash and any letter case reach the same route, so they meet the same rule.
+const compile = (path: string) => new RegExp(`^${path.replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/:[A-Za-z]+/g, '[^/]+')}/?$`, 'i');
 const TABLE = Object.entries(ACCESS).map(([k, need]) => {
   const [method, path] = k.split(' ');
   return { method, re: compile(path), need };
