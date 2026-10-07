@@ -3,6 +3,7 @@ import { noStore, requireAuthApi, type AuthState } from '../middleware/requireAu
 import { membershipsOf } from '../membership';
 import { configMode } from '../configSource';
 import { accountsRouter } from './accounts';
+import { accessMiddleware } from './access';
 import { requireSameOrigin } from '../middleware/requireSameOrigin';
 import { createApiRateLimit, createImageRateLimit, createMediaRateLimit } from '../middleware/rateLimit';
 import { listCameras } from '../cameraRegistry';
@@ -21,7 +22,7 @@ import { sessionAccount } from './common';
 
 export const apiRouter = Router();
 
-apiRouter.use('/api', createApiRateLimit(), createMediaRateLimit(), createImageRateLimit(), noStore, requireSameOrigin, requireAuthApi);
+apiRouter.use('/api', createApiRateLimit(), createMediaRateLimit(), createImageRateLimit(), noStore, requireSameOrigin, requireAuthApi, accessMiddleware());
 
 apiRouter.get('/api/me', (_req: Request, res: Response) => {
   const s = res.locals.auth as AuthState;
