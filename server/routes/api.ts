@@ -1,7 +1,7 @@
 import { Router, Request, Response } from 'express';
 import { noStore, requireAuthApi, type AuthState } from '../middleware/requireAuth';
 import { membershipsOf } from '../membership';
-import { configMode } from '../configSource';
+import { configMode, configStatus } from '../configSource';
 import { accountsRouter } from './accounts';
 import { accessMiddleware } from './access';
 import { requireSameOrigin } from '../middleware/requireSameOrigin';
@@ -36,6 +36,8 @@ apiRouter.get('/api/me', (_req: Request, res: Response) => {
     role: p ? p.role : null,
     accounts: p?.via === 'token' ? 1 : membershipsOf(email).length,
     configSource: configMode(),
+    // "configuration not refreshed since …": admins only.
+    staleSince: p?.role === 'admin' ? configStatus().staleSince : null,
   });
 });
 

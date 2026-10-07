@@ -3,7 +3,7 @@ import { createHash, timingSafeEqual } from 'crypto';
 import { OAuth2Client } from 'google-auth-library';
 import { expiredSessionKind, SESSION_COOKIE, SESSION_MAX_AGE_MS, signSession, signTokenSession } from '../session';
 import { membershipsOf, tokenAccount } from '../membership';
-import { configMode } from '../configSource';
+import { configMode, pullSoon } from '../configSource';
 import { createApiRateLimit, createAuthRateLimit, createTokenFailureLimit } from '../middleware/rateLimit';
 import { RETURN_COOKIE, rememberReturn, safeReturnPath } from '../middleware/requireAuth';
 import { requireSameOrigin } from '../middleware/requireSameOrigin';
@@ -110,6 +110,7 @@ authRouter.get('/auth/google/callback', authRateLimit, async (req: Request, res:
 
   clearState(res);
   setLoginHint(res, email);
+  pullSoon('login'); // roles may have changed: a fresh configuration soon
   // Several accounts (cams-admin mode): a session without an account, and the
   // picker; the return path stays for after the choice (R4-13).
   if (memberships.length > 1) {
