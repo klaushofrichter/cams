@@ -20,10 +20,13 @@ export interface TwoAccountOptions {
   alphaExtra?: FileCameraConfig[];
   betaExtra?: FileCameraConfig[];
   host?: string;
+  alphaHost?: string;
+  betaHost?: string;
+  adminToken?: string;
 }
 
-const cam = (id: string, name: string, url: string, token: string, host: string): FileCameraConfig => ({
-  id, name, host, protocol: 'http', user: 'cams', password: 'pw', proxy: { url, token },
+const cam = (id: string, name: string, url: string, token: string, host: string, adminToken?: string): FileCameraConfig => ({
+  id, name, host, protocol: 'http', user: 'cams', password: 'pw', proxy: { url, token, ...(adminToken && { adminToken }) },
 });
 
 export function twoAccounts(o: TwoAccountOptions = {}): FleetAccount[] {
@@ -34,13 +37,13 @@ export function twoAccounts(o: TwoAccountOptions = {}): FleetAccount[] {
       { email: 'both@example.org', role: 'admin', disabled: false },
       { email: 'alpha@example.org', role: 'admin', disabled: false },
     ],
-    cameras: keyed(ALPHA, [cam('cam1', 'Alpha cam', o.alphaUrl ?? 'http://127.0.0.1:1/alpha', o.alphaToken ?? 'a'.repeat(40), host), ...(o.alphaExtra ?? [])]),
+    cameras: keyed(ALPHA, [cam('cam1', 'Alpha cam', o.alphaUrl ?? 'http://127.0.0.1:1/alpha', o.alphaToken ?? 'a'.repeat(40), o.alphaHost ?? host, o.adminToken), ...(o.alphaExtra ?? [])]),
   };
   const betaUsers = [{ email: 'both@example.org', role: o.betaRole ?? ('viewer' as Role), disabled: false }].filter((u) => u.email !== o.betaRemoved);
   const beta: FleetAccount = {
     ...BETA_REF,
     users: betaUsers,
-    cameras: keyed(BETA, [cam('cam1', 'Beta cam', o.betaUrl ?? 'http://127.0.0.1:1/beta', o.betaToken ?? 'b'.repeat(40), host), ...(o.betaExtra ?? [])]),
+    cameras: keyed(BETA, [cam('cam1', 'Beta cam', o.betaUrl ?? 'http://127.0.0.1:1/beta', o.betaToken ?? 'b'.repeat(40), o.betaHost ?? host, o.adminToken), ...(o.betaExtra ?? [])]),
   };
   return [alpha, beta];
 }
