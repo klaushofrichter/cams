@@ -5,7 +5,9 @@ import { REMEMBER_COOKIE, membershipsOf } from '../membership';
 import { currentUser, type AuthState } from '../middleware/requireAuth';
 import { SESSION_COOKIE, SESSION_MAX_AGE_MS, signSession } from '../session';
 import { getCamera } from '../cameraRegistry';
-import { configMode, reapplyConfig } from '../configSource';
+import { configMode, reapplyConfig, reportSoon, trustStore } from '../configSource';
+import type { TrustField, TrustValues } from '../admin/trust';
+import { sessionAccount } from './common';
 import { credentialsWritable, setCameraPassword } from '../credentials';
 import { fleetAccount } from '../fleet';
 import { resetClients } from '../reolink/clients';
@@ -68,3 +70,34 @@ accountsRouter.put('/api/cameras/:id/credentials', async (req: Request, res: Res
   logger.info({ cameraId: key, by: currentUser(req)?.email }, 'camera_password_saved');
   res.status(204).end();
 });
+
+// Held trust changes (M §9.7): the session's account only.
+const pick = (v: TrustValues, fields: TrustField[]): Partial<TrustValues> => Object.fromEntries(fields.map((f) => [f, v[f]]));
+accountsRouter.get('/api/admin/held', (req: Request, res: Response) => {
+  const account = sessionAccount(req, res).id;
+  const items = (trustStore()?.held(account) ?? []).map((h) => ({ camsId: h.camsId, fields: h.fields, from: pick(h.confirmed, h.fields), to: pick(h.offered, h.fields), keptOld: h.keptOld }));
+  res.json({ items });
+});
+
+function heldAction(action: 'confirm' | 'keep') {
+  return async (req: Request, res: Response) => {
+    const camsIds = (req.body as { camsIds?: unknown } | undefined)?.camsIds;
+    if (!Array.isArray(camsIds) || !camsIds.length || camsIds.length > 256 || !camsIds.every((c) => typeof c === 'string' && /^[a-z0-9][a-z0-9-]{0,31}$/.test(c))) {
+      return void res.status(400).json({ error: 'invalid', detail: 'camsIds is a list of camera ids' });
+    }
+    const account = sessionAccount(req, res).id;
+    const store = trustStore();
+    const before = new Map((store?.held(account) ?? []).map((h) => [h.camsId, h.fields]));
+    const done = store ? await (action === 'confirm' ? store.confirm(account, camsIds as string[], currentUser(req)!.email) : store.keepOld(account, camsIds as string[], currentUser(req)!.email)) : [];
+    if (done.length) {
+      reapplyConfig();
+      resetClients();
+      const fields = [...new Set(done.flatMap((id) => before.get(id) ?? []))];
+      logger.info({ accountId: account, camsIds: done, fields, email: currentUser(req)!.email }, action === 'confirm' ? 'held_change_confirmed' : 'held_change_kept');
+      reportSoon(true);
+    }
+    res.json(action === 'confirm' ? { confirmed: done } : { kept: done });
+  };
+}
+accountsRouter.post('/api/admin/held/confirm', heldAction('confirm'));
+accountsRouter.post('/api/admin/held/keep', heldAction('keep'));

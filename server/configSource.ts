@@ -17,8 +17,9 @@ import { cacheWrittenAt, readCache, writeCache } from './admin/cache';
 import { readKeyFile, type AdminKeyFile } from './admin/keyfile';
 import { Puller } from './admin/puller';
 import { accountParts, verifySnapshot, type AccountPart, type Snapshot } from './admin/snapshot';
-import { buildFleet, type ApplyContext, type Problem } from './admin/apply';
+import { buildFleet, type ApplyContext, type Problem, type TrustValues } from './admin/apply';
 import { credentialsFor, loadCredentials, setLegacyCredentials } from './credentials';
+import { TrustStore } from './admin/trust';
 
 export type ConfigMode = 'file' | 'shadow' | 'cams-admin';
 const MODES: readonly ConfigMode[] = ['file', 'shadow', 'cams-admin'];
@@ -59,10 +60,13 @@ interface State {
   now: () => number;
   moved: boolean;
   buildProblems: Problem[];
+  trust: TrustStore | null;
+  reportTimer: NodeJS.Timeout | null;
+  lastReportAt: number;
 }
 let st: State = fresh();
 function fresh(): State {
-  return { mode: 'file', key: null, client: null, puller: null, applied: null, goodParts: new Map(), legacy: [], cacheVerifiedAt: null, lastGoodAt: null, lastPullAt: null, lastPullOkAt: null, startProblems: [], snapProblems: [], now: Date.now, moved: false, buildProblems: [] };
+  return { mode: 'file', key: null, client: null, puller: null, applied: null, goodParts: new Map(), legacy: [], cacheVerifiedAt: null, lastGoodAt: null, lastPullAt: null, lastPullOkAt: null, startProblems: [], snapProblems: [], now: Date.now, moved: false, buildProblems: [], trust: null, reportTimer: null, lastReportAt: 0 };
 }
 
 
@@ -80,6 +84,7 @@ export function applyContext(): ApplyContext {
   return {
     credentials: credentialsFor,
     proxyToken: (accountId, _proxy, camsId) => legacyToken(accountId, camsId),
+    ...(st.trust && { trust: (a: string, c: string, o: TrustValues, h: boolean) => st.trust!.decide(a, c, o, h) }),
   };
 }
 
@@ -104,6 +109,8 @@ function applySnapshot(s: Snapshot, source: 'cache' | 'pull'): void {
 // change confirmed): cams-admin mode only.
 function rebuild(): void {
   if (st.mode !== 'cams-admin' || !st.applied) return;
+  seedTrustOnce(st.applied);
+  st.trust?.forgetOffers();
   const parts = st.applied.accounts.map((a) => st.goodParts.get(a.id)).filter((p): p is AccountPart => !!p);
   const built = buildFleet(parts, applyContext());
   st.buildProblems = built.problems;
@@ -129,7 +136,7 @@ async function pullOnce(): Promise<boolean> {
     writeCache(v.snapshot);
     if (st.mode === 'cams-admin') await moveStateOnce(v.snapshot);
     logger.info({ revision: v.snapshot.revision, accounts: v.snapshot.accounts.length }, 'config_applied');
-    void sendReport();
+    reportSoon(true);
     return true;
   } catch (err) {
     logger.warn({ message: (err as Error).message }, 'config_pull_failed');
@@ -137,18 +144,42 @@ async function pullOnce(): Promise<boolean> {
   }
 }
 
+// At most one report per 60 s, at once when urgent (a held change
+// confirmed or kept); one at start.
+export function reportSoon(urgent = false): void {
+  if (!st.client) return;
+  const wait = urgent ? 0 : Math.max(0, st.lastReportAt + 60_000 - st.now());
+  if (st.reportTimer && !urgent) return;
+  if (st.reportTimer) clearTimeout(st.reportTimer);
+  st.reportTimer = setTimeout(() => {
+    st.reportTimer = null;
+    void sendReport();
+  }, wait);
+  st.reportTimer.unref();
+}
+
 async function sendReport(): Promise<void> {
   if (!st.client) return;
+  st.lastReportAt = st.now();
+  const held = st.trust?.held() ?? [];
   try {
     const r = await st.client.report({
       v: 1, mode: st.mode, version: appVersion() || 'dev', appliedRevision: st.applied?.revision ?? null, cacheVerifiedAt: st.cacheVerifiedAt,
-      lastPullAt: st.lastPullAt, held: [], keptOld: [], shadow: null, tokens: { managed: 0, pending: 0, legacy: 0 },
+      lastPullAt: st.lastPullAt, held: held.filter((h) => !h.keptOld).slice(0, 200).map((h) => ({ accountId: h.accountId, camsId: h.camsId, fields: h.fields })), keptOld: held.filter((h) => h.keptOld).slice(0, 200).map((h) => ({ accountId: h.accountId, camsId: h.camsId, fields: h.fields })), shadow: null, tokens: { managed: 0, pending: 0, legacy: 0 },
       problems: configStatus().problems.slice(0, 50).map((p) => ({ code: p.code.slice(0, 64), ...(p.accountId && { accountId: p.accountId }), ...(p.detail && { detail: p.detail.slice(0, 200) }) })),
     });
     if (r.changed) pullSoon('report');
   } catch {
     // logged by the client; the next report goes out with the next change
   }
+}
+
+// R4-11: at the first cams-admin start, today's cameras.json is the
+// confirmed state for the file account (before any decision is made).
+function seedTrustOnce(s: Snapshot): void {
+  if (!st.trust || st.trust.exists()) return;
+  const home = s.accounts.find((a) => a.name === fileAccount().name);
+  if (home && st.legacy.length) st.trust.seedFromFile({ id: home.id, name: home.name, displayName: home.displayName }, st.legacy);
 }
 
 // The first cams-admin start (or the first snapshot of one that started
@@ -198,6 +229,7 @@ export async function startConfig(o: StartOptions = {}): Promise<void> {
   st.key = key;
   st.client = new AdminClient(key);
   loadCredentials();
+  if (st.mode === 'cams-admin') st.trust = TrustStore.load(); // a corrupt one stops the start
   if (st.mode === 'cams-admin' && getAllowedEmails().length) {
     st.startProblems.push({ code: 'allowed_emails_ignored' });
     logger.warn({ kind: 'config' }, 'allowed_emails_ignored');
@@ -227,12 +259,17 @@ export async function startConfig(o: StartOptions = {}): Promise<void> {
   }
   st.puller = new Puller({ pull: pullOnce, intervalMs: o.pullIntervalMs, debounceMs: o.debounceMs });
   st.puller.start();
+  reportSoon(true); // one at start
 }
 
 export function stopConfig(): void {
   st.puller?.stop();
   st.puller = null;
+  if (st.reportTimer) clearTimeout(st.reportTimer);
+  st.reportTimer = null;
 }
+
+export const trustStore = (): TrustStore | null => st.trust;
 
 // A pull soon (debounced): after a sign-in, a "changed" report, a confirmed change.
 export function pullSoon(_reason: 'login' | 'report' | 'confirm'): void {

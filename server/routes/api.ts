@@ -1,7 +1,7 @@
 import { Router, Request, Response } from 'express';
 import { noStore, requireAuthApi, type AuthState } from '../middleware/requireAuth';
 import { membershipsOf } from '../membership';
-import { configMode, configStatus } from '../configSource';
+import { configMode, configStatus, trustStore } from '../configSource';
 import { accountsRouter } from './accounts';
 import { accessMiddleware } from './access';
 import { requireSameOrigin } from '../middleware/requireSameOrigin';
@@ -38,6 +38,8 @@ apiRouter.get('/api/me', (_req: Request, res: Response) => {
     configSource: configMode(),
     // "configuration not refreshed since …": admins only.
     staleSince: p?.role === 'admin' ? configStatus().staleSince : null,
+    // held trust changes waiting for this account's admins (not kept)
+    held: p?.role === 'admin' ? (trustStore()?.held(p.account.id) ?? []).filter((h) => !h.keptOld).length : 0,
   });
 });
 
