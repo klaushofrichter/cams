@@ -5,6 +5,7 @@
 // misbehave: unsigned, wrongKey, skewBy, down/up, slow, oversize.
 // Tests set its state directly; e2e runs it as a process (e2e/fakeAdmin.ts).
 import express, { type Request, type Response } from 'express';
+import rateLimit from 'express-rate-limit';
 import http from 'http';
 import type { AddressInfo } from 'net';
 import type { Socket } from 'net';
@@ -127,6 +128,8 @@ export async function startFakeAdmin(o: { port?: number; instanceId?: string; in
   const serverNow = () => Date.now() + skew;
 
   const app = express();
+  // Generous: a test double, but rate-limited like any server here (CodeQL js/missing-rate-limiting).
+  app.use(rateLimit({ windowMs: 60_000, limit: 100_000, standardHeaders: false, legacyHeaders: false }));
   app.use(express.raw({ type: () => true, limit: '64kb' }));
   app.use((req, res, next) => {
     if (fake.slowMs) setTimeout(next, fake.slowMs);
