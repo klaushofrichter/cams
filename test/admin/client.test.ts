@@ -95,6 +95,17 @@ describe('the signed client', () => {
     expect(Date.now() - t0).toBeLessThan(5000);
   });
 
+  it('an empty CAMS_ADMIN_URL (the Pi compose default) means the enrolled URL', async () => {
+    const saved = process.env.CAMS_ADMIN_URL;
+    process.env.CAMS_ADMIN_URL = '';
+    try {
+      expect((await new AdminClient(kf).getConfig(null)).status).toBe(200);
+    } finally {
+      if (saved === undefined) delete process.env.CAMS_ADMIN_URL;
+      else process.env.CAMS_ADMIN_URL = saved;
+    }
+  });
+
   it('CAMS_ADMIN_URL overrides the enrolled URL', async () => {
     const saved = process.env.CAMS_ADMIN_URL;
     process.env.CAMS_ADMIN_URL = fake.url;

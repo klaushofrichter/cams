@@ -13,10 +13,22 @@ describe('deploy/pi/compose.cams.yaml', () => {
   });
   it('substitutes only cams variables', () => {
     const vars = [...new Set([...code.matchAll(/\$\{([A-Z_]+)/g)].map((m) => m[1]))].sort();
-    expect(vars).toEqual(['CAMS_LOGIN_TOKEN', 'CAMS_TAG', 'CAMS_TOKEN_USER', 'COOKIE_SECRET']);
+    expect(vars).toEqual(['CAMERA_CREDENTIALS_FILE', 'CAMS_ADMIN_URL', 'CAMS_LOGIN_TOKEN', 'CAMS_TAG', 'CAMS_TOKEN_ACCOUNT', 'CAMS_TOKEN_USER', 'CONFIG_SOURCE', 'COOKIE_SECRET']);
   });
   it('requires the token and the cookie secret', () => {
     expect(code).toMatch(/CAMS_LOGIN_TOKEN: \$\{CAMS_LOGIN_TOKEN:\?/);
     expect(code).toMatch(/COOKIE_SECRET: \$\{COOKIE_SECRET:\?/);
+  });
+  it('cams-admin (migration P4): each new variable with a safe default; file stays the default and the rollback', () => {
+    expect(code).toMatch(/\bCONFIG_SOURCE: \$\{CONFIG_SOURCE:-file\}/);
+    expect(code).toMatch(/\bCAMS_ADMIN_URL: \$\{CAMS_ADMIN_URL:-\}/);
+    expect(code).toMatch(/\bCAMS_TOKEN_ACCOUNT: \$\{CAMS_TOKEN_ACCOUNT:-\}/);
+    expect(code).toMatch(/\bCAMS_DATA_DIR: \/data\n/);
+    expect(code).toMatch(/\bCAMERA_CREDENTIALS_FILE: \$\{CAMERA_CREDENTIALS_FILE:-\}/);
+  });
+  it('no cam-proxy secret is passed; ./data stays the only writable mount (the key, cache, trust and token files land in /data/admin/)', () => {
+    expect(code).not.toMatch(/PROXY_TOKEN|ADMIN_TOKEN|CAMERA_PASSWORD|SWITCH_PASSWORD|GOOGLE_/);
+    const mounts = [...code.matchAll(/^\s+- (\.\/[^:]+):([^:\s]+)(:ro)?\s*$/gm)].map((m) => [m[1], m[3] ?? 'rw']);
+    expect(mounts).toEqual([['./cameras.json', ':ro'], ['./data', 'rw']]);
   });
 });

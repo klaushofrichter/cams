@@ -63,7 +63,7 @@ export class AdminClient {
   }
 
   private base(): string {
-    return (this.baseUrl ?? process.env.CAMS_ADMIN_URL ?? this.k.url).replace(/\/+$/, '');
+    return (this.baseUrl || process.env.CAMS_ADMIN_URL || this.k.url).replace(/\/+$/, '');
   }
 
   // One signed request; the answer verified. Retries once on a signed clock_skew.

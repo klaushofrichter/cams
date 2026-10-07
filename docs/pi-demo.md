@@ -135,6 +135,38 @@ user), nothing else is needed; otherwise make `data/` writable for it
 
 Open `http://<pi>:8080`, enter the token, and the Video page opens.
 
+## cams-admin (optional)
+
+The Pi's cams can take its account, users and camera from cams-admin
+instead of `cameras.json` (migration P4). It keeps working without
+cams-admin: it starts from its signed cache, however old, and the token
+sign-in works as before. `CONFIG_SOURCE=file` (the default) is today's
+setup and the rollback at any time.
+
+1. **Enroll once** (the one-time code from the instance page in cams-admin,
+   pasted on stdin, never on the command line):
+   `docker compose exec -T cams node dist/server/cli.js admin-enroll --url https://<cams-admin>`.
+   It prints cams-admin's server key fingerprint: compare it with the
+   instance page. The key lands in `data/admin/key.json` (mode 600).
+2. **Shadow first:** `CONFIG_SOURCE=shadow` in `/srv/cam-proxy/config/.env`,
+   then `docker compose up -d --force-recreate`. cams still uses
+   `cameras.json`, pulls cams-admin's configuration every minute and reports
+   the differences (field names only) to cams-admin.
+3. **Switch** when the differences are zero: `CONFIG_SOURCE=cams-admin`, the
+   same command. The first start moves the preferences, the proxy switch and
+   the TLS pins under the account `home` (a `*.pre-accounts.bak` copy of each
+   stays). The camera password stays local: from `cameras.json`, or from
+   `CAMERA_CREDENTIALS_FILE` (e.g. `/data/camera-credentials.json`, mode 600)
+   once it is set; with several accounts on this cams, `CAMS_TOKEN_ACCOUNT`
+   names the token sign-in's account.
+4. **Back:** `CONFIG_SOURCE=file` and the same command; what users changed
+   meanwhile is kept.
+
+On the road nothing changes: cams serves from its cache, and the camera's
+address still comes from cam-proxy (`from-proxy`). **Checklist** (cut-over
+step 8): unplug the network, `docker compose restart`, sign in with the
+token, the live still shows.
+
 ## On the road
 
 Nothing in cams depends on the browser's address (there is no redirect URI,

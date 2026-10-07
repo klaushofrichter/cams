@@ -3,7 +3,8 @@
 # /srv/cam-proxy/cams (no sudo). In it:
 #   compose.yaml   this file
 #   cameras.json   the camera, "host": "from-proxy" (deploy/pi/cameras.example.json; readable by uid 1000)
-#   data/          preferences, the proxy switch and the clip cache (writable by uid 1000)
+#   data/          preferences, the proxy switch, the clip cache and, with
+#                  cams-admin, data/admin/ (writable by uid 1000)
 #   .env           a symlink to ../config/.env, the Pi's one settings file
 #                  (ln -s ../config/.env .env): compose reads it for the
 #                  ${...} below only. The container gets just the variables
@@ -35,6 +36,16 @@ services:
       CACHE_DIR: /data/cache
       # 2 GiB: the SD card is shared with cam-proxy's recordings.
       CACHE_MAX_BYTES: "2147483648"
+      # cams-admin (optional, docs/pi-demo.md): file (cameras.json, the
+      # default and the rollback), shadow, or cams-admin. The key, the
+      # signed config cache, the trust and token files go to /data/admin/.
+      CONFIG_SOURCE: ${CONFIG_SOURCE:-file}
+      CAMS_ADMIN_URL: ${CAMS_ADMIN_URL:-}
+      CAMS_TOKEN_ACCOUNT: ${CAMS_TOKEN_ACCOUNT:-}
+      CAMS_DATA_DIR: /data
+      # Camera passwords for cams-admin mode (mode 600, e.g. /data/camera-credentials.json);
+      # unset: the passwords in cameras.json (the home account).
+      CAMERA_CREDENTIALS_FILE: ${CAMERA_CREDENTIALS_FILE:-}
     volumes:
       - ./cameras.json:/config/cameras.json:ro
       - ./data:/data

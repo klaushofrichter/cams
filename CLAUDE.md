@@ -21,6 +21,10 @@ Camera viewer for Reolink cameras at cams.skylar.technology. Spec: `docs/superpo
 
 ## Rules that are easy to break
 
+- Every camera is a `CamKey` (`<accountId>/<camsId>`); a route resolves `:id` only through `knownCamera` (`:via` through `archiveProxy(account, via)`), and JSON answers carry camsIds (`outId`). `test/isolation.test.ts` and `test/isolationScan.test.ts` keep it that way.
+- Every API route has a line in `server/routes/access.ts` (viewer or admin); a route without one is refused.
+- The fake cams-admin is `test/admin/fakeAdmin.ts`; never point a test at a real cams-admin. `CONFIG_SOURCE=file` stays the default; the vendored contract is `contract/cams-v1` (`scripts/contract/vendor-cams-v1.sh`, drift check in CI).
+
 - Don't run Playwright on the self-hosted runner (OOM). It runs in production-checks.yml on GitHub runners.
 - Don't push `:<sha>`, `:v*` or `:latest` from build-push.yml. deploy-production.yml is their only writer.
 - With a cam-proxy configured, the day/month lists, clips and thumbnails come from the proxy's recordings API (SD card) first, then its FTP copy (never for 4K), then the camera's own Download behind a breaker; stills come from the proxy. Keep the fake proxy (`test/proxy/fakeProxy.ts`, seeded by `e2e/fakeProxyData.ts`) in step with cam-proxy's client API.
