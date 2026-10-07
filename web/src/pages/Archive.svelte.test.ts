@@ -24,6 +24,10 @@ let component: Record<string, unknown> | undefined;
 let target: HTMLDivElement | undefined;
 
 beforeEach(() => {
+  // The page reads Date.now() for "Expires in N days"; pin it to the fixture
+  // time so the test doesn't age with the real clock (issue #237).
+  vi.useFakeTimers({ toFake: ['Date'] });
+  vi.setSystemTime(T);
   calls = [];
   items = [
     item('den', 1, { labels: ['Person', 'SD'], name: 'Fox at the door' }),
@@ -55,6 +59,7 @@ afterEach(() => {
   target?.remove();
   component = target = undefined;
   vi.unstubAllGlobals();
+  vi.useRealTimers();
   cameras.set([]);
 });
 
@@ -80,7 +85,7 @@ describe('Archive page', () => {
     expect(names()).toEqual(['clip den 2', 'Fox at the door', 'clip cam2 1']);
     expect(q('archive-summary')!.textContent).toContain('3 clips · 12.0 MB');
     expect(q('archive-proxy-note')!.textContent).toBe('silo’s cam-proxy has no Archive yet (an older version).');
-    expect(all('archive-expires').map((e) => e.textContent)).toEqual(['forever', expect.stringMatching(/^in 36[45] days$/), expect.stringMatching(/^in 36[45] days$/)]);
+    expect(all('archive-expires').map((e) => e.textContent)).toEqual(['forever', 'in 365 days', 'in 365 days']);
   });
 
   it('sorts by a column (asking the proxies in that order), and back the other way', async () => {
