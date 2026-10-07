@@ -62,7 +62,7 @@ export interface CameraSummary {
   webUiNote?: string;
   proxy: boolean; // whether cams uses this camera's cam-proxy now (never its URL or token)
   proxyConfigured: boolean; // whether the camera has a cam-proxy at all (the switch on Settings)
-  credentials?: 'missing' | 'mismatch'; // cams-admin mode: no usable password here (the camera login)
+  credentials?: 'missing' | 'mismatch' | 'unconfirmed'; // cams-admin mode: no usable password here (the camera login), or held as new
 }
 
 const ID_PATTERN = /^[a-z0-9][a-z0-9-]{0,31}$/;

@@ -11,7 +11,7 @@ export interface Me {
   accounts?: number;
   configSource?: 'file' | 'shadow' | 'cams-admin';
   staleSince?: number | null; // admins: no configuration pulled since then (24 h+)
-  configProblem?: 'revoked' | 'unknown_key' | null; // admins: cams-admin refuses this instance
+  configProblem?: 'revoked' | 'unknown_key' | 'snapshot_older' | 'file_account_changed' | null; // admins: cams-admin refuses this instance, an older snapshot, the home account under another id
   held?: number; // admins: held connection changes waiting
 }
 
@@ -22,7 +22,7 @@ export interface CameraSummary {
   webUiNote?: string;
   proxy?: boolean; // cams uses the camera's cam-proxy now (Plan 6); absent in old test fixtures
   proxyConfigured?: boolean; // the camera has a cam-proxy at all (the switch on Settings)
-  credentials?: 'missing' | 'mismatch'; // cams-admin mode: no usable camera password here
+  credentials?: 'missing' | 'mismatch' | 'unconfirmed'; // cams-admin mode: no usable camera password here, or held as new
 }
 
 // A boolean kept in localStorage. Storage failures (private mode) degrade to

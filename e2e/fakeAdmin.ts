@@ -47,7 +47,11 @@ if (require.main === module) {
     fake.keyState = 'active';
     const key = { v: 1, url: fake.url, instanceId: fake.instanceId, instanceName: 'e2e', keyId: fake.keyId, privateKey: privateKey.export({ format: 'der', type: 'pkcs8' }).toString('base64'), publicKey: pub, serverKeys: [SERVER_KEY.publicKey], serverKeyFingerprints: [fake.fingerprint], accounts: ['beta', 'home'], enrolledAt: Date.now() };
     writeFileSync(join(E2E_ADMIN_DATA, 'admin/key.json'), JSON.stringify(key), { mode: 0o600 });
-    writeFileSync(join(E2E_ADMIN_DATA, 'credentials.json'), JSON.stringify({ v: 1, 'beta/cam1': { user: 'e2e', password: 'e2e-not-a-real-password' } }), { mode: 0o600 });
+    writeFileSync(join(E2E_ADMIN_DATA, 'credentials.json'), JSON.stringify({ v: 1, [`${E2E_ACCOUNTS.beta}/cam1`]: { user: 'e2e', password: 'e2e-not-a-real-password' } }), { mode: 0o600 });
+    // Both cameras' connection data confirmed earlier by their admins (and the
+    // file account recorded): no camera of this e2e waits on the held list.
+    const tv = (proxyUrl: string | null, host: string) => ({ proxyUrl, caFingerprints: [], proxyTlsServername: null, host, protocol: 'http', tlsServername: null });
+    writeFileSync(join(E2E_ADMIN_DATA, 'admin/trust.json'), JSON.stringify({ v: 1, fileAccountId: E2E_ACCOUNTS.home, confirmed: { [`${E2E_ACCOUNTS.home}/cam1`]: tv(`http://127.0.0.1:${FAKE_PROXY_PORT}`, '127.0.0.1:8098'), [`${E2E_ACCOUNTS.beta}/cam1`]: tv(null, '127.0.0.1:8097') }, keptOld: {}, log: [] }), { mode: 0o600 });
     fake.setSnapshot(snapshot());
     writeFileSync(join(E2E_ADMIN_DATA, 'admin/config-cache.json'), JSON.stringify(signSnapshot(snapshot())), { mode: 0o600 });
     const hooks = express();

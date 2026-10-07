@@ -70,7 +70,7 @@ describe('AccountMenu', () => {
 describe('HeldBanner', () => {
   it('lists from → to per camera with Confirm / Keep old (admins only); Confirm posts and reloads', async () => {
     me.set({ ...BASE, held: 1 });
-    answers['GET /api/admin/held'] = { status: 200, body: { items: [{ camsId: 'cam1', fields: ['host'], from: { host: '192.0.2.5' }, to: { host: '192.0.2.99' }, keptOld: false }] } };
+    answers['GET /api/admin/held'] = { status: 200, body: { items: [{ camsId: 'cam1', fields: ['host'], from: { host: '192.0.2.5' }, to: { host: '192.0.2.99' }, keptOld: false, isNew: false, digest: 'd'.repeat(64) }] } };
     answers['POST /api/admin/held/confirm'] = { status: 200, body: { confirmed: ['cam1'] } };
     render(HeldBanner);
     await settle();
@@ -79,7 +79,8 @@ describe('HeldBanner', () => {
     answers['GET /api/admin/held'] = { status: 200, body: { items: [] } };
     q('held-confirm-cam1')!.click();
     await settle();
-    expect(calls.some((c) => c.url === '/api/admin/held/confirm' && JSON.parse(String(c.init!.body)).camsIds[0] === 'cam1')).toBe(true);
+    const sent = calls.find((c) => c.url === '/api/admin/held/confirm')!;
+    expect(JSON.parse(String(sent.init!.body))).toEqual({ items: [{ camsId: 'cam1', digest: 'd'.repeat(64) }] }); // exactly the offer shown
     expect(q('held-banner')).toBeNull();
   });
   it('a viewer sees no banner and nothing is asked', async () => {
@@ -91,12 +92,37 @@ describe('HeldBanner', () => {
   });
   it('Keep old posts keep', async () => {
     me.set({ ...BASE, held: 1 });
-    answers['GET /api/admin/held'] = { status: 200, body: { items: [{ camsId: 'cam1', fields: ['proxyUrl'], from: { proxyUrl: 'http://a' }, to: { proxyUrl: 'http://b' }, keptOld: false }] } };
+    answers['GET /api/admin/held'] = { status: 200, body: { items: [{ camsId: 'cam1', fields: ['proxyUrl'], from: { proxyUrl: 'http://a' }, to: { proxyUrl: 'http://b' }, keptOld: false, isNew: false, digest: 'e'.repeat(64) }] } };
     render(HeldBanner);
     await settle();
     q('held-keep-cam1')!.click();
     await settle();
     expect(calls.some((c) => c.url === '/api/admin/held/keep')).toBe(true);
+  });
+});
+
+describe('HeldBanner: new cameras and changed offers', () => {
+  it('a new camera shows as new with its offered values and only Confirm', async () => {
+    me.set({ ...BASE, held: 1 });
+    answers['GET /api/admin/held'] = { status: 200, body: { items: [{ camsId: 'cam2', fields: ['host', 'protocol'], from: {}, to: { host: '192.0.2.7', protocol: 'http' }, keptOld: false, isNew: true, digest: 'f'.repeat(64) }] } };
+    render(HeldBanner);
+    await settle();
+    expect(q('held-cam2')!.textContent).toMatch(/new camera/i);
+    expect(q('held-cam2')!.textContent).toContain('192.0.2.7');
+    expect(q('held-keep-cam2')).toBeNull();
+    expect(q('held-confirm-cam2')).not.toBeNull();
+  });
+  it('an offer that changed meanwhile (409): nothing confirmed, the list reads again and says so', async () => {
+    me.set({ ...BASE, held: 1 });
+    answers['GET /api/admin/held'] = { status: 200, body: { items: [{ camsId: 'cam1', fields: ['host'], from: { host: 'a' }, to: { host: 'b' }, keptOld: false, isNew: false, digest: '1'.repeat(64) }] } };
+    answers['POST /api/admin/held/confirm'] = { status: 409, body: { error: 'offer_changed', changed: ['cam1'] } };
+    render(HeldBanner);
+    await settle();
+    answers['GET /api/admin/held'] = { status: 200, body: { items: [{ camsId: 'cam1', fields: ['host'], from: { host: 'a' }, to: { host: 'c' }, keptOld: false, isNew: false, digest: '2'.repeat(64) }] } };
+    q('held-confirm-cam1')!.click();
+    await settle();
+    expect(q('held-cam1')!.textContent).toContain('c');
+    expect(q('held-changed')!.textContent).toMatch(/changed/i);
   });
 });
 
@@ -111,6 +137,17 @@ describe('StaleBanner', () => {
     render(StaleBanner);
     expect(q('stale-banner')!.textContent).toMatch(/enroll/i);
   });
+  it('says when an older configuration was refused, or the file account came under another id', () => {
+    me.set({ ...BASE, configProblem: 'snapshot_older' as never });
+    render(StaleBanner);
+    expect(q('stale-banner')!.textContent).toMatch(/older/i);
+    unmount(component!);
+    target!.remove();
+    me.set({ ...BASE, configProblem: 'file_account_changed' as never });
+    render(StaleBanner);
+    expect(q('stale-banner')!.textContent).toMatch(/another id/i);
+  });
+
   it('nothing for viewers or when fresh', () => {
     me.set({ ...BASE, role: 'viewer', staleSince: 5 });
     render(StaleBanner);

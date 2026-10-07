@@ -37,6 +37,9 @@ test('a changed camera address is held until an admin confirms; viewers see no b
   // back, for the next project
   await setHost('127.0.0.1:8098');
   await expect.poll(() => heldCount(page), { timeout: 15_000 }).toBe(1);
-  await page.evaluate(() => fetch('/api/admin/held/confirm', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ camsIds: ['cam1'] }) }));
+  await page.evaluate(async () => {
+    const items = ((await (await fetch('/api/admin/held')).json()) as { items: { camsId: string; digest: string }[] }).items.map((h) => ({ camsId: h.camsId, digest: h.digest }));
+    await fetch('/api/admin/held/confirm', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ items }) });
+  });
   await expect.poll(() => osdName(page)).not.toBe('Shed');
 });

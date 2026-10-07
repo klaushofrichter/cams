@@ -282,16 +282,20 @@ async function main() {
   const patchHost = async (host: string) => api('PATCH', `/accounts/${account.id}/cameras/${target.id}`, { host, version: (await api('GET', `/accounts/${account.id}/cameras/${target.id}`)).version });
   await patchHost(newHost);
   const held = await until('held change shown', async () => {
-    const h = (await camsGet<{ items: { camsId: string; fields: string[]; to: { host?: string } }[] }>(cluster, '/api/admin/held')).body.items;
+    const h = (await camsGet<{ items: { camsId: string; fields: string[]; digest: string; to: { host?: string } }[] }>(cluster, '/api/admin/held')).body.items;
     return h.find((x) => x.camsId === target.camsId && x.fields.includes('host')) ?? null;
   });
-  const conf = await camsSend<{ confirmed: string[] }>(cluster, 'POST', '/api/admin/held/confirm', { camsIds: [target.camsId] });
+  // A stale digest is refused first (Confirm acts only on the offer shown).
+  const stale = await camsSend<{ error: string }>(cluster, 'POST', '/api/admin/held/confirm', { items: [{ camsId: target.camsId, digest: '0'.repeat(64) }] });
+  if (stale.status !== 409) throw new Error(`a stale confirm answered ${stale.status}`);
+  const conf = await camsSend<{ confirmed: string[] }>(cluster, 'POST', '/api/admin/held/confirm', { items: [{ camsId: target.camsId, digest: held.digest }] });
   const after = (await camsGet<{ items: unknown[] }>(cluster, '/api/admin/held')).body.items;
   await until('held reported empty', async () => { const l = await live(cluster); return (l.report?.held ?? []).length === 0; });
-  record('9 held change: shown (host), confirmed by the admin, reported; the camera still online', held.to.host === newHost && conf.body.confirmed.includes(target.camsId) && after.length === 0 && (await allOnline(cluster)));
+  record('9 held change: shown (host), a stale confirm refused, confirmed with the offer shown, reported; the camera still online', held.to.host === newHost && conf.body.confirmed.includes(target.camsId) && after.length === 0 && (await allOnline(cluster)));
   await patchHost(oldHost);
   await until('held back', async () => (await camsGet<{ items: unknown[] }>(cluster, '/api/admin/held')).body.items.length === 1);
-  await camsSend(cluster, 'POST', '/api/admin/held/confirm', { camsIds: [target.camsId] });
+  const back = (await camsGet<{ items: { camsId: string; digest: string }[] }>(cluster, '/api/admin/held')).body.items;
+  await camsSend(cluster, 'POST', '/api/admin/held/confirm', { items: back.map((x) => ({ camsId: x.camsId, digest: x.digest })) });
 
   // 10. Rollback of the switch: file mode, preferences kept (R4-10).
   await startCams(cluster, 'file');

@@ -44,7 +44,7 @@
   <div class="login card" data-testid="camera-login">
     <h2>Camera login</h2>
     <p class="muted">
-      {camera?.credentials === 'mismatch' ? 'The camera user here differs from cams-admin’s.' : 'cams has no password for this camera here.'}
+      {camera?.credentials === 'mismatch' ? 'The camera user here differs from cams-admin’s.' : camera?.credentials === 'unconfirmed' ? 'This camera’s connection data waits for an admin’s Confirm (the banner above): no password goes to it before.' : 'cams has no password for this camera here.'}
       Camera passwords never come from cams-admin.
     </p>
     <form onsubmit={(e) => { e.preventDefault(); void save(); }}>
