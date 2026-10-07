@@ -10,7 +10,7 @@ const ALPHA = 'acc_0123456789ABCDEFGHJK'; // a contract-shaped account id (Crock
 import { startFakeAdmin, type FakeAdmin } from './fakeAdmin';
 import { twoAccountsSnapshot } from './snapshots';
 
-const STATUS = { mode: 'cams-admin' as const, appliedRevision: 'r:00000000000000a1', cacheVerifiedAt: 1, lastPullAt: 2, lastPullOkAt: 2, staleSince: null, adminRefusal: null, problems: [] };
+const STATUS = { mode: 'cams-admin' as const, appliedRevision: 'r:00000000000000a1', cacheVerifiedAt: 1, lastPullAt: 2, lastPullOkAt: 2, staleSince: null, adminRefusal: null, configProblem: null, problems: [] };
 const V = { proxyUrl: null, caFingerprints: [], proxyTlsServername: null, host: 'h', protocol: 'https' as const, tlsServername: null };
 const held = (n: number, keptOld = false): HeldChange[] => Array.from({ length: n }, (_, i) => ({ accountId: ALPHA, camsId: `cam${i}`, fields: ['host'], confirmed: V, offered: { ...V, host: 'x' }, keptOld }));
 

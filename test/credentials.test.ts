@@ -16,6 +16,7 @@ import { logger } from '../server/logger';
 import { ALPHA, BETA, applyFleet, cookieFor, restoreMode } from './helpers/fleet';
 
 let dir: string, FILE: string;
+const H = 'acc_file'; // the file account's id (fileAccount().id in these tests)
 const saved: Record<string, string | undefined> = {};
 beforeEach(() => {
   for (const n of ['CAMERA_CREDENTIALS_FILE', 'CAMS_FILE_ACCOUNT']) saved[n] = process.env[n];
@@ -40,29 +41,29 @@ const write = (o: unknown, mode = 0o600) => {
 };
 
 describe('lookup', () => {
-  it('the credentials file first, by "<account name>/<camsId>"; a missing file is empty', () => {
-    expect(credentialsFor('home', 'cam1', 'cams')).toEqual({ ok: false, problem: 'missing', user: 'cams' });
-    write({ v: 1, 'home/cam1': { user: 'cams', password: 'pw1' }, 'beta/cam1': { user: 'cams', password: 'pw2' } });
+  it('the credentials file first, by "<account id>/<camsId>" (never the name); a missing file is empty', () => {
+    expect(credentialsFor(H, 'cam1', 'cams')).toEqual({ ok: false, problem: 'missing', user: 'cams' });
+    write({ v: 1, [`${H}/cam1`]: { user: 'cams', password: 'pw1' }, [`${BETA}/cam1`]: { user: 'cams', password: 'pw2' } });
     loadCredentials();
-    expect(credentialsFor('home', 'cam1', 'cams')).toEqual({ ok: true, user: 'cams', password: 'pw1' });
-    expect(credentialsFor('beta', 'cam1', 'cams')).toEqual({ ok: true, user: 'cams', password: 'pw2' });
-    expect(credentialsFor('beta', 'cam2', 'cams')).toMatchObject({ ok: false, problem: 'missing' });
+    expect(credentialsFor(H, 'cam1', 'cams')).toEqual({ ok: true, user: 'cams', password: 'pw1' });
+    expect(credentialsFor(BETA, 'cam1', 'cams')).toEqual({ ok: true, user: 'cams', password: 'pw2' });
+    expect(credentialsFor(BETA, 'cam2', 'cams')).toMatchObject({ ok: false, problem: 'missing' });
   });
 
   it('the CAMERAS_FILE fallback only for the file account', () => {
     setLegacyCredentials([{ id: 'cam1', name: 'Den', host: 'h', protocol: 'http', user: 'cams', password: 'legacy' }]);
-    expect(credentialsFor('home', 'cam1', 'cams')).toEqual({ ok: true, user: 'cams', password: 'legacy' });
-    expect(credentialsFor('beta', 'cam1', 'cams')).toMatchObject({ ok: false, problem: 'missing' });
-    write({ v: 1, 'home/cam1': { user: 'cams', password: 'file' } });
+    expect(credentialsFor(H, 'cam1', 'cams')).toEqual({ ok: true, user: 'cams', password: 'legacy' });
+    expect(credentialsFor(BETA, 'cam1', 'cams')).toMatchObject({ ok: false, problem: 'missing' });
+    write({ v: 1, [`${H}/cam1`]: { user: 'cams', password: 'file' } });
     loadCredentials();
-    expect(credentialsFor('home', 'cam1', 'cams')).toMatchObject({ password: 'file' });
+    expect(credentialsFor(H, 'cam1', 'cams')).toMatchObject({ password: 'file' });
   });
 
   it('a user name other than cams-admin\'s is a mismatch, shown and not guessed', () => {
-    write({ v: 1, 'home/cam1': { user: 'admin', password: 'pw' } });
+    write({ v: 1, [`${H}/cam1`]: { user: 'admin', password: 'pw' } });
     loadCredentials();
-    expect(credentialsFor('home', 'cam1', 'cams')).toEqual({ ok: false, problem: 'mismatch', user: 'cams' });
-    expect(credentialsFor('home', 'cam1', null)).toEqual({ ok: true, user: 'admin', password: 'pw' });
+    expect(credentialsFor(H, 'cam1', 'cams')).toEqual({ ok: false, problem: 'mismatch', user: 'cams' });
+    expect(credentialsFor(H, 'cam1', null)).toEqual({ ok: true, user: 'admin', password: 'pw' });
   });
 
   it('a credentials file readable by others is a start error naming the file', () => {
@@ -71,7 +72,7 @@ describe('lookup', () => {
   });
 
   it('a malformed file is a start error naming the file, never echoing it', () => {
-    write({ v: 1, 'home/cam1': { user: 'cams', password: 7 } });
+    write({ v: 1, [`${H}/cam1`]: { user: 'cams', password: 7 } });
     expect(() => loadCredentials()).toThrow(/CAMERA_CREDENTIALS_FILE/);
   });
 });
@@ -111,9 +112,9 @@ describe('PUT /api/cameras/:id/credentials', () => {
     expect(credentialsWritable()).toBe(true);
     const r = await put('a@example.org', { password: 'secret-pw-1' });
     expect(r.status).toBe(204);
-    expect(JSON.parse(readFileSync(FILE, 'utf8'))).toEqual({ v: 1, 'home/cam1': { user: 'cams', password: 'secret-pw-1' } });
+    expect(JSON.parse(readFileSync(FILE, 'utf8'))).toEqual({ v: 1, [`${ALPHA}/cam1`]: { user: 'cams', password: 'secret-pw-1' } });
     expect(statSync(FILE).mode & 0o777).toBe(0o600);
-    expect(credentialsFor('home', 'cam1', 'cams')).toMatchObject({ ok: true, password: 'secret-pw-1' });
+    expect(credentialsFor(ALPHA, 'cam1', 'cams')).toMatchObject({ ok: true, password: 'secret-pw-1' });
     // The app's own lines (the request log lines carry req/res objects that the
     // logger's serializers reduce to method, path and status: never a body).
     const own = lines.filter((l) => !(Array.isArray(l) && typeof l[0] === 'object' && l[0] !== null && ('req' in (l[0] as object) || 'res' in (l[0] as object))));
@@ -132,7 +133,7 @@ describe('PUT /api/cameras/:id/credentials', () => {
       loadCredentials();
       expect(credentialsWritable()).toBe(false);
       const r = await put('a@example.org', { password: 'secret-pw-2' });
-      expect([r.status, r.body]).toEqual([409, { error: 'credentials_read_only', secretKey: 'home/cam1', user: 'cams' }]);
+      expect([r.status, r.body]).toEqual([409, { error: 'credentials_read_only', secretKey: `${ALPHA}/cam1`, user: 'cams' }]);
     } finally {
       chmodSync(join(dir, 'ro'), 0o700);
     }
@@ -151,10 +152,10 @@ describe('PUT /api/cameras/:id/credentials', () => {
   });
 
   it('setCameraPassword writes atomically, 600, and keeps the other entries', async () => {
-    write({ v: 1, 'beta/cam1': { user: 'u', password: 'p' } });
+    write({ v: 1, [`${BETA}/cam1`]: { user: 'u', password: 'p' } });
     loadCredentials();
-    await setCameraPassword('home', 'cam1', 'cams', 'pw');
-    expect(JSON.parse(readFileSync(FILE, 'utf8'))).toEqual({ v: 1, 'beta/cam1': { user: 'u', password: 'p' }, 'home/cam1': { user: 'cams', password: 'pw' } });
+    await setCameraPassword(ALPHA, 'cam1', 'cams', 'pw');
+    expect(JSON.parse(readFileSync(FILE, 'utf8'))).toEqual({ v: 1, [`${BETA}/cam1`]: { user: 'u', password: 'p' }, [`${ALPHA}/cam1`]: { user: 'cams', password: 'pw' } });
     expect(statSync(FILE).mode & 0o777).toBe(0o600);
   });
 });

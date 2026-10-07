@@ -52,6 +52,14 @@ describe('accountParts', () => {
     }
   });
 
+  it('an account name outside cams-admin\'s rule (a slash, spaces, upper case) fails its account', () => {
+    for (const homeName of ['a/b', 'a b', 'Alpha', 'x'.repeat(40)]) {
+      const v = verifySnapshot(signSnapshot(twoAccountsSnapshot({ homeName })), KEYS, INSTANCE);
+      if (!v.ok) throw new Error(v.reason);
+      expect([homeName, accountParts(v.snapshot).failed.map((f) => f.accountId)]).toEqual([homeName, [ALPHA]]);
+    }
+  });
+
   it('a bad user list fails its account', () => {
     const v = verifySnapshot(signSnapshot(twoAccountsSnapshot({ users: { b: [{ email: 'x@example.org', role: 'owner', disabled: false }] } })), KEYS, INSTANCE);
     if (!v.ok) throw new Error(v.reason);
@@ -65,7 +73,7 @@ describe('buildFleet', () => {
     if (!v.ok) throw new Error(v.reason);
     const { ok } = accountParts(v.snapshot);
     const { accounts, problems } = buildFleet(ok, {
-      credentials: (acc, camsId) => (acc === 'alpha' ? { ok: true, user: 'cams', password: `pw-${camsId}` } : { ok: false, problem: 'missing', user: null }),
+      credentials: (acc, camsId) => (acc === ALPHA ? { ok: true, user: 'cams', password: `pw-${camsId}` } : { ok: false, problem: 'missing', user: null }),
       proxyToken: (accountId) => (accountId === ALPHA ? { token: 't'.repeat(40) } : undefined),
     });
     const a = accounts.find((x) => x.id === ALPHA)!.cameras[0];

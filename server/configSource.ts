@@ -19,6 +19,7 @@ import { Puller } from './admin/puller';
 import { accountParts, verifySnapshot, type AccountPart, type SnapProxy, type Snapshot } from './admin/snapshot';
 import { buildFleet, type ApplyContext, type Problem, type TrustValues } from './admin/apply';
 import { credentialsFor, loadCredentials, setLegacyCredentials } from './credentials';
+import { bindSecret, clearSecretBindings, setSecretGuard } from './secretGuard';
 import { TrustStore } from './admin/trust';
 import { LocalTokens } from './admin/tokens';
 import { buildReport, Reporter } from './admin/report';
@@ -42,6 +43,8 @@ export interface ConfigStatus {
   lastPullOkAt: number | null;
   staleSince: number | null;
   adminRefusal: 'revoked' | 'unknown_key' | null; // cams-admin refuses this instance (re-enroll)
+  // What admins see: the refusal, an older snapshot refused (M8), the file account under another id (I2).
+  configProblem: 'revoked' | 'unknown_key' | 'snapshot_older' | 'file_account_changed' | null;
   problems: Problem[];
 }
 
@@ -69,6 +72,8 @@ interface State {
   tokenProblems: Problem[];
   ensuring: Promise<void> | null;
   reportedOnce: boolean;
+  recordedHome: string | null;
+  homeProblem: Problem | null;
   adminRefusal: 'revoked' | 'unknown_key' | null;
   reporter: Reporter | null;
   shadow: { accountId: string; items: string[] } | null;
@@ -80,16 +85,14 @@ interface State {
 }
 let st: State = fresh();
 function fresh(): State {
-  return { mode: 'file', key: null, client: null, puller: null, applied: null, goodParts: new Map(), legacy: [], cacheVerifiedAt: null, lastGoodAt: null, lastPullAt: null, lastPullOkAt: null, startProblems: [], snapProblems: [], now: Date.now, moved: false, buildProblems: [], trust: null, tokens: null, tokenProblems: [], ensuring: null, reportedOnce: false, adminRefusal: null, reporter: null, shadow: null, shadowKey: '', lastEnsureAt: 0, legacyProxies: new Set(), reportTimer: null, lastReportAt: 0 };
+  return { mode: 'file', key: null, client: null, puller: null, applied: null, goodParts: new Map(), legacy: [], cacheVerifiedAt: null, lastGoodAt: null, lastPullAt: null, lastPullOkAt: null, startProblems: [], snapProblems: [], now: Date.now, moved: false, buildProblems: [], trust: null, tokens: null, tokenProblems: [], ensuring: null, reportedOnce: false, recordedHome: null, homeProblem: null, adminRefusal: null, reporter: null, shadow: null, shadowKey: '', lastEnsureAt: 0, legacyProxies: new Set(), reportTimer: null, lastReportAt: 0 };
 }
 
 
 // Until cams's own token is active (Task 11), a proxy uses the legacy token
 // of the file account's camera with the same camsId on it (R4-12).
 function legacyToken(accountId: string, camsId: string): { token: string; adminToken?: string } | undefined {
-  const parts = [...st.goodParts.values()];
-  const name = parts.find((p) => p.account.id === accountId)?.account.name;
-  if (name !== fileAccount().name) return undefined;
+  if (accountId !== fileAccount().id) return undefined; // by id, never by name (I2)
   const c = st.legacy.find((x) => x.id === camsId);
   return c?.proxy ? { token: c.proxy.token, ...(c.proxy.adminToken && { adminToken: c.proxy.adminToken }) } : undefined;
 }
@@ -111,7 +114,8 @@ export function applyContext(): ApplyContext {
   return {
     credentials: credentialsFor,
     proxyToken,
-    ...(st.trust && { trust: (a: string, c: string, o: TrustValues, h: boolean) => st.trust!.decide(a, c, o, h) }),
+    ...(st.trust && { trust: (a: string, c: string, o: TrustValues) => st.trust!.decide(a, c, o) }),
+    bind: bindSecret,
   };
 }
 
@@ -130,9 +134,7 @@ function applySnapshot(s: Snapshot, source: 'cache' | 'pull'): void {
     return;
   }
   if (st.mode !== 'cams-admin') return;
-  // The file account's id as cams-admin knows it (R4-10): stores find it by id.
-  const home = s.accounts.find((a) => a.name === fileAccount().name);
-  if (home && /^acc_[A-Za-z0-9]{1,40}$/.test(home.id)) setFileAccountId(home.id);
+  settleHome(s);
   rebuild();
 }
 
@@ -144,6 +146,9 @@ function rebuild(): void {
   st.trust?.forgetOffers();
   const parts = st.applied.accounts.map((a) => st.goodParts.get(a.id)).filter((p): p is AccountPart => !!p);
   st.legacyProxies = new Set();
+  // Secrets only to confirmed endpoints: the bindings come from this build.
+  clearSecretBindings();
+  setSecretGuard(true);
   const built = buildFleet(parts, applyContext());
   st.buildProblems = built.problems;
   setFleet(built.accounts);
@@ -258,12 +263,36 @@ function compareShadow(): void {
   }
 }
 
+// The file account (CAMS_FILE_ACCOUNT: its cameras.json passwords and tokens,
+// its moved state files): the id recorded when the trust store was seeded.
+// A snapshot naming another id for that name is another account — never
+// the file account by name (security review I2): reported, not followed.
+function settleHome(s: Snapshot): void {
+  const named = s.accounts.find((a) => a.name === fileAccount().name);
+  const recorded = st.recordedHome;
+  st.homeProblem = recorded && named && named.id !== recorded ? { code: 'file_account_changed', accountId: named.id, detail: 'the file account is named by another id' } : null;
+  if (st.homeProblem) logger.warn({ accountId: named!.id }, 'file_account_changed');
+  const id = recorded ?? named?.id;
+  if (id && /^acc_[A-Za-z0-9]{1,40}$/.test(id)) setFileAccountId(id);
+}
+const homeIn = (s: Snapshot) => s.accounts.find((a) => a.id === fileAccount().id && a.name === fileAccount().name);
+function recordedHome(): string | null {
+  try {
+    return TrustStore.load().fileAccountId();
+  } catch {
+    return null;
+  }
+}
+
 // R4-11: at the first cams-admin start, today's cameras.json is the
 // confirmed state for the file account (before any decision is made).
 function seedTrustOnce(s: Snapshot): void {
   if (!st.trust || st.trust.exists()) return;
-  const home = s.accounts.find((a) => a.name === fileAccount().name);
-  if (home && st.legacy.length) st.trust.seedFromFile({ id: home.id, name: home.name, displayName: home.displayName }, st.legacy);
+  const home = homeIn(s);
+  if (home) {
+    st.trust.seedFromFile({ id: home.id, name: home.name, displayName: home.displayName }, st.legacy);
+    st.recordedHome = home.id;
+  }
 }
 
 // The first cams-admin start (or the first snapshot of one that started
@@ -271,7 +300,7 @@ function seedTrustOnce(s: Snapshot): void {
 // cams-admin names it (M §11.5; the .bak copies stay). Idempotent.
 async function moveStateOnce(s: Snapshot): Promise<void> {
   if (st.moved) return;
-  const home = s.accounts.find((a) => a.name === fileAccount().name);
+  const home = homeIn(s);
   st.moved = true;
   if (!home) return;
   const ref = { id: home.id, name: home.name, displayName: home.displayName };
@@ -291,15 +320,15 @@ export async function startConfig(o: StartOptions = {}): Promise<void> {
   st.mode = configMode();
   st.legacy = loadCameras();
   setLegacyCredentials(st.legacy);
+  setSecretGuard(false); // file mode: everything comes from cameras.json
   if (st.mode === 'file') {
     // A verified cache names the file account's id (the rollback keeps
     // what users changed in cams-admin mode, R4-10). Nothing is pulled.
     try {
       const k = readKeyFile();
       const cache = k && readCache(k);
-      // (shadow and cams-admin read it below)
-      const home = cache?.accounts.find((a) => a.name === fileAccount().name);
-      if (home) setFileAccountId(home.id);
+      st.recordedHome = recordedHome();
+      if (cache) settleHome(cache);
     } catch (err) {
       logger.warn({ message: (err as Error).message }, 'config_cache_skipped');
     }
@@ -314,14 +343,15 @@ export async function startConfig(o: StartOptions = {}): Promise<void> {
   st.client = new AdminClient(key);
   loadCredentials();
   if (st.mode === 'cams-admin') st.trust = TrustStore.load(); // a corrupt one stops the start
+  st.recordedHome = st.trust ? st.trust.fileAccountId() : recordedHome();
+  setSecretGuard(false); // on with the first cams-admin build (rebuild)
   st.tokens = LocalTokens.load();
   if (st.mode === 'cams-admin' && getAllowedEmails().length) {
     st.startProblems.push({ code: 'allowed_emails_ignored' });
     logger.warn({ kind: 'config' }, 'allowed_emails_ignored');
   }
   const cache = readCache(key);
-  const home = cache?.accounts.find((a) => a.name === fileAccount().name);
-  if (home) setFileAccountId(home.id);
+  if (cache) settleHome(cache);
   if (cache) {
     st.cacheVerifiedAt = st.now();
     st.lastGoodAt = cacheWrittenAt();
@@ -376,6 +406,7 @@ export function configStatus(): ConfigStatus {
     lastPullOkAt: st.lastPullOkAt,
     staleSince,
     adminRefusal: st.adminRefusal,
-    problems: [...st.startProblems, ...st.snapProblems, ...st.buildProblems, ...st.tokenProblems],
+    configProblem: st.adminRefusal ?? (st.snapProblems.some((p) => p.code === 'snapshot_older') ? 'snapshot_older' : st.homeProblem ? 'file_account_changed' : null),
+    problems: [...st.startProblems, ...st.snapProblems, ...st.buildProblems, ...st.tokenProblems, ...(st.homeProblem ? [st.homeProblem] : [])],
   };
 }

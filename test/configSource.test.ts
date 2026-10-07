@@ -171,6 +171,41 @@ describe('cams-admin mode', () => {
     expect(configStatus().adminRefusal).toBe('unknown_key');
   });
 
+  it('the file account under another id (a snapshot naming "home" anew) is not the file account: no cameras.json password or token, held, and admins are told (I2)', async () => {
+    await enrolled();
+    process.env.CONFIG_SOURCE = 'cams-admin';
+    process.env.CAMERAS_FILE = join(dir, 'cameras.json');
+    writeFileSync(process.env.CAMERAS_FILE, JSON.stringify([{ id: 'cam1', name: 'Alpha cam', host: '127.0.0.1:9', protocol: 'http', user: 'cams', password: 'file-pw', proxy: { url: 'http://127.0.0.1:1/alpha', token: 'L'.repeat(40) } }]));
+    fake.setSnapshot(twoAccountsSnapshot({ homeName: 'home' }));
+    await startConfig(FAST);
+    await expect.poll(() => configStatus().appliedRevision).toBe('r:00000000000000a1');
+    const { getCamera } = await import('../server/cameraRegistry.js');
+    expect(getCamera(camKey(ALPHA, 'cam1'))).toMatchObject({ credentials: 'ok', password: 'file-pw' });
+    // cams-admin now says "home" is another account (re-created, or an attacker)
+    const NEW = 'acc_0000000000000000NEWH';
+    const snap = twoAccountsSnapshot({ homeName: 'beta-old', revision: 'r:00000000000000a9' });
+    const accounts = (snap.accounts as Record<string, unknown>[]).map((acc) => (acc.id === ALPHA ? { ...acc, id: NEW, name: 'home' } : acc));
+    fake.setSnapshot({ ...snap, accounts, generatedAt: 1791273600000 + 5 });
+    await pullNow();
+    expect(fileAccount().id).toBe(ALPHA);
+    const moved = getCamera(camKey(NEW, 'cam1'))!;
+    expect(moved).toMatchObject({ credentials: 'unconfirmed', password: '' });
+    expect(moved.proxy).toBeUndefined();
+    expect(configStatus().configProblem).toBe('file_account_changed');
+  });
+
+  it('an older snapshot shows to admins on /api/me (M8)', async () => {
+    await enrolled();
+    fake.setSnapshot(twoAccountsSnapshot({ revision: 'r:00000000000000b7' }));
+    process.env.CONFIG_SOURCE = 'cams-admin';
+    await startConfig(FAST);
+    await expect.poll(() => configStatus().appliedRevision).toBe('r:00000000000000b7');
+    fake.setSnapshot({ ...twoAccountsSnapshot({ revision: 'r:00000000000000b6' }), generatedAt: 1791273600000 - 1000 });
+    await pullNow();
+    const me = await request(createApp()).get('/api/me').set('Cookie', cookieFor('both@example.org', ALPHA));
+    expect(me.body.configProblem).toBe('snapshot_older');
+  });
+
   it('a pull at once after a sign-in (debounced)', async () => {
     await enrolled();
     fake.setSnapshot(twoAccountsSnapshot());
@@ -252,14 +287,15 @@ describe('tokens in cams-admin mode (R4-12)', () => {
     await expect.poll(() => fake.registered.length).toBe(4);
     const { getCamera } = await import('../server/cameraRegistry.js');
     expect(getCamera(camKey(ALPHA, 'cam1'))?.proxy?.token).toBe('L'.repeat(40)); // legacy, the file account's
-    expect(getCamera(camKey(BETA, 'cam1'))?.proxy).toBeUndefined(); // no token yet
+    expect(getCamera(camKey(BETA, 'cam1'))?.proxy).toBeUndefined(); // new here: held, no token
     for (const t of fake.tokens) t.state = 'active';
     const rows = (proxyId: string) => fake.tokens.filter((t) => t.proxyId === proxyId).map((t) => ({ id: t.tokenId, kind: t.kind, state: t.state, retireAt: null }));
     fake.setSnapshot(twoAccountsSnapshot({ homeName: 'home', revision: 'r:00000000000000f1', tokens: { a: rows('prx_AAAAAAAAAAAAAAAAAAAA'), b: rows('prx_BBBBBBBBBBBBBBBBBBBB') } }));
     await pullNow();
     const local = JSON.parse(readFileSync(join(dir, 'admin/tokens.json'), 'utf8')).tokens as { proxyId: string; kind: string; token: string }[];
     expect(getCamera(camKey(ALPHA, 'cam1'))?.proxy?.token).toBe(local.find((t) => t.proxyId === 'prx_AAAAAAAAAAAAAAAAAAAA' && t.kind === 'client')!.token);
-    expect(getCamera(camKey(BETA, 'cam1'))?.proxy?.adminToken).toBe(local.find((t) => t.proxyId === 'prx_BBBBBBBBBBBBBBBBBBBB' && t.kind === 'admin')!.token);
+    expect(getCamera(camKey(ALPHA, 'cam1'))?.proxy?.adminToken).toBe(local.find((t) => t.proxyId === 'prx_AAAAAAAAAAAAAAAAAAAA' && t.kind === 'admin')!.token);
+    expect(getCamera(camKey(BETA, 'cam1'))?.proxy).toBeUndefined(); // Beta's camera is new here: held, no token until confirmed
     await expect.poll(() => fake.reports.at(-1)?.tokens).toEqual({ managed: 4, pending: 0, legacy: 0 });
   });
 });

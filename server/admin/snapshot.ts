@@ -41,7 +41,8 @@ const placeholder = (proxyId: string) => `placeholder-${proxyId}`.padEnd(40, 'x'
 
 // One account's part, checked; throws with a short detail (no values).
 function checkAccount(a: Record<string, unknown>): AccountPart {
-  if (!str(a.id, 64) || !ACCOUNT_ID_RE.test(a.id) || !str(a.name, 64) || !str(a.displayName, 128) || typeof a.revision !== 'number') fail('account fields');
+  // cams-admin's account name rule: names key nothing secret, but they name files and logs (M6).
+  if (!str(a.id, 64) || !ACCOUNT_ID_RE.test(a.id) || !str(a.name, 64) || !/^[a-z0-9][a-z0-9-]{1,31}$/.test(a.name) || !str(a.displayName, 128) || typeof a.revision !== 'number') fail('account fields');
   if (!Array.isArray(a.users) || a.users.length > 500) fail('users');
   const users: FleetUser[] = (a.users as unknown[]).map((u, i) => {
     if (!obj(u) || !str(u.email, 320) || (u.role !== 'admin' && u.role !== 'viewer') || typeof u.disabled !== 'boolean') fail(`user ${i}`);
