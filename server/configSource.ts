@@ -12,7 +12,7 @@ import { logger } from './logger';
 import { moveToAccounts } from './preferences';
 import { loadProxyState, moveProxyStateToAccounts } from './proxyState';
 import { loadTlsState, moveTlsPinsToAccounts } from './tls/store';
-import { AdminClient } from './admin/client';
+import { AdminClient, AdminError } from './admin/client';
 import { cacheWrittenAt, readCache, writeCache } from './admin/cache';
 import { readKeyFile, type AdminKeyFile } from './admin/keyfile';
 import { Puller } from './admin/puller';
@@ -41,6 +41,7 @@ export interface ConfigStatus {
   lastPullAt: number | null;
   lastPullOkAt: number | null;
   staleSince: number | null;
+  adminRefusal: 'revoked' | 'unknown_key' | null; // cams-admin refuses this instance (re-enroll)
   problems: Problem[];
 }
 
@@ -68,6 +69,7 @@ interface State {
   tokenProblems: Problem[];
   ensuring: Promise<void> | null;
   reportedOnce: boolean;
+  adminRefusal: 'revoked' | 'unknown_key' | null;
   reporter: Reporter | null;
   shadow: { accountId: string; items: string[] } | null;
   shadowKey: string;
@@ -78,7 +80,7 @@ interface State {
 }
 let st: State = fresh();
 function fresh(): State {
-  return { mode: 'file', key: null, client: null, puller: null, applied: null, goodParts: new Map(), legacy: [], cacheVerifiedAt: null, lastGoodAt: null, lastPullAt: null, lastPullOkAt: null, startProblems: [], snapProblems: [], now: Date.now, moved: false, buildProblems: [], trust: null, tokens: null, tokenProblems: [], ensuring: null, reportedOnce: false, reporter: null, shadow: null, shadowKey: '', lastEnsureAt: 0, legacyProxies: new Set(), reportTimer: null, lastReportAt: 0 };
+  return { mode: 'file', key: null, client: null, puller: null, applied: null, goodParts: new Map(), legacy: [], cacheVerifiedAt: null, lastGoodAt: null, lastPullAt: null, lastPullOkAt: null, startProblems: [], snapProblems: [], now: Date.now, moved: false, buildProblems: [], trust: null, tokens: null, tokenProblems: [], ensuring: null, reportedOnce: false, adminRefusal: null, reporter: null, shadow: null, shadowKey: '', lastEnsureAt: 0, legacyProxies: new Set(), reportTimer: null, lastReportAt: 0 };
 }
 
 
@@ -154,6 +156,7 @@ async function pullOnce(): Promise<boolean> {
   try {
     const r = await st.client.getConfig(st.applied?.revision ?? null);
     st.lastPullOkAt = st.lastGoodAt = st.now();
+    st.adminRefusal = null;
     if (!st.reportedOnce) {
       st.reportedOnce = true;
       reportSoon(true); // one at start, once the first pull has its answer
@@ -169,6 +172,13 @@ async function pullOnce(): Promise<boolean> {
       return true; // cams-admin answered; the configuration stays
     }
     if (v.snapshot.revision === st.applied?.revision) return true;
+    // Never back to an older signed snapshot (a replay): revisions are not
+    // ordered, the signed generatedAt is.
+    if (st.applied && v.snapshot.generatedAt < st.applied.generatedAt) {
+      logger.warn({ revision: v.snapshot.revision }, 'snapshot_older');
+      st.snapProblems = [{ code: 'snapshot_older', detail: 'an older snapshot than the one in use' }];
+      return true;
+    }
     applySnapshot(v.snapshot, 'pull');
     writeCache(v.snapshot);
     if (st.mode === 'cams-admin') await moveStateOnce(v.snapshot);
@@ -177,6 +187,9 @@ async function pullOnce(): Promise<boolean> {
     reportSoon(true);
     return true;
   } catch (err) {
+    // A blocked instance or a revoked key: cams-admin refuses this instance
+    // (signed); cams keeps its configuration and tells its admins.
+    if (err instanceof AdminError && err.code === 'refused' && (err.error === 'revoked' || err.error === 'unknown_key')) st.adminRefusal = err.error;
     logger.warn({ message: (err as Error).message }, 'config_pull_failed');
     return false;
   }
@@ -362,6 +375,7 @@ export function configStatus(): ConfigStatus {
     lastPullAt: st.lastPullAt,
     lastPullOkAt: st.lastPullOkAt,
     staleSince,
+    adminRefusal: st.adminRefusal,
     problems: [...st.startProblems, ...st.snapProblems, ...st.buildProblems, ...st.tokenProblems],
   };
 }

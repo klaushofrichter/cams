@@ -135,6 +135,42 @@ describe('cams-admin mode', () => {
     expect(configStatus().problems).toContainEqual(expect.objectContaining({ code: 'snapshot_invalid', accountId: ALPHA }));
   });
 
+  it('an older signed snapshot (a replay) is refused: the newer configuration stays', async () => {
+    await enrolled();
+    fake.setSnapshot(twoAccountsSnapshot({ revision: 'r:00000000000000a7' }));
+    process.env.CONFIG_SOURCE = 'cams-admin';
+    await startConfig(FAST);
+    await expect.poll(() => configStatus().appliedRevision).toBe('r:00000000000000a7');
+    fake.setSnapshot({ ...twoAccountsSnapshot({ revision: 'r:00000000000000a6', alphaCameras: [] }), generatedAt: 1791273600000 - 1000 });
+    await pullNow();
+    expect(configStatus().appliedRevision).toBe('r:00000000000000a7');
+    expect(cams(ALPHA)).toEqual(['cam1']);
+    expect(configStatus().problems).toContainEqual(expect.objectContaining({ code: 'snapshot_older' }));
+  });
+
+  it('a revoked instance (or an unknown key): the cached configuration stays, admins see the state on /api/me', async () => {
+    await enrolled();
+    writeCache(SNAP(), dir);
+    fake.setSnapshot(twoAccountsSnapshot());
+    process.env.CONFIG_SOURCE = 'cams-admin';
+    await startConfig(FAST);
+    await expect.poll(() => configStatus().lastPullOkAt).not.toBeNull();
+    fake.revoked = true;
+    await pullNow();
+    expect(cams(ALPHA)).toEqual(['cam1']);
+    expect(configStatus().adminRefusal).toBe('revoked');
+    const admin = await request(createApp()).get('/api/me').set('Cookie', cookieFor('both@example.org', ALPHA));
+    expect(admin.body.configProblem).toBe('revoked');
+    const viewer = await request(createApp()).get('/api/me').set('Cookie', cookieFor('both@example.org', BETA));
+    expect(viewer.body.configProblem).toBeNull();
+    fake.revoked = false;
+    await pullNow();
+    expect(configStatus().adminRefusal).toBeNull();
+    fake.keyId = 'key_99999999999999999999'; // re-enrolled elsewhere: our key is unknown now
+    await pullNow();
+    expect(configStatus().adminRefusal).toBe('unknown_key');
+  });
+
   it('a pull at once after a sign-in (debounced)', async () => {
     await enrolled();
     fake.setSnapshot(twoAccountsSnapshot());

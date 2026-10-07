@@ -60,6 +60,7 @@ export interface FakeAdmin {
   oversize: boolean;
   slowMs: number;
   tokenAnswer: { status: number; body: Record<string, unknown> } | null; // the next POST /tokens answers this
+  revoked: boolean; // the instance is blocked: 403 revoked (contract step 7)
   skewBy(ms: number): void;
   down(): void;
   up(): void;
@@ -101,6 +102,7 @@ export async function startFakeAdmin(o: { port?: number; instanceId?: string; in
     oversize: false,
     slowMs: 0,
     tokenAnswer: null,
+    revoked: false,
     skewBy(ms) {
       skew = ms;
     },
@@ -182,6 +184,7 @@ export async function startFakeAdmin(o: { port?: number; instanceId?: string; in
     if (Math.abs(ts - serverNow()) > 300_000) return answer(req, res, 401, { error: 'clock_skew', serverTime: serverNow() });
     if (seen.has(h('x-cams-nonce')!)) return answer(req, res, 401, { error: 'replayed' });
     seen.add(h('x-cams-nonce')!);
+    if (fake.revoked) return answer(req, res, 403, { error: 'revoked' });
     fake.keyState = 'active';
     next();
   });
