@@ -7,7 +7,7 @@ import { join } from 'path';
 import { Readable } from 'stream';
 import { runCli } from '../../server/cli';
 import { enroll } from '../../server/admin/enroll';
-import { startFakeAdmin, SERVER_KEY, type FakeAdmin } from './fakeAdmin';
+import { fingerprintOf, OTHER_KEY, startFakeAdmin, SERVER_KEY, type FakeAdmin } from './fakeAdmin';
 
 let fake: FakeAdmin;
 beforeEach(async () => {
@@ -50,6 +50,21 @@ describe('admin-enroll', () => {
   it('a code that is not a CAC1 code (a proxy CAE1 code) is refused before any request', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'cams-enroll-'));
     const out = await cli(['admin-enroll', '--url', fake.url], 'CAE1-0000-0000-0000-0000-0000\n', { CAMS_DATA_DIR: dir });
+    expect(out.code).not.toBe(0);
+    expect(fake.requests).toEqual([]);
+  });
+
+  it('the fingerprints are computed from the received keys: an answer whose fingerprints don\'t match its keys is refused', async () => {
+    const lying = (async () => new Response(JSON.stringify({ v: 1, instanceId: 'cms_00000000000000000001', instanceName: 'x', keyId: 'key_00000000000000000001', accounts: [], serverKeys: [OTHER_KEY.publicKey], serverKeyFingerprints: [fingerprintOf(SERVER_KEY.publicKey)], apiUrl: 'x' }), { status: 201 })) as typeof fetch;
+    await expect(enroll('http://127.0.0.1:1', fake.code, 'test', lying)).rejects.toThrow(/fingerprint/);
+    const k = await enroll(fake.url, fake.code, 'test');
+    expect(k.serverKeyFingerprints).toEqual([fingerprintOf(SERVER_KEY.publicKey)]);
+  });
+
+  it('refuses http:// except on loopback', async () => {
+    for (const u of ['http://cams-admin.example.net', 'http://192.0.2.1:8080', 'ftp://x']) await expect(enroll(u, fake.code, 'test')).rejects.toThrow(/https/);
+    const dir = mkdtempSync(join(tmpdir(), 'cams-enroll-'));
+    const out = await cli(['admin-enroll', '--url', 'http://cams-admin.example.net'], `${fake.code}\n`, { CAMS_DATA_DIR: dir });
     expect(out.code).not.toBe(0);
     expect(fake.requests).toEqual([]);
   });

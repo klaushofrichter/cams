@@ -5,7 +5,7 @@
 // history and the process list); it is read from stdin, silently on a TTY.
 import { dirname } from 'path';
 import type { Readable } from 'stream';
-import { enroll, EnrollError, normaliseCamsCode } from './admin/enroll';
+import { enroll, EnrollError, enrollUrlOk, normaliseCamsCode } from './admin/enroll';
 import { writeKeyFile } from './admin/keyfile';
 import { appVersion } from './version';
 import { exportConfig } from './exportConfig';
@@ -59,6 +59,10 @@ async function adminEnroll(args: string[], io: CliIo): Promise<number> {
     io.err(USAGE);
     return 2;
   }
+  if (!enrollUrlOk(url)) {
+    io.err('the cams-admin URL must be https:// (plain http only on localhost)');
+    return 2;
+  }
   const dir = io.env.CAMS_DATA_DIR || (io.env.PREFS_FILE ? dirname(io.env.PREFS_FILE) : undefined);
   if (!dir) {
     io.err('set CAMS_DATA_DIR (or PREFS_FILE): the key file is written to <data>/admin/key.json');
@@ -78,7 +82,7 @@ async function adminEnroll(args: string[], io: CliIo): Promise<number> {
   try {
     const k = await enroll(url, code, appVersion() ?? 'dev');
     writeKeyFile(k, dir);
-    io.out(`enrolled as ${k.instanceName} (${k.instanceId}), accounts ${k.accounts.join(', ') || '(none)'}; server key ${k.serverKeyFingerprints.join(', ')} — compare it with the instance page in cams-admin`);
+    io.out(`enrolled as ${k.instanceName} (${k.instanceId}), accounts ${k.accounts.join(', ') || '(none)'}; server key ${k.serverKeyFingerprints.join(', ')} (computed from the key received) — compare it with the instance page in cams-admin before using this instance`);
     return 0;
   } catch (err) {
     io.err(err instanceof EnrollError ? `enrollment refused: ${err.code}` : `enrollment failed: ${(err as Error).message}`);

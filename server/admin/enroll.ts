@@ -1,7 +1,7 @@
 // Enrollment with cams-admin (contract cams-v1, M §9.1): a fresh Ed25519
 // key, the one-time CAC1 code (normalised), a proof over cams's own enroll
 // text, and the answer checked; the result is the key file to write.
-import { generateKeyPairSync } from 'crypto';
+import { createHash, generateKeyPairSync } from 'crypto';
 import type { AdminKeyFile } from './keyfile';
 import { enrollText, privateFromB64, publicFromB64, signText } from './sign';
 
@@ -25,7 +25,25 @@ export class EnrollError extends Error {
 
 const isStrings = (v: unknown): v is string[] => Array.isArray(v) && v.every((x) => typeof x === 'string');
 
+// cams-admin's key fingerprint as the contract defines it: "SHA256:" + upper-case
+// hex of the SHA-256 of the SPKI DER — computed here, never taken from the answer.
+export const keyFingerprint = (spkiB64: string): string => 'SHA256:' + createHash('sha256').update(Buffer.from(spkiB64, 'base64')).digest('hex').toUpperCase();
+
+// The enroll answer is unsigned (trust on first use): only over https, or
+// plain http on this machine (tests, the local stack).
+export function enrollUrlOk(url: string): boolean {
+  let u: URL;
+  try {
+    u = new URL(url);
+  } catch {
+    return false;
+  }
+  if (u.protocol === 'https:') return true;
+  return u.protocol === 'http:' && ['127.0.0.1', 'localhost', '[::1]'].includes(u.hostname);
+}
+
 export async function enroll(url: string, code: string, camsVersion: string, fetchImpl: typeof fetch = fetch): Promise<AdminKeyFile> {
+  if (!enrollUrlOk(url)) throw new Error('enrollment needs an https:// cams-admin URL (plain http only on localhost)');
   const canonical = normaliseCamsCode(code);
   if (!canonical) throw new EnrollError('not_a_cams_code');
   const { privateKey, publicKey } = generateKeyPairSync('ed25519');
@@ -59,8 +77,12 @@ export async function enroll(url: string, code: string, camsVersion: string, fet
     throw new Error('enrollment: unexpected answer from cams-admin');
   }
   for (const k of b.serverKeys) publicFromB64(k); // each a real Ed25519 key
+  // The fingerprints the operator compares with cams-admin's page: computed from
+  // the keys received; an answer whose own fingerprints disagree is refused.
+  const computed = b.serverKeys.map(keyFingerprint);
+  if (JSON.stringify(computed) !== JSON.stringify(b.serverKeyFingerprints)) throw new Error('enrollment: the server key fingerprints do not match its keys');
   return {
     v: 1, url: url.replace(/\/+$/, ''), instanceId: b.instanceId, instanceName: b.instanceName, keyId: b.keyId, privateKey: priv, publicKey: pub,
-    serverKeys: b.serverKeys, serverKeyFingerprints: b.serverKeyFingerprints, accounts: b.accounts, enrolledAt: Date.now(),
+    serverKeys: b.serverKeys, serverKeyFingerprints: computed, accounts: b.accounts, enrolledAt: Date.now(),
   };
 }
