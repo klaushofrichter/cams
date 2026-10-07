@@ -21,6 +21,8 @@ import { buildFleet, type ApplyContext, type Problem, type TrustValues } from '.
 import { credentialsFor, loadCredentials, setLegacyCredentials } from './credentials';
 import { TrustStore } from './admin/trust';
 import { LocalTokens } from './admin/tokens';
+import { buildReport, Reporter } from './admin/report';
+import { shadowDiff } from './admin/shadow';
 
 export type ConfigMode = 'file' | 'shadow' | 'cams-admin';
 const MODES: readonly ConfigMode[] = ['file', 'shadow', 'cams-admin'];
@@ -66,6 +68,9 @@ interface State {
   tokenProblems: Problem[];
   ensuring: Promise<void> | null;
   reportedOnce: boolean;
+  reporter: Reporter | null;
+  shadow: { accountId: string; items: string[] } | null;
+  shadowKey: string;
   lastEnsureAt: number;
   legacyProxies: Set<string>;
   reportTimer: NodeJS.Timeout | null;
@@ -73,7 +78,7 @@ interface State {
 }
 let st: State = fresh();
 function fresh(): State {
-  return { mode: 'file', key: null, client: null, puller: null, applied: null, goodParts: new Map(), legacy: [], cacheVerifiedAt: null, lastGoodAt: null, lastPullAt: null, lastPullOkAt: null, startProblems: [], snapProblems: [], now: Date.now, moved: false, buildProblems: [], trust: null, tokens: null, tokenProblems: [], ensuring: null, reportedOnce: false, lastEnsureAt: 0, legacyProxies: new Set(), reportTimer: null, lastReportAt: 0 };
+  return { mode: 'file', key: null, client: null, puller: null, applied: null, goodParts: new Map(), legacy: [], cacheVerifiedAt: null, lastGoodAt: null, lastPullAt: null, lastPullOkAt: null, startProblems: [], snapProblems: [], now: Date.now, moved: false, buildProblems: [], trust: null, tokens: null, tokenProblems: [], ensuring: null, reportedOnce: false, reporter: null, shadow: null, shadowKey: '', lastEnsureAt: 0, legacyProxies: new Set(), reportTimer: null, lastReportAt: 0 };
 }
 
 
@@ -118,6 +123,10 @@ function applySnapshot(s: Snapshot, source: 'cache' | 'pull'): void {
   st.snapProblems = failed.map((f) => ({ code: 'snapshot_invalid', accountId: f.accountId, detail: f.detail }));
   for (const f of failed) logger.warn({ accountId: f.accountId, source }, 'snapshot_invalid');
   st.applied = s;
+  if (st.mode === 'shadow') {
+    compareShadow();
+    return;
+  }
   if (st.mode !== 'cams-admin') return;
   // The file account's id as cams-admin knows it (R4-10): stores find it by id.
   const home = s.accounts.find((a) => a.name === fileAccount().name);
@@ -211,16 +220,28 @@ export function reportSoon(urgent = false): void {
 async function sendReport(): Promise<void> {
   if (!st.client) return;
   st.lastReportAt = st.now();
-  const held = st.trust?.held() ?? [];
-  try {
-    const r = await st.client.report({
-      v: 1, mode: st.mode, version: appVersion() || 'dev', appliedRevision: st.applied?.revision ?? null, cacheVerifiedAt: st.cacheVerifiedAt,
-      lastPullAt: st.lastPullAt, held: held.filter((h) => !h.keptOld).slice(0, 200).map((h) => ({ accountId: h.accountId, camsId: h.camsId, fields: h.fields })), keptOld: held.filter((h) => h.keptOld).slice(0, 200).map((h) => ({ accountId: h.accountId, camsId: h.camsId, fields: h.fields })), shadow: null, tokens: { ...(st.tokens?.counts() ?? { managed: 0, pending: 0 }), legacy: st.legacyProxies.size },
-      problems: configStatus().problems.slice(0, 50).map((p) => ({ code: p.code.slice(0, 64), ...(p.accountId && { accountId: p.accountId }), ...(p.detail && { detail: p.detail.slice(0, 200) }) })),
-    });
-    if (r.changed) pullSoon('report');
-  } catch {
-    // logged by the client; the next report goes out with the next change
+  st.reporter ??= new Reporter(st.client, st.now, () => pullSoon('report'));
+  const r = buildReport(configStatus(), {
+    held: st.trust?.held() ?? [],
+    shadow: st.shadow,
+    tokens: { ...(st.tokens?.counts() ?? { managed: 0, pending: 0 }), legacy: st.legacyProxies.size },
+    version: appVersion() || 'dev',
+  });
+  await st.reporter.send(r, true); // the timing is reportSoon's
+}
+
+// Shadow mode: cameras.json against cams-admin's file account, names only;
+// logged once per new set of differences, reported every time.
+function compareShadow(): void {
+  if (!st.applied) return;
+  const home = st.applied.accounts.find((a) => a.name === fileAccount().name);
+  const part = home ? st.goodParts.get(home.id) : undefined;
+  const items = shadowDiff(st.legacy, part);
+  st.shadow = { accountId: home?.id ?? fileAccount().id, items };
+  const key = items.join('\n');
+  if (key !== st.shadowKey) {
+    st.shadowKey = key;
+    logger.info({ count: items.length, items: items.slice(0, 20) }, 'shadow_differences');
   }
 }
 

@@ -251,6 +251,23 @@ describe('file and shadow mode', () => {
     expect(membershipsOf('both@example.org')).toEqual([]); // ALLOWED_EMAILS still decides
   });
 
+  it('shadow mode reports 0 differences when the file equals cams-admin\'s file account, else names them', async () => {
+    await enrolled();
+    process.env.CONFIG_SOURCE = 'shadow';
+    process.env.CAMERAS_FILE = join(dir, 'cameras.json');
+    const cam = { id: 'cam1', name: 'Alpha cam', host: '127.0.0.1:9', protocol: 'http', user: 'cams', password: 'p', proxy: { url: 'http://127.0.0.1:1/alpha', token: 'L'.repeat(40) } };
+    writeFileSync(process.env.CAMERAS_FILE, JSON.stringify([cam]));
+    fake.setSnapshot(twoAccountsSnapshot({ homeName: 'home' }));
+    await startConfig(FAST);
+    await expect.poll(() => fake.reports.at(-1)?.shadow).toEqual({ accountId: ALPHA, differences: 0, items: [] });
+    expect(fake.reports.at(-1)?.mode).toBe('shadow');
+    stopConfig();
+    writeFileSync(process.env.CAMERAS_FILE, JSON.stringify([{ ...cam, host: '127.0.0.1:10' }]));
+    await startConfig(FAST);
+    await expect.poll(() => fake.reports.at(-1)?.shadow).toEqual({ accountId: ALPHA, differences: 1, items: ['cam1: host'] });
+    expect(JSON.stringify(fake.reports)).not.toContain('127.0.0.1:10');
+  });
+
   it('CONFIG_SOURCE=bogus fails start naming CONFIG_SOURCE; shadow without a key file fails naming admin-enroll', async () => {
     process.env.CONFIG_SOURCE = 'bogus';
     await expect(startConfig(FAST)).rejects.toThrow(/CONFIG_SOURCE/);
