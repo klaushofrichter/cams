@@ -71,6 +71,7 @@ interface State {
   tokens: LocalTokens | null;
   tokenProblems: Problem[];
   ensuring: Promise<void> | null;
+  ensureAgain: boolean;
   reportedOnce: boolean;
   recordedHome: string | null;
   homeProblem: Problem | null;
@@ -85,7 +86,7 @@ interface State {
 }
 let st: State = fresh();
 function fresh(): State {
-  return { mode: 'file', key: null, client: null, puller: null, applied: null, goodParts: new Map(), legacy: [], cacheVerifiedAt: null, lastGoodAt: null, lastPullAt: null, lastPullOkAt: null, startProblems: [], snapProblems: [], now: Date.now, moved: false, buildProblems: [], trust: null, tokens: null, tokenProblems: [], ensuring: null, reportedOnce: false, recordedHome: null, homeProblem: null, adminRefusal: null, reporter: null, shadow: null, shadowKey: '', lastEnsureAt: 0, legacyProxies: new Set(), reportTimer: null, lastReportAt: 0 };
+  return { mode: 'file', key: null, client: null, puller: null, applied: null, goodParts: new Map(), legacy: [], cacheVerifiedAt: null, lastGoodAt: null, lastPullAt: null, lastPullOkAt: null, startProblems: [], snapProblems: [], now: Date.now, moved: false, buildProblems: [], trust: null, tokens: null, tokenProblems: [], ensuring: null, ensureAgain: false, reportedOnce: false, recordedHome: null, homeProblem: null, adminRefusal: null, reporter: null, shadow: null, shadowKey: '', lastEnsureAt: 0, legacyProxies: new Set(), reportTimer: null, lastReportAt: 0 };
 }
 
 
@@ -205,7 +206,13 @@ async function pullOnce(): Promise<boolean> {
 function ensureTokens(): Promise<void> {
   if (!st.tokens || !st.client || !st.applied) return Promise.resolve();
   const mine = st;
-  mine.ensuring ??= (async () => {
+  // A snapshot applied while a run is under way: one more run afterwards
+  // (its token states may let a rotation move on).
+  if (mine.ensuring) {
+    mine.ensureAgain = true;
+    return mine.ensuring;
+  }
+  mine.ensuring = (async () => {
     mine.lastEnsureAt = mine.now();
     const parts = mine.applied!.accounts.map((a) => mine.goodParts.get(a.id)).filter((p): p is AccountPart => !!p);
     try {
@@ -216,6 +223,10 @@ function ensureTokens(): Promise<void> {
     }
   })().finally(() => {
     mine.ensuring = null;
+    if (mine.ensureAgain && mine === st) {
+      mine.ensureAgain = false;
+      void ensureTokens();
+    }
   });
   return mine.ensuring;
 }
