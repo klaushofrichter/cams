@@ -44,3 +44,21 @@ export function twoAccounts(o: TwoAccountOptions = {}): FleetAccount[] {
   };
   return [alpha, beta];
 }
+
+// cams-admin mode with this fleet for the rest of the test (until restoreMode).
+import { setFleet } from '../../server/fleet';
+import { SESSION_COOKIE, signSession } from '../../server/session';
+let savedMode: string | undefined | null = null;
+export function applyFleet(accounts: FleetAccount[]): void {
+  if (savedMode === null) savedMode = process.env.CONFIG_SOURCE;
+  process.env.CONFIG_SOURCE = 'cams-admin';
+  setFleet(accounts);
+}
+export function restoreMode(): void {
+  if (savedMode === null) return;
+  if (savedMode === undefined) delete process.env.CONFIG_SOURCE;
+  else process.env.CONFIG_SOURCE = savedMode;
+  savedMode = null;
+}
+// A session cookie (Cookie header value) for this email, with an account.
+export const cookieFor = (email: string, acc?: string): string => `${SESSION_COOKIE}=${signSession(email, acc)}`;

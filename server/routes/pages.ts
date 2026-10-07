@@ -1,7 +1,7 @@
 import express, { Router, Request, Response } from 'express';
 import { join, resolve } from 'path';
 import { readFile } from 'fs/promises';
-import { currentUser, noStore, rememberReturn, requireAuthPage, RETURN_COOKIE, safeReturnPath } from '../middleware/requireAuth';
+import { authState, currentUser, noStore, rememberReturn, requireAuthPage, RETURN_COOKIE, safeReturnPath } from '../middleware/requireAuth';
 import { createApiRateLimit } from '../middleware/rateLimit';
 import { cookieOptions, loginMethods } from '../loginConfig';
 
@@ -36,6 +36,8 @@ export function pagesRouter(dir: string): Router {
   // tab signed in again) goes to the remembered page or Live; ?returnTo= is
   // ignored then, so a third-party link can't open a chosen /app page.
   router.get('/', (req: Request, res: Response) => {
+    // Signed in but several accounts and none chosen: the picker.
+    if (authState(req).kind === 'choose') return void res.redirect(302, '/app/accounts');
     if (currentUser(req)) {
       const back = safeReturnPath(req.cookies?.[RETURN_COOKIE]);
       if (req.cookies?.[RETURN_COOKIE] !== undefined) res.clearCookie(RETURN_COOKIE, cookieOptions());

@@ -1,6 +1,7 @@
 import type { NextFunction, Request, Response } from 'express';
 import { resolveCamera } from '../cameraRegistry';
-import { camsIdOf, fileAccount, type AccountRef, type CamKey } from '../fleet';
+import { camsIdOf, type AccountRef, type CamKey } from '../fleet';
+import type { Principal } from '../middleware/requireAuth';
 import { logger } from '../logger';
 import { getProxyClient, type ProxyClient } from '../proxy/client';
 import { CameraError } from '../reolink/client';
@@ -8,8 +9,12 @@ import { CameraError } from '../reolink/client';
 // Helpers shared by the /api/cameras/:id routers.
 
 // The account a request acts in: the session's (one account in file mode).
-export function sessionAccount(_req: Request, _res: Response): AccountRef {
-  return fileAccount();
+// Set by requireAuthApi (res.locals.principal); every /api route but the
+// picker's runs behind it.
+export function sessionAccount(_req: Request, res: Response): AccountRef {
+  const p = res.locals.principal as Principal | undefined;
+  if (!p) throw new Error('sessionAccount: no principal (route not behind requireAuthApi)');
+  return p.account;
 }
 
 // The camera named by :id, resolved within the session's account only (a
