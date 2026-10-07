@@ -1,6 +1,7 @@
 import { logger } from '../logger';
 import { getProxyClient, proxyCameraId, ProxyError } from './client';
 import { proxyHub } from './stream';
+import type { CamKey } from '../fleet';
 
 // cam-proxy's Vision results (spec 2026-09-30-analytics-in-cams-design, in
 // cam-proxy): the summary only, per camera. Live ones arrive with the
@@ -92,7 +93,7 @@ export class AnalysisStore {
 
   constructor(private readonly o: { timeoutMs?: number } = {}) {}
 
-  ingest(cam: string, a: ProxyAnalysis, now = Date.now()): void {
+  ingest(cam: CamKey, a: ProxyAnalysis, now = Date.now()): void {
     let m = this.live.get(cam);
     if (!m) this.live.set(cam, (m = new Map()));
     m.set(a.eventId, { a, at: now });
@@ -102,7 +103,7 @@ export class AnalysisStore {
   // The analyses for a camera's day of cards, oldest first: the fetched day
   // (cached), with received messages over it. Never throws: while the proxy
   // fails, the received ones only.
-  async forDay(cam: string, date: string, events: { start: string; end: string }[], now = Date.now()): Promise<ProxyAnalysis[]> {
+  async forDay(cam: CamKey, date: string, events: { start: string; end: string }[], now = Date.now()): Promise<ProxyAnalysis[]> {
     if (!events.length) return [];
     const win = dayWindow(date, events[0].start);
     if (!win) return [];
@@ -127,7 +128,7 @@ export class AnalysisStore {
     return [...byId.values()].sort((a, b) => a.start - b.start || a.eventId - b.eventId);
   }
 
-  private fetch(cam: string, key: string, win: [number, number], now: number): Promise<{ at: number; list: ProxyAnalysis[] }> {
+  private fetch(cam: CamKey, key: string, win: [number, number], now: number): Promise<{ at: number; list: ProxyAnalysis[] }> {
     const work = (async () => {
       const stale = this.days.get(key) ?? { at: -Infinity, list: [] };
       const client = getProxyClient(cam);
@@ -170,7 +171,7 @@ export function resetAnalysisStore(o: { timeoutMs?: number } = {}): void {
 }
 
 // Every camera's `analysis` messages, as they arrive.
-proxyHub.on('message', (m: { cam: string; type: string; data: unknown }) => {
+proxyHub.on('message', (m: { cam: CamKey; type: string; data: unknown }) => {
   if (m.type !== 'analysis') return;
   const a = parseAnalysis(m.data);
   if (a) store.ingest(m.cam, a);

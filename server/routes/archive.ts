@@ -2,7 +2,8 @@ import { Router, type Request, type Response } from 'express';
 import { Readable } from 'stream';
 import { pipeline } from 'stream/promises';
 import { normalizeLabels, nameProblem, QUALITIES, retentionProblem, SORT_KEYS, sortItems, type SortKey, type SortOrder } from '../archiveRules';
-import { getCamera } from '../cameraRegistry';
+import { resolveCamera } from '../cameraRegistry';
+import { camsIdOf, type CamKey } from '../fleet';
 import { logger } from '../logger';
 import { currentUser } from '../middleware/requireAuth';
 import { createArchiveRateLimit } from '../middleware/rateLimit';
@@ -12,7 +13,7 @@ import { CLIP_ID } from '../recordings/clipNames';
 import { RecordingError } from '../recordings/errors';
 import { getRecordings } from '../recordings/service';
 import { startedComposition } from './compose';
-import { knownCamera } from './common';
+import { knownCamera, sessionAccount } from './common';
 import { relayImage } from './proxy';
 
 // The Archive (cam-proxy's archive contract, docs/archive.md there; cams spec
@@ -79,13 +80,13 @@ function editFields(b: { name?: unknown; labels?: unknown; retentionDays?: unkno
 
 // The proxy named by :via (a cams camera that reaches it), or 404.
 function proxyOf(req: Request, res: Response): ArchiveProxy | undefined {
-  const p = archiveProxy(String(req.params.via));
+  const p = archiveProxy(sessionAccount(req, res).id, String(req.params.via)); // isolation-ok: resolved within the session's account
   if (!p) res.status(404).json({ error: 'unknown_archive' });
   return p;
 }
 // :id as a number (the proxy path is built from it), or 400.
 function itemId(req: Request, res: Response): number | undefined {
-  const s = String(req.params.id);
+  const s = String(req.params.id); // isolation-ok: an archive item number, not a camera
   if (!/^\d{1,12}$/.test(s) || Number(s) < 1) return void bad(res, 'an item id is a whole number');
   return Number(s);
 }
@@ -94,10 +95,10 @@ function itemId(req: Request, res: Response): number | undefined {
 
 // The jobs cams started, with cams's own copy of the proxy's id: only those
 // are polled or cancelled. Kept as long as the proxy keeps a finished job.
-const jobs = new Map<string, { id: string; at: number }>();
+const jobs = new Map<string, { id: string; at: number }>(); // by jobKey(via key, job)
 const KEEP_MS = 20 * 60_000;
-const jobKey = (via: string, id: string) => `${via}\u0000${id}`;
-function remember(via: string, id: string) {
+const jobKey = (via: CamKey, id: string) => `${via}\u0000${id}`;
+function remember(via: CamKey, id: string) {
   const now = Date.now();
   for (const [k, v] of jobs) if (now - v.at > KEEP_MS) jobs.delete(k);
   jobs.set(jobKey(via, id), { id, at: now });
@@ -154,7 +155,7 @@ archiveRouter.post('/api/cameras/:id/archive', createArchiveRateLimit('create'),
     }
     const job = parseJob(await readJson(up), target.proxy);
     if (!job) return void res.status(502).json({ error: 'proxy_unavailable' });
-    remember(target.proxy.via, job.id);
+    remember(target.proxy.viaKey, job.id);
     res.status(up.status).json(job);
   } catch (err) {
     failed(err, res, 'create');
@@ -162,7 +163,7 @@ archiveRouter.post('/api/cameras/:id/archive', createArchiveRateLimit('create'),
 });
 
 function knownJob(req: Request, res: Response, p: ArchiveProxy): string | undefined {
-  const e = jobs.get(jobKey(p.via, String(req.params.job)));
+  const e = jobs.get(jobKey(p.viaKey, String(req.params.job)));
   if (!e) return void res.status(404).json({ error: 'not_found' });
   e.at = Date.now();
   return e.id;
@@ -204,12 +205,12 @@ const LABELS = /^[A-Za-z0-9]{1,24}(,[A-Za-z0-9]{1,24}){0,15}$/;
 
 export interface ProxyState {
   via: string;
-  cams: string[];
+  cams: string[]; // camsIds
   ok: boolean;
   error?: 'too_old' | 'unreachable' | 'error';
 }
 
-function listQuery(req: Request): { query: Record<string, string>; sort: SortKey; order: SortOrder; cam?: string } | string {
+function listQuery(req: Request, accountId: string): { query: Record<string, string>; sort: SortKey; order: SortOrder; cam?: CamKey } | string {
   const q = req.query;
   const one = (k: string) => (typeof q[k] === 'string' ? (q[k] as string) : undefined);
   const query: Record<string, string> = {};
@@ -241,12 +242,13 @@ function listQuery(req: Request): { query: Record<string, string>; sort: SortKey
     query[k] = v;
   }
   const cam = one('cam');
-  if (cam !== undefined && cam !== '' && !getCamera(cam)) return 'cam is a camera';
-  return { query, sort: sort as SortKey, order, cam: cam || undefined };
+  const key = cam === undefined || cam === '' ? undefined : resolveCamera(accountId, cam);
+  if (cam !== undefined && cam !== '' && !key) return 'cam is a camera';
+  return { query, sort: sort as SortKey, order, cam: key };
 }
 
 async function listProxy(p: ArchiveProxy, query: Record<string, string>): Promise<{ items: ArchiveItem[]; total: number; state: ProxyState }> {
-  const state: ProxyState = { via: p.via, cams: p.cams, ok: true };
+  const state: ProxyState = { via: p.via, cams: p.cams.map(camsIdOf), ok: true };
   const items: ArchiveItem[] = [];
   let total = 0;
   try {
@@ -272,13 +274,14 @@ async function listProxy(p: ArchiveProxy, query: Record<string, string>): Promis
 // Every proxy's archive, merged in the proxies' own order (the same sort
 // key, then recorded and id descending; contract §3).
 archiveRouter.get('/api/archive', async (req, res) => {
-  const q = listQuery(req);
+  const account = sessionAccount(req, res).id;
+  const q = listQuery(req, account);
   if (typeof q === 'string') return bad(res, q);
-  let proxies = archiveProxies();
+  let proxies = archiveProxies(account);
   if (q.cam) proxies = proxies.filter((p) => p.cams.includes(q.cam!));
   const lists = await Promise.all(
     proxies.map((p) => {
-      const remote = q.cam ? [...p.toCams].find(([, c]) => c === q.cam)?.[0] : undefined;
+      const remote = q.cam ? [...p.toCams].find(([, c]) => c === camsIdOf(q.cam!))?.[0] : undefined;
       return listProxy(p, remote ? { ...q.query, cam: remote } : q.query);
     }),
   );
@@ -287,14 +290,15 @@ archiveRouter.get('/api/archive', async (req, res) => {
 });
 
 // Each proxy's status (contract §6).
-archiveRouter.get('/api/archive/status', async (_req, res) => {
+archiveRouter.get('/api/archive/status', async (req, res) => {
   const out = await Promise.all(
-    archiveProxies().map(async (p) => {
+    archiveProxies(sessionAccount(req, res).id).map(async (p) => {
+      const cams = p.cams.map(camsIdOf);
       try {
         const s = parseStatus(await p.client.json<unknown>('/api/archive/status'));
-        return s ? { via: p.via, cams: p.cams, ok: true, ...s } : { via: p.via, cams: p.cams, ok: false, error: 'error' };
+        return s ? { via: p.via, cams, ok: true, ...s } : { via: p.via, cams, ok: false, error: 'error' };
       } catch (err) {
-        return { via: p.via, cams: p.cams, ok: false, error: err instanceof ProxyError && err.status === 404 ? 'too_old' : 'unreachable' };
+        return { via: p.via, cams, ok: false, error: err instanceof ProxyError && err.status === 404 ? 'too_old' : 'unreachable' };
       }
     }),
   );
@@ -480,7 +484,7 @@ archiveRouter.get('/api/archive/:via/items/:id/metadata', async (req, res) => {
 const ZIP_NAME = /^archive-([A-Za-z0-9_-]{1,64})-(\d{8}-\d{6})\.zip$/;
 function zipName(p: Pick<ArchiveProxy, 'via' | 'toCams' | 'cams'>, proxyName: string | undefined, hint: unknown, now = new Date()): string {
   const m = proxyName ? ZIP_NAME.exec(proxyName) : null;
-  const named = typeof hint === 'string' && p.cams.includes(hint) ? hint : undefined;
+  const named = typeof hint === 'string' && p.cams.map(camsIdOf).includes(hint) ? hint : undefined;
   const cam = named || (m && p.toCams.get(m[1])) || p.via;
   const time = m?.[2] ?? now.toISOString().replace(/[-:]/g, '').slice(0, 15).replace('T', '-');
   return `archive-${cam.replace(/[^A-Za-z0-9_-]/g, '_').slice(0, 64)}-${time}.zip`;

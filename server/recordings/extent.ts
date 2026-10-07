@@ -1,6 +1,7 @@
 import { getProxyClient, proxyPath } from '../proxy/client';
 import { logger } from '../logger';
 import { getRecordings } from './service';
+import type { CamKey } from '../fleet';
 
 // How far back a camera's content goes, for the History strip's left edge
 // (Klaus, 2026-09-28): the oldest recording on its SD card (the first event of
@@ -31,7 +32,7 @@ function monthsBack(n: number): string[] {
   return out;
 }
 
-async function cameraOldest(cameraId: string): Promise<number | null> {
+async function cameraOldest(cameraId: CamKey): Promise<number | null> {
   const rec = getRecordings();
   for (const month of monthsBack(MONTHS_BACK)) {
     const days = await rec.days(cameraId, month);
@@ -45,7 +46,7 @@ async function cameraOldest(cameraId: string): Promise<number | null> {
 
 const num = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v);
 
-async function proxyOldest(cameraId: string): Promise<{ oldest: number | null; stills: number | null } | null> {
+async function proxyOldest(cameraId: CamKey): Promise<{ oldest: number | null; stills: number | null } | null> {
   const client = getProxyClient(cameraId);
   if (!client) return null;
   const e = await client.json<{ clips: number | null; stills: number | null; previews: number | null }>(proxyPath(cameraId, '/extent'));
@@ -53,7 +54,7 @@ async function proxyOldest(cameraId: string): Promise<{ oldest: number | null; s
   return { oldest: all.length ? Math.min(...all) : null, stills: num(e.stills) ? e.stills : null };
 }
 
-export async function extent(cameraId: string): Promise<Extent> {
+export async function extent(cameraId: CamKey): Promise<Extent> {
   const hit = cache.get(cameraId);
   if (hit && Date.now() - hit.at < TTL_MS) return { oldest: hit.oldest, stills: hit.stills };
   let work = inflight.get(cameraId);
@@ -64,7 +65,7 @@ export async function extent(cameraId: string): Promise<Extent> {
   return work;
 }
 
-async function compute(cameraId: string): Promise<Extent> {
+async function compute(cameraId: CamKey): Promise<Extent> {
   const settle = <T>(p: Promise<T | null>, side: string) =>
     p.catch((err: unknown) => {
       logger.warn({ cameraId, side, message: (err as Error).message }, 'extent_side_failed');

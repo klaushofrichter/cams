@@ -24,6 +24,9 @@ jobs:
       # build only covers server/ and `check` only web/.
       - run: npm run lint:types
       - run: npm test
+      # The vendored cams-v1 contract equals cams-admin's (SOURCE names the branch).
+      - name: contract-drift
+        run: scripts/contract/cams-v1-drift.sh
       # Build every artifact in PR checks: the server, the web bundle, and a
       # tsc type check of web/ (svelte-check for .svelte files below).
       - run: npm run build

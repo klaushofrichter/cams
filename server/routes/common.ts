@@ -1,22 +1,34 @@
 import type { NextFunction, Request, Response } from 'express';
-import { getCamera } from '../cameraRegistry';
+import { resolveCamera } from '../cameraRegistry';
+import { camsIdOf, type AccountRef, type CamKey } from '../fleet';
+import type { Principal } from '../middleware/requireAuth';
 import { logger } from '../logger';
 import { getProxyClient, type ProxyClient } from '../proxy/client';
 import { CameraError } from '../reolink/client';
 
 // Helpers shared by the /api/cameras/:id routers.
 
-// The camera named by :id; an unknown one is answered 404 here (undefined).
-export function knownCamera(req: Request, res: Response): string | undefined {
-  const id = String(req.params.id);
-  if (getCamera(id)) return id;
+// The account a request acts in: the session's (one account in file mode).
+// Set by requireAuthApi (res.locals.principal); every /api route but the
+// picker's runs behind it.
+export function sessionAccount(_req: Request, res: Response): AccountRef {
+  const p = res.locals.principal as Principal | undefined;
+  if (!p) throw new Error('sessionAccount: no principal (route not behind requireAuthApi)');
+  return p.account;
+}
+
+// The camera named by :id, resolved within the session's account only (a
+// camsId is unique per account); an unknown one is answered 404 here.
+export function knownCamera(req: Request, res: Response): CamKey | undefined {
+  const id = resolveCamera(sessionAccount(req, res).id, req.params.id); // isolation-ok: resolved within the session's account
+  if (id) return id;
   res.status(404).json({ error: 'unknown_camera' });
   return undefined;
 }
 
 // The camera named by :id and its cam-proxy client; a camera without a proxy
 // in use is answered 404 no_proxy here (undefined).
-export function proxyTarget(req: Request, res: Response): { id: string; client: ProxyClient } | undefined {
+export function proxyTarget(req: Request, res: Response): { id: CamKey; client: ProxyClient } | undefined {
   const id = knownCamera(req, res);
   if (!id) return undefined;
   const client = getProxyClient(id);
@@ -27,10 +39,13 @@ export function proxyTarget(req: Request, res: Response): { id: string; client: 
   return { id, client };
 }
 
+// The camera id every JSON answer carries: the camsId (never the key).
+export const outId = (key: CamKey): string => camsIdOf(key);
+
 // A CameraError as 502 (the camera refused) or 503 (offline, auth); anything
 // else goes to the error handler. Headers already sent: no JSON body can
 // follow, so the response is cut.
-export function sendCameraError(err: unknown, cameraId: string, res: Response, next: NextFunction): void {
+export function sendCameraError(err: unknown, cameraId: CamKey, res: Response, next: NextFunction): void {
   if (res.headersSent) {
     res.destroy();
     return;

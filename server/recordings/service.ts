@@ -19,6 +19,11 @@ import { cardEvents, proxyCardEvents, thumbPlan } from './detection';
 import { RecordingError } from './errors';
 import { fallsBack, headProxyRecording, listProxyDays, listProxyDay, logProxyFailure, openProxyRecording, type ProxyRecording } from './proxyRecordings';
 import { ProxyError } from '../proxy/client';
+import { camsIdOf, fileSafe, type CamKey } from '../fleet';
+
+// A clip-cache name for one camera: flat (DiskCache refuses "/"), prefixed by
+// the account and camera (ruling R4-15), so no two accounts share a name.
+export const cacheName = (key: CamKey, rest: string): string => `${fileSafe(key)}_${rest}`;
 
 export interface EventClip {
   id: string;
@@ -94,7 +99,7 @@ function sweep(cache: Map<string, { at: number }>, maxTtl: number): void {
 }
 
 // A lazily made value per camera.
-function perCamera<T>(make: () => T): (cameraId: string) => T {
+function perCamera<T>(make: () => T): (cameraId: CamKey) => T {
   const values = new Map<string, T>();
   return (cameraId) => {
     let v = values.get(cameraId);
@@ -219,7 +224,7 @@ export class RecordingsService {
   // that leaves the downloads state alone.
   // `list`: a day or month list, which also notes an unreachable proxy for
   // listViaProxy.
-  private async viaProxy<T>(cameraId: string, what: string, ask: () => Promise<T>, signal?: AbortSignal, record = true, list = false): Promise<T | null> {
+  private async viaProxy<T>(cameraId: CamKey, what: string, ask: () => Promise<T>, signal?: AbortSignal, record = true, list = false): Promise<T | null> {
     if (!proxyActive(cameraId)) return null;
     try {
       const value = await ask();
@@ -237,7 +242,7 @@ export class RecordingsService {
 
   // viaProxy for the day and month lists: while the proxy was found
   // unreachable (a hang or a refused connection) a moment ago, null at once.
-  private async listViaProxy<T>(cameraId: string, what: string, ask: () => Promise<T>, signal?: AbortSignal): Promise<T | null> {
+  private async listViaProxy<T>(cameraId: CamKey, what: string, ask: () => Promise<T>, signal?: AbortSignal): Promise<T | null> {
     const at = this.listUnreachableAt.get(cameraId);
     if (at !== undefined && Date.now() - at < LIST_SPELL_MS) return null;
     this.listUnreachableAt.delete(cameraId);
@@ -249,7 +254,7 @@ export class RecordingsService {
   // A cam-proxy said this camera's recordings changed around `ts`: the next
   // day and month lists ask the camera again (the day before and after too,
   // for events near midnight).
-  async invalidateAround(cameraId: string, ts: number): Promise<void> {
+  async invalidateAround(cameraId: CamKey, ts: number): Promise<void> {
     const time = await this.client(cameraId).timeInfo();
     const offset = time.stdOffsetMinutes + time.dstOffsetMinutes;
     for (const t of [ts - 86_400_000, ts, ts + 86_400_000]) {
@@ -259,7 +264,7 @@ export class RecordingsService {
     }
   }
 
-  private client(cameraId: string) {
+  private client(cameraId: CamKey) {
     const c = getClient(cameraId);
     if (!c) throw new RecordingError('unknown_clip', 'unknown camera');
     return c;
@@ -279,14 +284,14 @@ export class RecordingsService {
 
   // Test-only instrumentation (fix round 1, item 8): how many transfers for
   // this camera are queued behind the one active slot right now.
-  transferQueueLength(cameraId: string): number {
+  transferQueueLength(cameraId: CamKey): number {
     return this.gate(cameraId).queued;
   }
 
   // A camera with a cam-proxy: the proxy's month list, so the camera is
   // searched by the proxy's one searcher only (an overlapping Search comes
   // back empty without an error); its own month Search when the proxy can't.
-  async days(cameraId: string, month: string): Promise<string[]> {
+  async days(cameraId: CamKey, month: string): Promise<string[]> {
     const key = `${cameraId}|${month}`;
     const hit = this.days_.get(key);
     if (hit && Date.now() - hit.at < (hit.doubtful ? TODAY_TTL : MONTH_TTL)) return hit.days;
@@ -299,7 +304,7 @@ export class RecordingsService {
 
   // `signal`: the viewer. The day's list is shared by everyone asking for it, so
   // it is abandoned only when the last of them has left.
-  private async day(cameraId: string, date: string, signal?: AbortSignal): Promise<DayEntry> {
+  private async day(cameraId: CamKey, date: string, signal?: AbortSignal): Promise<DayEntry> {
     const key = `${cameraId}|${date}`;
     const client = this.client(cameraId);
     const time = await client.timeInfo();
@@ -378,13 +383,13 @@ export class RecordingsService {
     });
   }
 
-  async events(cameraId: string, date: string, signal?: AbortSignal): Promise<EventClip[]> {
+  async events(cameraId: CamKey, date: string, signal?: AbortSignal): Promise<EventClip[]> {
     return (await this.day(cameraId, date, signal)).events;
   }
 
   // Review focus 1: ids are validated and resolved only through this
   // camera's own Search results; a camera path never comes from the client.
-  private async names(cameraId: string, clipId: string): Promise<{ sub?: string; main?: string }> {
+  private async names(cameraId: CamKey, clipId: string): Promise<{ sub?: string; main?: string }> {
     if (!CLIP_ID.test(clipId)) throw new RecordingError('unknown_clip', 'malformed clip id');
     const date = clipDate(clipId);
     const names = (await this.day(cameraId, date)).names.get(clipId);
@@ -392,8 +397,8 @@ export class RecordingsService {
     return names;
   }
 
-  private key(cameraId: string, clipId: string, ext: string): string {
-    return `${cameraId}_${clipId}.${ext}`;
+  private key(cameraId: CamKey, clipId: string, ext: string): string {
+    return cacheName(cameraId, `${clipId}.${ext}`);
   }
 
   // Pins the clip's cached sub-stream file for as long as `use` needs it:
@@ -402,7 +407,7 @@ export class RecordingsService {
   // remove this file out from under a reader.
   // The camera occasionally resets a Download before sending anything, and
   // the same request succeeds moments later: retry that case once.
-  private async downloadWithRetry(cameraId: string, name: string, signal?: AbortSignal): Promise<IncomingMessage> {
+  private async downloadWithRetry(cameraId: CamKey, name: string, signal?: AbortSignal): Promise<IncomingMessage> {
     const probe = this.guard(cameraId);
     try {
       let res: IncomingMessage;
@@ -436,7 +441,7 @@ export class RecordingsService {
   // When the camera last served a download (performance.now()).
   private readonly cameraDownloadOkAt = new Map<string, number>();
 
-  private noteRefused(cameraId: string): void {
+  private noteRefused(cameraId: CamKey): void {
     const h = this.health.get(cameraId) ?? { failures: 0, lastProbeAt: 0 };
     h.failures++;
     h.lastProbeAt = performance.now();
@@ -445,20 +450,20 @@ export class RecordingsService {
   }
 
   // BREAKER_FAILURES refusals in a row.
-  private breakerOpen(cameraId: string): boolean {
+  private breakerOpen(cameraId: CamKey): boolean {
     return (this.health.get(cameraId)?.failures ?? 0) >= BREAKER_FAILURES;
   }
 
   // The breaker is open and no probe is due: a camera download would be
   // refused by guard(). A peek; it changes nothing.
-  private refusing(cameraId: string): boolean {
+  private refusing(cameraId: CamKey): boolean {
     return this.breakerOpen(cameraId) && performance.now() - this.health.get(cameraId)!.lastProbeAt < RECORDINGS_PROBE_MS();
   }
 
   // Runs inside the transfer slot, right before a camera download, so
   // requests queued before the breaker opened are refused too.
   // Returns true when this call is the probe.
-  private guard(cameraId: string): boolean {
+  private guard(cameraId: CamKey): boolean {
     if (!this.breakerOpen(cameraId)) return false;
     if (this.refusing(cameraId)) throw new RecordingError('recordings_unavailable', 'the camera is refusing recording downloads');
     this.health.get(cameraId)!.lastProbeAt = performance.now(); // this request is the probe
@@ -470,18 +475,18 @@ export class RecordingsService {
   // refresh drives recovery: when a probe is due, fetch the newest clip in
   // the background (through the same gate and guard: still one probe per
   // interval) so the next events response can report 'ok' again.
-  probeIfDue(cameraId: string, clipId: string | undefined): void {
+  probeIfDue(cameraId: CamKey, clipId: string | undefined): void {
     if (!clipId || !this.breakerOpen(cameraId) || this.refusing(cameraId)) return;
     void this.withClip(cameraId, clipId, async () => undefined, 'low').catch(() => undefined);
   }
 
-  downloadsState(cameraId: string): DownloadsState {
+  downloadsState(cameraId: CamKey): DownloadsState {
     if (proxyActive(cameraId)) return this.proxyRecordingsFailed.get(cameraId) ? 'proxy' : 'proxy-recordings';
     return this.breakerOpen(cameraId) ? 'unavailable' : 'ok';
   }
 
   // The event's start, end and triggers, from the day's list.
-  private async eventSpan(cameraId: string, clipId: string): Promise<{ start: number; end: number; triggers: Trigger[] } | null> {
+  private async eventSpan(cameraId: CamKey, clipId: string): Promise<{ start: number; end: number; triggers: Trigger[] } | null> {
     const date = clipDate(clipId);
     const ev = (await this.day(cameraId, date)).events.find((e) => e.id === clipId);
     return ev ? { start: Date.parse(ev.start), end: Date.parse(ev.end), triggers: ev.triggers } : null;
@@ -491,7 +496,7 @@ export class RecordingsService {
   // with the event's own span (unix ms): the proxy's FTP copy can start
   // earlier or run longer, and a composition's rolls apply to the event
   // (2026-10-04). null when it has none; a failed lookup throws (issue #76).
-  async proxyClipOf(cameraId: string, clipId: string): Promise<{ id: number; event: { start: number; end: number } } | null> {
+  async proxyClipOf(cameraId: CamKey, clipId: string): Promise<{ id: number; event: { start: number; end: number } } | null> {
     if (!proxyActive(cameraId)) return null;
     const span = await this.eventSpan(cameraId, clipId);
     if (!span) return null;
@@ -502,7 +507,7 @@ export class RecordingsService {
 
   // The proxy's clip for the event, for a camera with a cam-proxy (Plan 7:
   // asked first; Plan 6: when the camera refuses). A failed lookup: none.
-  private async proxyClip(cameraId: string, clipId: string): Promise<{ id: number } | null> {
+  private async proxyClip(cameraId: CamKey, clipId: string): Promise<{ id: number } | null> {
     try {
       return await this.proxyClipOf(cameraId, clipId);
     } catch (e) {
@@ -522,7 +527,7 @@ export class RecordingsService {
   // client's search gate orders Searches) and after the breaker check.
   // An empty Search isn't final: the camera answers a Search that overlaps
   // another (the proxy's) with an empty list, and the proxy did list the file.
-  private async cameraPath(cameraId: string, clipId: string, name: string, stream: 'sub' | 'main'): Promise<string> {
+  private async cameraPath(cameraId: CamKey, clipId: string, name: string, stream: 'sub' | 'main'): Promise<string> {
     if (name.includes('/')) return name;
     const key = `${cameraId}|${clipDate(clipId)}|${stream}`;
     const hit = this.cameraPaths.get(key);
@@ -557,7 +562,7 @@ export class RecordingsService {
   // pass 'low'. If a low-priority fetch of this clip is already queued, a
   // high-priority caller promotes it rather than waiting behind other clips.
   async withClip<T>(
-    cameraId: string,
+    cameraId: CamKey,
     clipId: string,
     use: (path: string) => Promise<T>,
     priority: 'high' | 'low' = 'high',
@@ -625,7 +630,7 @@ export class RecordingsService {
   // #157); 'start', 2 s into the event (Plan 7); null when there is none, or
   // it isn't a JPEG. At most three at a time per camera, lookups included: a
   // day's list asks for all its thumbnails at once (issues #38, #76).
-  private async proxyStill(cameraId: string, clipId: string, tmp: string, rule: ThumbRule): Promise<ThumbRule | null> {
+  private async proxyStill(cameraId: CamKey, clipId: string, tmp: string, rule: ThumbRule): Promise<ThumbRule | null> {
     const used = await this.stillGate(cameraId).run(async () => {
       const span = await this.eventSpan(cameraId, clipId);
       if (!span) return null;
@@ -667,7 +672,7 @@ export class RecordingsService {
   // key (<id>.det.jpg) and only when the detection rule found the still; a
   // thumbnail cached before is never served for it. null: none (yet), the
   // ordinary thumbnail is served, and the detection is tried again later.
-  private async detectionThumbnail(cameraId: string, clipId: string, key: string, version: string): Promise<string | null> {
+  private async detectionThumbnail(cameraId: CamKey, clipId: string, key: string, version: string): Promise<string | null> {
     const miss = `${cameraId}|${clipId}|${version}`;
     const at = this.detectionMisses.get(miss);
     if (at !== undefined && Date.now() - at < DETECTION_RETRY_MS() && !(await this.cache.has(key))) return null;
@@ -690,7 +695,7 @@ export class RecordingsService {
   // (thumbPlan), and while its detection thumbnail is missing (a lookup
   // failed, or no still yet) a suffix that changes once per retry pause, so
   // a page that showed the fallback asks again; it ends once one is found.
-  thumbVersion(cameraId: string, clipId: string, planned: string): string {
+  thumbVersion(cameraId: CamKey, clipId: string, planned: string): string {
     if (!this.detectionMisses.has(`${cameraId}|${clipId}|${planned}`)) return planned;
     return `${planned}-r${Math.floor(Date.now() / Math.max(1, DETECTION_RETRY_MS()))}`;
   }
@@ -699,7 +704,7 @@ export class RecordingsService {
   // cached: DiskCache.fill() checks that internally before ever invoking
   // this producer, so a cached thumbnail is served without touching the
   // camera at all.
-  async thumbnail(cameraId: string, clipId: string): Promise<string> {
+  async thumbnail(cameraId: CamKey, clipId: string): Promise<string> {
     const jpgKey = this.key(cameraId, clipId, 'jpg');
     return this.cache.fill(jpgKey, async (tmp) => {
       // A camera with a cam-proxy: its still 2 s into the event (Plan 7),
@@ -715,7 +720,7 @@ export class RecordingsService {
     });
   }
 
-  private clipThumbnail(cameraId: string, clipId: string, tmp: string): Promise<void> {
+  private clipThumbnail(cameraId: CamKey, clipId: string, tmp: string): Promise<void> {
     return this.withClip(cameraId, clipId, async (video) => {
         try {
           await makeThumbnail(video, tmp);
@@ -738,7 +743,7 @@ export class RecordingsService {
   // new thumbnail. A retry suffix (-r…, thumbVersion) asks again, under the
   // same key. Without one (a list from before, or the proxy's events
   // unknown): <id>.det.jpg, as before.
-  async withThumbnail<T>(cameraId: string, clipId: string, use: (path: string) => Promise<T>, version?: string): Promise<T> {
+  async withThumbnail<T>(cameraId: CamKey, clipId: string, use: (path: string) => Promise<T>, version?: string): Promise<T> {
     const span = proxyActive(cameraId) ? await this.eventSpan(cameraId, clipId).catch(() => null) : null;
     if (span && hasDetection(span.triggers)) {
       const planned = version?.replace(/-r\d+$/, '');
@@ -773,7 +778,7 @@ export class RecordingsService {
   // aborts. A viewer who left is never retried on another route; a failure
   // after bytes were sent ends the response short.
   async openDownload(
-    cameraId: string,
+    cameraId: CamKey,
     clipId: string,
     quality: 'sub' | 'main',
     signal?: AbortSignal,
@@ -790,7 +795,7 @@ export class RecordingsService {
       throw new RecordingError('full_quality_unavailable', 'the full-resolution file is not listed yet');
     }
     const t = clipId.slice(9, 15);
-    const filename = `${cameraId}-${clipDate(clipId)}_${t.slice(0, 2)}-${t.slice(2, 4)}-${t.slice(4, 6)}-${served}.mp4`;
+    const filename = `${camsIdOf(cameraId)}-${clipDate(clipId)}_${t.slice(0, 2)}-${t.slice(2, 4)}-${t.slice(4, 6)}-${served}.mp4`;
 
     // 1. The proxy's recordings API (the SD file), outside the camera's slot.
     const fromSd = await this.viaProxy(cameraId, clipId, () => openProxyRecording(cameraId, baseName(name), signal), signal);
@@ -849,7 +854,7 @@ export class RecordingsService {
     release: () => void,
     signal?: AbortSignal,
     // A stream from a cam-proxy: an error after the headers (a cut) is logged.
-    proxied?: { cameraId: string; clipId: string },
+    proxied?: { cameraId: CamKey; clipId: string },
   ): { stream: Readable; filename: string; size: number | null } {
     let released = false;
     const once = () => {
@@ -878,7 +883,7 @@ export class RecordingsService {
   // failing, its FTP copy, as the download would fall back to. A file only
   // from this camera's own lists, never from the request. null: neither
   // (4K not listed, or no copy).
-  async archiveSource(cameraId: string, clipId: string, quality: 'sub' | 'main'): Promise<{ type: 'recording'; id: string } | { type: 'clip'; clipId: number } | null> {
+  async archiveSource(cameraId: CamKey, clipId: string, quality: 'sub' | 'main'): Promise<{ type: 'recording'; id: string } | { type: 'clip'; clipId: number } | null> {
     const names = await this.names(cameraId, clipId);
     const picked = pickStream(quality, names);
     if (!picked || picked.served !== quality) return null; // no silent downgrade
@@ -896,7 +901,7 @@ export class RecordingsService {
   // cameras only). The Save dialog asks before offering 4K's Save (Klaus, 2026-10-02).
   // A camera without a proxy (or with it switched off) is always available:
   // the dialog offers 4K as it always did and the download answers as ever.
-  async mainAvailable(cameraId: string, clipId: string): Promise<boolean> {
+  async mainAvailable(cameraId: CamKey, clipId: string): Promise<boolean> {
     if (!proxyActive(cameraId)) return true;
     const { main } = await this.names(cameraId, clipId);
     if (!main) return false;

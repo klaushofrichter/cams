@@ -18,6 +18,7 @@ import { createSimCamera, type SimCameraOptions, type SimState } from './camera/
 import { FAKE_TOKEN, JPEG, startFakeProxy, type FakeProxy } from './proxy/fakeProxy';
 import { recordingOf, seedRecordings } from './proxy/seedRecordings';
 import * as proxyRecordings from '../server/recordings/proxyRecordings';
+import { k } from './helpers/fleet';
 
 // The real client, spied on so one test can hand withClip a body that ends
 // cleanly but short (HTTP itself can't send that through the fake).
@@ -123,7 +124,7 @@ describe('playback and thumbnails through cam-proxy’s recordings', () => {
     const r = await binary(video(ev.id));
     expect(Buffer.compare(r.body, CLIP)).toBe(0);
     expect(state.downloads).toBe(0);
-    expect(getRecordings().downloadsState('cam1')).toBe('proxy');
+    expect(getRecordings().downloadsState(k('cam1'))).toBe('proxy');
   });
 
   // Review focus 2: the list came from the proxy (bare file names).
@@ -241,7 +242,7 @@ describe('playback and thumbnails through cam-proxy’s recordings', () => {
     const r = await binary(video(ev.id));
     expect(r.status).toBe(200);
     expect(Buffer.compare(r.body, CLIP)).toBe(0);
-    expect(getRecordings().downloadsState('cam1')).toBe('proxy');
+    expect(getRecordings().downloadsState(k('cam1'))).toBe('proxy');
   });
 
   // Task 3 handoff: a day listed by the camera's own Search holds camera
@@ -293,7 +294,7 @@ describe('finding a bare name’s folder on the camera', () => {
     const ev = (await events()).events[0];
     for (let i = 0; i < 3; i++) expect((await video(ev.id)).status).toBe(503);
     // The day again from the proxy (bare names); its file transfer fails.
-    await getRecordings().invalidateAround('cam1', Date.now());
+    await getRecordings().invalidateAround(k('cam1'), Date.now());
     fake.recordingsOverride = null;
     fake.recordingDropAfter = 0;
     expect((await events()).events[0].id).toBe(ev.id);

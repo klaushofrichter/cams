@@ -4,8 +4,9 @@ import { currentUser } from '../middleware/requireAuth';
 import { createCheckRateLimits } from '../middleware/rateLimit';
 import { proxyPath, ProxyError } from '../proxy/client';
 import { parseCheck, parseFullCheck, parseUsage, type StillCheck } from '../proxy/stillChecks';
-import { proxyTarget } from './common';
+import { outId, proxyTarget } from './common';
 import { relayImage } from './proxy';
+import type { CamKey } from '../fleet';
 
 // Still checks (cams #179, spec 2026-10-04-still-checks-ui-design): Vision on
 // a second picked on the Timeline, through the camera's cam-proxy with its
@@ -15,10 +16,10 @@ export const stillChecksRouter = Router();
 
 const DAY = 86_400_000;
 const bad = (res: Response, detail: string) => void res.status(400).json({ error: 'invalid', detail });
-const base = (id: string) => `/api/cameras/${encodeURIComponent(id)}/still-checks`;
+const base = (id: CamKey) => `/api/cameras/${encodeURIComponent(outId(id))}/still-checks`;
 
 // A check as the browser gets it: cams's own image URL, from the parsed id.
-const out = (id: string, c: StillCheck, extra: Record<string, unknown> = {}) => ({
+const out = (id: CamKey, c: StillCheck, extra: Record<string, unknown> = {}) => ({
   id: c.id,
   eventId: c.eventId,
   stillTs: c.stillTs,
@@ -43,7 +44,7 @@ function refusal(body: unknown): Record<string, unknown> {
 // The statuses the contract answers with; anything else is the gateway failing.
 const PASSED = new Set([400, 404, 409, 429, 500, 502, 503]);
 
-function failed(err: unknown, id: string, res: Response): void {
+function failed(err: unknown, id: CamKey, res: Response): void {
   if (res.destroyed) return;
   if (!(err instanceof ProxyError)) throw err;
   logger.warn({ cameraId: id, code: err.code, message: err.message }, 'still_check_proxy_failed');

@@ -10,6 +10,7 @@ import { cardEvents, kindCounts, parseProxyEvents } from '../server/recordings/d
 import { getRecordings, type EventClip } from '../server/recordings/service';
 import { SESSION_COOKIE, signSession } from '../server/session';
 import { FAKE_TOKEN, startFakeProxy, type FakeEvent, type FakeProxy } from './proxy/fakeProxy';
+import { k } from './helpers/fleet';
 
 // Klaus, 2026-10-04: a card holding several events of one AI type says so,
 // "Person 2x" (Vehicle, Pet likewise); Motion never gets a count. The real
@@ -87,7 +88,7 @@ describe('GET /api/cameras/:id/events: per-type counts', () => {
     expect(((await get()).body.events as Card[])[0].counts).toEqual({ person: 1 });
     fake.events.get('cam1')!.push(event(930, 'person', S + 45_000));
     expect(((await get()).body.events as Card[])[0].counts).toEqual({ person: 1 }); // cached
-    proxyHub.emit('message', { cam: 'den', type: 'camera-event', data: { kind: 'person', phase: 'start', ts: S + 45_000 } });
+    proxyHub.emit('message', { cam: k('den'), type: 'camera-event', data: { kind: 'person', phase: 'start', ts: S + 45_000 } });
     expect(((await get()).body.events as Card[])[0].counts).toEqual({ person: 2 });
     expect(getAiEventStore()).toBeDefined();
   });

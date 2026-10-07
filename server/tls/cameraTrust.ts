@@ -1,4 +1,5 @@
 import { cameraHost, type CameraConfig } from '../cameraRegistry';
+import type { CamKey } from '../fleet';
 import { groupOf } from '../proxy/groups';
 import type { CameraTrust } from '../reolink/http';
 import { normalizeFingerprint } from './fingerprint';
@@ -27,7 +28,7 @@ export function cameraTrust(cam: CameraConfig): CameraTrust {
 // fingerprint it serves, at the address it has now; back on the site CA,
 // the pin goes. Only for a
 // proxy with a pinned site CA: anyone else's word isn't taken.
-export async function applyProxyTls(id: string, tls: unknown): Promise<void> {
+export async function applyProxyTls(id: CamKey, tls: unknown): Promise<void> {
   if (!groupOf(id)?.pins || typeof tls !== 'object' || tls === null) return;
   const t = tls as { mode?: unknown; fingerprint?: unknown };
   if (t.mode === 'pinned') {

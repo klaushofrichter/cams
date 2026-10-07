@@ -8,6 +8,7 @@ import { CLIP_ID as EVENT, offsetAt, offsetStamp, zoneStamp, type TimeInfo } fro
 import { getRecordings } from '../recordings/service';
 import { getClient } from '../reolink/clients';
 import { knownCamera, proxyTarget } from './common';
+import { camsIdOf, type CamKey } from '../fleet';
 
 // Composed clips (cam-proxy spec 2026-09-28): the Downloads modal's calls,
 // passed to the camera's cam-proxy with its token.
@@ -40,8 +41,8 @@ const jobOk = (req: Request, res: Response) => (JOB.test(String(req.params.job))
 // counted from the last question about the job.
 const started = new Map<string, { id: string; at: number }>();
 const KEEP_MS = 20 * 60_000;
-const keyOf = (cam: string, job: string) => `${cam}\u0000${job}`;
-function remember(cam: string, id: string) {
+const keyOf = (cam: CamKey, job: string) => `${cam}\u0000${job}`;
+function remember(cam: CamKey, id: string) {
   const t = Date.now();
   for (const [k, v] of started) if (t - v.at > KEEP_MS) started.delete(k);
   started.set(keyOf(cam, id), { id, at: t });
@@ -49,14 +50,14 @@ function remember(cam: string, id: string) {
 // A composition cams started for this camera, by cams's own copy of its id
 // (the Archive button stores it, cam-proxy's archive contract §2); asking
 // keeps it, like a poll.
-export function startedComposition(cam: string, id: string): string | undefined {
+export function startedComposition(cam: CamKey, id: string): string | undefined {
   const entry = started.get(keyOf(cam, id));
   if (entry) entry.at = Date.now();
   return entry?.id;
 }
 // Each question about a job keeps it (the dialog asks once a minute while a
 // result is open, issue #76).
-function known(cam: string, req: Request, res: Response): string | undefined {
+function known(cam: CamKey, req: Request, res: Response): string | undefined {
   const entry = started.get(keyOf(cam, String(req.params.job)));
   if (!entry) return void res.status(404).json({ error: 'not_found' }), undefined;
   entry.at = Date.now();
@@ -105,7 +106,7 @@ composeRouter.post('/api/cameras/:id/compositions', async (req, res) => {
 // relayed; the proxy plans it from its clips and stills.
 const SIZES = ['sd', '360p', '720p', '1080p'];
 const AT_MAX_AGE_MS = 8 * 86_400_000; // the proxy keeps 7 days from the start of a UTC day
-async function around(t: { id: string; client: ProxyClient; base: string }, b: { eventId?: unknown; at?: unknown; preS?: unknown; postS?: unknown; size?: unknown; badge?: unknown; timeZone?: unknown; dryRun?: unknown }, res: Response) {
+async function around(t: { id: CamKey; client: ProxyClient; base: string }, b: { eventId?: unknown; at?: unknown; preS?: unknown; postS?: unknown; size?: unknown; badge?: unknown; timeZone?: unknown; dryRun?: unknown }, res: Response) {
   const bad = (detail: string) => void res.status(400).json({ error: 'invalid', detail });
   if (b.eventId !== undefined) return bad('exactly one of eventId or at');
   const at = b.at;
@@ -128,7 +129,7 @@ async function around(t: { id: string; client: ProxyClient; base: string }, b: {
     }
     const job = JSON.parse(text) as { id?: unknown };
     if (typeof job.id === 'string' && JOB.test(job.id)) remember(t.id, job.id);
-    res.status(201).json({ ...job, name: `${t.id}-${await stampOf(t.id, at, zone)}-around.mp4` });
+    res.status(201).json({ ...job, name: `${camsIdOf(t.id)}-${await stampOf(t.id, at, zone)}-around.mp4` });
   } catch (err) {
     failed(err, res);
   }
@@ -145,7 +146,7 @@ const validZone = (z: string) => {
 // (its time settings and DST rule, as every other save is named, #72); in
 // the viewer's zone, else UTC, when the camera can't be asked within 2 s
 // (ruling 16).
-async function stampOf(cam: string, at: number, zone: string | undefined): Promise<string> {
+async function stampOf(cam: CamKey, at: number, zone: string | undefined): Promise<string> {
   let time: TimeInfo;
   try {
     const client = getClient(cam);
@@ -159,7 +160,7 @@ async function stampOf(cam: string, at: number, zone: string | undefined): Promi
 
 // The event → proxy clip lookup failed (the proxy, or the camera's day list):
 // not "no copy", which the dialog would take as final (issue #76).
-function lookupFailed(id: string, err: unknown, res: Response) {
+function lookupFailed(id: CamKey, err: unknown, res: Response) {
   logger.warn({ cameraId: id, message: (err as Error).message }, 'proxy_clip_lookup_failed');
   res.status(502).json({ error: 'proxy_unavailable' });
 }

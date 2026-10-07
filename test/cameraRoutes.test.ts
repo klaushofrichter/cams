@@ -10,6 +10,7 @@ import { liveStreamCount, MAX_LIVE_PER_CAMERA } from '../server/routes/cameras';
 import { logger } from '../server/logger';
 import { SESSION_COOKIE, signSession } from '../server/session';
 import { createSimCamera, SimState } from './camera/sim';
+import { k } from './helpers/fleet';
 
 const auth = `${SESSION_COOKIE}=${signSession('klaus@klaushofrichter.net')}`;
 let camServer: Server;
@@ -139,7 +140,7 @@ describe('camera routes', () => {
           })
           .on('error', reject);
       });
-      await waitFor(() => liveStreamCount('down') === 0, { timeoutMs: 150 });
+      await waitFor(() => liveStreamCount(k('down')) === 0, { timeoutMs: 150 });
     } finally {
       agent.destroy();
     }
@@ -156,10 +157,10 @@ describe('camera routes', () => {
   // Review focus 2: a closed tab releases the slot and the camera connection.
   it('releases the stream slot and closes the camera stream when the client disconnects', async () => {
     const res = await openLive();
-    expect(liveStreamCount('cam1')).toBe(1);
+    expect(liveStreamCount(k('cam1'))).toBe(1);
     expect(camState.activeStreams).toBe(1);
     res.destroy();
-    await waitFor(() => liveStreamCount('cam1') === 0);
+    await waitFor(() => liveStreamCount(k('cam1')) === 0);
     // Mutation coverage: this only reaches 0 because release() calls
     // abort.abort(), which cancels the still-open request to the camera.
     // Without it, the camera's own connection is never closed.
@@ -185,12 +186,12 @@ describe('camera routes', () => {
       });
       // The request must actually have reached the route (slot taken) before
       // the disconnect, or this test could pass without testing anything.
-      await waitFor(() => liveStreamCount('cam1') === 1);
+      await waitFor(() => liveStreamCount(k('cam1')) === 1);
       await sleep(50);
       req.destroy();
       // Well under flvDelayMs: only passes if the disconnect releases the
       // slot immediately, not after the delayed camera response arrives.
-      await waitFor(() => liveStreamCount('cam1') === 0, { timeoutMs: 150 });
+      await waitFor(() => liveStreamCount(k('cam1')) === 0, { timeoutMs: 150 });
       // Mutation coverage: without abort.abort(), the pending request to the
       // camera is never cancelled, so the simulator's delayed handler still runs
       // at flvDelayMs and starts a stream nobody is listening for. Wait past
@@ -209,7 +210,7 @@ describe('camera routes', () => {
     expect(extra.status).toBe(503);
     expect(extra.body).toEqual({ error: 'too_many_streams' });
     open.forEach((r) => r.destroy());
-    await waitFor(() => liveStreamCount('cam1') === 0);
+    await waitFor(() => liveStreamCount(k('cam1')) === 0);
   });
 
   it('treats an unknown quality as sub', async () => {
@@ -228,7 +229,7 @@ describe('camera routes', () => {
       await waitFor(() => warnSpy.mock.calls.some(([, msg]) => msg === 'camera_stream_failed'));
       const [fields, msg] = warnSpy.mock.calls.find(([, m]) => m === 'camera_stream_failed')!;
       expect(msg).toBe('camera_stream_failed');
-      expect(fields).toMatchObject({ cameraId: 'cam1', code: 'stream_interrupted' });
+      expect(fields).toMatchObject({ cameraId: k('cam1'), code: 'stream_interrupted' });
       res.destroy();
     } finally {
       warnSpy.mockRestore();

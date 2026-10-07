@@ -5,10 +5,12 @@ import request from 'supertest';
 import jwt from 'jsonwebtoken';
 import { signSession, verifySession, SESSION_COOKIE } from '../server/session';
 import { currentUser, noStore, requireAuthApi, requireAuthPage } from '../server/middleware/requireAuth';
+import { createApiRateLimit } from '../server/middleware/rateLimit';
 
 function appWithGuards() {
   const app = express();
   app.use(cookieParser());
+  app.use(createApiRateLimit()); // as the real app (CodeQL js/missing-rate-limiting)
   app.get('/whoami', (req, res) => res.json(currentUser(req)));
   app.get('/app/page', noStore, requireAuthPage, (_req, res) => res.send('page'));
   app.get('/api/thing', noStore, requireAuthApi, (_req, res) => res.json({ ok: true }));

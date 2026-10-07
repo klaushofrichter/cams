@@ -7,6 +7,7 @@ import { groupOf } from './groups';
 import { getProxyClient } from './client';
 import { entryOf, readProxyList, type ProxyCameraEntry } from './cameraList';
 import { proxyHub, proxyStates } from './stream';
+import { accountIdOf, type CamKey } from '../fleet';
 
 // A camera's name from its cam-proxy (design camera-name-design.md): the
 // proxy's camera info `name` (GET /api/cameras, what the camera reports),
@@ -17,7 +18,7 @@ import { proxyHub, proxyStates } from './stream';
 
 const GRACE_MS = 120_000;
 let graceMs = GRACE_MS;
-const downTimers = new Map<string, NodeJS.Timeout>();
+const downTimers = new Map<CamKey, NodeJS.Timeout>();
 
 // Tests: a shorter grace period (no argument: the default again).
 export function setNameGraceMs(ms = GRACE_MS): void {
@@ -25,7 +26,7 @@ export function setNameGraceMs(ms = GRACE_MS): void {
 }
 
 // The registry name again now (the proxy was switched off).
-export function forgetProxyName(id: string): void {
+export function forgetProxyName(id: CamKey): void {
   clearTimeout(downTimers.get(id));
   downTimers.delete(id);
   setReportedName(id, null);
@@ -35,7 +36,7 @@ export function forgetProxyName(id: string): void {
 export const plausibleName = (v: unknown): v is string => typeof v === 'string' && v.length > 0 && v.length <= 64 && !/\p{C}/u.test(v);
 
 // The camera's entry in the proxy's camera list (no answer, no entry: undefined).
-async function readProxyEntry(id: string, timeoutMs: number, maxAgeMs?: number): Promise<ProxyCameraEntry | undefined> {
+async function readProxyEntry(id: CamKey, timeoutMs: number, maxAgeMs?: number): Promise<ProxyCameraEntry | undefined> {
   if (!getProxyClient(id)) return undefined;
   try {
     return entryOf(id, await readProxyList(id, timeoutMs, maxAgeMs === undefined ? {} : { maxAgeMs }));
@@ -46,7 +47,7 @@ async function readProxyEntry(id: string, timeoutMs: number, maxAgeMs?: number):
 }
 
 // The name in the proxy's camera list, or undefined (no answer, no entry).
-export async function readProxyName(id: string, timeoutMs = 5000): Promise<string | undefined> {
+export async function readProxyName(id: CamKey, timeoutMs = 5000): Promise<string | undefined> {
   const mine = await readProxyEntry(id, timeoutMs);
   return plausibleName(mine?.name) ? mine.name : undefined;
 }
@@ -54,10 +55,10 @@ export async function readProxyName(id: string, timeoutMs = 5000): Promise<strin
 // The name and, for a "from-proxy" camera, its address (spec
 // 2026-10-04-camera-address-from-proxy-design): read when the stream comes up.
 // `fresh`: not from a list read in the last 2 s (a camera that just moved).
-export async function refreshProxyName(id: string, o: { fresh?: boolean } = {}): Promise<void> {
+export async function refreshProxyName(id: CamKey, o: { fresh?: boolean } = {}): Promise<void> {
   const mine = await readProxyEntry(id, 5000, o.fresh ? 0 : undefined);
   // The stream may have gone down (or the proxy been switched off) meanwhile.
-  if (!mine || !proxyStates().some((s) => s.cam === id && s.up)) return;
+  if (!mine || !proxyStates(accountIdOf(id)).some((s) => s.cam === id && s.up)) return;
   if (plausibleName(mine.name)) setReportedName(id, mine.name);
   setReportedAddress(id, mine.address);
   // A pinned proxy whose CA isn't verified yet (it didn't answer when cams
@@ -74,13 +75,13 @@ export async function refreshProxyName(id: string, o: { fresh?: boolean } = {}):
 // meanwhile gets its new pin (and name) without a restart.
 const REFRESH_MS = 15 * 60_000;
 let refreshMs = REFRESH_MS;
-const refreshTimers = new Map<string, NodeJS.Timeout>();
+const refreshTimers = new Map<CamKey, NodeJS.Timeout>();
 // Tests: a shorter interval (no argument: the default again).
 export function setListRefreshMs(ms = REFRESH_MS): void {
   refreshMs = ms;
 }
 
-proxyHub.on('state', (s: { cam: string; up: boolean }) => {
+proxyHub.on('state', (s: { cam: CamKey; up: boolean }) => {
   if (!getCamera(s.cam)?.proxy) return;
   clearTimeout(downTimers.get(s.cam));
   downTimers.delete(s.cam);
@@ -100,7 +101,7 @@ proxyHub.on('state', (s: { cam: string; up: boolean }) => {
   downTimers.set(s.cam, timer);
 });
 
-proxyHub.on('message', (m: { cam: string; type: string; data: Record<string, unknown> }) => {
+proxyHub.on('message', (m: { cam: CamKey; type: string; data: Record<string, unknown> }) => {
   if (m.type !== 'camera') return;
   if (plausibleName(m.data.name)) setReportedName(m.cam, m.data.name);
   // cam-proxy's `camera` message carries the address too (it may carry only that).

@@ -9,6 +9,7 @@ import { getRecordings } from '../server/recordings/service';
 import { getClient } from '../server/reolink/clients';
 import { SESSION_COOKIE, signSession } from '../server/session';
 import { FAKE_TOKEN, startFakeProxy, type FakeProxy } from './proxy/fakeProxy';
+import { k } from './helpers/fleet';
 
 const auth = `${SESSION_COOKIE}=${signSession('klaus@klaushofrichter.net')}`;
 const EVENT = '20260928-140000-140020';
@@ -190,7 +191,7 @@ describe('compositions around a second', () => {
     fake.stills.set('cam1', new Map(Array.from({ length: 61 }, (_, i) => [AT - 30_000 + i * 1000, jpeg])));
     fake.clips.push({ id: 9, cam: 'cam1', start: AT + 20_000, end: AT + 30_000, stream: 'sub', events: [], body: Buffer.alloc(1) });
     // The camera's time settings: UTC-6, DST by the US rule (UTC-5 in summer).
-    vi.spyOn(getClient('den')!, 'timeInfo').mockResolvedValue({ stdOffsetMinutes: -360, dstOffsetMinutes: 60, dstRule: US_RULE });
+    vi.spyOn(getClient(k('den'))!, 'timeInfo').mockResolvedValue({ stdOffsetMinutes: -360, dstOffsetMinutes: 60, dstRule: US_RULE });
   });
   const US_RULE = { start: { mon: 3, week: 2, weekday: 0, minutes: 120 }, end: { mon: 11, week: 1, weekday: 0, minutes: 120 } };
   const around = (more: object = {}) => post('den', { at: AT, preS: 10, postS: 10, size: 'sd', badge: true, ...more });
@@ -227,7 +228,7 @@ describe('compositions around a second', () => {
   });
 
   it('names the file in the viewer\'s zone when the camera\'s time is unknown, else UTC', async () => {
-    vi.spyOn(getClient('den')!, 'timeInfo').mockRejectedValue(new Error('offline'));
+    vi.spyOn(getClient(k('den'))!, 'timeInfo').mockRejectedValue(new Error('offline'));
     expect((await around({ timeZone: 'Asia/Tokyo' })).body.name).toBe(`den-${stamp(AT, 540)}-around.mp4`);
     expect((await around()).body.name).toBe(`den-${stamp(AT, 0)}-around.mp4`);
   });
