@@ -13,7 +13,8 @@ import { accountRefOf, asAccountLayout, backupOnce, claimsAccountLayout, entryFo
 // volume in the cluster), else the temp folder. Either layout
 // (server/stateLayout.ts): today's (the file account's) or, after the first
 // cams-admin start, `{v: 2, accounts: {<id>: {name, data: {cam1: false}}}}`.
-const file = () =>
+export const proxyStateFile = (): string => file();
+const file = (): string =>
   process.env.PROXY_STATE_FILE ||
   (process.env.PREFS_FILE ? join(dirname(process.env.PREFS_FILE), 'proxy-state.json') : join(tmpdir(), 'cams-proxy-state.json'));
 type Off = Record<string, false>;

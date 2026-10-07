@@ -1,6 +1,6 @@
 // cams's command line (migration P4):
 //   node dist/server/cli.js admin-enroll --url <cams-admin>   (the code on stdin)
-//   node dist/server/cli.js export-config                     (Task 13)
+//   node dist/server/cli.js export-config                     (stdout: a redacted cameras.json)
 // The enrollment code is never an argument (it would sit in the shell
 // history and the process list); it is read from stdin, silently on a TTY.
 import { dirname } from 'path';
@@ -8,6 +8,7 @@ import type { Readable } from 'stream';
 import { enroll, EnrollError, normaliseCamsCode } from './admin/enroll';
 import { writeKeyFile } from './admin/keyfile';
 import { appVersion } from './version';
+import { exportConfig } from './exportConfig';
 
 export interface CliIo { stdin: Readable; out: (line: string) => void; err: (line: string) => void; env: NodeJS.ProcessEnv }
 
@@ -85,9 +86,20 @@ async function adminEnroll(args: string[], io: CliIo): Promise<number> {
   }
 }
 
+// cameras.json without secrets, for cams-admin's import (M §11.1).
+function exportConfigCmd(io: CliIo): number {
+  if (!io.env.CAMERAS_FILE) {
+    io.err('export-config reads CAMERAS_FILE, which is not set');
+    return 2;
+  }
+  io.out(JSON.stringify(exportConfig(Date.now, appVersion() || 'dev'), null, 2));
+  return 0;
+}
+
 export async function runCli(argv: string[], io: CliIo): Promise<number> {
   const [cmd, ...rest] = argv;
   if (cmd === 'admin-enroll') return adminEnroll(rest, io);
+  if (cmd === 'export-config') return exportConfigCmd(io);
   io.err(USAGE);
   return 2;
 }

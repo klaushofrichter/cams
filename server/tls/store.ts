@@ -23,6 +23,7 @@ const entryKey = (cam: CamKey): string => (layout === 'old' && isFileAccount(acc
 // CA or pin would let another host take the camera login (it carries the
 // password). So never the temp folder, and a file another user owns or could
 // write is refused at start (security review of PR #227).
+export const tlsStateFile = (): string | undefined => file();
 const file = (): string | undefined =>
   process.env.PROXY_TLS_FILE || (process.env.PREFS_FILE ? join(dirname(process.env.PREFS_FILE), 'proxy-tls.json') : undefined);
 
