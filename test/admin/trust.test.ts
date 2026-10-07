@@ -28,6 +28,18 @@ describe('TrustStore', () => {
     expect(t.decide(ALPHA, 'cam1', V())).toEqual({ use: V(), confirmed: true, held: null });
   });
 
+  it('the file account id is recorded once even when trust.json was written before that account appeared (N2); never moved afterwards', async () => {
+    const dir = dirOf();
+    const t = TrustStore.load(dir);
+    t.decide(ALPHA, 'cam9', V());
+    await confirmAs(t, 'cam9'); // trust.json exists now, no file account yet
+    expect(t.fileAccountId()).toBeNull();
+    t.recordFileAccount('acc_HOMEHOMEHOMEHOMEHOME');
+    expect(TrustStore.load(dir).fileAccountId()).toBe('acc_HOMEHOMEHOMEHOMEHOME');
+    t.recordFileAccount('acc_OTHEROTHEROTHEROTHER');
+    expect(TrustStore.load(dir).fileAccountId()).toBe('acc_HOMEHOMEHOMEHOMEHOME');
+  });
+
   it('a new camera is held (never confirmed by itself, credentials or not): its offer shows, it is not confirmed', () => {
     const dir = dirOf();
     const t = TrustStore.load(dir);

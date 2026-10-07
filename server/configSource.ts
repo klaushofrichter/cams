@@ -298,7 +298,16 @@ function recordedHome(): string | null {
 // R4-11: at the first cams-admin start, today's cameras.json is the
 // confirmed state for the file account (before any decision is made).
 function seedTrustOnce(s: Snapshot): void {
-  if (!st.trust || st.trust.exists()) return;
+  if (!st.trust) return;
+  if (st.trust.exists()) {
+    // Written before the file account appeared: record it now (N2).
+    const home = !st.trust.fileAccountId() ? homeIn(s) : undefined;
+    if (home) {
+      st.trust.recordFileAccount(home.id);
+      st.recordedHome = home.id;
+    }
+    return;
+  }
   const home = homeIn(s);
   if (home) {
     st.trust.seedFromFile({ id: home.id, name: home.name, displayName: home.displayName }, st.legacy);

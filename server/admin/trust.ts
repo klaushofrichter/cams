@@ -91,6 +91,15 @@ export class TrustStore {
     return this.data.fileAccountId ?? null;
   }
 
+  // Records the file account's id once (the store may exist before that
+  // account appeared, security re-review N2); a recorded id never moves.
+  recordFileAccount(id: string): void {
+    if (this.data.fileAccountId) return;
+    this.data.fileAccountId = id;
+    this.save();
+    logger.info({ accountId: id }, 'file_account_recorded');
+  }
+
   // R4-11: today's cameras.json is the confirmed state (once, at the first
   // cams-admin start); the file account's cameras, under its id.
   seedFromFile(account: AccountRef, cams: FileCameraConfig[]): void {

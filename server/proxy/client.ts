@@ -191,16 +191,20 @@ export async function errorBody(res: Response): Promise<{ error?: string; reason
   }
 }
 
-// One client per cam-proxy (group: url + token) for the life of the process.
+// One client per cam-proxy (group: account + url + token) and endpoint (its
+// pins and TLS name): a confirmed pin or TLS-name change on the same URL and
+// token gets a new client at once (security re-review N1).
 const clients = new Map<string, ProxyClient>();
+const clientKey = (g: ProxyGroup) => `${g.key}\u0000${[...(g.pins ?? [])].sort().join(',')}\u0000${g.tlsServername ?? ''}`;
 
 // The group's client whether or not the camera's proxy is switched on (the
 // Settings page's proxy info asks even then).
 export function proxyClientFor(id: CamKey): ProxyClient | undefined {
   const g = groupOf(id);
   if (!g) return undefined;
-  let client = clients.get(g.key);
-  if (!client) clients.set(g.key, (client = new ProxyClient({ url: g.url, token: g.token }, trustOf(g))));
+  const k = clientKey(g);
+  let client = clients.get(k);
+  if (!client) clients.set(k, (client = new ProxyClient({ url: g.url, token: g.token }, trustOf(g))));
   return client;
 }
 

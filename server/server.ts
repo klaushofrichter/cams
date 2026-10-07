@@ -4,7 +4,7 @@ import { assertRequiredEnv } from './config';
 import { logger } from './logger';
 import { startConfig, stopConfig } from './configSource';
 import { fleetEvents } from './fleet';
-import { resetClients } from './reolink/clients';
+import { onFleetApplied } from './fleetApply';
 import { startProxyStreams, stopProxyStreams } from './proxy/stream';
 
 async function main(): Promise<void> {
@@ -21,9 +21,7 @@ async function main(): Promise<void> {
   // proxies' streams start again with it (new URLs, tokens, passwords).
   let stopping = false;
   fleetEvents.on('applied', () => {
-    if (stopping) return;
-    resetClients();
-    startProxyStreams();
+    if (!stopping) onFleetApplied();
   });
   process.once('SIGTERM', () => {
     stopping = true;
