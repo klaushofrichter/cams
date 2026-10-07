@@ -3,8 +3,12 @@ import { promises as fs } from 'fs';
 import { tmpdir } from 'os';
 import { dirname, join } from 'path';
 import { resolveCamera } from './cameraRegistry';
-import { fileAccount } from './fleet';
+import { fileAccount, type AccountRef } from './fleet';
 import { logger } from './logger';
+import { asAccountLayout, backupOnce, claimsAccountLayout, entryFor, isFileAccount, toAccounts, withEntry, type Loaded } from './stateLayout';
+
+type AllPrefs = Record<string, Partial<Preferences>>;
+const isPrefsMap = (v: unknown): v is AllPrefs => typeof v === 'object' && v !== null && !Array.isArray(v);
 
 export interface Preferences {
   defaultCamera: string | null; // null: the last camera used (Klaus, 2026-09-28)
@@ -55,55 +59,109 @@ class CorruptPreferencesError extends Error {
 }
 
 // `forSave`: a corrupt file throws instead of reading as empty. Reads for
-// display still fall back to defaults.
-async function readAll(forSave = false): Promise<Record<string, Partial<Preferences>>> {
+// display still fall back to defaults. Either layout (server/stateLayout.ts):
+// the old one is the file account's; a missing file reads as the old one.
+const EMPTY = (): Loaded<AllPrefs> => ({ layout: 'old', data: {} });
+async function readAll(forSave = false): Promise<Loaded<AllPrefs>> {
   let text: string;
   try {
     text = await fs.readFile(file(), 'utf8');
   } catch (err) {
-    if ((err as NodeJS.ErrnoException).code === 'ENOENT') return {}; // first save ever
+    if ((err as NodeJS.ErrnoException).code === 'ENOENT') return EMPTY(); // first save ever
     // Unreadable (EACCES, EIO…): never overwrite it with one user's data.
     if (forSave) {
       logger.error({ err: (err as Error).message }, 'preferences file unreadable; refusing to save over it');
       throw new CorruptPreferencesError();
     }
     logger.warn({ err: (err as Error).message }, 'preferences file unreadable; using defaults');
-    return {};
+    return EMPTY();
   }
   // An empty file (e.g. left by a crash before writes were fsynced) holds no
   // preferences; treat it as none rather than blocking every save.
-  if (text.trim() === '') return {};
+  if (text.trim() === '') return EMPTY();
   let parsed: unknown;
   try {
     parsed = JSON.parse(text);
   } catch {
     parsed = undefined;
   }
-  if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) return parsed as Record<string, Partial<Preferences>>;
+  if (claimsAccountLayout(parsed)) {
+    const l = asAccountLayout(parsed, isPrefsMap);
+    if (l) return { layout: 'accounts', file: l };
+  } else if (isPrefsMap(parsed)) return { layout: 'old', data: parsed };
   if (forSave) {
     logger.error('preferences file is corrupt; refusing to save over it');
     throw new CorruptPreferencesError();
   }
   logger.warn('preferences file is corrupt; using defaults');
-  return {};
+  return EMPTY();
+}
+
+// The account's users' preferences in a loaded file (the old layout is the
+// file account's only).
+function usersOf(l: Loaded<AllPrefs>, account: AccountRef): AllPrefs {
+  if (l.layout === 'accounts') return entryFor(l.file, account) ?? {};
+  return isFileAccount(account) ? l.data : {};
 }
 
 // What's stored may come from an older version or a hand edit: keep only
 // known fields whose values are still valid (a removed camera, for one).
-function sanitize(stored: unknown): Partial<Preferences> {
+function sanitize(accountId: string, stored: unknown): Partial<Preferences> {
   const out: Record<string, unknown> = {};
   if (typeof stored !== 'object' || stored === null || Array.isArray(stored)) return out;
   for (const k of Object.keys(DEFAULT_PREFERENCES)) {
     if (!Object.prototype.hasOwnProperty.call(stored, k)) continue;
     const v = (stored as Record<string, unknown>)[k];
-    const r = validatePreferencesPatch({ [k]: v });
+    const r = validatePreferencesPatch(accountId, { [k]: v });
     if (r.ok) out[k] = (r.patch as Record<string, unknown>)[k];
   }
   return out as Partial<Preferences>;
 }
 
-export async function getPreferences(email: string): Promise<Preferences> {
-  return { ...DEFAULT_PREFERENCES, ...sanitize((await readAll())[email.toLowerCase()]) };
+export async function getPreferences(account: AccountRef, email: string): Promise<Preferences> {
+  return { ...DEFAULT_PREFERENCES, ...sanitize(account.id, usersOf(await readAll(), account)[email.toLowerCase()]) };
+}
+
+// Atomic write: temp file with a random part, fsync, rename.
+async function writeAtomic(content: string): Promise<void> {
+  await fs.mkdir(dirname(file()), { recursive: true });
+  const tmp = `${file()}.tmp-${randomBytes(6).toString('hex')}`;
+  try {
+    // Synced before the rename, so a crash right after it can't leave the
+    // new name pointing at a file whose data never reached the disk.
+    const fh = await fs.open(tmp, 'w');
+    try {
+      await fh.writeFile(content);
+      await fh.sync();
+    } finally {
+      await fh.close();
+    }
+    await fs.rename(tmp, file());
+  } catch (err) {
+    await fs.rm(tmp, { force: true });
+    throw err;
+  }
+}
+
+// The first start in cams-admin mode (M §11.5): the old layout moves under
+// the account (the file account, as the snapshot names it); a copy stays as
+// .pre-accounts.bak. True if it moved.
+export function moveToAccounts(account: AccountRef): Promise<boolean> {
+  const run = writing.then(async () => {
+    const l = await readAll(true);
+    if (l.layout !== 'old') return false;
+    try {
+      await fs.access(file());
+    } catch {
+      return false; // nothing stored yet
+    }
+    await backupOnce(file());
+    await writeAtomic(JSON.stringify(toAccounts(l.data, account), null, 2));
+    logger.info('preferences_moved_to_accounts');
+    return true;
+  });
+  writing = run.catch(() => undefined);
+  return run;
 }
 
 // Writes are serialized and atomic (temp file, fsync, rename in the same
@@ -111,43 +169,37 @@ export async function getPreferences(email: string): Promise<Preferences> {
 // file on the volume. During a rolling deploy the old and new pods both mount
 // the volume for a few seconds, and both run as PID 1 in their containers, so
 // the temp name needs a random part, not the PID.
-export function savePreferences(email: string, patch: Partial<Preferences>): Promise<Preferences> {
+export function savePreferences(account: AccountRef, email: string, patch: Partial<Preferences>): Promise<Preferences> {
   const run = writing.then(async () => {
-    const all = await readAll(true);
+    const l = await readAll(true);
     const key = email.toLowerCase();
-    const next = { ...DEFAULT_PREFERENCES, ...sanitize(all[key]), ...patch };
-    all[key] = next;
-    await fs.mkdir(dirname(file()), { recursive: true });
-    const tmp = `${file()}.tmp-${randomBytes(6).toString('hex')}`;
-    try {
-      // Synced before the rename, so a crash right after it can't leave the
-      // new name pointing at a file whose data never reached the disk.
-      const fh = await fs.open(tmp, 'w');
-      try {
-        await fh.writeFile(JSON.stringify(all, null, 2));
-        await fh.sync();
-      } finally {
-        await fh.close();
-      }
-      await fs.rename(tmp, file());
-    } catch (err) {
-      await fs.rm(tmp, { force: true });
-      throw err;
+    const users = { ...usersOf(l, account) };
+    const next = { ...DEFAULT_PREFERENCES, ...sanitize(account.id, users[key]), ...patch };
+    users[key] = next;
+    // The layout it found; the old one only for the file account (another
+    // account's entry needs the account layout: the old data moves first).
+    let content: unknown;
+    if (l.layout === 'old' && isFileAccount(account)) content = users;
+    else {
+      if (l.layout === 'old') await backupOnce(file()).catch(() => undefined);
+      const base = l.layout === 'accounts' ? l.file : Object.keys(l.data).length ? toAccounts(l.data, fileAccount()) : { v: 2 as const, accounts: {} };
+      content = withEntry(base, account, users);
     }
+    await writeAtomic(JSON.stringify(content, null, 2));
     return next;
   });
   writing = run.catch(() => undefined);
   return run;
 }
 
-export function validatePreferencesPatch(body: unknown): { ok: true; patch: Partial<Preferences> } | { ok: false; details: string[] } {
+export function validatePreferencesPatch(accountId: string, body: unknown): { ok: true; patch: Partial<Preferences> } | { ok: false; details: string[] } {
   if (typeof body !== 'object' || body === null || Array.isArray(body)) return { ok: false, details: ['body must be an object'] };
   const b = body as Record<string, unknown>;
   const details: string[] = [];
   // Own keys only: `in` would accept inherited names such as 'toString'.
   for (const k of Object.keys(b)) if (!Object.prototype.hasOwnProperty.call(DEFAULT_PREFERENCES, k)) details.push(`${k}: unknown field`);
-  if ('defaultCamera' in b && b.defaultCamera !== null && !resolveCamera(fileAccount().id, b.defaultCamera)) details.push('defaultCamera: a configured camera id or null');
-  if ('lastCamera' in b && b.lastCamera !== null && !resolveCamera(fileAccount().id, b.lastCamera)) details.push('lastCamera: a configured camera id or null');
+  if ('defaultCamera' in b && b.defaultCamera !== null && !resolveCamera(accountId, b.defaultCamera)) details.push('defaultCamera: a configured camera id or null');
+  if ('lastCamera' in b && b.lastCamera !== null && !resolveCamera(accountId, b.lastCamera)) details.push('lastCamera: a configured camera id or null');
   if ('liveQuality' in b && b.liveQuality !== 'sub' && b.liveQuality !== 'main') details.push('liveQuality: sub or main');
   let eventFilter: EventKind[] | null = null;
   if ('eventFilter' in b && !(eventFilter = eventFilterOf(b.eventFilter))) details.push('eventFilter: a list of person, vehicle, pet and motion');
