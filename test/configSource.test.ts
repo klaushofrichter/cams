@@ -276,6 +276,30 @@ describe('cams-admin mode', () => {
   });
 });
 
+describe('the pull interval', () => {
+  it('CAMS_ADMIN_PULL_MS shortens it (1–60 s, for tests and the local stack); anything else is the 60 s default', async () => {
+    await enrolled();
+    fake.setSnapshot(twoAccountsSnapshot());
+    process.env.CONFIG_SOURCE = 'cams-admin';
+    const saved = process.env.CAMS_ADMIN_PULL_MS;
+    try {
+      process.env.CAMS_ADMIN_PULL_MS = '2000';
+      await startConfig();
+      expect(nextDelayMs()).toBe(2000);
+      stopConfig();
+      for (const v of ['500', '120000', 'x']) {
+        process.env.CAMS_ADMIN_PULL_MS = v;
+        await startConfig();
+        expect([v, nextDelayMs()]).toEqual([v, 60_000]);
+        stopConfig();
+      }
+    } finally {
+      if (saved === undefined) delete process.env.CAMS_ADMIN_PULL_MS;
+      else process.env.CAMS_ADMIN_PULL_MS = saved;
+    }
+  });
+});
+
 describe('tokens in cams-admin mode (R4-12)', () => {
   it('registers its own tokens; uses the legacy file token until the snapshot lists them active, then switches', async () => {
     await enrolled();

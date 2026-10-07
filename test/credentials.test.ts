@@ -90,6 +90,18 @@ describe('without credentials', () => {
   });
 });
 
+describe('the camera list', () => {
+  it('says which cameras have no usable password here (for the camera login), only then', async () => {
+    const cams = keyed(ALPHA, [
+      { id: 'cam1', name: 'A', host: '127.0.0.1:9', protocol: 'http', user: 'cams', password: '' },
+      { id: 'cam2', name: 'B', host: '127.0.0.1:9', protocol: 'http', user: 'cams', password: 'pw' },
+    ]).map((c) => (c.camsId === 'cam1' ? { ...c, credentials: 'missing' as const } : c));
+    applyFleet([{ id: ALPHA, name: 'alpha', displayName: 'Alpha', users: [{ email: 'a@example.org', role: 'admin', disabled: false }], cameras: cams }]);
+    const r = await request(createApp()).get('/api/cameras').set('Cookie', cookieFor('a@example.org', ALPHA));
+    expect(r.body.map((c: { id: string; credentials?: string }) => [c.id, c.credentials])).toEqual([['cam1', 'missing'], ['cam2', undefined]]);
+  });
+});
+
 describe('PUT /api/cameras/:id/credentials', () => {
   const cam = (credentials: 'ok' | 'missing' | 'mismatch' = 'missing') =>
     keyed(ALPHA, [{ id: 'cam1', name: 'A', host: '127.0.0.1:9', protocol: 'http', user: 'cams', password: '' }]).map((c) => ({ ...c, credentials }));

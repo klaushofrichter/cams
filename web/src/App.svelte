@@ -9,6 +9,9 @@
   import Archive from './pages/Archive.svelte';
   import Settings from './pages/Settings.svelte';
   import About from './pages/About.svelte';
+  import Accounts from './pages/Accounts.svelte';
+  import HeldBanner from './components/HeldBanner.svelte';
+  import StaleBanner from './components/StaleBanner.svelte';
   import { initRouter, route } from './lib/router';
   import { cameras, drawerOpen, me, selectedCameraId, sidebarCollapsed, theme, type CameraSummary, type Me } from './lib/stores';
   import { getJson, UnauthorizedError, watchMediaErrors } from './lib/api';
@@ -102,6 +105,7 @@
   <div class="side"><Sidebar /></div>
   <main class="main">
     {#if loadError}<div class="error" role="alert">{loadError}</div>{/if}
+    {#if ready && $route.page !== 'accounts'}<StaleBanner /><HeldBanner />{/if}
     {#if ready}
       <!-- Outside the {#key} below: a route change must not remount the video page. -->
       {#if videoMounted}
@@ -113,7 +117,8 @@
             {#if $route.page === 'timeline'}<Timeline />
             {:else if $route.page === 'archive'}<Archive />
             {:else if $route.page === 'settings'}<Settings />
-            {:else if $route.page === 'about'}<About />{/if}
+            {:else if $route.page === 'about'}<About />
+            {:else if $route.page === 'accounts'}<Accounts />{/if}
           </div>
         {/key}
       {/if}

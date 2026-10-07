@@ -392,7 +392,10 @@ export async function startConfig(o: StartOptions = {}): Promise<void> {
     loadProxyState();
     loadTlsState();
   }
-  st.puller = new Puller({ pull: pullOnce, intervalMs: o.pullIntervalMs, debounceMs: o.debounceMs });
+  // CAMS_ADMIN_PULL_MS: a shorter interval (1–60 s) for tests and the local stack; the default is the spec's 60 s.
+  const envPull = Number(process.env.CAMS_ADMIN_PULL_MS);
+  const pullMs = o.pullIntervalMs ?? (Number.isInteger(envPull) && envPull >= 1000 && envPull <= 60_000 ? envPull : 60_000);
+  st.puller = new Puller({ pull: pullOnce, intervalMs: pullMs, debounceMs: o.debounceMs ?? Math.min(10_000, pullMs) });
   st.puller.start();
 }
 

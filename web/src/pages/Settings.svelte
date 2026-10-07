@@ -6,7 +6,9 @@
   import ProxySwitch from '../components/ProxySwitch.svelte';
   import CameraNameCard from '../components/CameraNameCard.svelte';
   import Icon from '../components/Icon.svelte';
-  import { cameras, cameraById, selectedCameraId } from '../lib/stores';
+  import { cameras, cameraById, me, selectedCameraId } from '../lib/stores';
+  import { showsAdminControls } from '../lib/session';
+  import CameraLogin from '../components/CameraLogin.svelte';
   import { getJson, HttpError } from '../lib/api';
   import { cameraKind, streamsText, WAITING_FOR_PROXY, type CameraStatus } from '../lib/liveUi';
   import {
@@ -244,6 +246,9 @@
 
   const gb = (mb: number) => `${(mb / 1024).toFixed(1)} GB`;
   const cameraName = $derived($cameraById($selectedCameraId)?.name ?? '');
+  // Camera settings, light and reboot are for account admins (migration P4);
+  // a viewer sees the values. Own preferences stay for everyone.
+  const admin = $derived(showsAdminControls($me));
 </script>
 
 <section class="page">
@@ -335,6 +340,7 @@
       {/snippet}
     </SettingsCard>
 
+    {#if $selectedCameraId}<CameraLogin cameraId={$selectedCameraId} />{/if}
     {#if $selectedCameraId}<CameraNameCard cameraId={$selectedCameraId} />{/if}
 
     <SettingsCard id="detection" title="Detection and recording" description={cameraName ? `What ${cameraName} records.` : ''}>
@@ -374,8 +380,10 @@
         <p class="muted">Loading…</p>
       {/if}
       {#snippet footer()}
-        <SaveState state={detectionState} />
-        <button class="primary" data-testid="save-detection" disabled={!detectionDirty || detectionState === 'saving'} onclick={() => save('detection', detection!, detectionEdit!)}>Save</button>
+        {#if admin}
+          <SaveState state={detectionState} />
+          <button class="primary" data-testid="save-detection" disabled={!detectionDirty || detectionState === 'saving'} onclick={() => save('detection', detection!, detectionEdit!)}>Save</button>
+        {:else}<span class="muted" data-testid="viewer-note">Account admins change camera settings.</span>{/if}
       {/snippet}
     </SettingsCard>
 
@@ -430,8 +438,10 @@
         <p class="muted">Loading…</p>
       {/if}
       {#snippet footer()}
-        <SaveState state={imageState} />
-        <button class="primary" data-testid="save-image" disabled={!imageDirty || imageState === 'saving'} onclick={() => save('image', image!, imageEdit!)}>Save</button>
+        {#if admin}
+          <SaveState state={imageState} />
+          <button class="primary" data-testid="save-image" disabled={!imageDirty || imageState === 'saving'} onclick={() => save('image', image!, imageEdit!)}>Save</button>
+        {:else}<span class="muted">Account admins change camera settings.</span>{/if}
       {/snippet}
     </SettingsCard>
 
@@ -479,6 +489,7 @@
         <p class="muted">Loading…</p>
       {/if}
       {#snippet footer()}
+        {#if admin}
         <span class="muted" class:err={rebootState === 'error'} role="status" aria-live="polite" data-testid="reboot-status">{rebootMessage}</span>
         {#if confirmReboot}
           <span>Reboot {cameraName}? Recording stops for about a minute.</span>
@@ -486,6 +497,7 @@
           <button class="danger" data-testid="reboot-confirm" disabled={rebootState === 'rebooting'} onclick={reboot}>Reboot now</button>
         {:else}
           <button data-testid="reboot-button" disabled={!device} onclick={openRebootConfirm}><Icon name="power" size={14} /> Reboot camera…</button>
+        {/if}
         {/if}
       {/snippet}
     </SettingsCard>

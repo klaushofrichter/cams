@@ -1,6 +1,7 @@
 <script lang="ts">
   import Icon from './Icon.svelte';
   import ThemeToggle from './ThemeToggle.svelte';
+  import AccountMenu from './AccountMenu.svelte';
   import { NAV_ITEMS, isActive, navigate, route } from '../lib/router';
   import { sidebarCollapsed, drawerOpen, cameras } from '../lib/stores';
 
@@ -36,6 +37,7 @@
   <div class="grow"></div>
   {#if drawer}
     <div class="drawer-actions">
+      <AccountMenu drawer />
       <ThemeToggle />
       <a class="item" data-testid="drawer-logout" href="/auth/logout"><Icon name="logout" /><span class="label">Logout</span></a>
     </div>

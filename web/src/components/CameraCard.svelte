@@ -1,7 +1,8 @@
 <script lang="ts">
   import Icon from './Icon.svelte';
   import { openProxyClick } from '../lib/proxyLink';
-  import { cameraById } from '../lib/stores';
+  import { showsAdminControls } from '../lib/session';
+  import { cameraById, me } from '../lib/stores';
   import { checkLiveStatus, liveUi, offlineReason } from '../lib/liveUi';
   import { formatClock } from '../lib/recordings';
   import { timeAgo } from '../lib/clock';
@@ -47,7 +48,7 @@
     {#if proxyInfo}
       {#if proxyInfo.reachable && proxyInfo.webUrl}
         <a class="proxy" data-testid="camera-card-proxy" href={proxyInfo.webUrl} target="_blank" rel="noopener noreferrer" title={proxyTip}
-          onclick={(e) => openProxyClick(e, cameraId, proxyInfo!.webUrl!)}>Proxy <Icon name="external" size={12} /></a>
+          onclick={(e) => (showsAdminControls($me) ? openProxyClick(e, cameraId, proxyInfo!.webUrl!) : undefined)}>Proxy <Icon name="external" size={12} /></a>
       {:else}
         <span class="proxy off" data-testid="camera-card-proxy" data-reachable={proxyInfo.reachable} title={proxyTip}>Proxy</span>
       {/if}

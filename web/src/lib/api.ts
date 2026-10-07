@@ -78,6 +78,16 @@ export function sessionExpired(): void {
   location.assign(renewalUrl(location.pathname + location.search + location.hash, sessionStore()));
 }
 
+// Several accounts and none chosen (migration P4, R4-13): the server answers
+// 409 choose_account to everything but the picker's calls; the app opens
+// the picker, once per page.
+export const CHOOSE_ACCOUNT_CODE = 'choose_account';
+async function mustChoose(res: Response): Promise<boolean> {
+  if (res.status !== 409) return false;
+  const body = (await res.clone().json().catch(() => null)) as { error?: unknown } | null;
+  return body?.error === CHOOSE_ACCOUNT_CODE;
+}
+
 async function isSessionExpiry(res: Response): Promise<boolean> {
   if (res.status !== 401) return false;
   const body = (await res.clone().json().catch(() => null)) as { error?: unknown } | null;
@@ -90,6 +100,13 @@ export async function apiFetch(url: string, init: RequestInit = {}): Promise<Res
   const res = await fetch(url, { credentials: 'same-origin', ...init });
   if (await isSessionExpiry(res)) {
     sessionExpired();
+    throw new UnauthorizedError(url);
+  }
+  if (res.status === 409 && (await mustChoose(res))) {
+    if (!leaving && !location.pathname.startsWith('/app/accounts')) {
+      leaving = true;
+      location.assign('/app/accounts');
+    }
     throw new UnauthorizedError(url);
   }
   return res;

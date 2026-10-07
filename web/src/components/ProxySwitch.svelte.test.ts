@@ -124,3 +124,17 @@ describe('ProxySwitch', () => {
   });
 });
 
+
+describe('ProxySwitch for a viewer (migration P4, M §9.5)', () => {
+  it('no switch; the state is shown', async () => {
+    const { me } = await import('../lib/stores');
+    me.set({ email: 'v@example.org', version: 'v', buildDate: null, role: 'viewer' });
+    try {
+      render('den');
+      expect(box()).toBeNull();
+      expect(target!.querySelector('[data-testid="proxy-note"]')!.textContent).toContain('cam-proxy');
+    } finally {
+      me.set(null);
+    }
+  });
+});

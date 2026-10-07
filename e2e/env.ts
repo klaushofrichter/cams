@@ -82,3 +82,27 @@ export function realProxyOn(env: NodeJS.ProcessEnv = process.env, platform: stri
   return (env.GITHUB_ACTIONS === 'true' || env.CAMS_E2E_REAL_PROXY === '1') && platform === 'linux';
 }
 export const REAL_PROXY_ON = realProxyOn();
+
+// Migration P4: a third cams server in cams-admin mode (CONFIG_SOURCE=
+// cams-admin), configured by the fake cams-admin (e2e/fakeAdmin.ts, from
+// test/admin/fakeAdmin.ts) with two accounts that both have a camera "cam1":
+// "home" (Den, through the fake cam-proxy) and "beta" (Porch, direct).
+// e2e/accounts.spec.ts, viewer.spec.ts, held.spec.ts, offline-start.spec.ts.
+export const E2E_ADMIN_PORT = 8085;
+export const FAKE_ADMIN_PORT = 8084;
+export const FAKE_ADMIN_HOOKS = 8082;
+export const E2E_ADMIN_DATA = join(tmpdir(), 'cams-e2e-admin');
+export const E2E_ADMIN_ENV: Record<string, string> = {
+  ...Object.fromEntries(Object.entries(E2E_ENV).filter(([k]) => k !== 'ALLOWED_EMAILS')),
+  PORT: String(E2E_ADMIN_PORT),
+  GOOGLE_REDIRECT_URI: `http://localhost:${E2E_ADMIN_PORT}/auth/google/callback`,
+  CONFIG_SOURCE: 'cams-admin',
+  CAMS_DATA_DIR: E2E_ADMIN_DATA,
+  CAMS_ADMIN_PULL_MS: '1000',
+  CAMERAS_FILE: 'e2e/admin-cameras.json',
+  CAMERA_CREDENTIALS_FILE: join(E2E_ADMIN_DATA, 'credentials.json'),
+  PREFS_FILE: join(E2E_ADMIN_DATA, 'prefs.json'),
+  PROXY_STATE_FILE: join(E2E_ADMIN_DATA, 'proxy-state.json'),
+  CACHE_DIR: join(tmpdir(), 'cams-e2e-admin-cache'),
+};
+export const ADMIN_USERS = { both: 'both@e2e.example', alpha: 'alpha@e2e.example' } as const;

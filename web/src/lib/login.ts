@@ -11,8 +11,17 @@ export function loginMethods(doc: Pick<Document, 'querySelector'> = document): L
   return methods.length > 0 ? [...new Set(methods)] : ['google'];
 }
 
+// cams-admin mode before any configuration arrived (migration P4): the server
+// adds <meta name="cams-config" content="none">.
+export function noConfiguration(doc: Pick<Document, 'querySelector'> = document): boolean {
+  return doc.querySelector<HTMLMetaElement>('meta[name="cams-config"]')?.content === 'none';
+}
+
+export const UNAVAILABLE_MESSAGE = 'Token sign-in has no account here yet (CAMS_TOKEN_ACCOUNT, or no configuration).';
+
 export function loginErrorMessage(status: number): string {
   if (status === 401) return 'That token is not right.';
+  if (status === 503) return UNAVAILABLE_MESSAGE;
   if (status === 429) return 'Too many attempts. Try again later.';
   return 'Sign-in failed. Try again.';
 }
