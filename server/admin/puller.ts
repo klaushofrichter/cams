@@ -51,9 +51,11 @@ export class Puller {
     this.soonTimer.unref();
   }
 
-  // One pull now (a running one is joined), then the next one scheduled.
+  // One pull now (after a running one: it may have started before the
+  // change this pull is for), then the next one scheduled.
   pullNow(): Promise<void> {
-    this.running ??= (async () => {
+    if (this.running) return this.running.then(() => this.pullNow());
+    this.running = (async () => {
       let ok = false;
       try {
         ok = await this.o.pull();

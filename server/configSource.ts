@@ -16,10 +16,11 @@ import { AdminClient } from './admin/client';
 import { cacheWrittenAt, readCache, writeCache } from './admin/cache';
 import { readKeyFile, type AdminKeyFile } from './admin/keyfile';
 import { Puller } from './admin/puller';
-import { accountParts, verifySnapshot, type AccountPart, type Snapshot } from './admin/snapshot';
+import { accountParts, verifySnapshot, type AccountPart, type SnapProxy, type Snapshot } from './admin/snapshot';
 import { buildFleet, type ApplyContext, type Problem, type TrustValues } from './admin/apply';
 import { credentialsFor, loadCredentials, setLegacyCredentials } from './credentials';
 import { TrustStore } from './admin/trust';
+import { LocalTokens } from './admin/tokens';
 
 export type ConfigMode = 'file' | 'shadow' | 'cams-admin';
 const MODES: readonly ConfigMode[] = ['file', 'shadow', 'cams-admin'];
@@ -61,12 +62,18 @@ interface State {
   moved: boolean;
   buildProblems: Problem[];
   trust: TrustStore | null;
+  tokens: LocalTokens | null;
+  tokenProblems: Problem[];
+  ensuring: Promise<void> | null;
+  reportedOnce: boolean;
+  lastEnsureAt: number;
+  legacyProxies: Set<string>;
   reportTimer: NodeJS.Timeout | null;
   lastReportAt: number;
 }
 let st: State = fresh();
 function fresh(): State {
-  return { mode: 'file', key: null, client: null, puller: null, applied: null, goodParts: new Map(), legacy: [], cacheVerifiedAt: null, lastGoodAt: null, lastPullAt: null, lastPullOkAt: null, startProblems: [], snapProblems: [], now: Date.now, moved: false, buildProblems: [], trust: null, reportTimer: null, lastReportAt: 0 };
+  return { mode: 'file', key: null, client: null, puller: null, applied: null, goodParts: new Map(), legacy: [], cacheVerifiedAt: null, lastGoodAt: null, lastPullAt: null, lastPullOkAt: null, startProblems: [], snapProblems: [], now: Date.now, moved: false, buildProblems: [], trust: null, tokens: null, tokenProblems: [], ensuring: null, reportedOnce: false, lastEnsureAt: 0, legacyProxies: new Set(), reportTimer: null, lastReportAt: 0 };
 }
 
 
@@ -80,10 +87,23 @@ function legacyToken(accountId: string, camsId: string): { token: string; adminT
   return c?.proxy ? { token: c.proxy.token, ...(c.proxy.adminToken && { adminToken: c.proxy.adminToken }) } : undefined;
 }
 
+// cams's own token once the snapshot lists it active, else the legacy one.
+function proxyToken(accountId: string, proxy: SnapProxy, camsId: string): { token: string; adminToken?: string } | undefined {
+  const states = new Map(proxy.tokens.map((t) => [t.id, t.state]));
+  const own = st.tokens?.tokenFor(accountId, proxy.id, 'client', states);
+  const ownAdmin = st.tokens?.tokenFor(accountId, proxy.id, 'admin', states);
+  const legacy = legacyToken(accountId, camsId);
+  const token = own ?? legacy?.token;
+  if (!token) return undefined;
+  if (!own) st.legacyProxies.add(`${accountId}/${proxy.id}`);
+  const adminToken = ownAdmin ?? legacy?.adminToken;
+  return { token, ...(adminToken && { adminToken }) };
+}
+
 export function applyContext(): ApplyContext {
   return {
     credentials: credentialsFor,
-    proxyToken: (accountId, _proxy, camsId) => legacyToken(accountId, camsId),
+    proxyToken,
     ...(st.trust && { trust: (a: string, c: string, o: TrustValues, h: boolean) => st.trust!.decide(a, c, o, h) }),
   };
 }
@@ -112,6 +132,7 @@ function rebuild(): void {
   seedTrustOnce(st.applied);
   st.trust?.forgetOffers();
   const parts = st.applied.accounts.map((a) => st.goodParts.get(a.id)).filter((p): p is AccountPart => !!p);
+  st.legacyProxies = new Set();
   const built = buildFleet(parts, applyContext());
   st.buildProblems = built.problems;
   setFleet(built.accounts);
@@ -124,7 +145,14 @@ async function pullOnce(): Promise<boolean> {
   try {
     const r = await st.client.getConfig(st.applied?.revision ?? null);
     st.lastPullOkAt = st.lastGoodAt = st.now();
-    if (r.status === 304) return true;
+    if (!st.reportedOnce) {
+      st.reportedOnce = true;
+      reportSoon(true); // one at start, once the first pull has its answer
+    }
+    if (r.status === 304) {
+      if (st.now() - st.lastEnsureAt > 86_400_000) void ensureTokens();
+      return true;
+    }
     const v = verifySnapshot(r.body, st.key.serverKeys, st.key.instanceId);
     if (!v.ok) {
       logger.warn({ reason: v.reason }, 'snapshot_refused');
@@ -135,6 +163,7 @@ async function pullOnce(): Promise<boolean> {
     applySnapshot(v.snapshot, 'pull');
     writeCache(v.snapshot);
     if (st.mode === 'cams-admin') await moveStateOnce(v.snapshot);
+    void ensureTokens();
     logger.info({ revision: v.snapshot.revision, accounts: v.snapshot.accounts.length }, 'config_applied');
     reportSoon(true);
     return true;
@@ -143,6 +172,27 @@ async function pullOnce(): Promise<boolean> {
     return false;
   }
 }
+
+// cams's own tokens for every served proxy (after each applied snapshot and
+// daily); a newly active token takes effect with the next snapshot.
+function ensureTokens(): Promise<void> {
+  if (!st.tokens || !st.client || !st.applied) return Promise.resolve();
+  const mine = st;
+  mine.ensuring ??= (async () => {
+    mine.lastEnsureAt = mine.now();
+    const parts = mine.applied!.accounts.map((a) => mine.goodParts.get(a.id)).filter((p): p is AccountPart => !!p);
+    try {
+      const r = await mine.tokens!.ensure(parts, mine.client!, mine.now(), mine.applied!.instance.rotateBefore ?? null);
+      mine.tokenProblems = r.problems;
+    } catch (err) {
+      logger.warn({ message: (err as Error).message }, 'proxy_tokens_failed');
+    }
+  })().finally(() => {
+    mine.ensuring = null;
+  });
+  return mine.ensuring;
+}
+export const ensureTokensNow = (): Promise<void> => ensureTokens();
 
 // At most one report per 60 s, at once when urgent (a held change
 // confirmed or kept); one at start.
@@ -165,7 +215,7 @@ async function sendReport(): Promise<void> {
   try {
     const r = await st.client.report({
       v: 1, mode: st.mode, version: appVersion() || 'dev', appliedRevision: st.applied?.revision ?? null, cacheVerifiedAt: st.cacheVerifiedAt,
-      lastPullAt: st.lastPullAt, held: held.filter((h) => !h.keptOld).slice(0, 200).map((h) => ({ accountId: h.accountId, camsId: h.camsId, fields: h.fields })), keptOld: held.filter((h) => h.keptOld).slice(0, 200).map((h) => ({ accountId: h.accountId, camsId: h.camsId, fields: h.fields })), shadow: null, tokens: { managed: 0, pending: 0, legacy: 0 },
+      lastPullAt: st.lastPullAt, held: held.filter((h) => !h.keptOld).slice(0, 200).map((h) => ({ accountId: h.accountId, camsId: h.camsId, fields: h.fields })), keptOld: held.filter((h) => h.keptOld).slice(0, 200).map((h) => ({ accountId: h.accountId, camsId: h.camsId, fields: h.fields })), shadow: null, tokens: { ...(st.tokens?.counts() ?? { managed: 0, pending: 0 }), legacy: st.legacyProxies.size },
       problems: configStatus().problems.slice(0, 50).map((p) => ({ code: p.code.slice(0, 64), ...(p.accountId && { accountId: p.accountId }), ...(p.detail && { detail: p.detail.slice(0, 200) }) })),
     });
     if (r.changed) pullSoon('report');
@@ -230,6 +280,7 @@ export async function startConfig(o: StartOptions = {}): Promise<void> {
   st.client = new AdminClient(key);
   loadCredentials();
   if (st.mode === 'cams-admin') st.trust = TrustStore.load(); // a corrupt one stops the start
+  st.tokens = LocalTokens.load();
   if (st.mode === 'cams-admin' && getAllowedEmails().length) {
     st.startProblems.push({ code: 'allowed_emails_ignored' });
     logger.warn({ kind: 'config' }, 'allowed_emails_ignored');
@@ -259,7 +310,6 @@ export async function startConfig(o: StartOptions = {}): Promise<void> {
   }
   st.puller = new Puller({ pull: pullOnce, intervalMs: o.pullIntervalMs, debounceMs: o.debounceMs });
   st.puller.start();
-  reportSoon(true); // one at start
 }
 
 export function stopConfig(): void {
@@ -291,6 +341,6 @@ export function configStatus(): ConfigStatus {
     lastPullAt: st.lastPullAt,
     lastPullOkAt: st.lastPullOkAt,
     staleSince,
-    problems: [...st.startProblems, ...st.snapProblems, ...st.buildProblems],
+    problems: [...st.startProblems, ...st.snapProblems, ...st.buildProblems, ...st.tokenProblems],
   };
 }

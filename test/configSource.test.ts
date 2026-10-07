@@ -141,6 +141,7 @@ describe('cams-admin mode', () => {
     process.env.CONFIG_SOURCE = 'cams-admin';
     await startConfig(FAST);
     await expect.poll(() => configStatus().appliedRevision).toBe('r:00000000000000a1');
+    await new Promise((r) => setTimeout(r, 150)); // the start report's own "changed" pull settles first
     const gets = fake.configGets;
     pullSoon('login');
     pullSoon('login');
@@ -201,6 +202,29 @@ describe('cams-admin mode', () => {
     await startConfig(FAST);
     expect(membershipsOf('stranger@example.org')).toEqual([]);
     expect(configStatus().problems).toContainEqual(expect.objectContaining({ code: 'allowed_emails_ignored' }));
+  });
+});
+
+describe('tokens in cams-admin mode (R4-12)', () => {
+  it('registers its own tokens; uses the legacy file token until the snapshot lists them active, then switches', async () => {
+    await enrolled();
+    process.env.CONFIG_SOURCE = 'cams-admin';
+    process.env.CAMERAS_FILE = join(dir, 'cameras.json');
+    writeFileSync(process.env.CAMERAS_FILE, JSON.stringify([{ id: 'cam1', name: 'Den', host: '127.0.0.1:9', protocol: 'http', user: 'cams', password: 'p', proxy: { url: 'http://127.0.0.1:1/alpha', token: 'L'.repeat(40) } }]));
+    fake.setSnapshot(twoAccountsSnapshot({ homeName: 'home' }));
+    await startConfig(FAST);
+    await expect.poll(() => fake.registered.length).toBe(4);
+    const { getCamera } = await import('../server/cameraRegistry.js');
+    expect(getCamera(camKey(ALPHA, 'cam1'))?.proxy?.token).toBe('L'.repeat(40)); // legacy, the file account's
+    expect(getCamera(camKey(BETA, 'cam1'))?.proxy).toBeUndefined(); // no token yet
+    for (const t of fake.tokens) t.state = 'active';
+    const rows = (proxyId: string) => fake.tokens.filter((t) => t.proxyId === proxyId).map((t) => ({ id: t.tokenId, kind: t.kind, state: t.state, retireAt: null }));
+    fake.setSnapshot(twoAccountsSnapshot({ homeName: 'home', revision: 'r:00000000000000f1', tokens: { a: rows('prx_AAAAAAAAAAAAAAAAAAAA'), b: rows('prx_BBBBBBBBBBBBBBBBBBBB') } }));
+    await pullNow();
+    const local = JSON.parse(readFileSync(join(dir, 'admin/tokens.json'), 'utf8')).tokens as { proxyId: string; kind: string; token: string }[];
+    expect(getCamera(camKey(ALPHA, 'cam1'))?.proxy?.token).toBe(local.find((t) => t.proxyId === 'prx_AAAAAAAAAAAAAAAAAAAA' && t.kind === 'client')!.token);
+    expect(getCamera(camKey(BETA, 'cam1'))?.proxy?.adminToken).toBe(local.find((t) => t.proxyId === 'prx_BBBBBBBBBBBBBBBBBBBB' && t.kind === 'admin')!.token);
+    await expect.poll(() => fake.reports.at(-1)?.tokens).toEqual({ managed: 4, pending: 0, legacy: 0 });
   });
 });
 
