@@ -12,8 +12,8 @@ const priv = (k: 'server' | 'cams' | 'other') => privateFromB64(vectors.keys[k].
 const pub = (k: 'server' | 'cams' | 'other') => publicFromB64(vectors.keys[k].publicKey);
 
 describe('cams-v1 contract (vendored)', () => {
-  it('SOURCE names a 40-hex cams-admin commit', () => {
-    expect(readFileSync(join(CONTRACT_DIR, 'SOURCE'), 'utf8').trim()).toMatch(/^[0-9a-f]{40}$/);
+  it('SOURCE names a 40-hex cams-admin commit and its branch', () => {
+    expect(readFileSync(join(CONTRACT_DIR, 'SOURCE'), 'utf8').trim()).toMatch(/^[0-9a-f]{40} \(contract\/cams-v1, [A-Za-z0-9._/-]+\)$/);
   });
 
   it('server/admin/jcs.ts is cams-admin\'s jcs verbatim', () => {
