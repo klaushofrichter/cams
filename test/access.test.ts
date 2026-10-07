@@ -5,6 +5,7 @@ import express from 'express';
 import request from 'supertest';
 import { createApp } from '../server/app';
 import { setCameras } from '../server/cameraRegistry';
+import { createApiRateLimit } from '../server/middleware/rateLimit';
 import { ACCESS, VIEWER_WRITES, accessMiddleware, registeredApiRoutes } from '../server/routes/access';
 import { ALPHA, BETA, applyFleet, cookieFor, restoreMode, twoAccounts } from './helpers/fleet';
 
@@ -78,6 +79,7 @@ describe('the access table', () => {
 
   it('a route added without a line is refused 403 no_access_rule (fail closed); an unknown path stays a 404', async () => {
     const app = express();
+    app.use(createApiRateLimit()); // as the real app (CodeQL js/missing-rate-limiting)
     app.use((_req, res, next) => {
       res.locals.principal = { email: 'a@example.org', via: 'google', account: { id: ALPHA, name: 'alpha', displayName: 'Alpha' }, role: 'admin' };
       next();
