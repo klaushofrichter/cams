@@ -80,3 +80,11 @@ export async function fakeGoogle(
   });
   return calls;
 }
+
+// Migration P4 (cams-admin mode): a session for `email`, in account `acc`
+// (none: the person must choose, like a Google sign-in with several accounts).
+export async function signInAccount(context: BrowserContext, baseURL: string, email: string, acc?: string): Promise<void> {
+  await context.addCookies([
+    { name: 'session', value: jwt.sign({ email, ...(acc && { acc }) }, E2E_ENV.COOKIE_SECRET, { expiresIn: '10m' }), domain: new URL(baseURL).hostname, path: '/', httpOnly: true, secure: false, sameSite: 'Lax' },
+  ]);
+}

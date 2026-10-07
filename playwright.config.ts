@@ -1,6 +1,6 @@
 import { SIMS, simEnv } from './e2e/sims';
 import { defineConfig, devices } from '@playwright/test';
-import { E2E_ENV, E2E_PORT, E2E_TOKEN_ENV, E2E_TOKEN_PORT, REAL_PROXY, REAL_PROXY_ON } from './e2e/env';
+import { E2E_ADMIN_ENV, E2E_ADMIN_PORT, E2E_ENV, E2E_PORT, E2E_TOKEN_ENV, E2E_TOKEN_PORT, FAKE_ADMIN_PORT, REAL_PROXY, REAL_PROXY_ON } from './e2e/env';
 
 export default defineConfig({
   testDir: './e2e',
@@ -18,12 +18,12 @@ export default defineConfig({
   projects: [
     {
       name: 'desktop',
-      testIgnore: /live-teardown\.spec\.ts|camera-name\.spec\.ts|token-login\.spec\.ts/,
+      testIgnore: /live-teardown\.spec\.ts|camera-name\.spec\.ts|token-login\.spec\.ts|accounts\.spec\.ts|viewer\.spec\.ts|held\.spec\.ts|offline-start\.spec\.ts/,
       use: { ...devices['Desktop Chrome'], channel: 'chrome', viewport: { width: 1440, height: 900 } },
     },
     {
       name: 'phone',
-      testIgnore: /live-teardown\.spec\.ts|camera-name\.spec\.ts|token-login\.spec\.ts/,
+      testIgnore: /live-teardown\.spec\.ts|camera-name\.spec\.ts|token-login\.spec\.ts|accounts\.spec\.ts|viewer\.spec\.ts|held\.spec\.ts|offline-start\.spec\.ts/,
       use: { ...devices['Desktop Chrome'], channel: 'chrome', viewport: { width: 390, height: 844 }, hasTouch: true },
     },
     // e2e/token-login.spec.ts: the second server (E2E_TOKEN_ENV, the Pi's
@@ -37,6 +37,22 @@ export default defineConfig({
       name: 'token-phone',
       testMatch: /token-login\.spec\.ts/,
       use: { ...devices['Desktop Chrome'], channel: 'chrome', viewport: { width: 390, height: 844 }, hasTouch: true, baseURL: `http://localhost:${E2E_TOKEN_PORT}` },
+    },
+    // Migration P4: the cams-admin-mode server (E2E_ADMIN_ENV) and its fake
+    // cams-admin. One size after the other: held.spec.ts changes the fake's
+    // configuration, which the other specs of this server read.
+    {
+      name: 'admin-desktop',
+      testMatch: /accounts\.spec\.ts|viewer\.spec\.ts|held\.spec\.ts|offline-start\.spec\.ts/,
+      fullyParallel: false,
+      use: { ...devices['Desktop Chrome'], channel: 'chrome', viewport: { width: 1440, height: 900 }, baseURL: `http://localhost:${E2E_ADMIN_PORT}` },
+    },
+    {
+      name: 'admin-phone',
+      testMatch: /accounts\.spec\.ts|viewer\.spec\.ts|held\.spec\.ts|offline-start\.spec\.ts/,
+      fullyParallel: false,
+      dependencies: ['admin-desktop'],
+      use: { ...devices['Desktop Chrome'], channel: 'chrome', viewport: { width: 390, height: 844 }, hasTouch: true, baseURL: `http://localhost:${E2E_ADMIN_PORT}` },
     },
     // e2e/camera-name.spec.ts renames Den, whose name the other specs check:
     // after them, one size at a time.
@@ -62,7 +78,7 @@ export default defineConfig({
       name: 'live-teardown',
       testMatch: /live-teardown\.spec\.ts/,
       fullyParallel: false,
-      dependencies: ['desktop', 'phone', 'camera-name-phone', 'token-desktop', 'token-phone'],
+      dependencies: ['desktop', 'phone', 'camera-name-phone', 'token-desktop', 'token-phone', 'admin-phone'],
       use: { ...devices['Desktop Chrome'], channel: 'chrome', viewport: { width: 1440, height: 900 } },
     },
   ],
@@ -88,6 +104,10 @@ export default defineConfig({
     // and clips never carry over from an earlier run. Not in globalSetup, which
     // runs after the web servers have started.
     { command: `node -e "require('fs').rmSync(process.env.CACHE_DIR, { recursive: true, force: true })" && npm start`, port: E2E_PORT, reuseExistingServer: !process.env.CI, env: E2E_ENV },
+    // Migration P4: the fake cams-admin (it writes the instance's key and a
+    // signed cache first), then cams in cams-admin mode.
+    { command: 'npx tsx e2e/fakeAdmin.ts', port: FAKE_ADMIN_PORT, reuseExistingServer: false },
+    { command: `node -e "require('fs').rmSync(process.env.CACHE_DIR, { recursive: true, force: true })" && npm start`, port: E2E_ADMIN_PORT, reuseExistingServer: false, env: E2E_ADMIN_ENV },
     // The token-login server (the Pi demo kit's configuration).
     { command: `node -e "require('fs').rmSync(process.env.CACHE_DIR, { recursive: true, force: true })" && npm start`, port: E2E_TOKEN_PORT, reuseExistingServer: !process.env.CI, env: E2E_TOKEN_ENV },
   ],
