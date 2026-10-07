@@ -63,6 +63,11 @@ async function api(method: string, path: string, body?: unknown) {
   if (r.status >= 300) throw new Error(`${method} ${path}: ${r.status} ${j.error ?? ''}${j.field ? ` (${j.field})` : ''}`);
   return j;
 }
+// A real cam-proxy applies at most 6 token changes an hour (cam-proxy's
+// tokens.apply budget); cams-admin sends a refused one again when the proxy's
+// retryAfter has passed. A full rehearsal needs more than 6 on the first
+// proxy, so the token steps may wait up to an hour.
+const LIMIT_WAIT = 75 * 60_000;
 const sha = (s: string) => createHash('sha256').update(s, 'utf8').digest('hex');
 const write600 = (f: string, v: unknown) => writeFileSync(f, typeof v === 'string' ? v : JSON.stringify(v, null, 2) + '\n', { mode: 0o600 });
 
@@ -131,7 +136,16 @@ async function main() {
 
   // 1. P2 managed tokens; cameras.json for both cams (passwords: the cam-sims' "cams" user).
   const issue = async (px: any, kind: 'client' | 'admin', label: string) => {
-    const t = await api('POST', `/accounts/${account.id}/proxies/${px.id}/tokens`, { kind, label });
+    // Right after the stack starts, cams-admin may not have the proxies'
+    // allow-list (their next heartbeat) yet: not_allowed_on_proxy is retried.
+    const t = await until(`${label} issued`, async () => {
+      try {
+        return await api('POST', `/accounts/${account.id}/proxies/${px.id}/tokens`, { kind, label });
+      } catch (err) {
+        if (/not_allowed_on_proxy/.test((err as Error).message)) return null;
+        throw err;
+      }
+    }, 90_000);
     await until(`${label} active`, async () => ((await api('GET', `/accounts/${account.id}/proxies/${px.id}/tokens`)).items as any[]).some((x) => x.id === t.tokenId && x.state === 'active'));
     return t.token as string;
   };
@@ -231,7 +245,7 @@ async function main() {
     JSON.stringify(await ids(cluster)) === JSON.stringify(clusterFile) && JSON.stringify(await ids(pi)) === JSON.stringify(camsOf(first).map((c) => c.camsId).sort()) && (await allOnline(cluster)) && (await allOnline(pi)));
   const me = (await camsGet<{ role: string; account: { name: string }; configSource: string }>(cluster, '/api/me')).body;
   record('6b token sign-in: admin of the account, configSource cams-admin', me.role === 'admin' && me.account.name === accountName && me.configSource === 'cams-admin');
-  await until('cluster own tokens active (managed 4, legacy 0)', async () => { const l = await live(cluster); return l.report?.mode === 'cams-admin' && l.report.tokens?.managed === 4 && l.report.tokens?.legacy === 0; }, 120_000);
+  await until('cluster own tokens active (managed 4, legacy 0)', async () => { const l = await live(cluster); return l.report?.mode === 'cams-admin' && l.report.tokens?.managed === 4 && l.report.tokens?.legacy === 0; }, LIMIT_WAIT);
   for (const c of [cluster, pi]) await startCams(c, 'cams-admin'); // the groups on the own tokens from a fresh start too
   record('6c own tokens: registered as hashes, active, in use (managed 4, legacy 0)', (await allOnline(cluster)) && (await camList(cluster)).every((c) => c.proxy));
   await camsSend(cluster, 'PUT', '/api/preferences', { liveQuality: 'main' });
@@ -264,7 +278,7 @@ async function main() {
   const oldIds = new Set(((JSON.parse(readFileSync(join(cluster.dir, 'admin/tokens.json'), 'utf8')).tokens) as { id: string }[]).map((t) => t.id));
   await api('POST', `/cams-instances/${inst.cluster.id}/rotate`, {});
   const rows = async () => (await Promise.all([first, second].map(async (px) => (await api('GET', `/accounts/${account.id}/proxies/${px.id}/tokens`)).items as any[]))).flat().filter((t) => t.holder === inst.cluster.id);
-  await until('rotation: new tokens active, old retiring', async () => { const r = await rows(); return r.filter((t) => t.state === 'retiring').length >= 4 && r.filter((t) => t.state === 'active').length >= 4; }, 180_000);
+  await until('rotation: new tokens active, old retiring', async () => { const r = await rows(); return r.filter((t) => t.state === 'retiring').length >= 4 && r.filter((t) => t.state === 'active').length >= 4; }, LIMIT_WAIT);
   await until('report after the rotation: managed 4, pending 0, legacy 0', async () => { const l = await live(cluster); return l.report?.tokens?.managed === 4 && l.report.tokens.pending === 0 && l.report.tokens.legacy === 0; }, 60_000);
   await sleep(4000);
   stop = true;
