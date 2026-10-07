@@ -45,6 +45,10 @@ function cameraOr404(req: Request, res: Response) {
   if (!key) return null;
   const cam = getCamera(key);
   const client = cam && getClient(key);
+  if (cam && !client && cam.credentials !== 'ok') {
+    res.status(503).json({ error: 'camera_credentials_missing' });
+    return null;
+  }
   if (!cam || !client) {
     res.status(404).json({ error: 'unknown_camera' });
     return null;

@@ -17,7 +17,8 @@ import { cacheWrittenAt, readCache, writeCache } from './admin/cache';
 import { readKeyFile, type AdminKeyFile } from './admin/keyfile';
 import { Puller } from './admin/puller';
 import { accountParts, verifySnapshot, type AccountPart, type Snapshot } from './admin/snapshot';
-import { buildFleet, type ApplyContext, type CredentialResult, type Problem } from './admin/apply';
+import { buildFleet, type ApplyContext, type Problem } from './admin/apply';
+import { credentialsFor, loadCredentials, setLegacyCredentials } from './credentials';
 
 export type ConfigMode = 'file' | 'shadow' | 'cams-admin';
 const MODES: readonly ConfigMode[] = ['file', 'shadow', 'cams-admin'];
@@ -57,21 +58,13 @@ interface State {
   snapProblems: Problem[];
   now: () => number;
   moved: boolean;
+  buildProblems: Problem[];
 }
 let st: State = fresh();
 function fresh(): State {
-  return { mode: 'file', key: null, client: null, puller: null, applied: null, goodParts: new Map(), legacy: [], cacheVerifiedAt: null, lastGoodAt: null, lastPullAt: null, lastPullOkAt: null, startProblems: [], snapProblems: [], now: Date.now, moved: false };
+  return { mode: 'file', key: null, client: null, puller: null, applied: null, goodParts: new Map(), legacy: [], cacheVerifiedAt: null, lastGoodAt: null, lastPullAt: null, lastPullOkAt: null, startProblems: [], snapProblems: [], now: Date.now, moved: false, buildProblems: [] };
 }
 
-// The transition's credentials: the same id in CAMERAS_FILE, for the file
-// account only (M §9.8; Task 9 adds the credentials file).
-function legacyCredentials(accountName: string, camsId: string, user: string | null): CredentialResult {
-  if (accountName !== fileAccount().name) return { ok: false, problem: 'missing', user };
-  const c = st.legacy.find((x) => x.id === camsId);
-  if (!c) return { ok: false, problem: 'missing', user };
-  if (user !== null && user !== c.user) return { ok: false, problem: 'mismatch', user };
-  return { ok: true, user: c.user, password: c.password };
-}
 
 // Until cams's own token is active (Task 11), a proxy uses the legacy token
 // of the file account's camera with the same camsId on it (R4-12).
@@ -85,7 +78,7 @@ function legacyToken(accountId: string, camsId: string): { token: string; adminT
 
 export function applyContext(): ApplyContext {
   return {
-    credentials: legacyCredentials,
+    credentials: credentialsFor,
     proxyToken: (accountId, _proxy, camsId) => legacyToken(accountId, camsId),
   };
 }
@@ -104,11 +97,19 @@ function applySnapshot(s: Snapshot, source: 'cache' | 'pull'): void {
   // The file account's id as cams-admin knows it (R4-10): stores find it by id.
   const home = s.accounts.find((a) => a.name === fileAccount().name);
   if (home && /^acc_[A-Za-z0-9]{1,40}$/.test(home.id)) setFileAccountId(home.id);
-  const parts = s.accounts.map((a) => st.goodParts.get(a.id)).filter((p): p is AccountPart => !!p);
+  rebuild();
+}
+
+// The fleet again from the applied snapshot (a password saved, a held
+// change confirmed): cams-admin mode only.
+function rebuild(): void {
+  if (st.mode !== 'cams-admin' || !st.applied) return;
+  const parts = st.applied.accounts.map((a) => st.goodParts.get(a.id)).filter((p): p is AccountPart => !!p);
   const built = buildFleet(parts, applyContext());
-  st.snapProblems.push(...built.problems);
+  st.buildProblems = built.problems;
   setFleet(built.accounts);
 }
+export const reapplyConfig = (): void => rebuild();
 
 async function pullOnce(): Promise<boolean> {
   if (!st.client || !st.key) return false;
@@ -174,6 +175,7 @@ export async function startConfig(o: StartOptions = {}): Promise<void> {
   st.now = o.now ?? Date.now;
   st.mode = configMode();
   st.legacy = loadCameras();
+  setLegacyCredentials(st.legacy);
   if (st.mode === 'file') {
     // A verified cache names the file account's id (the rollback keeps
     // what users changed in cams-admin mode, R4-10). Nothing is pulled.
@@ -195,6 +197,7 @@ export async function startConfig(o: StartOptions = {}): Promise<void> {
   if (!key) throw new Error(`CONFIG_SOURCE=${st.mode} needs an enrolled instance: run "node dist/server/cli.js admin-enroll --url <cams-admin>" first`);
   st.key = key;
   st.client = new AdminClient(key);
+  loadCredentials();
   if (st.mode === 'cams-admin' && getAllowedEmails().length) {
     st.startProblems.push({ code: 'allowed_emails_ignored' });
     logger.warn({ kind: 'config' }, 'allowed_emails_ignored');
@@ -251,6 +254,6 @@ export function configStatus(): ConfigStatus {
     lastPullAt: st.lastPullAt,
     lastPullOkAt: st.lastPullOkAt,
     staleSince,
-    problems: [...st.startProblems, ...st.snapProblems],
+    problems: [...st.startProblems, ...st.snapProblems, ...st.buildProblems],
   };
 }

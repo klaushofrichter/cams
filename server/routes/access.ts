@@ -78,6 +78,7 @@ export const ACCESS: Readonly<Record<string, Need>> = {
   'PATCH /api/archive/:via/items/:id': 'admin',
   'DELETE /api/archive/:via/items/:id': 'admin',
   'POST /api/archive/:via/delete': 'admin',
+  'PUT /api/cameras/:id/credentials': 'admin',
 };
 
 interface Layer { route?: { path: unknown; methods: Record<string, boolean> }; handle?: { stack?: Layer[] } }
