@@ -105,6 +105,7 @@
   let playing = $state(false);
   let placed = openLive || untrack(() => initialAt) !== null; // false: move to the day's first event once it loads
   let dragResume = false;
+  let scrubbing = $state(false); // the strip is being dragged: the player keeps its still until a clip is ready
   $effect(() => {
     if (playing) placed = true; // the user took over: a late load must not move the playhead
   });
@@ -255,7 +256,7 @@
 </script>
 
 <div class="history">
-  <StripPlayer {cam} {coverage} {previews} {now} bind:at bind:playing {unavailable} {glued} clipStream={VIDEO_STREAM} live={liveBox} onglue={live ? glue : undefined}
+  <StripPlayer {cam} {coverage} {previews} {now} bind:at bind:playing {unavailable} {glued} clipStream={VIDEO_STREAM} {scrubbing} live={liveBox} onglue={live ? glue : undefined}
     onclipfail={(id) => {
       data.markFailed(id);
       failed = new Set(failed).add(id);
@@ -266,6 +267,7 @@
     onseek={(t) => seek(t)}
     onglue={live ? glue : playing && onlive ? () => { playing = false; onlive(); } : undefined}
     ondrag={(active) => {
+      scrubbing = active;
       if (active) {
         dragResume = playing;
         playing = false;

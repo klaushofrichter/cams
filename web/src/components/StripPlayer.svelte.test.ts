@@ -33,7 +33,7 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 function render(extra: Record<string, unknown> = {}) {
-  const props = $state({ cam: 'den', coverage: cov, previews: [], now: T + 3_600_000, at: T, playing: false, onclipfail: vi.fn(), onstep: vi.fn(), ...extra });
+  const props = $state({ cam: 'den', coverage: cov, previews: [], now: T + 3_600_000, at: T, playing: false, scrubbing: false, onclipfail: vi.fn(), onstep: vi.fn(), ...extra });
   target = document.createElement('div');
   document.body.appendChild(target);
   component = mount(StripPlayer, { target, props });
@@ -41,6 +41,34 @@ function render(extra: Record<string, unknown> = {}) {
   return props;
 }
 const q = (id: string) => target!.querySelector(`[data-testid="${id}"]`) as HTMLElement | null;
+// A jsdom video whose media state the test sets: the times currentTime was
+// written (the seeks) are counted.
+type FakeMedia = HTMLVideoElement & { writes: number[]; set(patch: { seeking?: boolean; readyState?: number }): void };
+function media(el: HTMLElement): FakeMedia {
+  const v = el as FakeMedia;
+  if (v.writes) return v;
+  let t = 0;
+  let seeking = false;
+  let readyState = 0;
+  v.writes = [];
+  Object.defineProperty(v, 'currentTime', { configurable: true, get: () => t, set: (x: number) => { t = x; v.writes.push(x); } });
+  Object.defineProperty(v, 'seeking', { configurable: true, get: () => seeking });
+  Object.defineProperty(v, 'readyState', { configurable: true, get: () => readyState });
+  v.set = (patch) => {
+    if (patch.seeking !== undefined) seeking = patch.seeking;
+    if (patch.readyState !== undefined) readyState = patch.readyState;
+  };
+  return v;
+}
+// The video finished a seek and has the frame at `s` decoded.
+function present(v: FakeMedia, s: number) {
+  Object.defineProperty(v, 'currentTime', { configurable: true, get: () => s, set: (x: number) => { s = x; v.writes.push(x); } });
+  v.set({ seeking: false, readyState: 2 });
+  v.dispatchEvent(new Event('seeked'));
+  flushSync();
+}
+const showing = () => q('strip-player')!.querySelector('.box')!.getAttribute('data-showing');
+
 const tick = async (ms: number) => {
   await vi.advanceTimersByTimeAsync(ms);
   flushSync();
@@ -438,6 +466,8 @@ describe('StripPlayer', () => {
   it('tells the page what it shows: the clip’s video, a still, or nothing', async () => {
     render({ at: T + 12_000 });
     await tick(0);
+    expect(currentPlayer()!.frame()?.kind).toBe('still'); // the clip isn't ready: its still is on screen
+    present(media(q('clip-video')!), 2);
     const f = currentPlayer()!.frame();
     expect(f?.kind).toBe('clip');
     expect(f && f.kind === 'clip' && f.video).toBe(q('clip-video'));
@@ -559,5 +589,153 @@ describe('StripPlayer fullscreen', () => {
     flushSync();
     expect((q('fs-prev-event') as HTMLButtonElement).disabled).toBe(false);
     expect((q('fs-next-event') as HTMLButtonElement).disabled).toBe(true);
+  });
+});
+
+// Klaus, 2026-10-09: dragging into a clip turned the player black while the
+// clip loaded. The still stays until the video has the frame at the cursor.
+describe('StripPlayer: no black frame while a clip loads', () => {
+  const CLIP_URL = `/api/cameras/den/clips/${clip.id}/video`;
+
+  it('a jump into a clip keeps its still until the video presented the frame there', async () => {
+    render({ at: T + 12_000 });
+    await tick(300); // the still where it settled
+    const v = media(q('clip-video')!);
+    expect(showing()).toBe('cover');
+    expect(v.classList.contains('covered')).toBe(true);
+    expect(q('strip-still')!.getAttribute('src')).toBe(`/api/cameras/den/stills/${T + 12_000}.jpg`);
+    v.dispatchEvent(new Event('loadedmetadata'));
+    flushSync();
+    expect(v.writes).toEqual([2]);
+    expect(showing()).toBe('cover'); // seeking
+    present(v, 2);
+    expect(showing()).toBe('video');
+    expect(v.classList.contains('covered')).toBe(false);
+    expect(q('strip-still')).toBeNull();
+  });
+
+  it('keeps the still while the presented frame is not the cursor’s', async () => {
+    render({ at: T + 15_000 });
+    await tick(300);
+    const v = media(q('clip-video')!);
+    v.dispatchEvent(new Event('loadedmetadata'));
+    flushSync();
+    present(v, 1); // some other frame (a seek still on its way)
+    expect(showing()).toBe('cover');
+    present(v, 5);
+    expect(showing()).toBe('video');
+  });
+
+  it('while dragging: one seek in flight, the newest position next, shown after the dwell', async () => {
+    const p = render({ at: T + 11_000, scrubbing: true });
+    const v = media(q('clip-video')!);
+    v.dispatchEvent(new Event('loadedmetadata'));
+    flushSync();
+    expect(v.writes).toEqual([1]);
+    v.set({ seeking: true });
+    for (const s of [12, 13, 14, 15]) {
+      p.at = T + s * 1000;
+      flushSync();
+    }
+    expect(v.writes).toEqual([1]); // no seek per pointer move
+    present(v, 1); // the first seek is done: the newest target next
+    expect(v.writes).toEqual([1, 5]);
+    v.set({ seeking: true });
+    expect(showing()).toBe('cover');
+    present(v, 5);
+    expect(v.writes).toEqual([1, 5]);
+    // At the cursor, but the drag has been in the clip only for a moment.
+    expect(showing()).toBe('cover');
+    await tick(200);
+    expect(showing()).toBe('video');
+    expect(p.at).toBe(T + 15_000); // the video's seeks never moved the cursor
+  });
+
+  it('leaving the clip during a drag is the still at once; coming back reuses the loaded video', async () => {
+    const p = render({ at: T + 12_000, scrubbing: true });
+    const v = media(q('clip-video')!);
+    v.dispatchEvent(new Event('loadedmetadata'));
+    flushSync();
+    present(v, 2);
+    await tick(200);
+    expect(showing()).toBe('video');
+    p.at = T + 25_000; // the stills after the clip
+    flushSync();
+    expect(showing()).toBe('pictures');
+    p.at = T + 12_000;
+    flushSync();
+    expect(v.getAttribute('src')).toBe(CLIP_URL);
+    await tick(200);
+    expect(showing()).toBe('video'); // no new load: it still has that frame
+  });
+
+  it('a clip failing during a drag keeps the still, no error; where the drag stops it is tried again, then reported', async () => {
+    const onclipfail = vi.fn();
+    const p = render({ at: T + 12_000, scrubbing: true, onclipfail });
+    const v = media(q('clip-video')!);
+    v.dispatchEvent(new Event('error'));
+    flushSync();
+    await tick(300);
+    expect(onclipfail).not.toHaveBeenCalled();
+    expect(showing()).toBe('cover');
+    expect(q('strip-still')).not.toBeNull();
+    p.scrubbing = false; // the drag stops on the clip: once more
+    flushSync();
+    expect(onclipfail).not.toHaveBeenCalled();
+    expect(showing()).toBe('cover');
+    v.dispatchEvent(new Event('error'));
+    flushSync();
+    expect(onclipfail).toHaveBeenCalledWith(clip.id);
+  });
+
+  it('a clip failing during a drag that moves on is not reported', async () => {
+    const onclipfail = vi.fn();
+    const p = render({ at: T + 12_000, scrubbing: true, onclipfail });
+    q('clip-video')!.dispatchEvent(new Event('error'));
+    flushSync();
+    p.at = T + 25_000;
+    flushSync();
+    p.scrubbing = false;
+    flushSync();
+    expect(onclipfail).not.toHaveBeenCalled();
+  });
+
+  it('released inside the clip: plays from there once ready, the still covering the gap', async () => {
+    const p = render({ at: T + 12_000, scrubbing: true });
+    const v = media(q('clip-video')!);
+    v.dispatchEvent(new Event('loadedmetadata'));
+    flushSync();
+    p.scrubbing = false;
+    p.playing = true;
+    flushSync();
+    expect(showing()).toBe('cover');
+    present(v, 2);
+    expect(showing()).toBe('video');
+    // Playing: its own time moves the clock, and it stays on screen.
+    Object.defineProperty(v, 'currentTime', { configurable: true, get: () => 3.4, set: () => {} });
+    v.dispatchEvent(new Event('timeupdate'));
+    flushSync();
+    expect(p.at).toBe(T + 13_400);
+    expect(showing()).toBe('video');
+  });
+});
+
+// Seen in the e2e sampling of 2026-10-09: where a drag settles, the preview
+// tile went before the first still had loaded, and the box was empty.
+describe('StripPlayer: the preview tile until the first still is there', () => {
+  it('keeps the tile while the settled still loads, then shows the still', async () => {
+    const pending: (() => void)[] = [];
+    vi.stubGlobal('Image', class { onload: (() => void) | null = null; onerror: (() => void) | null = null; set src(_v: string) { pending.push(() => this.onload?.()); } });
+    const minute = Math.floor(T / 60_000) * 60_000;
+    const previews = [{ minute, cols: 10, rows: 6, tileW: 160, tileH: 90, intervalS: 1, present: Array(60).fill(true), url: '/sprite.jpg' }];
+    render({ at: T + 3000, previews });
+    expect(q('strip-preview')).not.toBeNull();
+    await tick(300); // settled: the still is asked for, not loaded yet
+    expect(q('strip-preview')).not.toBeNull();
+    expect(q('strip-still')).toBeNull();
+    for (const done of pending.splice(0)) done();
+    await tick(0);
+    expect(q('strip-still')!.getAttribute('src')).toBe(`/api/cameras/den/stills/${T + 3000}.jpg`);
+    expect(q('strip-preview')).toBeNull();
   });
 });
