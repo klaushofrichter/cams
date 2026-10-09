@@ -13,6 +13,7 @@
   import FullscreenOverlay from './FullscreenOverlay.svelte';
   import { enterPlayerFullscreen, exitPlayerFullscreen, playerFs, type FsAction } from '../lib/playerFullscreen';
   import { clipShown, liveBadge, modeBadge, modeOf, registerPlayer, type PlayerFrame, type RecShown } from '../lib/videoMode';
+  import { enterClip, IDLE_SEEKER, seekRequest, seekSettled, showClipVideo, SWAP_DWELL_MS, SWAP_TOLERANCE_S, type Entered, type Seeker } from '../lib/clipSwap';
 
   // History's player (spec 2026-09-27): one clock, `at`. A clip's <video>
   // drives it while a clip plays; otherwise a real-time ticker does, showing
@@ -20,7 +21,7 @@
   // so the next clip is loaded 3 s before it starts.
   let {
     cam, coverage, previews, now, at = $bindable(), playing = $bindable(), unavailable = false, onclipfail, onstep,
-    glued = false, live: liveSnippet, onglue, clipStream = 'sub', stepAvail = { prev: true, next: true },
+    glued = false, live: liveSnippet, onglue, clipStream = 'sub', stepAvail = { prev: true, next: true }, scrubbing = false,
   }: {
     cam: string;
     coverage: Coverage;
@@ -38,6 +39,9 @@
     // The stream a clip's video plays (HistoryView passes VIDEO_STREAM, the
     // clip route's: sub, SD); main says 4K.
     clipStream?: 'sub' | 'main';
+    // The timeline is being dragged (Klaus, 2026-10-09): a clip's video loads
+    // and seeks under the still and shows only once it has the frame.
+    scrubbing?: boolean;
   } = $props();
 
   // Live has no "after": forward 1 s and 10 s and next event are off there (#121).
@@ -82,6 +86,69 @@
   // own time doesn't undo the step (Klaus, 2026-10-03).
   let seekNext = false;
 
+  // --- the still over a clip that isn't ready (Klaus, 2026-10-09; lib/clipSwap.ts) ---
+  // Each slot's presented frame (seconds into its clip; null: none yet for
+  // this src), from requestVideoFrameCallback where there is one and from
+  // seeked / loadeddata / timeupdate with a decoded current frame.
+  let presented = $state<[number | null, number | null]>([null, null]);
+  let slotErr = $state<[boolean, boolean]>([false, false]);
+  const errWhileScrubbing = [false, false]; // reported only if it fails again where the drag stops
+  const seekers: Seeker[] = [IDLE_SEEKER, IDLE_SEEKER];
+  let videoShown = $state(false);
+  function setSrc(i: number, url: string) {
+    srcs[i] = url;
+    awaitingMeta[i] = true;
+    presented[i] = null;
+    slotErr[i] = false;
+    errWhileScrubbing[i] = false;
+    seekers[i] = IDLE_SEEKER;
+  }
+  // A seek at once (the newest target replaces any waiting one).
+  function seekNow(i: number, t: number) {
+    const v = vids[i];
+    if (!v) return;
+    seekers[i] = { inFlight: true, pending: null };
+    try {
+      v.currentTime = t;
+    } catch {
+      seekers[i] = IDLE_SEEKER; // before metadata: applied on loadedmetadata
+    }
+  }
+  // While dragging: one seek in flight, only the newest target waits.
+  function seekCoalesced(i: number, t: number) {
+    const v = vids[i];
+    if (!v) return;
+    const r = seekRequest(v.seeking ? seekers[i] : IDLE_SEEKER, t);
+    seekers[i] = r.next;
+    if (r.seek !== null) seekNow(i, r.seek);
+  }
+  function framePresented(i: number) {
+    const v = vids[i];
+    if (v && !v.seeking && v.readyState >= 2 && srcs[i]) presented[i] = v.currentTime;
+  }
+  function onSeeked(i: number) {
+    const r = seekSettled(seekers[i]);
+    if (r.seek !== null) return seekNow(i, r.seek);
+    seekers[i] = IDLE_SEEKER;
+    framePresented(i);
+  }
+  // requestVideoFrameCallback: the time of the frame actually presented.
+  $effect(() => {
+    const els = [vids[0], vids[1]];
+    const handles: (number | undefined)[] = [undefined, undefined];
+    els.forEach((v, i) => {
+      if (!v || typeof v.requestVideoFrameCallback !== 'function') return;
+      const cb = (_now: number, meta: VideoFrameCallbackMetadata) => {
+        if (srcs[i] && untrack(() => presented[i]) !== meta.mediaTime) presented[i] = meta.mediaTime;
+        handles[i] = v.requestVideoFrameCallback(cb);
+      };
+      handles[i] = v.requestVideoFrameCallback(cb);
+    });
+    return () => els.forEach((v, i) => {
+      if (v && handles[i] !== undefined) v.cancelVideoFrameCallback?.(handles[i]!);
+    });
+  });
+
   function urlOf(id: string) {
     const url = videoUrl(cam, id);
     idOf.set(url, id);
@@ -96,6 +163,7 @@
   $effect(() => {
     const s = source;
     const wantPlay = playing; // read first: every early return below still re-runs on play/pause
+    const drag = scrubbing; // and on a drag's start and end
     const forced = seekNext;
     seekNext = false;
     if (s.kind !== 'clip') {
@@ -107,7 +175,11 @@
     if (srcs[active] !== url) {
       if (srcs[1 - active] === url) {
         active = 1 - active; // preloaded (its metadata may still be on the way)
-        if (vids[active]?.error) return failClip(s.clip.id);
+        if (vids[active]?.error) {
+          slotErr[active] = true;
+          if (drag) errWhileScrubbing[active] = true;
+          else return failClip(s.clip.id);
+        }
         if (awaitingMeta[active]) {
           followVideo = false;
           return;
@@ -115,21 +187,32 @@
       } else {
         // A new source resets the element's position to 0: don't follow it
         // until loadedmetadata has put it at the wanted offset.
-        srcs[active] = url;
-        awaitingMeta[active] = true;
+        setSrc(active, url);
         followVideo = false;
         return;
       }
     }
     const v = vids[active];
-    if (!v || awaitingMeta[active]) return;
-    const want = s.offsetMs / 1000;
-    if (!followVideo || forced || Math.abs((v.currentTime || 0) - want) > 1.5) {
+    if (!v) return;
+    // It failed during the drag and the drag stopped here: once more, and a
+    // second failure is reported (onVideoError) like any other.
+    if (!drag && errWhileScrubbing[active]) {
+      setSrc(active, url);
       try {
-        v.currentTime = want;
+        v.load();
       } catch {
-        // before metadata: applied on loadedmetadata below
+        // jsdom
       }
+      return;
+    }
+    if (awaitingMeta[active] || slotErr[active]) return;
+    const want = s.offsetMs / 1000;
+    const cur = v.currentTime || 0;
+    if (drag) {
+      // Dragging: the hidden video follows the newest position only.
+      if (Math.abs(want - (seekers[active].pending ?? cur)) > 0.1) seekCoalesced(active, want);
+    } else if (!followVideo || forced || Math.abs(cur - want) > 1.5 || (!untrack(() => videoShown) && Math.abs(cur - want) > SWAP_TOLERANCE_S)) {
+      seekNow(active, want);
     }
     followVideo = true;
     if (wantPlay) tryPlay(v);
@@ -142,8 +225,7 @@
     if (next === null || next - at > PRELOAD_MS) return;
     const s = sourceAt(coverage, next, now);
     if (s.kind === 'clip' && srcs[active] !== urlOf(s.clip.id) && srcs[1 - active] !== urlOf(s.clip.id)) {
-      srcs[1 - active] = urlOf(s.clip.id);
-      awaitingMeta[1 - active] = true;
+      setSrc(1 - active, urlOf(s.clip.id));
     }
   });
   // Only the browser's autoplay block stops playback; a play() that fails
@@ -159,7 +241,10 @@
   }
   function onVideoTime(i: number) {
     const s = source;
-    if (i !== active || s.kind !== 'clip' || !followVideo) return;
+    framePresented(i);
+    // Only playback moves the clock: a seek's timeupdate while paused or
+    // dragging is an older position than the cursor's (coalesced seeks).
+    if (i !== active || s.kind !== 'clip' || !followVideo || !playing || scrubbing) return;
     const v = vids[i]!;
     at = Date.parse(s.clip.start) + v.currentTime * 1000;
   }
@@ -169,18 +254,58 @@
     at = Date.parse(s.clip.end);
   }
   // Either slot: a preloaded clip that fails is failed before its turn.
+  // While dragging, a failure only keeps the still (no error flash): it is
+  // tried again where the drag stops.
   function onVideoError(i: number) {
     const id = srcs[i] ? idOf.get(srcs[i]!) : undefined;
+    slotErr[i] = true;
+    seekers[i] = IDLE_SEEKER;
+    if (scrubbing) {
+      errWhileScrubbing[i] = true;
+      return;
+    }
     if (id) failClip(id);
   }
   function onMeta(i: number) {
     const s = source;
     awaitingMeta[i] = false;
     if (i !== active || s.kind !== 'clip' || srcs[i] !== urlOf(s.clip.id)) return;
-    vids[i]!.currentTime = s.offsetMs / 1000;
+    seekNow(i, s.offsetMs / 1000);
     followVideo = true;
     if (playing) tryPlay(vids[i]!);
   }
+
+  // The swap: the video shows only with a frame at the cursor (and, while
+  // dragging, after the cursor has stayed in the clip for a moment); until
+  // then the still layer covers it. Leaving the clip is the still at once.
+  let entered: Entered | null = null;
+  let dwellTimer: ReturnType<typeof setTimeout> | undefined;
+  let dwellTick = $state(0);
+  $effect(() => {
+    const id = source.kind === 'clip' ? source.clip.id : null;
+    untrack(() => {
+      const e = enterClip(entered, id, Date.now());
+      if (e === entered) return;
+      entered = e;
+      clearTimeout(dwellTimer);
+      if (e) dwellTimer = setTimeout(() => dwellTick++, SWAP_DWELL_MS);
+    });
+  });
+  $effect(() => () => clearTimeout(dwellTimer));
+  $effect(() => {
+    const s = source;
+    void dwellTick;
+    const i = active;
+    const want = !glued && s.kind === 'clip' ? { url: urlOf(s.clip.id), offsetS: s.offsetMs / 1000 } : null;
+    const show = showClipVideo({
+      want,
+      slot: { url: srcs[i], presentedS: presented[i], error: slotErr[i] },
+      scrubbing,
+      dwellMs: untrack(() => (entered ? Date.now() - entered.since : 0)),
+      shown: untrack(() => videoShown),
+    });
+    if (show !== untrack(() => videoShown)) videoShown = show;
+  });
 
   // --- the real-time ticker (not for clips) ---
   $effect(() => {
@@ -216,14 +341,24 @@
     const img = new Image();
     img.onload = () => {
       stillState.set(url, 1);
-      if (source.kind === 'still' && stillUrl(source.ts) === url) stillShown = url;
+      if (pic?.kind === 'still' && stillUrl(pic.ts) === url) {
+        stillShown = url;
+        if (stillPending === pic.ts) stillPending = null;
+      }
     };
     img.onerror = () => stillState.set(url, Date.now());
     img.src = url;
     // Keep the map to the last ten minutes or so of seconds.
     if (stillState.size > 700) for (const k of [...stillState.keys()].slice(0, 100)) stillState.delete(k);
   }
-  const stillTs = $derived(source.kind === 'still' ? source.ts : null);
+  // The picture layers: the source, or over a clip whose video isn't on
+  // screen yet, the still or preview tile of that second.
+  const covering = $derived(!glued && source.kind === 'clip' && !videoShown);
+  const pic = $derived.by((): Source | null => {
+    if (source.kind !== 'clip') return source;
+    return covering ? sourceAt({ ...coverage, clips: [] }, at, Infinity) : null;
+  });
+  const stillTs = $derived(pic?.kind === 'still' ? pic.ts : null);
   // Playing forward, stills load as they come (a second at a time). Any
   // other move (a drag, a jump, a step) loads only where it settles, after
   // 150 ms; meanwhile the minute's sprite tile stands in. A drag across
@@ -241,7 +376,9 @@
     }
     untrack(() => {
       const load = (t: number) => {
-        stillPending = null;
+        // The tile stays until there is a still to show (the first one
+        // loading: nothing else would be on screen).
+        if (stillShown !== null || stillState.get(stillUrl(t)) === 1) stillPending = null;
         loadStill(t, true);
         for (let k = 1; k <= 3; k++) loadStill(t + k * 1000, false);
       };
@@ -257,7 +394,7 @@
 
   // --- preview tile, scaled up to the box ---
   let boxW = $state(0);
-  const tile = $derived(source.kind === 'preview' ? previewAt(previews, source.ts) : null);
+  const tile = $derived(pic?.kind === 'preview' ? previewAt(previews, pic.ts) : null);
 
   // The Video page's snapshot in a recording (spec 2026-10-04): what is on
   // screen (live has the camera's own snapshot). Fullscreen is this box in
@@ -265,11 +402,10 @@
   let boxEl: HTMLDivElement | undefined = $state();
   function frame(): PlayerFrame | null {
     if (glued) return null;
-    const s = source;
-    if (s.kind === 'clip') {
-      const v = vids[active];
-      return v ? { kind: 'clip', video: v, at } : null;
-    }
+    const v = vids[active];
+    const clip: PlayerFrame | null = source.kind === 'clip' && v ? { kind: 'clip', video: v, at } : null;
+    const s = pic;
+    if (!s || (s.kind !== 'still' && !(s.kind === 'preview' && tile?.minute.url))) return clip; // nothing covers it: the video, as before
     if (s.kind === 'still') return { kind: 'still', url: stillUrl(s.ts), at: s.ts };
     if (s.kind === 'preview' && tile?.minute.url) {
       const m = tile.minute;
@@ -346,11 +482,13 @@
 
 <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
 <div class="player" data-testid="strip-player" tabindex="0" onkeydown={keydown}>
-  <div class="box" class:fill={$playerFs === 'fill'} bind:clientWidth={boxW} bind:this={boxEl}>
+  <div class="box" class:fill={$playerFs === 'fill'} bind:clientWidth={boxW} bind:this={boxEl}
+    data-showing={glued ? 'live' : source.kind !== 'clip' ? 'pictures' : videoShown ? 'video' : 'cover'}>
     {#each [0, 1] as i (i)}
       <video
         bind:this={vids[i]}
         class:hidden={glued || source.kind !== 'clip' || i !== active}
+        class:covered={i === active && covering}
         data-testid={i === active ? 'clip-video' : 'clip-video-idle'}
         src={srcs[i] ?? undefined}
         preload="auto"
@@ -362,6 +500,8 @@
         onerror={() => onVideoError(i)}
         onloadedmetadata={() => onMeta(i)}
         oncanplay={() => onCanPlay(i)}
+        onseeked={() => onSeeked(i)}
+        onloadeddata={() => framePresented(i)}
       ></video>
     {/each}
     {#if liveSnippet}
@@ -369,16 +509,19 @@
     {/if}
     {#if glued}
       <!-- live: the layer above -->
-    {:else if source.kind === 'still' && pendingTile}
+    {:else if pic?.kind === 'still' && pendingTile}
       <div class="layer tile-wrap" data-testid="strip-preview">
         <span class="tile" style={`${tileStyle(pendingTile.minute, pendingTile.index, 1)};transform:scale(${boxW / 160})`}></span>
       </div>
-    {:else if source.kind === 'still' && stillShown}
+    {:else if pic?.kind === 'still' && stillShown}
       <img class="layer" data-testid="strip-still" src={stillShown} alt="" />
-    {:else if source.kind === 'preview' && tile}
+    {:else if pic?.kind === 'preview' && tile}
       <div class="layer tile-wrap" data-testid="strip-preview">
         <span class="tile" style={`${tileStyle(tile.minute, tile.index, 1)};transform:scale(${boxW / 160})`}></span>
       </div>
+    {:else if covering && stillShown}
+      <!-- a clip with no still of its own yet: the last picture stays -->
+      <img class="layer" data-testid="strip-still" src={stillShown} alt="" />
     {:else if source.kind === 'none' || source.kind === 'future'}
       <div class="layer empty" data-testid="strip-empty">
         <span>{source.kind === 'future' ? 'Later than now' : 'No recording'}</span>
@@ -439,6 +582,9 @@
   .box { position: relative; width: 100%; aspect-ratio: 16 / 9; background: #000; border-radius: 12px; overflow: hidden; }
   video, .layer { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; }
   video.hidden { visibility: hidden; }
+  /* Loading or seeking under the still (2026-10-09): transparent, not
+     display: none or visibility: hidden, so it decodes and presents frames. */
+  video.covered { opacity: 0; }
   .layer.off { visibility: hidden; }
   /* Fullscreen (#182): the box is the whole screen, the browser's or, where
      there is none (iPhone), a fixed layer over the page ("fill the screen"). */

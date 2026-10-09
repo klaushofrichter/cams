@@ -8,3 +8,4 @@ published as [GitHub releases](https://github.com/klaushofrichter/cams/releases)
 
 ## [Unreleased]
 
+- Video: dragging the timeline into a clip no longer turns the player black while the clip loads. The still stays until the clip can show the moment under the cursor; a clip that can't load keeps the still.
