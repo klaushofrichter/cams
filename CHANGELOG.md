@@ -8,3 +8,7 @@ published as [GitHub releases](https://github.com/klaushofrichter/cams/releases)
 
 ## [Unreleased]
 
+
+### Fixed
+
+- cams reports its status to cams-admin at least every 10 minutes, also when nothing changed. cams-admin keeps the reports in memory only, so after a cams-admin restart it showed the instance with mode "—" and no shadow differences until cams itself restarted.

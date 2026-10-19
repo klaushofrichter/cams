@@ -49,6 +49,7 @@ export interface ConfigStatus {
 }
 
 const STALE_MS = 24 * 3_600_000;
+const REPORT_REFRESH_MS = 10 * 60_000; // a report at least this often, also when nothing changed
 
 interface State {
   mode: ConfigMode;
@@ -166,6 +167,8 @@ async function pullOnce(): Promise<boolean> {
     if (!st.reportedOnce) {
       st.reportedOnce = true;
       reportSoon(true); // one at start, once the first pull has its answer
+    } else if (st.now() - st.lastReportAt > REPORT_REFRESH_MS) {
+      reportSoon(); // cams-admin keeps reports in memory only: after its restart it learns them again
     }
     if (r.status === 304) {
       if (st.now() - st.lastEnsureAt > 86_400_000) void ensureTokens();
