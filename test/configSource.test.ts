@@ -364,6 +364,24 @@ describe('file and shadow mode', () => {
     expect(JSON.stringify(fake.reports)).not.toContain('127.0.0.1:10');
   });
 
+  it('reports again every 10 min while nothing changes (cams-admin keeps reports in memory only, so it learns the mode again after its own restart)', async () => {
+    await enrolled();
+    process.env.CONFIG_SOURCE = 'shadow';
+    let now = 1_800_000_000_000;
+    fake.setSnapshot(twoAccountsSnapshot({ homeName: 'home' }));
+    await startConfig({ ...FAST, now: () => now });
+    await expect.poll(() => fake.reports.length).toBe(1);
+    now += 9 * 60_000;
+    await pullNow();
+    expect(fake.requests.at(-1)!.status).toBe(304);
+    await new Promise((r) => setTimeout(r, 50));
+    expect(fake.reports.length).toBe(1);
+    now += 60_000 + 1;
+    await pullNow();
+    await expect.poll(() => fake.reports.length).toBe(2);
+    expect(fake.reports.at(-1)?.mode).toBe('shadow');
+  });
+
   it('CONFIG_SOURCE=bogus fails start naming CONFIG_SOURCE; shadow without a key file fails naming admin-enroll', async () => {
     process.env.CONFIG_SOURCE = 'bogus';
     await expect(startConfig(FAST)).rejects.toThrow(/CONFIG_SOURCE/);
