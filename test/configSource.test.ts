@@ -373,7 +373,8 @@ describe('file and shadow mode', () => {
     await expect.poll(() => fake.reports.length).toBe(1);
     now += 9 * 60_000;
     await pullNow();
-    expect(fake.requests.at(-1)!.status).toBe(304);
+    // the last config pull (a token registration may land after it)
+    expect(fake.requests.filter((q) => q.path.startsWith('/cams/v1/config')).at(-1)!.status).toBe(304);
     await new Promise((r) => setTimeout(r, 50));
     expect(fake.reports.length).toBe(1);
     now += 60_000 + 1;
