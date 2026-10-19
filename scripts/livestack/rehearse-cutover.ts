@@ -290,10 +290,17 @@ async function main() {
   record('8 Rotate now: cams made new tokens (hashes only), they are active and in use, the old ones retiring; request loop without failures', switched && failures === 0 && calls > 0, `${calls} calls, ${failures} failures`);
 
   // 9. A held change: a camera's host moved in cams-admin → held until confirmed.
+  // The import gives the cluster instance a host override per camera (the
+  // file's host), which wins over the camera's own host: move the override.
   const target = camsOf(first)[0];
   const oldHost = simHost(target, first);
   const newHost = oldHost.replace('127.0.0.1', 'localhost');
-  const patchHost = async (host: string) => api('PATCH', `/accounts/${account.id}/cameras/${target.id}`, { host, version: (await api('GET', `/accounts/${account.id}/cameras/${target.id}`)).version });
+  const overridePath = `/cams-instances/${inst.cluster.id}/camera-overrides`;
+  const patchHost = async (host: string) => {
+    const o = ((await api('GET', overridePath)).items as { cameraId: string; cameraUser: string | null; version: number }[]).find((x) => x.cameraId === target.id);
+    if (o) return api('PUT', `${overridePath}/${target.id}`, { host, cameraUser: o.cameraUser, version: o.version });
+    return api('PATCH', `/accounts/${account.id}/cameras/${target.id}`, { host, version: (await api('GET', `/accounts/${account.id}/cameras/${target.id}`)).version });
+  };
   await patchHost(newHost);
   const held = await until('held change shown', async () => {
     const h = (await camsGet<{ items: { camsId: string; fields: string[]; digest: string; to: { host?: string } }[] }>(cluster, '/api/admin/held')).body.items;
