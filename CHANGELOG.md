@@ -8,3 +8,6 @@ published as [GitHub releases](https://github.com/klaushofrichter/cams/releases)
 
 ## [Unreleased]
 
+### Fixed
+- An offline camera now says why when cams has no password for it, when its connection change still needs an admin's confirmation, or when its certificate can't be verified, instead of the generic "certificate problem" text.
+
