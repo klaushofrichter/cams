@@ -14,6 +14,9 @@ describe('liveUi helpers', () => {
     expect(offlineReason('camera_address_unknown')).toBe("Waiting for the proxy to report the camera's address.");
     expect(offlineReason('camera_auth_failed')).toBe('Signing in to the camera failed.');
     expect(offlineReason('unreachable')).toBe("cams couldn't check the camera (network or server problem).");
+    expect(offlineReason('camera_credentials_missing')).toBe("cams has no password for this camera yet.");
+    expect(offlineReason('camera_unconfirmed')).toBe("A change to the camera's connection data is waiting for an admin to confirm it.");
+    expect(offlineReason('camera_unverified_tls')).toBe("cams can't verify the camera's certificate, so it doesn't send the password.");
     expect(offlineReason('other')).toMatch(/server logs/);
   });
 });
