@@ -8,7 +8,6 @@ published as [GitHub releases](https://github.com/klaushofrichter/cams/releases)
 
 ## [Unreleased]
 
-
 ### Fixed
+- An offline camera now says why when cams has no password for it, when its connection change still needs an admin's confirmation, or when its certificate can't be verified, instead of the generic "certificate problem" text.
 
-- cams reports its status to cams-admin at least every 10 minutes, also when nothing changed. cams-admin keeps the reports in memory only, so after a cams-admin restart it showed the instance with mode "—" and no shadow differences until cams itself restarted.

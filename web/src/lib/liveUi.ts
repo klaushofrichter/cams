@@ -93,6 +93,9 @@ export function offlineReason(code: string | undefined): string {
   if (code === 'camera_auth_failed') return 'Signing in to the camera failed.';
   if (code === 'camera_address_unknown') return WAITING_FOR_PROXY;
   if (code === 'unreachable') return "cams couldn't check the camera (network or server problem).";
+  if (code === 'camera_credentials_missing') return 'cams has no password for this camera yet.';
+  if (code === 'camera_unconfirmed') return "A change to the camera's connection data is waiting for an admin to confirm it.";
+  if (code === 'camera_unverified_tls') return "cams can't verify the camera's certificate, so it doesn't send the password.";
   return 'The camera answered with an error (for example a certificate problem). Check the server logs.';
 }
 
