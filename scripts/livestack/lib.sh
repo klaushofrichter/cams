@@ -168,8 +168,9 @@ wait_http() {
 # so no secret is ever on a command line or in the environment as a value.
 # proxy_secret_env [SECRETS_DIR]: default $RUN/secrets (the two-proxy stack
 # has one folder per proxy).
-# A proxy_tokens_all file (the two-proxy stack: the proxy's own client token
-# and the camera move's shared one) is the proxy's token list when present.
+# A proxy_tokens_all file (the two-proxy stack's camera move: proxy B's own
+# client token and the admin cams's managed one) is the proxy's token list
+# when present.
 proxy_secret_env() {
   local d="${1:-$RUN/secrets}" tokens
   tokens="$d/proxy_tokens"; [ -f "$d/proxy_tokens_all" ] && tokens="$d/proxy_tokens_all"

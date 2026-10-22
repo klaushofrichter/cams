@@ -456,6 +456,16 @@ test.describe('camera move @move', () => {
 
   test('the move: mover goes to proxy B with its moveId and cam1.siteb.internal, without a hold', async ({ page }) => {
     expect(Object.keys(trust().proxies ?? {}), 'proxy B confirmed in the step before').toContain(`${MOVE.ACCOUNT}/${MOVE.PROXY_B}`);
+    // cams's own token for proxy B (its legacy one is proxy A's and stays there):
+    // registered, installed on proxy B, listed active (cams-admin's tokens.apply, played here).
+    const tokenRows = async () => (await (await fetch(`${HOOKS}/tokens`)).json()) as { proxyId: string; kind: string; state: string }[];
+    await expect.poll(async () => (await tokenRows()).some((t) => t.proxyId === MOVE.PROXY_B && t.kind === 'client'), { timeout: 15_000 }).toBe(true);
+    execFileSync('bash', [START, '--admin-token-to-proxy-b', MOVE.PROXY_B], { stdio: 'inherit' });
+    const act = await fetch(`${HOOKS}/activate`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ proxyId: MOVE.PROXY_B }) });
+    expect(act.status, 'activate cams\'s token for proxy B').toBe(200);
+    // Still on proxy A until the move (its legacy token, its own proxy).
+    await expect.poll(() => sseClients('B'), { timeout: 60_000 }).toBe(1);
+    expect(trust().confirmed[KEY]).toMatchObject({ proxyUrl: env.PROXY_A_URL });
     const revision = await step('moved');
     await expect.poll(() => trust().confirmed[KEY]?.proxyUrl, { timeout: 15_000 }).toBe(env.PROXY_B_URL);
     const t = trust();

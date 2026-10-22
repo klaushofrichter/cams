@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # start-two-proxy-stack.sh [--stop-proxy-b | --start-proxy-b | --start-admin |
-# --stop-admin]: one cams with
+# --stop-admin | --admin-token-to-proxy-b PROXY_ID]: one cams with
 # two cam-proxies, each with its own cam-sim, all local. See docs/livestack.md,
 # "Two proxies".
 #
@@ -17,16 +17,21 @@
 #                    cams-admin mode, and its fake cams-admin
 #                    (two-proxy-admin.ts); a fresh data folder each time
 #   --stop-admin     stops those two again
+#   --admin-token-to-proxy-b PROXY_ID
+#                    plays cams-admin's tokens.apply: the admin cams's own
+#                    client token for that proxy (its admin/tokens.json, never
+#                    printed) joins proxy B's tokens, and proxy B restarts
 #
 # The camera move (cams plan 2026-10-21-camera-move-cams, Task 5): the second
 # cams ("admin cams", :19881) serves one camera, "mover" (cam-sim B's host),
 # from the fake cams-admin's snapshot (:19882, test hooks :19883): first on
 # proxy A, then moved to proxy B. Its CAMERAS_FILE (the file account's
-# legacy entry, mode 600) gives it a client token both proxies accept (the
-# run's move_token, beside each proxy's own in proxy_tokens_all): cams's own
-# managed tokens need cams-admin's fleet channel to the proxies, which this
-# stack doesn't have. check-two-proxy.sh starts it after the main checks
-# (one SSE client per proxy until then) and stops it again.
+# legacy entry, mode 600) has proxy A's own token: cams uses a legacy token
+# only on the proxy its entry names. On proxy B it uses its own managed token,
+# which the spec installs there with --admin-token-to-proxy-b (this stack has
+# no fleet channel for cams-admin's tokens.apply) before the fake admin lists
+# it active. check-two-proxy.sh starts it after the main checks (one SSE
+# client per proxy until then) and stops it again.
 #
 # What runs (detached worktrees in the work dir, built once per commit):
 #   cam-sim   origin/main, as in the sim stack
@@ -66,7 +71,7 @@ set -euo pipefail
 source "$(dirname "$0")/lib.sh"
 
 MODE="${1:-}"
-case "$MODE" in ""|--stop-proxy-b|--start-proxy-b|--start-admin|--stop-admin) ;; *) die "usage: start-two-proxy-stack.sh [--stop-proxy-b | --start-proxy-b | --start-admin | --stop-admin]" ;; esac
+case "$MODE" in ""|--stop-proxy-b|--start-proxy-b|--start-admin|--stop-admin|--admin-token-to-proxy-b) ;; *) die "usage: start-two-proxy-stack.sh [--stop-proxy-b | --start-proxy-b | --start-admin | --stop-admin | --admin-token-to-proxy-b PROXY_ID]" ;; esac
 
 PROXY_A_PORT=19680 PROXY_B_PORT=19780 CAMS_PORT=19880
 ADMIN_CAMS_PORT=19881 FAKE_ADMIN_PORT=19882 FAKE_ADMIN_HOOKS=19883
@@ -98,6 +103,23 @@ if [ "$MODE" = --stop-admin ]; then
   stop_named fake-cams-admin
   exit 0
 fi
+if [ "$MODE" = --admin-token-to-proxy-b ]; then
+  [ "$(env_get "$RUN_ENV" STACK)" = two-proxy ] || die "no two-proxy stack in $WORK"
+  prx="${2:-}"
+  [[ "$prx" =~ ^prx_[0-9A-HJKMNP-TV-Z]{20}$ ]] || die "usage: --admin-token-to-proxy-b PROXY_ID"
+  f="$RUN/cams-admin/admin/tokens.json"
+  [ -r "$f" ] || die "no $f: is the admin cams running?"
+  # The newest registered client token for that proxy; only its value goes to the file, never to the output.
+  ( umask 077
+    managed="$(jq -r --arg p "$prx" '[.tokens[] | select(.proxyId == $p and .kind == "client" and .id != null)] | sort_by(.createdAt) | last | .token // empty' "$f")"
+    [ -n "$managed" ] || { echo "livestack: no registered client token for $prx in $f" >&2; exit 1; }
+    printf '%s,%s' "$(cat "$RUN/secrets-b/proxy_tokens")" "$managed" > "$RUN/secrets-b/proxy_tokens_all" ) || exit 1
+  stop_named cam-proxy-b
+  require_ports_free $PROXY_B_PORT 19781 19782 19783
+  start_proxy "$RUN/proxy-b/config.json" cam-proxy-b "$(env_get "$RUN_ENV" PROXY_B_SRC)" "$RUN/secrets-b"
+  wait_http "http://127.0.0.1:$PROXY_B_PORT/health" 60 "cam-proxy B (with the admin cams's token)"
+  exit 0
+fi
 if [ "$MODE" = --start-admin ]; then
   [ "$(env_get "$RUN_ENV" STACK)" = two-proxy ] || die "no two-proxy stack in $WORK"
   for n in cams-admin-mode fake-cams-admin; do
@@ -111,9 +133,10 @@ if [ "$MODE" = --start-admin ]; then
   ( umask 077; mkdir -p "$D/cache" )
   chmod 700 "$D"
   # The file account's legacy camera (R4-11 seeds trust from it; R4-12 its
-  # token and password): mover on proxy A, cam-sim B's host and "cams" user.
+  # token and password): mover on proxy A with A's own token, cam-sim B's
+  # host and "cams" user.
   ( umask 077; jq -n --arg a "$(env_get "$RUN_ENV" PROXY_A_URL)" --arg host "$(env_get "$RUN_ENV" MOVER_HOST)" \
-      --rawfile pw "$RUN/secrets-b/cams_password" --rawfile tok "$RUN/secrets-a/move_token" \
+      --rawfile pw "$RUN/secrets-b/cams_password" --rawfile tok "$RUN/secrets-a/proxy_tokens" \
       '[{ id: "mover", name: "Mover", host: $host, protocol: "http", user: "cams", password: $pw,
           proxy: { url: $a, token: $tok, camera: "cam1" } }]' > "$D/cameras.json" )
   start_bg fake-cams-admin env -C "$CAMS_REPO" \
@@ -185,7 +208,6 @@ for x in a b; do
   pw_proxy="$(gen_token)" pw_cams="$(gen_token)"
   ( umask 077
     printf '%s' "$(gen_token)" > "$d/proxy_tokens"
-    [ "$x" = a ] && printf '%s' "$(gen_token)" > "$d/move_token"   # the camera move's, both proxies
     printf '%s' "$(gen_token)" > "$d/proxy_admin_token"
     printf '%s' "$pw_proxy" > "$d/camera_password"
     printf '%s' "$pw_cams" > "$d/cams_password"
@@ -193,10 +215,6 @@ for x in a b; do
     printf '%s' "$(gen_token)" > "$d/camsim_control_token"
     printf '%s' "proxy:admin:$pw_proxy;cams:admin:$pw_cams" > "$d/camsim_users" )
   unset pw_proxy pw_cams
-done
-# Each proxy accepts its own client token and the camera move's (lib.sh proxy_secret_env).
-for x in a b; do
-  ( umask 077; printf '%s,%s' "$(cat "$RUN/secrets-$x/proxy_tokens")" "$(cat "$RUN/secrets-a/move_token")" > "$RUN/secrets-$x/proxy_tokens_all" )
 done
 
 B_IDS=()

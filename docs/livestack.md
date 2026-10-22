@@ -38,7 +38,7 @@ Run them in that order: a failure in 1 or 2 is cheaper to find than in 3.
 | `start-sim-stack.sh` | Part 2: starts cam-sim, cam-proxy and cams on 127.0.0.1 |
 | `start-real-stack.sh` | Part 3: starts cam-proxy and cams on 127.0.0.1 against the real camera |
 | `check-stack.sh` | The 23 checks against a running stack |
-| `start-two-proxy-stack.sh` | Part 4: two cam-sims, two cam-proxies and one cams on 127.0.0.1, cams' `cameras.json` from the generator; `--stop-proxy-b` / `--start-proxy-b` for the outage check; `--start-admin` / `--stop-admin` for the camera move's second cams (cams-admin mode) and its fake cams-admin |
+| `start-two-proxy-stack.sh` | Part 4: two cam-sims, two cam-proxies and one cams on 127.0.0.1, cams' `cameras.json` from the generator; `--stop-proxy-b` / `--start-proxy-b` for the outage check; `--start-admin` / `--stop-admin` for the camera move's second cams (cams-admin mode) and its fake cams-admin; `--admin-token-to-proxy-b` installs that cams's own token on proxy B |
 | `check-two-proxy.sh` | Part 4's checks: `two-proxy.spec.ts` (Playwright, config `two-proxy.config.ts`, run.env read by `two-proxy-env.ts`), then the generator again, then the camera move (`@move` in the same spec) |
 | `two-proxy-admin.ts` | Part 4's fake cams-admin for the camera move (`test/admin/fakeAdmin.ts` as a process on 127.0.0.1, with snapshot-step hooks) |
 | `stop-stack.sh` | Stops the stack it started; `--clean` also deletes the run data and the worktrees |
@@ -230,7 +230,7 @@ next ones still run):
 | 10 | generator again | a dry run of the generator on the same input finds `(no changes)` |
 | 11 | the camera move: seed | (`@move`, with cams in cams-admin mode, below) `mover` on proxy A, nothing held; `trust.json` seeded from the legacy `cameras.json` and proxy A trusted once (`seed`, `seed-proxies`); the admin cams is proxy A's second SSE client, not B's |
 | 12 | the camera move: a new proxy | the snapshot adds proxy B (site `siteb`): held in `/api/admin/held` and in the report's `heldProxies`; the banner says "New proxy Proxy B at …"; **Confirm** trusts it (`confirm-proxy`), and nothing moves yet |
-| 13 | the camera move: the move | the snapshot moves `mover` to proxy B with a `moveId` and `cam1.siteb.internal`: confirmed on the spot (`move` with that `moveId` in `trust.json`), nothing held, the report says so; the admin cams now listens to proxy B, no longer to A |
+| 13 | the camera move: the move | cams's own token for proxy B installed there and listed active, `mover` still on A; then the snapshot moves `mover` to proxy B with a `moveId` and `cam1.siteb.internal`: confirmed on the spot (`move` with that `moveId` in `trust.json`), nothing held, the report says so; the admin cams now listens to proxy B, no longer to A |
 | 14 | the camera move: after it | `mover`'s live view plays (`● LIVE`, streaming) and its Snap answers; a person event on cam-sim B is listed and its clip plays through proxy B; no held banner |
 
 check-two-proxy.sh starts proxy B again if the spec left it stopped.
@@ -250,11 +250,15 @@ file account) has one camera, `mover`, with cam-sim B's host; the hooks'
 `moveId` set, TLS name `cam1.siteb.internal`). Until the move, `mover` goes
 through proxy A's `cam1`, which is cam-sim A: a stand-in, the checks before
 the move look only at trust and at which proxy the admin cams listens to.
-Its legacy `run/cams-admin/cameras.json` (mode 600) holds the client token
-it uses on both proxies: a per-run `move_token` that both proxies accept
-beside their own (`proxy_tokens_all`), because cams's own managed tokens
-need cams-admin's fleet channel to the proxies, which this stack doesn't
-have. Sim cameras and the fake admin only: no real cams-admin, S3 or Google.
+Its legacy `run/cams-admin/cameras.json` (mode 600) has proxy A's own
+token: cams uses a legacy token only on the proxy its entry names. On proxy
+B it needs its own managed token. Before the move, the spec plays
+cams-admin's `tokens.apply` (this stack has no fleet channel): it waits for
+cams to register its client token for B with the fake admin, then runs
+`start-two-proxy-stack.sh --admin-token-to-proxy-b <proxyId>`. That adds the
+token from the admin cams's `admin/tokens.json` to proxy B's token list
+(`run/secrets-b/proxy_tokens_all`, never printed) and restarts proxy B.
+Last, the hooks' `POST /activate` lists the token as active. Sim cameras and the fake admin only: no real cams-admin, S3 or Google.
 Playwright's results (traces of failed steps) go to
 `$TMPDIR/cams-livestack-two-proxy-results`.
 

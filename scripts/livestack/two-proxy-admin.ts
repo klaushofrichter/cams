@@ -15,12 +15,17 @@
 //   moved   mover on proxy B (its cam1), moveId set, TLS name
 //           cam1.siteb.internal: the move rule applies it without a hold
 // GET /reports: the last report's appliedRevision, held and heldProxies.
+// cams's own tokens (POST /cams/v1/tokens) are listed on their proxy in the
+// snapshot; GET /tokens lists them (ids and states, no hashes), POST
+// /activate {proxyId} makes that proxy's client tokens active in a new
+// revision (cams-admin's tokens.apply done: start-two-proxy-stack.sh
+// --admin-token-to-proxy-b installs the token on the proxy first).
 // Every value here is test data (ids made up for this file, loopback URLs).
 import express from 'express';
 import { generateKeyPairSync } from 'crypto';
 import { chmodSync, mkdirSync, writeFileSync } from 'fs';
 import { join } from 'path';
-import { SERVER_KEY, signSnapshot, startFakeAdmin } from '../../test/admin/fakeAdmin';
+import { SERVER_KEY, signSnapshot, startFakeAdmin, type FakeTokenRow } from '../../test/admin/fakeAdmin';
 import { MOVE } from './two-proxy-env';
 
 const need = (name: string): string => {
@@ -41,9 +46,11 @@ const { ACCOUNT, PROXY_A, PROXY_B, MOVE_ID, CAMS_ID } = MOVE;
 type Step = 'base' | 'proxyB' | 'moved';
 let revision = 1;
 let step: Step = 'base';
+let tokens: FakeTokenRow[] = [];
 
 function snapshot(): Record<string, unknown> {
-  const proxy = (id: string, name: string, displayName: string, url: string, site: string) => ({ id, name, displayName, url, adminUiUrl: null, tlsServername: null, caFingerprints: [], site, tokens: [] });
+  const listed = (proxyId: string) => tokens.filter((t) => t.proxyId === proxyId).map((t) => ({ id: t.tokenId, kind: t.kind, state: t.state, retireAt: t.retireAt }));
+  const proxy = (id: string, name: string, displayName: string, url: string, site: string) => ({ id, name, displayName, url, adminUiUrl: null, tlsServername: null, caFingerprints: [], site, tokens: listed(id) });
   const moved = step === 'moved';
   return {
     v: 1,
@@ -69,6 +76,7 @@ function snapshot(): Record<string, unknown> {
 
 void (async () => {
   const fake = await startFakeAdmin({ port: PORT, instanceName: 'livestack', accounts: ['home'] });
+  tokens = fake.tokens; // the same rows the fake's POST /tokens adds to
   // The instance, enrolled: its key, cams-admin's key, the signed cache.
   mkdirSync(join(DATA, 'admin'), { recursive: true, mode: 0o700 });
   chmodSync(DATA, 0o700);
@@ -91,6 +99,18 @@ void (async () => {
     revision++;
     fake.setSnapshot(snapshot());
     res.json({ step, revision: `r:${String(revision).padStart(16, '0')}` });
+  });
+  hooks.get('/tokens', (_req, res) => {
+    res.json(fake.tokens.map((t) => ({ tokenId: t.tokenId, proxyId: t.proxyId, kind: t.kind, state: t.state })));
+  });
+  hooks.post('/activate', (req, res) => {
+    const proxyId = (req.body as { proxyId?: string }).proxyId;
+    const rows = fake.tokens.filter((t) => t.proxyId === proxyId && t.kind === 'client' && t.state === 'pending');
+    if (!rows.length) return void res.status(404).json({ error: 'no pending client token for that proxy' });
+    for (const t of rows) t.state = 'active';
+    revision++;
+    fake.setSnapshot(snapshot());
+    res.json({ activated: rows.map((t) => t.tokenId), revision: `r:${String(revision).padStart(16, '0')}` });
   });
   hooks.get('/reports', (_req, res) => {
     const last = fake.reports.at(-1) as { appliedRevision?: unknown; held?: unknown; heldProxies?: unknown } | undefined;
