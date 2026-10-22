@@ -482,7 +482,7 @@ test.describe('camera move @move', () => {
   test('after the move: live view and a recording through proxy B, no held banner', async ({ page }) => {
     expect(trust().confirmed[KEY]?.proxyUrl, 'moved in the step before').toBe(env.PROXY_B_URL);
     // Named as proxy B names its cam1 (cam-sim B, "Bravo"): cams asks proxy B now.
-    await expect.poll(async () => (await getJson<{ id: string; name: string }[]>(page.request, '/api/cameras')).body.map((c) => [c.id, c.name]), { timeout: 30_000 }).toEqual([[MOVE.CAMS_ID, 'Bravo']]);
+    await expect.poll(async () => (await getJson<{ id: string; name: string; proxy: boolean }[]>(page.request, '/api/cameras')).body.map((c) => [c.id, c.name, c.proxy]), { timeout: 30_000 }).toEqual([[MOVE.CAMS_ID, 'Bravo', true]]);
     await page.goto(`/app/video?cam=${MOVE.CAMS_ID}`);
     await expect(page.getByTestId('camera-card-name')).toHaveText('Bravo');
     await expect(page.getByTestId('camera-status')).toHaveAttribute('data-state', 'online', { timeout: 30_000 });

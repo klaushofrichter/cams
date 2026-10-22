@@ -93,25 +93,28 @@ function fresh(): State {
 
 // Until cams's own token is active (Task 11), a proxy uses the legacy token
 // of the file account's camera with the same camsId on it (R4-12) — only
-// when that entry names this very proxy URL (normalised as trust compares
-// it): a camera moved to another proxy, or a confirmed new URL, never takes
-// the old proxy's token along; it waits for cams's own token there.
-function legacyToken(accountId: string, camsId: string, proxy: SnapProxy): { token: string; adminToken?: string } | undefined {
+// when that entry names the URL the camera connects to (normalised as trust
+// compares it): a camera moved to another proxy, or a confirmed new URL,
+// never takes the old proxy's token along; it waits for cams's own token.
+function legacyToken(accountId: string, camsId: string, url: string): { token: string; adminToken?: string } | undefined {
   if (accountId !== fileAccount().id) return undefined; // by id, never by name (I2)
   const c = st.legacy.find((x) => x.id === camsId);
-  if (!c?.proxy || !proxy.url || trustValuesOf(c).proxyUrl !== proxyTrustOf(proxy).proxyUrl) return undefined;
+  if (!c?.proxy || trustValuesOf(c).proxyUrl !== url) return undefined;
   return { token: c.proxy.token, ...(c.proxy.adminToken && { adminToken: c.proxy.adminToken }) };
 }
 
-// cams's own token once the snapshot lists it active, else the legacy one.
-function proxyToken(accountId: string, proxy: SnapProxy, camsId: string): { token: string; adminToken?: string } | undefined {
-  const states = new Map(proxy.tokens.map((t) => [t.id, t.state]));
-  const own = st.tokens?.tokenFor(accountId, proxy.id, 'client', states);
-  const ownAdmin = st.tokens?.tokenFor(accountId, proxy.id, 'admin', states);
-  const legacy = legacyToken(accountId, camsId, proxy);
+// cams's own token once the snapshot lists it active, else the legacy one:
+// each only for the URL in use (`url`), whose proxy `proxy` is (if the
+// snapshot has one there). Never a token of a proxy at another URL.
+function proxyToken(accountId: string, proxy: SnapProxy | undefined, camsId: string, url: string): { token: string; adminToken?: string } | undefined {
+  const mine = proxy && proxyTrustOf(proxy).proxyUrl === url ? proxy : undefined;
+  const states = new Map((mine?.tokens ?? []).map((t) => [t.id, t.state]));
+  const own = mine && st.tokens?.tokenFor(accountId, mine.id, 'client', states);
+  const ownAdmin = mine && st.tokens?.tokenFor(accountId, mine.id, 'admin', states);
+  const legacy = legacyToken(accountId, camsId, url);
   const token = own ?? legacy?.token;
   if (!token) return undefined;
-  if (!own) st.legacyProxies.add(`${accountId}/${proxy.id}`);
+  if (!own) st.legacyProxies.add(`${accountId}/${mine?.id ?? url}`);
   const adminToken = ownAdmin ?? legacy?.adminToken;
   return { token, ...(adminToken && { adminToken }) };
 }

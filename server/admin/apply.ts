@@ -29,8 +29,11 @@ export interface ApplyContext {
   // The camera's password from the local credentials (account name, camsId, the snapshot's user name).
   // Keyed by the account's id, never its name (security review I2).
   credentials: (accountId: string, camsId: string, user: string | null) => CredentialResult;
-  // cams's token for this proxy (client, and admin when it has one); undefined: none usable yet.
-  proxyToken?: (accountId: string, proxy: SnapProxy, camsId: string) => { token: string; adminToken?: string } | undefined;
+  // cams's token for the proxy URL the camera connects to (`url`: the
+  // confirmed one while a change is held; client, and admin when it has
+  // one). `proxy`: the account's snapshot proxy at exactly that URL, if any.
+  // A token is only ever for its own proxy's URL. undefined: none usable yet.
+  proxyToken?: (accountId: string, proxy: SnapProxy | undefined, camsId: string, url: string) => { token: string; adminToken?: string } | undefined;
   // The values to connect with: the confirmed ones while a change is held.
   // `confirmed` false: nothing confirmed yet (held as new) — no secrets at all.
   // `move`: the camera's move context when the snapshot marks it as moving
@@ -92,7 +95,9 @@ export function buildFleet(parts: AccountPart[], ctx: ApplyContext): { accounts:
       const cred: CredentialResult = t.confirmed ? ctx.credentials(part.account.id, c.camsId, c.cameraUser) : { ok: false, problem: 'missing', user: c.cameraUser };
       let proxy: ProxyConfig | undefined;
       if (t.confirmed && p && v.proxyUrl) {
-        const tok = ctx.proxyToken?.(part.account.id, p, c.camsId);
+        // The token for the URL in use, never the offered proxy's when they differ (a held change).
+        const atUrl = part.proxies.find((x) => x.url !== null && proxyTrustOf(x).proxyUrl === v.proxyUrl);
+        const tok = ctx.proxyToken?.(part.account.id, atUrl, c.camsId, v.proxyUrl);
         if (tok) {
           proxy = {
             url: v.proxyUrl,
