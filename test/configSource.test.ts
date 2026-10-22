@@ -324,6 +324,42 @@ describe('tokens in cams-admin mode (R4-12)', () => {
   });
 });
 
+// A legacy cameras.json token belongs to the proxy its entry names: never
+// sent to another proxy (a moved camera, or a confirmed new proxy URL); the
+// camera then waits for cams's own token, as on any new proxy.
+describe('the legacy token stays with its proxy', () => {
+  const ALPHA_URL = 'http://127.0.0.1:1/alpha';
+  const L = 'L'.repeat(40);
+  async function startWithLegacyUrl(legacyUrl: string) {
+    await enrolled();
+    process.env.CONFIG_SOURCE = 'cams-admin';
+    process.env.CAMERAS_FILE = join(dir, 'cameras.json');
+    writeFileSync(process.env.CAMERAS_FILE, JSON.stringify([{ id: 'cam1', name: 'Den', host: '127.0.0.1:9', protocol: 'http', user: 'cams', password: 'p', proxy: { url: legacyUrl, token: L } }]));
+    // The snapshot's values for Alpha's cam1 are confirmed already (an admin confirmed the new proxy URL).
+    const confirmed = { proxyUrl: ALPHA_URL, caFingerprints: [], proxyTlsServername: null, host: '127.0.0.1:9', protocol: 'http', tlsServername: null };
+    writeFileSync(join(dir, 'admin/trust.json'), JSON.stringify({ v: 1, fileAccountId: ALPHA, confirmed: { [`${ALPHA}/cam1`]: confirmed }, keptOld: {}, proxies: {}, log: [] }), { mode: 0o600 });
+    fake.setSnapshot(twoAccountsSnapshot({ homeName: 'home' }));
+    await startConfig(FAST);
+    await expect.poll(() => configStatus().appliedRevision).toBe('r:00000000000000a1');
+    const { getCamera } = await import('../server/cameraRegistry.js');
+    const { proxyEndpoint, secretAllowed } = await import('../server/secretGuard.js');
+    return { cam: getCamera(camKey(ALPHA, 'cam1')), allowed: secretAllowed(L, proxyEndpoint({ url: ALPHA_URL, pins: null, tlsServername: null })) };
+  }
+
+  it('another proxy URL than its legacy entry: no legacy token, nothing bound to the new proxy', async () => {
+    const { cam, allowed } = await startWithLegacyUrl('http://127.0.0.1:1/old');
+    expect(cam?.proxy).toBeUndefined();
+    expect(allowed).toBe(false);
+    expect(configStatus().problems).toContainEqual(expect.objectContaining({ code: 'proxy_token_missing', accountId: ALPHA }));
+  });
+
+  it('the same proxy URL (normalised as trust compares it): the legacy token as before', async () => {
+    const { cam, allowed } = await startWithLegacyUrl(`${ALPHA_URL}/`);
+    expect(cam?.proxy?.token).toBe(L);
+    expect(allowed).toBe(true);
+  });
+});
+
 describe('file and shadow mode', () => {
   it('file mode: today\'s file, no key file needed, no pulls', async () => {
     process.env.CAMERAS_FILE = join(dir, 'cameras.json');

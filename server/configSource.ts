@@ -17,10 +17,10 @@ import { cacheWrittenAt, readCache, writeCache } from './admin/cache';
 import { readKeyFile, type AdminKeyFile } from './admin/keyfile';
 import { Puller } from './admin/puller';
 import { accountParts, verifySnapshot, type AccountPart, type SnapProxy, type Snapshot } from './admin/snapshot';
-import { buildFleet, type ApplyContext, type MoveContext, type Problem, type TrustValues } from './admin/apply';
+import { buildFleet, proxyTrustOf, type ApplyContext, type MoveContext, type Problem, type TrustValues } from './admin/apply';
 import { credentialsFor, loadCredentials, setLegacyCredentials } from './credentials';
 import { bindSecret, clearSecretBindings, setSecretGuard } from './secretGuard';
-import { TrustStore } from './admin/trust';
+import { TrustStore, trustValuesOf } from './admin/trust';
 import { LocalTokens } from './admin/tokens';
 import { buildReport, Reporter } from './admin/report';
 import { shadowDiff } from './admin/shadow';
@@ -92,11 +92,15 @@ function fresh(): State {
 
 
 // Until cams's own token is active (Task 11), a proxy uses the legacy token
-// of the file account's camera with the same camsId on it (R4-12).
-function legacyToken(accountId: string, camsId: string): { token: string; adminToken?: string } | undefined {
+// of the file account's camera with the same camsId on it (R4-12) — only
+// when that entry names this very proxy URL (normalised as trust compares
+// it): a camera moved to another proxy, or a confirmed new URL, never takes
+// the old proxy's token along; it waits for cams's own token there.
+function legacyToken(accountId: string, camsId: string, proxy: SnapProxy): { token: string; adminToken?: string } | undefined {
   if (accountId !== fileAccount().id) return undefined; // by id, never by name (I2)
   const c = st.legacy.find((x) => x.id === camsId);
-  return c?.proxy ? { token: c.proxy.token, ...(c.proxy.adminToken && { adminToken: c.proxy.adminToken }) } : undefined;
+  if (!c?.proxy || !proxy.url || trustValuesOf(c).proxyUrl !== proxyTrustOf(proxy).proxyUrl) return undefined;
+  return { token: c.proxy.token, ...(c.proxy.adminToken && { adminToken: c.proxy.adminToken }) };
 }
 
 // cams's own token once the snapshot lists it active, else the legacy one.
@@ -104,7 +108,7 @@ function proxyToken(accountId: string, proxy: SnapProxy, camsId: string): { toke
   const states = new Map(proxy.tokens.map((t) => [t.id, t.state]));
   const own = st.tokens?.tokenFor(accountId, proxy.id, 'client', states);
   const ownAdmin = st.tokens?.tokenFor(accountId, proxy.id, 'admin', states);
-  const legacy = legacyToken(accountId, camsId);
+  const legacy = legacyToken(accountId, camsId, proxy);
   const token = own ?? legacy?.token;
   if (!token) return undefined;
   if (!own) st.legacyProxies.add(`${accountId}/${proxy.id}`);
