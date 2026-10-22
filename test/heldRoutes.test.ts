@@ -2,7 +2,7 @@
 // cams-admin changed (from → to) and confirm or keep the old values;
 // viewers can't, and no account sees another's.
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { mkdirSync, mkdtempSync, writeFileSync } from 'fs';
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
 import request from 'supertest';
@@ -17,7 +17,7 @@ import { camKey, setFileAccountId, DEFAULT_FILE_ACCOUNT_ID } from '../server/fle
 import { loadProxyState } from '../server/proxyState';
 import { ALPHA, BETA, cookieFor } from './helpers/fleet';
 import { signSnapshot, startFakeAdmin, type FakeAdmin } from './admin/fakeAdmin';
-import { twoAccountsSnapshot } from './admin/snapshots';
+import { PRX_A, PRX_B, twoAccountsSnapshot } from './admin/snapshots';
 
 let fake: FakeAdmin, dir: string;
 const ENV = ['CONFIG_SOURCE', 'CAMS_DATA_DIR', 'CAMERAS_FILE', 'PROXY_STATE_FILE', 'PROXY_TLS_FILE', 'PREFS_FILE', 'CAMERA_CREDENTIALS_FILE', 'ALLOWED_EMAILS'] as const;
@@ -61,6 +61,15 @@ const act = (what: 'confirm' | 'keep', items: { camsId: string; digest: string }
   request(createApp()).post(`/api/admin/held/${what}`).set('Cookie', cookie).set(ORIGIN).send({ items });
 
 describe('held changes', () => {
+  it('the start seeds the trusted proxies once from the confirmed cameras (S §9.2, M2), per account', async () => {
+    const file = () => JSON.parse(readFileSync(join(dir, 'admin/trust.json'), 'utf8'));
+    expect(Object.keys(file().proxies).sort()).toEqual([`${ALPHA}/${PRX_A}`, `${BETA}/${PRX_B}`].sort());
+    expect(file().log.filter((e: { action: string }) => e.action === 'seed-proxies')).toHaveLength(1);
+    fake.setSnapshot(twoAccountsSnapshot({ alphaHost: '192.0.2.5', revision: 'r:00000000000000e9' }));
+    await pullNow();
+    expect(file().log.filter((e: { action: string }) => e.action === 'seed-proxies')).toHaveLength(1);
+  });
+
   it('a changed host is held: the camera keeps the old host; the admin sees from → to; Confirm moves it and reports at once', async () => {
     fake.setSnapshot(twoAccountsSnapshot({ alphaHost: '192.0.2.99', revision: 'r:00000000000000e5' }));
     await pullNow();

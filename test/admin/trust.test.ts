@@ -4,11 +4,12 @@
 // no confirmed values (new, re-created, or under another account id) is held
 // too, and nothing confirms by itself except the first-start seed.
 import { describe, expect, it } from 'vitest';
-import { chmodSync, mkdtempSync, readFileSync, statSync, writeFileSync } from 'fs';
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, statSync, writeFileSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
-import { TrustStore, trustValuesOf, type TrustValues } from '../../server/admin/trust';
-import { ALPHA, ALPHA_REF } from '../helpers/fleet';
+import { TrustStore, trustValuesOf, type ProxyTrust, type TrustValues } from '../../server/admin/trust';
+import type { SnapCamera, SnapProxy } from '../../server/admin/snapshot';
+import { ALPHA, ALPHA_REF, BETA } from '../helpers/fleet';
 
 const dirOf = () => mkdtempSync(join(tmpdir(), 'cams-trust-'));
 const V = (o: Partial<TrustValues> = {}): TrustValues => ({ proxyUrl: 'http://127.0.0.1:8480', caFingerprints: [], proxyTlsServername: null, host: '192.0.2.5', protocol: 'https', tlsServername: 'cam1.example.net', ...o });
@@ -131,5 +132,177 @@ describe('TrustStore', () => {
   it('trustValuesOf normalises pins and sorts them', () => {
     const v = trustValuesOf({ host: 'h', protocol: 'https', proxy: { url: 'https://p:8443/', caFingerprint: [`${'b'.repeat(64)}`, `SHA256:${'A'.repeat(64)}`], tlsServername: 'p.example' } });
     expect(v).toEqual({ proxyUrl: 'https://p:8443', caFingerprints: ['a'.repeat(64), 'b'.repeat(64)], proxyTlsServername: 'p.example', host: 'h', protocol: 'https', tlsServername: null });
+  });
+});
+
+// Trusted proxies (camera move, S §9.2, M1, M2): per account, the three proxy
+// values an admin confirmed once (or the seed took from confirmed cameras).
+describe('TrustStore: trusted proxies', () => {
+  const PRX = 'prx_PPPPPPPPPPPPPPPPPPPP', PRX2 = 'prx_QQQQQQQQQQQQQQQQQQQQ';
+  const PIN = 'a'.repeat(64), PIN2 = 'b'.repeat(64);
+  const sp = (o: Partial<SnapProxy> = {}): SnapProxy => ({ id: PRX, name: 'home', displayName: 'Home', url: 'https://192.0.2.10:8443/', adminUiUrl: null, tlsServername: 'proxy.home.internal', caFingerprints: [`SHA256:${'A'.repeat(64)}`], site: 'home', tokens: [], ...o });
+  const sc = (camsId: string, o: Partial<SnapCamera> = {}): SnapCamera => ({ id: `cam_${camsId.toUpperCase().padEnd(20, 'X')}`, camsId, name: camsId, proxyId: PRX, proxyCameraId: camsId, host: '192.0.2.5', protocol: 'https', tlsServername: `${camsId}.home.internal`, cameraUser: 'u', webUiUrl: null, webUiNote: null, moveId: null, ...o });
+  const PT = (o: Partial<ProxyTrust> = {}): ProxyTrust => ({ proxyUrl: 'https://192.0.2.10:8443', caFingerprints: [PIN], proxyTlsServername: 'proxy.home.internal', ...o });
+  const camV = (camsId: string, o: Partial<TrustValues> = {}) => V({ ...PT(), host: '192.0.2.5', protocol: 'https', tlsServername: `${camsId}.home.internal`, ...o });
+  const trustFile = (dir: string) => JSON.parse(readFileSync(join(dir, 'admin/trust.json'), 'utf8'));
+  // A store with cam1 confirmed on PRX (as the current release writes it: no `proxies`).
+  const oldFile = (dir: string, confirmed: Record<string, TrustValues> = { [`${ALPHA}/cam1`]: camV('cam1') }) => {
+    mkdirSync(join(dir, 'admin'), { recursive: true, mode: 0o700 });
+    writeFileSync(join(dir, 'admin/trust.json'), JSON.stringify({ v: 1, confirmed, keptOld: {}, fileAccountId: ALPHA, log: [] }), { mode: 0o600 });
+  };
+  const confirmProxy = (t: TrustStore, accountId: string, proxyId: string) => {
+    const h = t.heldProxies(accountId).find((x) => x.proxyId === proxyId)!;
+    return t.confirmProxies('admin@example.org', accountId, [{ proxyId, digest: h.digest }]);
+  };
+
+  it('old trust.json without proxies loads (the current release, M4)', () => {
+    const dir = dirOf();
+    oldFile(dir);
+    const t = TrustStore.load(dir);
+    expect(t.decide(ALPHA, 'cam1', camV('cam1'))).toMatchObject({ confirmed: true, held: null });
+    expect(t.isTrusted(ALPHA, PRX, PT())).toBe(false);
+  });
+
+  it('a corrupt proxies map stops the start', () => {
+    const dir = dirOf();
+    mkdirSync(join(dir, 'admin'), { recursive: true, mode: 0o700 });
+    writeFileSync(join(dir, 'admin/trust.json'), JSON.stringify({ v: 1, confirmed: {}, keptOld: {}, proxies: { [`${ALPHA}/${PRX}`]: { proxyUrl: 'x' } }, log: [] }), { mode: 0o600 });
+    expect(() => TrustStore.load(dir)).toThrow(/trust\.json/);
+    writeFileSync(join(dir, 'admin/trust.json'), JSON.stringify({ v: 1, confirmed: {}, keptOld: {}, proxies: [], log: [] }), { mode: 0o600 });
+    expect(() => TrustStore.load(dir)).toThrow(/trust\.json/);
+  });
+
+  it('seeds once: a second start does not seed; the log has one seed-proxies with ids only; the file stays 600', () => {
+    const dir = dirOf();
+    oldFile(dir);
+    const accounts = [{ id: ALPHA, proxies: [sp()], cameras: [sc('cam1')] }];
+    TrustStore.load(dir).seedProxiesOnce(accounts);
+    const t2 = TrustStore.load(dir);
+    expect(t2.isTrusted(ALPHA, PRX, PT())).toBe(true);
+    // A second start: the proxy's trust was revoked by hand meanwhile; no seed brings it back.
+    const f = trustFile(dir);
+    f.proxies = {};
+    writeFileSync(join(dir, 'admin/trust.json'), JSON.stringify(f), { mode: 0o600 });
+    TrustStore.load(dir).seedProxiesOnce(accounts);
+    expect(TrustStore.load(dir).isTrusted(ALPHA, PRX, PT())).toBe(false);
+    const log = trustFile(dir).log.filter((e: { action: string }) => e.action === 'seed-proxies');
+    expect(log).toEqual([{ at: expect.any(Number), email: '', accountId: '', camsIds: [], proxyIds: [`${ALPHA}/${PRX}`], action: 'seed-proxies' }]);
+    expect(JSON.stringify(trustFile(dir).log)).not.toContain('192.0.2.10');
+    expect(statSync(join(dir, 'admin/trust.json')).mode & 0o777).toBe(0o600);
+  });
+
+  it('seeding with nothing to trust still marks the store seeded', () => {
+    const dir = dirOf();
+    oldFile(dir, {});
+    TrustStore.load(dir).seedProxiesOnce([{ id: ALPHA, proxies: [sp()], cameras: [sc('cam1')] }]);
+    expect(trustFile(dir).proxies).toEqual({});
+  });
+
+  it('no seed before trust.json exists (the camera seed comes first)', () => {
+    const dir = dirOf();
+    const t = TrustStore.load(dir);
+    t.seedProxiesOnce([{ id: ALPHA, proxies: [sp()], cameras: [sc('cam1')] }]);
+    expect(t.exists()).toBe(false);
+  });
+
+  it('seeding trusts only proxies whose offer equals a confirmed camera\'s values', () => {
+    const dir = dirOf();
+    const other = sp({ id: PRX2, url: 'https://192.0.2.20:8443', caFingerprints: [PIN2] });
+    const third = sp({ id: 'prx_RRRRRRRRRRRRRRRRRRRR', url: 'https://192.0.2.30:8443' });
+    oldFile(dir, {
+      [`${ALPHA}/cam1`]: camV('cam1'), // equal to PRX's offer
+      [`${ALPHA}/cam2`]: camV('cam2', { caFingerprints: [PIN2] }), // PRX2's offer has PIN2, but its URL differs from cam2's confirmed one
+      // cam3 on the third proxy: never confirmed
+    });
+    const t = TrustStore.load(dir);
+    t.seedProxiesOnce([{ id: ALPHA, proxies: [sp(), other, third], cameras: [sc('cam1'), sc('cam2', { proxyId: PRX2 }), sc('cam3', { proxyId: third.id })] }]);
+    expect(t.isTrusted(ALPHA, PRX, PT())).toBe(true);
+    expect(t.isTrusted(ALPHA, PRX2, PT({ proxyUrl: 'https://192.0.2.20:8443', caFingerprints: [PIN2] }))).toBe(false);
+    expect(t.isTrusted(ALPHA, third.id, PT({ proxyUrl: 'https://192.0.2.30:8443' }))).toBe(false);
+    expect(Object.keys(trustFile(dir).proxies)).toEqual([`${ALPHA}/${PRX}`]);
+  });
+
+  it('a proxy with a changed pin is held and not trusted; Confirm trusts it (digest-bound)', () => {
+    const dir = dirOf();
+    oldFile(dir);
+    const t = TrustStore.load(dir);
+    t.seedProxiesOnce([{ id: ALPHA, proxies: [sp()], cameras: [sc('cam1')] }]);
+    t.proxyOffer(ALPHA, sp(), REV);
+    expect(t.heldProxies(ALPHA)).toEqual([]);
+    const changed = sp({ caFingerprints: [PIN2] });
+    t.proxyOffer(ALPHA, changed, REV);
+    expect(t.isTrusted(ALPHA, PRX, PT({ caFingerprints: [PIN2] }))).toBe(false);
+    expect(t.isTrusted(ALPHA, PRX, PT())).toBe(true); // the old values stay trusted
+    const [h, ...rest] = t.heldProxies(ALPHA);
+    expect(rest).toEqual([]);
+    expect(h).toEqual({ accountId: ALPHA, proxyId: PRX, name: 'Home', fields: ['caFingerprints'], trusted: PT(), offered: PT({ caFingerprints: [PIN2] }), digest: expect.stringMatching(/^[0-9a-f]{64}$/) });
+    expect(t.confirmProxies('admin@example.org', ALPHA, [{ proxyId: PRX, digest: h.digest }])).toEqual({ confirmed: [PRX], changed: [] });
+    expect(t.isTrusted(ALPHA, PRX, PT({ caFingerprints: [PIN2] }))).toBe(true);
+    expect(t.heldProxies(ALPHA)).toEqual([]);
+    expect(TrustStore.load(dir).isTrusted(ALPHA, PRX, PT({ caFingerprints: [PIN2] }))).toBe(true);
+    expect(trustFile(dir).log.at(-1)).toEqual({ at: expect.any(Number), email: 'admin@example.org', accountId: ALPHA, camsIds: [], proxyIds: [PRX], action: 'confirm-proxy' });
+    // one-shot
+    expect(t.confirmProxies('admin@example.org', ALPHA, [{ proxyId: PRX, digest: h.digest }])).toEqual({ confirmed: [], changed: [PRX] });
+  });
+
+  it('a new proxy is held with trusted null', () => {
+    const t = TrustStore.load(dirOf());
+    t.proxyOffer(ALPHA, sp(), REV);
+    expect(t.heldProxies()).toEqual([expect.objectContaining({ proxyId: PRX, trusted: null, fields: ['proxyUrl', 'caFingerprints', 'proxyTlsServername'] })]);
+  });
+
+  it('confirmProxies with a stale digest changes nothing (all or nothing)', () => {
+    const dir = dirOf();
+    const t = TrustStore.load(dir);
+    t.proxyOffer(ALPHA, sp(), REV);
+    t.proxyOffer(ALPHA, sp({ id: PRX2, url: 'https://192.0.2.20:8443' }), REV);
+    const [a, b] = t.heldProxies(ALPHA);
+    t.proxyOffer(ALPHA, sp({ caFingerprints: [PIN2] }), REV); // the next pull swapped PRX's offer
+    expect(t.confirmProxies('admin@example.org', ALPHA, [{ proxyId: a.proxyId, digest: a.digest }, { proxyId: b.proxyId, digest: b.digest }])).toEqual({ confirmed: [], changed: [PRX] });
+    expect(t.isTrusted(ALPHA, PRX2, PT({ proxyUrl: 'https://192.0.2.20:8443' }))).toBe(false);
+    expect(t.isTrusted(ALPHA, PRX, PT({ caFingerprints: [PIN2] }))).toBe(false);
+    expect(t.exists()).toBe(false); // nothing saved
+    // another revision: the digest no longer matches
+    const fresh = t.heldProxies(ALPHA).find((h) => h.proxyId === PRX)!;
+    t.proxyOffer(ALPHA, sp({ caFingerprints: [PIN2] }), 'r:00000000000000b2');
+    expect(t.confirmProxies('admin@example.org', ALPHA, [{ proxyId: PRX, digest: fresh.digest }])).toEqual({ confirmed: [], changed: [PRX] });
+    // an unknown proxy id
+    expect(t.confirmProxies('admin@example.org', ALPHA, [{ proxyId: 'prx_ZZZZZZZZZZZZZZZZZZZZ', digest: fresh.digest }])).toEqual({ confirmed: [], changed: ['prx_ZZZZZZZZZZZZZZZZZZZZ'] });
+  });
+
+  it('proxy trust is per account: the same proxy id confirmed in one account is not trusted in the other (Review Focus 4)', () => {
+    const t = TrustStore.load(dirOf());
+    t.proxyOffer(ALPHA, sp(), REV);
+    t.proxyOffer(BETA, sp(), REV);
+    expect(t.heldProxies()).toHaveLength(2);
+    confirmProxy(t, ALPHA, PRX);
+    expect(t.isTrusted(ALPHA, PRX, PT())).toBe(true);
+    expect(t.isTrusted(BETA, PRX, PT())).toBe(false);
+    expect(t.heldProxies(ALPHA)).toEqual([]);
+    expect(t.heldProxies(BETA)).toEqual([expect.objectContaining({ accountId: BETA, proxyId: PRX, trusted: null })]);
+    // ALPHA's digest does not confirm BETA's item
+    t.proxyOffer(ALPHA, sp({ caFingerprints: [PIN2] }), REV);
+    const alphaDigest = t.heldProxies(ALPHA)[0].digest;
+    expect(t.confirmProxies('admin@example.org', BETA, [{ proxyId: PRX, digest: alphaDigest }])).toEqual({ confirmed: [], changed: [PRX] });
+    expect(t.isTrusted(BETA, PRX, PT({ caFingerprints: [PIN2] }))).toBe(false);
+  });
+
+  it('proxies survive a save of a camera confirm', async () => {
+    const dir = dirOf();
+    oldFile(dir);
+    const t = TrustStore.load(dir);
+    t.seedProxiesOnce([{ id: ALPHA, proxies: [sp()], cameras: [sc('cam1')] }]);
+    t.decide(ALPHA, 'cam9', V());
+    await confirmAs(t, 'cam9');
+    const t2 = TrustStore.load(dir);
+    expect(t2.isTrusted(ALPHA, PRX, PT())).toBe(true);
+    expect(trustFile(dir).proxies).toEqual({ [`${ALPHA}/${PRX}`]: PT() });
+  });
+
+  it('forgetOffers forgets the proxy offers too (their trust stays)', () => {
+    const t = TrustStore.load(dirOf());
+    t.proxyOffer(ALPHA, sp(), REV);
+    t.forgetOffers();
+    expect(t.heldProxies()).toEqual([]);
   });
 });

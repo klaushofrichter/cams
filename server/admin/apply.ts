@@ -14,6 +14,11 @@ export interface Problem { code: string; accountId?: string; detail?: string }
 
 export type TrustField = 'proxyUrl' | 'caFingerprints' | 'proxyTlsServername' | 'host' | 'protocol' | 'tlsServername';
 export interface TrustValues { proxyUrl: string | null; caFingerprints: string[]; proxyTlsServername: string | null; host: string | null; protocol: 'https' | 'http' | null; tlsServername: string | null }
+// A trusted proxy (camera move, M1): the three proxy fields of TrustValues,
+// per account (`<accountId>/<proxyId>`), confirmed once by an account admin.
+export type ProxyTrustField = 'proxyUrl' | 'caFingerprints' | 'proxyTlsServername';
+export type ProxyTrust = { proxyUrl: string | null; caFingerprints: string[]; proxyTlsServername: string | null };
+export type HeldProxy = { accountId: string; proxyId: string; name: string; fields: ProxyTrustField[]; trusted: ProxyTrust | null /* null: new */; offered: ProxyTrust; digest: string };
 export interface HeldChange { accountId: string; camsId: string; fields: TrustField[]; confirmed: TrustValues | null /* null: new, nothing confirmed yet */; offered: TrustValues; keptOld: boolean; isNew?: boolean }
 
 export interface ApplyContext {
@@ -41,11 +46,18 @@ function webUiUrlOk(url: string, v: TrustValues): boolean {
   }
 }
 
-export function offeredValues(c: SnapCamera, p: SnapProxy | undefined): TrustValues {
+// A snapshot proxy's three trust values, normalised as a camera's offer has them.
+export function proxyTrustOf(p: SnapProxy | undefined): ProxyTrust {
   return {
     proxyUrl: p?.url ? p.url.replace(/\/+$/, '') : null,
     caFingerprints: (p?.caFingerprints ?? []).map((f) => normalizeFingerprint(f) ?? f).sort(),
     proxyTlsServername: p?.tlsServername ?? null,
+  };
+}
+
+export function offeredValues(c: SnapCamera, p: SnapProxy | undefined): TrustValues {
+  return {
+    ...proxyTrustOf(p),
     host: c.host,
     protocol: c.protocol === 'http' ? 'http' : 'https',
     tlsServername: c.tlsServername,

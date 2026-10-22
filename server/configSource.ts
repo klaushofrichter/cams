@@ -144,9 +144,9 @@ function applySnapshot(s: Snapshot, source: 'cache' | 'pull'): void {
 // change confirmed): cams-admin mode only.
 function rebuild(): void {
   if (st.mode !== 'cams-admin' || !st.applied) return;
-  seedTrustOnce(st.applied);
-  st.trust?.forgetOffers();
   const parts = st.applied.accounts.map((a) => st.goodParts.get(a.id)).filter((p): p is AccountPart => !!p);
+  seedTrustOnce(st.applied, parts);
+  st.trust?.forgetOffers();
   st.legacyProxies = new Set();
   // Secrets only to confirmed endpoints: the bindings come from this build.
   clearSecretBindings();
@@ -299,8 +299,9 @@ function recordedHome(): string | null {
 }
 
 // R4-11: at the first cams-admin start, today's cameras.json is the
-// confirmed state for the file account (before any decision is made).
-function seedTrustOnce(s: Snapshot): void {
+// confirmed state for the file account (before any decision is made). Then,
+// once, the proxies the confirmed cameras use are trusted (camera move, M2).
+function seedTrustOnce(s: Snapshot, parts: AccountPart[]): void {
   if (!st.trust) return;
   if (st.trust.exists()) {
     // Written before the file account appeared: record it now (N2).
@@ -309,13 +310,14 @@ function seedTrustOnce(s: Snapshot): void {
       st.trust.recordFileAccount(home.id);
       st.recordedHome = home.id;
     }
-    return;
+  } else {
+    const home = homeIn(s);
+    if (home) {
+      st.trust.seedFromFile({ id: home.id, name: home.name, displayName: home.displayName }, st.legacy);
+      st.recordedHome = home.id;
+    }
   }
-  const home = homeIn(s);
-  if (home) {
-    st.trust.seedFromFile({ id: home.id, name: home.name, displayName: home.displayName }, st.legacy);
-    st.recordedHome = home.id;
-  }
+  st.trust.seedProxiesOnce(parts.map((p) => ({ id: p.account.id, proxies: p.proxies, cameras: p.cameras })));
 }
 
 // The first cams-admin start (or the first snapshot of one that started
