@@ -22,12 +22,12 @@ export interface SnapOptions {
 
 export const snapCamera = (o: Record<string, unknown> = {}): Record<string, unknown> => ({
   id: 'cam_AAAAAAAAAAAAAAAAAAAA', camsId: 'cam1', name: 'Cam', proxyId: null, proxyCameraId: null, host: '127.0.0.1:9', protocol: 'http',
-  tlsServername: null, cameraUser: 'cams', webUiUrl: null, webUiNote: null, ...o,
+  tlsServername: null, cameraUser: 'cams', webUiUrl: null, webUiNote: null, moveId: null, ...o,
 });
 
 export function twoAccountsSnapshot(o: SnapOptions = {}): Record<string, unknown> {
   const proxy = (id: string, name: string, url: string | null, tokens: unknown[], extra: Record<string, unknown> = {}) => ({
-    id, name, displayName: name, url, adminUiUrl: null, tlsServername: null, caFingerprints: [], tokens, ...extra,
+    id, name, displayName: name, url, adminUiUrl: null, tlsServername: null, caFingerprints: [], site: 'alpha', tokens, ...extra,
   });
   const accounts = [
     {
