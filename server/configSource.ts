@@ -104,17 +104,16 @@ function legacyToken(accountId: string, camsId: string, url: string): { token: s
 }
 
 // cams's own token once the snapshot lists it active, else the legacy one:
-// each only for the URL in use (`url`), whose proxy `proxy` is (if the
-// snapshot has one there). Never a token of a proxy at another URL.
+// each only for the URL in use (`url`): the own token of the proxy that owns
+// it (`proxy`, chosen by buildFleet's tokenOwner), a legacy entry naming it.
 function proxyToken(accountId: string, proxy: SnapProxy | undefined, camsId: string, url: string): { token: string; adminToken?: string } | undefined {
-  const mine = proxy && proxyTrustOf(proxy).proxyUrl === url ? proxy : undefined;
-  const states = new Map((mine?.tokens ?? []).map((t) => [t.id, t.state]));
-  const own = mine && st.tokens?.tokenFor(accountId, mine.id, 'client', states);
-  const ownAdmin = mine && st.tokens?.tokenFor(accountId, mine.id, 'admin', states);
+  const states = new Map((proxy?.tokens ?? []).map((t) => [t.id, t.state]));
+  const own = proxy && st.tokens?.tokenFor(accountId, proxy.id, 'client', states);
+  const ownAdmin = proxy && st.tokens?.tokenFor(accountId, proxy.id, 'admin', states);
   const legacy = legacyToken(accountId, camsId, url);
   const token = own ?? legacy?.token;
   if (!token) return undefined;
-  if (!own) st.legacyProxies.add(`${accountId}/${mine?.id ?? url}`);
+  if (!own) st.legacyProxies.add(`${accountId}/${proxy?.id ?? url}`);
   const adminToken = ownAdmin ?? legacy?.adminToken;
   return { token, ...(adminToken && { adminToken }) };
 }
@@ -125,6 +124,7 @@ export function applyContext(): ApplyContext {
     proxyToken,
     ...(st.trust && {
       trust: (a: string, c: string, o: TrustValues, move?: MoveContext) => st.trust!.decide(a, c, o, move),
+      trustedProxiesAt: (a: string, u: string) => st.trust!.trustedProxyIdsAt(a, u),
       proxyOffer: (a: string, p: SnapProxy) => st.trust!.proxyOffer(a, p, st.applied?.revision ?? ''),
     }),
     bind: bindSecret,

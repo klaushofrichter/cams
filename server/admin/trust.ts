@@ -274,6 +274,13 @@ export class TrustStore {
     this.proxyOffers.set(`${accountId}/${proxy.id}`, { name: proxy.displayName || proxy.name, offered: proxyTrustOf(proxy), revision });
   }
 
+  // The proxies of the account trusted at exactly this (normalised) URL: a
+  // token's owner for the URL a camera connects to (buildFleet).
+  trustedProxyIdsAt(accountId: string, url: string): string[] {
+    const prefix = `${accountId}/`;
+    return Object.entries(this.data.proxies ?? {}).filter(([k, v]) => k.startsWith(prefix) && v.proxyUrl === url).map(([k]) => k.slice(prefix.length));
+  }
+
   // A camera may move to this proxy only with exactly its trusted values.
   isTrusted(accountId: string, proxyId: string, offered: ProxyTrust): boolean {
     const trusted = this.data.proxies?.[`${accountId}/${proxyId}`];

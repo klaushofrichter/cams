@@ -31,14 +31,17 @@ export interface ApplyContext {
   credentials: (accountId: string, camsId: string, user: string | null) => CredentialResult;
   // cams's token for the proxy URL the camera connects to (`url`: the
   // confirmed one while a change is held; client, and admin when it has
-  // one). `proxy`: the account's snapshot proxy at exactly that URL, if any.
-  // A token is only ever for its own proxy's URL. undefined: none usable yet.
+  // one). `proxy`: the snapshot entry of the proxy that owns that URL
+  // (tokenOwner), if any: only its own tokens may go there; a legacy token
+  // only when its entry names `url`. undefined: none usable yet.
   proxyToken?: (accountId: string, proxy: SnapProxy | undefined, camsId: string, url: string) => { token: string; adminToken?: string } | undefined;
   // The values to connect with: the confirmed ones while a change is held.
   // `confirmed` false: nothing confirmed yet (held as new) — no secrets at all.
   // `move`: the camera's move context when the snapshot marks it as moving
   // (S §9.2, M3); decide() applies it without a hold only by the move rule.
   trust?: (accountId: string, camsId: string, offered: TrustValues, move?: MoveContext) => { use: TrustValues; confirmed: boolean; held: HeldChange | null };
+  // The proxy ids of the account trusted at exactly this URL (tokenOwner).
+  trustedProxiesAt?: (accountId: string, url: string) => string[];
   // Every proxy of the account, before its cameras are decided: a proxy's
   // offer (held proxy items, and the move rule refuses a held proxy).
   proxyOffer?: (accountId: string, proxy: SnapProxy) => void;
@@ -76,6 +79,18 @@ export function offeredValues(c: SnapCamera, p: SnapProxy | undefined): TrustVal
   };
 }
 
+// Which proxy id owns the URL a camera connects to (tokens are a proxy's):
+// (1) the proxy trusted at that URL; else (2) the snapshot proxy at that
+// URL; else (3) the offered proxy, when the URL is the camera's confirmed one
+// (no other proxy claims it). Two claimants at one step: no owner.
+function tokenOwner(ctx: ApplyContext, accountId: string, proxies: SnapProxy[], offered: SnapProxy, url: string, confirmed: boolean): string | undefined {
+  const trusted = ctx.trustedProxiesAt?.(accountId, url) ?? [];
+  if (trusted.length) return trusted.length === 1 ? trusted[0] : undefined;
+  const at = proxies.filter((x) => x.url !== null && proxyTrustOf(x).proxyUrl === url);
+  if (at.length) return at.length === 1 ? at[0].id : undefined;
+  return confirmed ? offered.id : undefined;
+}
+
 export function buildFleet(parts: AccountPart[], ctx: ApplyContext): { accounts: FleetAccount[]; held: HeldChange[]; problems: Problem[] } {
   const held: HeldChange[] = [];
   const problems: Problem[] = [];
@@ -95,9 +110,9 @@ export function buildFleet(parts: AccountPart[], ctx: ApplyContext): { accounts:
       const cred: CredentialResult = t.confirmed ? ctx.credentials(part.account.id, c.camsId, c.cameraUser) : { ok: false, problem: 'missing', user: c.cameraUser };
       let proxy: ProxyConfig | undefined;
       if (t.confirmed && p && v.proxyUrl) {
-        // The token for the URL in use, never the offered proxy's when they differ (a held change).
-        const atUrl = part.proxies.find((x) => x.url !== null && proxyTrustOf(x).proxyUrl === v.proxyUrl);
-        const tok = ctx.proxyToken?.(part.account.id, atUrl, c.camsId, v.proxyUrl);
+        // The token of the proxy that owns the URL in use, never the offered proxy's when they differ (a held change).
+        const ownerId = tokenOwner(ctx, part.account.id, part.proxies, p, v.proxyUrl, t.confirmed);
+        const tok = ctx.proxyToken?.(part.account.id, ownerId ? proxies.get(ownerId) : undefined, c.camsId, v.proxyUrl);
         if (tok) {
           proxy = {
             url: v.proxyUrl,
@@ -106,7 +121,7 @@ export function buildFleet(parts: AccountPart[], ctx: ApplyContext): { accounts:
             camera: c.proxyCameraId ?? c.camsId,
             ...(v.caFingerprints.length && { caFingerprint: v.caFingerprints }),
             ...(v.proxyTlsServername && { tlsServername: v.proxyTlsServername }),
-            proxyId: p.id,
+            ...(ownerId && { proxyId: ownerId }),
           };
           const ep = proxyEndpoint({ url: v.proxyUrl, pins: v.caFingerprints.length ? v.caFingerprints : null, tlsServername: v.proxyTlsServername });
           ctx.bind?.(tok.token, ep);

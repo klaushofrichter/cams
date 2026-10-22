@@ -368,7 +368,7 @@ describe('proxy tokens follow the URL in use', () => {
   const C_URL = 'http://127.0.0.1:1/charlie';
   const L = 'L'.repeat(40);
   const confirmedOn = (proxyUrl: string) => ({ proxyUrl, caFingerprints: [], proxyTlsServername: null, host: '127.0.0.1:9', protocol: 'http', tlsServername: null });
-  const proxyC = (tokens: unknown[] = []) => ({ id: PRX_C, name: 'pc', displayName: 'pc', url: C_URL, adminUiUrl: null, tlsServername: null, caFingerprints: [], site: 'charlie', tokens });
+  const proxyC = (tokens: unknown[] = [], url = C_URL) => ({ id: PRX_C, name: 'pc', displayName: 'pc', url, adminUiUrl: null, tlsServername: null, caFingerprints: [], site: 'charlie', tokens });
   const cam1 = (o: Record<string, unknown> = {}) => snapCamera({ id: 'cam_AAAAAAAAAAAAAAAAAAA1', name: 'Alpha cam', proxyId: PRX_A, proxyCameraId: 'cam1', ...o });
   async function start(trust: Record<string, unknown>, snap: Record<string, unknown>) {
     await enrolled();
@@ -383,11 +383,11 @@ describe('proxy tokens follow the URL in use', () => {
   const lib = async () => ({ ...(await import('../server/cameraRegistry.js')), ...(await import('../server/secretGuard.js')) });
   const bound = async (secret: string, url: string) => (await lib()).secretAllowed(secret, (await lib()).proxyEndpoint({ url, pins: null, tlsServername: null }));
   // cams's own tokens, registered and then listed active on their proxies.
-  async function activate(o: { revision: string; cameras: Record<string, unknown>[] }) {
+  async function activate(o: { revision: string; cameras: Record<string, unknown>[]; alphaUrl?: string; cUrl?: string }) {
     await expect.poll(() => fake.registered.length).toBe(6);
     for (const t of fake.tokens) t.state = 'active';
     const rows = (proxyId: string) => fake.tokens.filter((t) => t.proxyId === proxyId).map((t) => ({ id: t.tokenId, kind: t.kind, state: t.state, retireAt: null }));
-    fake.setSnapshot(twoAccountsSnapshot({ homeName: 'home', revision: o.revision, tokens: { a: rows(PRX_A) }, alphaMoreProxies: [proxyC(rows(PRX_C))], alphaCameras: o.cameras }));
+    fake.setSnapshot(twoAccountsSnapshot({ homeName: 'home', revision: o.revision, tokens: { a: rows(PRX_A) }, alphaMoreProxies: [proxyC(rows(PRX_C), o.cUrl)], alphaCameras: o.cameras, ...(o.alphaUrl && { alphaUrl: o.alphaUrl }) }));
     await pullNow();
     expect(configStatus().appliedRevision).toBe(o.revision);
     const local = JSON.parse(readFileSync(join(dir, 'admin/tokens.json'), 'utf8')).tokens as { proxyId: string; kind: string; token: string }[];
@@ -408,7 +408,30 @@ describe('proxy tokens follow the URL in use', () => {
     const cam = (await lib()).getCamera(camKey(ALPHA, 'cam1'));
     expect(cam?.proxy?.url).toBe(A_URL); // held: the confirmed proxy
     expect(cam?.proxy?.token).toBe(own(PRX_A)); // A's own token, for A's URL
+    expect(cam?.proxy?.proxyId).toBe(PRX_A); // the token's proxy, not the offered one
     expect(await bound(own(PRX_C), A_URL)).toBe(false);
+  });
+
+  const trusted = (...list: [string, string][]) => Object.fromEntries(list.map(([id, url]) => [`${ALPHA}/${id}`, { proxyUrl: url, caFingerprints: [], proxyTlsServername: null }]));
+
+  it('a held URL change of the same proxy with its own tokens: its own token stays at the confirmed URL, nothing bound to the new one', async () => {
+    const A2 = 'http://127.0.0.1:1/alpha2';
+    await start({ confirmed: { [`${ALPHA}/cam1`]: confirmedOn(A_URL) }, proxies: trusted([PRX_A, A_URL]) }, twoAccountsSnapshot({ homeName: 'home', revision: 'r:00000000000000e1', alphaMoreProxies: [proxyC()] }));
+    const own = await activate({ revision: 'r:00000000000000e2', cameras: [cam1()], alphaUrl: A2 });
+    const cam = (await lib()).getCamera(camKey(ALPHA, 'cam1'));
+    expect(cam?.proxy).toMatchObject({ url: A_URL, token: own(PRX_A), proxyId: PRX_A });
+    expect(await bound(own(PRX_A), A2)).toBe(false);
+    expect(await bound(L, A2)).toBe(false);
+  });
+
+  it('cams-admin re-points another proxy at the confirmed URL: that proxy\'s token is never bound there', async () => {
+    await start({ confirmed: { [`${ALPHA}/cam1`]: confirmedOn(A_URL) }, proxies: trusted([PRX_A, A_URL], [PRX_C, C_URL]) }, twoAccountsSnapshot({ homeName: 'home', revision: 'r:00000000000000f3', alphaMoreProxies: [proxyC()] }));
+    const own = await activate({ revision: 'r:00000000000000f4', cameras: [cam1({ proxyId: PRX_C })], alphaUrl: 'http://127.0.0.1:1/alpha2', cUrl: A_URL });
+    const cam = (await lib()).getCamera(camKey(ALPHA, 'cam1'));
+    expect(cam?.proxy?.url).toBe(A_URL);
+    expect(cam?.proxy?.token).not.toBe(own(PRX_C));
+    expect(await bound(own(PRX_C), A_URL)).toBe(false);
+    if (cam?.proxy) expect(cam.proxy.proxyId).toBe(PRX_A); // A's trusted URL: A's token (or none)
   });
 
   it('a move to a trusted proxy: the camera gets that proxy\'s own token', async () => {
@@ -416,7 +439,7 @@ describe('proxy tokens follow the URL in use', () => {
       twoAccountsSnapshot({ homeName: 'home', revision: 'r:00000000000000d1', alphaMoreProxies: [proxyC()] }));
     const own = await activate({ revision: 'r:00000000000000d2', cameras: [cam1({ proxyId: PRX_C, tlsServername: 'cam1.charlie.internal', moveId: 'mv_0000000000000000MV5T' })] });
     const cam = (await lib()).getCamera(camKey(ALPHA, 'cam1'));
-    expect(cam?.proxy).toMatchObject({ url: C_URL, token: own(PRX_C) });
+    expect(cam?.proxy).toMatchObject({ url: C_URL, token: own(PRX_C), proxyId: PRX_C });
     expect(await bound(own(PRX_C), C_URL)).toBe(true);
     expect(await bound(L, C_URL)).toBe(false);
   });
