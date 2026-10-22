@@ -2,7 +2,8 @@
 // test/admin/fakeAdmin.ts on FAKE_ADMIN_PORT, with the cams instance already
 // enrolled (its key file, credentials and a signed cache written into
 // E2E_ADMIN_DATA before cams starts) and two accounts that both have "cam1".
-// Test hooks on FAKE_ADMIN_HOOKS (127.0.0.1): POST /snapshot {homeHost},
+// Test hooks on FAKE_ADMIN_HOOKS (127.0.0.1): POST /snapshot {homeHost,
+// extraProxyId (a second Home proxy, no cameras: a held new proxy)},
 // POST /reset. Never a real cams-admin.
 import express from 'express';
 import { generateKeyPairSync } from 'crypto';
@@ -16,7 +17,8 @@ export const E2E_ACCOUNTS = { home: 'acc_00000000000000000HME', beta: 'acc_00000
 const PRX = 'prx_00000000000000000FKP';
 let revision = 1;
 
-export function snapshot(o: { homeHost?: string } = {}): Record<string, unknown> {
+type SnapHooks = { homeHost?: string; extraProxyId?: string };
+export function snapshot(o: SnapHooks = {}): Record<string, unknown> {
   const cam = (id: string, camsId: string, name: string, host: string, proxyId: string | null) => ({
     id, camsId, name, proxyId, proxyCameraId: proxyId ? 'cam1' : null, host, protocol: 'http', tlsServername: null, cameraUser: 'e2e', webUiUrl: null, webUiNote: null,
   });
@@ -28,7 +30,8 @@ export function snapshot(o: { homeHost?: string } = {}): Record<string, unknown>
         proxies: [], cameras: [cam('cam_000000000000000000B1', 'cam1', 'Porch', '127.0.0.1:8097', null)] },
       { id: E2E_ACCOUNTS.home, name: 'home', displayName: 'Home', revision,
         users: [{ email: ADMIN_USERS.both, role: 'admin', disabled: false }, { email: ADMIN_USERS.alpha, role: 'admin', disabled: false }],
-        proxies: [{ id: PRX, name: 'fake', displayName: 'Fake proxy', url: `http://127.0.0.1:${FAKE_PROXY_PORT}`, adminUiUrl: null, tlsServername: null, caFingerprints: [], tokens: [] }],
+        proxies: [{ id: PRX, name: 'fake', displayName: 'Fake proxy', url: `http://127.0.0.1:${FAKE_PROXY_PORT}`, adminUiUrl: null, tlsServername: null, caFingerprints: [], tokens: [] },
+          ...(o.extraProxyId ? [{ id: o.extraProxyId, name: 'shed', displayName: 'Shed proxy', url: 'https://192.0.2.20:8443', adminUiUrl: null, tlsServername: 'proxy.shed.internal', caFingerprints: ['0123abcd'.padEnd(64, 'e')], site: 'shed', tokens: [] }] : [])],
         cameras: [cam('cam_000000000000000000H1', 'cam1', 'Den', o.homeHost ?? '127.0.0.1:8098', PRX)] },
     ],
   };
@@ -58,7 +61,7 @@ if (require.main === module) {
     hooks.use(express.json());
     hooks.post('/snapshot', (req, res) => {
       revision++;
-      fake.setSnapshot(snapshot(req.body as { homeHost?: string }));
+      fake.setSnapshot(snapshot(req.body as SnapHooks));
       res.json({ revision });
     });
     hooks.listen(FAKE_ADMIN_HOOKS, '127.0.0.1');

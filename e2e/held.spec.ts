@@ -43,3 +43,24 @@ test('a changed camera address is held until an admin confirms; viewers see no b
   });
   await expect.poll(() => osdName(page)).not.toBe('Shed');
 });
+
+// Camera move (S §9.2, M5): a new proxy of Home is held until an admin
+// confirms it once. A fresh proxy id per run: a confirmed one stays trusted.
+test('confirm a new proxy from the banner', async ({ page, context, baseURL }) => {
+  const CROCKFORD = '0123456789ABCDEFGHJKMNPQRSTVWXYZ';
+  const proxyId = `prx_${Array.from({ length: 20 }, () => CROCKFORD[Math.floor(Math.random() * 32)]).join('')}`;
+  const heldProxies = () => page.evaluate(async () => ((await (await fetch('/api/admin/held')).json()) as { proxies: unknown[] }).proxies.length);
+  await signInAccount(context, baseURL!, ADMIN_USERS.alpha, E2E_ACCOUNTS.home);
+  await page.goto('/app/video');
+  await fetch(`http://127.0.0.1:${FAKE_ADMIN_HOOKS}/snapshot`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ extraProxyId: proxyId }) });
+  await expect.poll(heldProxies, { timeout: 15_000 }).toBe(1);
+  await page.reload();
+  const item = page.getByTestId(`held-proxy-${proxyId}`);
+  await expect(item).toBeVisible();
+  await expect(item).toContainText('New proxy Shed proxy at https://192.0.2.20:8443 (certificate 0123abcd…)');
+  await expect(page.getByTestId('held-proxy-help')).toBeVisible();
+  await page.getByTestId(`held-proxy-confirm-${proxyId}`).click();
+  await expect(page.getByTestId('held-banner')).toHaveCount(0);
+  expect(await heldProxies()).toBe(0);
+  await setHost('127.0.0.1:8098'); // back: no extra proxy, for the next project
+});

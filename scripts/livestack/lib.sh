@@ -168,9 +168,13 @@ wait_http() {
 # so no secret is ever on a command line or in the environment as a value.
 # proxy_secret_env [SECRETS_DIR]: default $RUN/secrets (the two-proxy stack
 # has one folder per proxy).
+# A proxy_tokens_all file (the two-proxy stack's camera move: proxy B's own
+# client token and the admin cams's managed one) is the proxy's token list
+# when present.
 proxy_secret_env() {
-  local d="${1:-$RUN/secrets}"
-  PENV=(CAMPROXY_TOKENS_FILE="$d/proxy_tokens"
+  local d="${1:-$RUN/secrets}" tokens
+  tokens="$d/proxy_tokens"; [ -f "$d/proxy_tokens_all" ] && tokens="$d/proxy_tokens_all"
+  PENV=(CAMPROXY_TOKENS_FILE="$tokens"
         CAMPROXY_ADMIN_TOKEN_FILE="$d/proxy_admin_token"
         CAMPROXY_CAMERA_PASSWORD_FILE="$d/camera_password")
   if [ -f "$d/ftp_password" ]; then PENV+=(CAMPROXY_FTP_PASSWORD_FILE="$d/ftp_password"); fi

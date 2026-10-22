@@ -14,17 +14,37 @@ export interface Problem { code: string; accountId?: string; detail?: string }
 
 export type TrustField = 'proxyUrl' | 'caFingerprints' | 'proxyTlsServername' | 'host' | 'protocol' | 'tlsServername';
 export interface TrustValues { proxyUrl: string | null; caFingerprints: string[]; proxyTlsServername: string | null; host: string | null; protocol: 'https' | 'http' | null; tlsServername: string | null }
+// A trusted proxy (camera move, M1): the three proxy fields of TrustValues,
+// per account (`<accountId>/<proxyId>`), confirmed once by an account admin.
+export type ProxyTrustField = 'proxyUrl' | 'caFingerprints' | 'proxyTlsServername';
+export type ProxyTrust = { proxyUrl: string | null; caFingerprints: string[]; proxyTlsServername: string | null };
+export type HeldProxy = { accountId: string; proxyId: string; name: string; fields: ProxyTrustField[]; trusted: ProxyTrust | null /* null: new */; offered: ProxyTrust; digest: string };
 export interface HeldChange { accountId: string; camsId: string; fields: TrustField[]; confirmed: TrustValues | null /* null: new, nothing confirmed yet */; offered: TrustValues; keptOld: boolean; isNew?: boolean }
+
+// A camera's move as the snapshot marks it (camera move, M3): the move id,
+// the proxy it is offered on, its id there and that proxy's site.
+export interface MoveContext { moveId: string; proxyId: string; proxyCameraId: string; site: string | null }
 
 export interface ApplyContext {
   // The camera's password from the local credentials (account name, camsId, the snapshot's user name).
   // Keyed by the account's id, never its name (security review I2).
   credentials: (accountId: string, camsId: string, user: string | null) => CredentialResult;
-  // cams's token for this proxy (client, and admin when it has one); undefined: none usable yet.
-  proxyToken?: (accountId: string, proxy: SnapProxy, camsId: string) => { token: string; adminToken?: string } | undefined;
+  // cams's token for the proxy URL the camera connects to (`url`: the
+  // confirmed one while a change is held; client, and admin when it has
+  // one). `proxy`: the snapshot entry of the proxy that owns that URL
+  // (tokenOwner), if any: only its own tokens may go there; a legacy token
+  // only when its entry names `url`. undefined: none usable yet.
+  proxyToken?: (accountId: string, proxy: SnapProxy | undefined, camsId: string, url: string) => { token: string; adminToken?: string } | undefined;
   // The values to connect with: the confirmed ones while a change is held.
   // `confirmed` false: nothing confirmed yet (held as new) — no secrets at all.
-  trust?: (accountId: string, camsId: string, offered: TrustValues) => { use: TrustValues; confirmed: boolean; held: HeldChange | null };
+  // `move`: the camera's move context when the snapshot marks it as moving
+  // (S §9.2, M3); decide() applies it without a hold only by the move rule.
+  trust?: (accountId: string, camsId: string, offered: TrustValues, move?: MoveContext) => { use: TrustValues; confirmed: boolean; held: HeldChange | null };
+  // The proxy ids of the account trusted at exactly this URL (tokenOwner).
+  trustedProxiesAt?: (accountId: string, url: string) => string[];
+  // Every proxy of the account, before its cameras are decided: a proxy's
+  // offer (held proxy items, and the move rule refuses a held proxy).
+  proxyOffer?: (accountId: string, proxy: SnapProxy) => void;
   // Binds a secret to the confirmed endpoint it may go to (server/secretGuard.ts).
   bind?: (secret: string, endpoint: string) => void;
 }
@@ -41,15 +61,34 @@ function webUiUrlOk(url: string, v: TrustValues): boolean {
   }
 }
 
-export function offeredValues(c: SnapCamera, p: SnapProxy | undefined): TrustValues {
+// A snapshot proxy's three trust values, normalised as a camera's offer has them.
+export function proxyTrustOf(p: SnapProxy | undefined): ProxyTrust {
   return {
     proxyUrl: p?.url ? p.url.replace(/\/+$/, '') : null,
     caFingerprints: (p?.caFingerprints ?? []).map((f) => normalizeFingerprint(f) ?? f).sort(),
     proxyTlsServername: p?.tlsServername ?? null,
+  };
+}
+
+export function offeredValues(c: SnapCamera, p: SnapProxy | undefined): TrustValues {
+  return {
+    ...proxyTrustOf(p),
     host: c.host,
     protocol: c.protocol === 'http' ? 'http' : 'https',
     tlsServername: c.tlsServername,
   };
+}
+
+// Which proxy id owns the URL a camera connects to (tokens are a proxy's):
+// (1) the proxy trusted at that URL; else (2) the snapshot proxy at that
+// URL; else (3) the offered proxy, when the URL is the camera's confirmed one
+// (no other proxy claims it). Two claimants at one step: no owner.
+function tokenOwner(ctx: ApplyContext, accountId: string, proxies: SnapProxy[], offered: SnapProxy, url: string, confirmed: boolean): string | undefined {
+  const trusted = ctx.trustedProxiesAt?.(accountId, url) ?? [];
+  if (trusted.length) return trusted.length === 1 ? trusted[0] : undefined;
+  const at = proxies.filter((x) => x.url !== null && proxyTrustOf(x).proxyUrl === url);
+  if (at.length) return at.length === 1 ? at[0].id : undefined;
+  return confirmed ? offered.id : undefined;
 }
 
 export function buildFleet(parts: AccountPart[], ctx: ApplyContext): { accounts: FleetAccount[]; held: HeldChange[]; problems: Problem[] } {
@@ -58,17 +97,22 @@ export function buildFleet(parts: AccountPart[], ctx: ApplyContext): { accounts:
   const accounts = parts.map((part): FleetAccount => {
     const proxies = new Map(part.proxies.map((p) => [p.id, p]));
     const missingToken = new Set<string>();
+    for (const p of part.proxies) ctx.proxyOffer?.(part.account.id, p);
     const cameras = part.cameras.map((c): CameraConfig => {
       const p = c.proxyId ? proxies.get(c.proxyId) : undefined;
       const offered = offeredValues(c, p);
-      const t = ctx.trust ? ctx.trust(part.account.id, c.camsId, offered) : { use: offered, confirmed: true, held: null };
+      // A move context only with all its parts; anything less is no move (held as before).
+      const move: MoveContext | undefined = c.moveId && p && c.proxyCameraId ? { moveId: c.moveId, proxyId: p.id, proxyCameraId: c.proxyCameraId, site: p.site } : undefined;
+      const t = ctx.trust ? ctx.trust(part.account.id, c.camsId, offered, move) : { use: offered, confirmed: true, held: null };
       if (t.held) held.push(t.held);
       const v = t.use;
       // Unconfirmed connection data: no token, no password (C1).
       const cred: CredentialResult = t.confirmed ? ctx.credentials(part.account.id, c.camsId, c.cameraUser) : { ok: false, problem: 'missing', user: c.cameraUser };
       let proxy: ProxyConfig | undefined;
       if (t.confirmed && p && v.proxyUrl) {
-        const tok = ctx.proxyToken?.(part.account.id, p, c.camsId);
+        // The token of the proxy that owns the URL in use, never the offered proxy's when they differ (a held change).
+        const ownerId = tokenOwner(ctx, part.account.id, part.proxies, p, v.proxyUrl, t.confirmed);
+        const tok = ctx.proxyToken?.(part.account.id, ownerId ? proxies.get(ownerId) : undefined, c.camsId, v.proxyUrl);
         if (tok) {
           proxy = {
             url: v.proxyUrl,
@@ -77,7 +121,7 @@ export function buildFleet(parts: AccountPart[], ctx: ApplyContext): { accounts:
             camera: c.proxyCameraId ?? c.camsId,
             ...(v.caFingerprints.length && { caFingerprint: v.caFingerprints }),
             ...(v.proxyTlsServername && { tlsServername: v.proxyTlsServername }),
-            proxyId: p.id,
+            ...(ownerId && { proxyId: ownerId }),
           };
           const ep = proxyEndpoint({ url: v.proxyUrl, pins: v.caFingerprints.length ? v.caFingerprints : null, tlsServername: v.proxyTlsServername });
           ctx.bind?.(tok.token, ep);

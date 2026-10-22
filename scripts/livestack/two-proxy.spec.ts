@@ -10,15 +10,19 @@
 // control API (the sims make none of their own), so each can be traced to the
 // proxy it must reach, and away from the one it must not.
 //
+// The camera move (@move, run on its own by check-two-proxy.sh with a second
+// cams in cams-admin mode and its fake cams-admin: start-two-proxy-stack.sh
+// --start-admin) is at the end of this file.
+//
 // Talks to cams only as a signed-in browser would (a session cookie signed
 // with the run's COOKIE_SECRET), plus the cam-sims' control API to make
 // events. Tokens stay in memory; nothing secret is printed.
 import { execFileSync } from 'child_process';
 import { readFileSync } from 'fs';
-import { join } from 'path';
+import { dirname, join } from 'path';
 import { expect, test, type APIRequestContext, type BrowserContext, type Page } from '@playwright/test';
 import jwt from 'jsonwebtoken';
-import { runEnv } from './two-proxy-env';
+import { MOVE, runEnv, runEnvPath } from './two-proxy-env';
 
 const env = runEnv();
 const A = env.CAMS_A; // a-cam1
@@ -48,6 +52,11 @@ async function signIn(context: BrowserContext): Promise<void> {
 // another step's window).
 const triggered: { cam: string; at: number }[] = [];
 const ownClip = (cam: string, ts: number | null | undefined) => typeof ts === 'number' && triggered.some((t) => t.cam === cam && Math.abs(ts - t.at) < 30_000);
+
+// A recording of an event this file triggered at `at` starts a few seconds
+// before it, never long after: cam-sim's seeded demo clips of the same day
+// (08:15, 09:30, …) are no match, even before they are due.
+const near = (start: number, at: number) => start >= at - 30_000 && start <= at + 60_000;
 
 async function trigger(cam: string, type: string, durationS = 6): Promise<number> {
   const at = Date.now();
@@ -79,7 +88,8 @@ const notices = async (): Promise<Notice[]> => monitor.evaluate(() => (window as
 const eventsFor = (list: Seen[], cam: string, since: number) => list.filter((s) => s.event === 'change' && s.data.cam === cam && s.t >= since);
 
 test.beforeAll(async ({ browser }) => {
-  const context = await browser.newContext();
+  // The first cams always (the camera move's steps set another baseURL).
+  const context = await browser.newContext({ baseURL: env.CAMS_URL });
   await signIn(context);
   monitor = await context.newPage();
   await monitor.addInitScript(() => {
@@ -181,7 +191,7 @@ test('stills, a clip and a notice per camera', async ({ page }) => {
       .poll(
         async () => {
           const { body } = await getJson<{ events: { id: string; start: string; end: string | null; triggers: string[]; sizeSub: number | null }[] }>(page.request, `/api/cameras/${cam}/events?date=${today()}`);
-          const ev = (body?.events ?? []).find((e) => Date.parse(e.start) >= since - 30_000 && e.triggers.includes('person') && e.sizeSub);
+          const ev = (body?.events ?? []).find((e) => near(Date.parse(e.start), since) && e.triggers.includes('person') && e.sizeSub);
           if (ev) clipOf[cam] = ev.id;
           return !!ev;
         },
@@ -373,4 +383,135 @@ test('proxy B back: its events flow again, without old notices replayed', async 
   // And its Archive is back in the merged list.
   const list = await getJson<{ items: { name: string }[] }>(page.request, `/api/archive?q=${RUN}`);
   expect(list.body.items.map((x) => x.name).sort()).toEqual([`${RUN} Alpha`, `${RUN} Bravo`]);
+});
+
+
+// The camera move (cams plan 2026-10-21-camera-move-cams, Task 5; S §9.2):
+// a second cams in cams-admin mode (ADMIN_CAMS_URL) with its fake cams-admin
+// (two-proxy-admin.ts), sim cameras only. Its one camera, "mover" (cam-sim
+// B's host), starts on proxy A; proxy B is added (held: an admin confirms it
+// once), then the snapshot moves mover to proxy B with a moveId and the TLS
+// name cam1.siteb.internal: applied without a hold, and its live view and a
+// recording come through proxy B. Run on its own (grep @move), after the
+// steps above: until then each proxy has one SSE client.
+test.describe('camera move @move', () => {
+  const ADMIN = env.ADMIN_CAMS_URL;
+  const HOOKS = env.FAKE_ADMIN_HOOKS_URL;
+  const TRUST_FILE = join(dirname(runEnvPath()), 'run', 'cams-admin', 'admin', 'trust.json');
+  type Trust = { confirmed: Record<string, { proxyUrl: string | null; tlsServername: string | null; host: string | null }>; proxies?: Record<string, unknown>; log: { action: string; moveId?: string; proxyIds?: string[]; camsIds: string[] }[] };
+  const trust = (): Trust => JSON.parse(readFileSync(TRUST_FILE, 'utf8')) as Trust;
+  const KEY = `${MOVE.ACCOUNT}/${MOVE.CAMS_ID}`;
+  type Held = { items: { camsId: string }[]; proxies: { proxyId: string }[] };
+  const held = async (req: APIRequestContext) => (await getJson<Held>(req, '/api/admin/held')).body;
+  const sseClients = async (x: 'A' | 'B') =>
+    ((await (await fetch(`${env[`PROXY_${x}_URL`]}/control/status`, { headers: { Authorization: `Bearer ${env[`PROXY_${x}_ADMIN_TOKEN`]}` } })).json()) as { sse: { clients: number } }).sse.clients;
+  const step = async (name: 'base' | 'proxyB' | 'moved') => {
+    const r = await fetch(`${HOOKS}/step`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ step: name }) });
+    expect(r.status, `fake cams-admin step ${name}`).toBe(200);
+    return ((await r.json()) as { revision: string }).revision;
+  };
+  const lastReport = async () => ((await (await fetch(`${HOOKS}/reports`)).json()) as { last: { appliedRevision: string; held: unknown[]; heldProxies: { accountId: string; proxyId: string; fields: string[] }[] } | null }).last;
+
+  test.use({ baseURL: ADMIN });
+  test.beforeEach(async ({ context }) => {
+    test.skip(!ADMIN || !HOOKS, 'no admin cams in this stack (an older run.env)');
+    // The admin of account Home (cams-admin mode: the account in the session).
+    const value = jwt.sign({ email: env.SESSION_EMAIL, acc: MOVE.ACCOUNT }, env.CAMS_COOKIE_SECRET, { expiresIn: '1h' });
+    await context.addCookies([{ name: 'session', value, domain: new URL(ADMIN).hostname, path: '/', httpOnly: true, secure: false, sameSite: 'Lax' }]);
+  });
+
+  test('mover starts on proxy A; proxy A is trusted by the seed, nothing held', async ({ page }) => {
+    // cams names a proxy's camera as the proxy does: proxy A's cam1 is cam-sim A, "Alpha" (the stand-in before the move).
+    await expect.poll(async () => (await getJson<{ id: string; name: string; proxy: boolean }[]>(page.request, '/api/cameras')).body.map((c) => [c.id, c.name, c.proxy]), { timeout: 30_000 }).toEqual([[MOVE.CAMS_ID, 'Alpha', true]]);
+    expect(await held(page.request)).toEqual({ items: [], proxies: [] });
+    const t = trust();
+    expect(t.confirmed[KEY]).toMatchObject({ proxyUrl: env.PROXY_A_URL, tlsServername: null });
+    expect(Object.keys(t.proxies ?? {})).toEqual([`${MOVE.ACCOUNT}/${MOVE.PROXY_A}`]);
+    expect(t.log.map((l) => l.action)).toEqual(['seed', 'seed-proxies']);
+    // The admin cams is proxy A's second SSE client (the first cams the other), not B's.
+    await expect.poll(() => sseClients('A'), { timeout: 30_000 }).toBe(2);
+    expect(await sseClients('B')).toBe(1);
+  });
+
+  test('a new proxy B is held: in the banner and the report, until an admin confirms it', async ({ page }) => {
+    const revision = await step('proxyB');
+    await expect.poll(async () => (await held(page.request)).proxies.map((p) => p.proxyId), { timeout: 15_000 }).toEqual([MOVE.PROXY_B]);
+    expect((await held(page.request)).items).toEqual([]);
+    await expect.poll(async () => { const r = await lastReport(); return r && r.appliedRevision === revision ? r.heldProxies : null; }, { timeout: 15_000 })
+      .toEqual([{ accountId: MOVE.ACCOUNT, proxyId: MOVE.PROXY_B, fields: ['proxyUrl', 'caFingerprints', 'proxyTlsServername'] }]);
+    await page.goto(`/app/video?cam=${MOVE.CAMS_ID}`);
+    const item = page.getByTestId(`held-proxy-${MOVE.PROXY_B}`);
+    await expect(item).toBeVisible();
+    await expect(item).toContainText(`New proxy Proxy B at ${env.PROXY_B_URL}`);
+    await page.getByTestId(`held-proxy-confirm-${MOVE.PROXY_B}`).click();
+    await expect(page.getByTestId('held-banner')).toHaveCount(0);
+    expect(await held(page.request)).toEqual({ items: [], proxies: [] });
+    const t = trust();
+    expect(Object.keys(t.proxies ?? {}).sort()).toEqual([`${MOVE.ACCOUNT}/${MOVE.PROXY_A}`, `${MOVE.ACCOUNT}/${MOVE.PROXY_B}`].sort());
+    expect(t.log.at(-1)).toMatchObject({ action: 'confirm-proxy', proxyIds: [MOVE.PROXY_B] });
+    // Confirming the proxy moves nothing: mover is still on proxy A.
+    expect(t.confirmed[KEY]).toMatchObject({ proxyUrl: env.PROXY_A_URL });
+    await expect.poll(async () => { const r = await lastReport(); return r?.heldProxies; }, { timeout: 15_000 }).toEqual([]);
+  });
+
+  test('the move: mover goes to proxy B with its moveId and cam1.siteb.internal, without a hold', async ({ page }) => {
+    expect(Object.keys(trust().proxies ?? {}), 'proxy B confirmed in the step before').toContain(`${MOVE.ACCOUNT}/${MOVE.PROXY_B}`);
+    // cams's own token for proxy B (its legacy one is proxy A's and stays there):
+    // registered, installed on proxy B, listed active (cams-admin's tokens.apply, played here).
+    const tokenRows = async () => (await (await fetch(`${HOOKS}/tokens`)).json()) as { proxyId: string; kind: string; state: string }[];
+    await expect.poll(async () => (await tokenRows()).some((t) => t.proxyId === MOVE.PROXY_B && t.kind === 'client'), { timeout: 15_000 }).toBe(true);
+    execFileSync('bash', [START, '--admin-token-to-proxy-b', MOVE.PROXY_B], { stdio: 'inherit' });
+    const act = await fetch(`${HOOKS}/activate`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ proxyId: MOVE.PROXY_B }) });
+    expect(act.status, 'activate cams\'s token for proxy B').toBe(200);
+    // Still on proxy A until the move (its legacy token, its own proxy).
+    await expect.poll(() => sseClients('B'), { timeout: 60_000 }).toBe(1);
+    expect(trust().confirmed[KEY]).toMatchObject({ proxyUrl: env.PROXY_A_URL });
+    const revision = await step('moved');
+    await expect.poll(() => trust().confirmed[KEY]?.proxyUrl, { timeout: 15_000 }).toBe(env.PROXY_B_URL);
+    const t = trust();
+    expect(t.confirmed[KEY]).toMatchObject({ proxyUrl: env.PROXY_B_URL, tlsServername: 'cam1.siteb.internal', host: env.MOVER_HOST });
+    expect(t.log.at(-1)).toMatchObject({ action: 'move', moveId: MOVE.MOVE_ID, camsIds: [MOVE.CAMS_ID] });
+    expect(await held(page.request)).toEqual({ items: [], proxies: [] });
+    await expect.poll(async () => { const r = await lastReport(); return r && r.appliedRevision === revision ? { held: r.held, heldProxies: r.heldProxies } : null; }, { timeout: 15_000 })
+      .toEqual({ held: [], heldProxies: [] });
+    // The admin cams now listens to proxy B, and no longer to A.
+    await expect.poll(() => sseClients('B'), { timeout: 30_000 }).toBe(2);
+    await expect.poll(() => sseClients('A'), { timeout: 30_000 }).toBe(1);
+  });
+
+  test('after the move: live view and a recording through proxy B, no held banner', async ({ page }) => {
+    expect(trust().confirmed[KEY]?.proxyUrl, 'moved in the step before').toBe(env.PROXY_B_URL);
+    // Named as proxy B names its cam1 (cam-sim B, "Bravo"): cams asks proxy B now.
+    await expect.poll(async () => (await getJson<{ id: string; name: string; proxy: boolean }[]>(page.request, '/api/cameras')).body.map((c) => [c.id, c.name, c.proxy]), { timeout: 30_000 }).toEqual([[MOVE.CAMS_ID, 'Bravo', true]]);
+    await page.goto(`/app/video?cam=${MOVE.CAMS_ID}`);
+    await expect(page.getByTestId('camera-card-name')).toHaveText('Bravo');
+    await expect(page.getByTestId('camera-status')).toHaveAttribute('data-state', 'online', { timeout: 30_000 });
+    await expect(page.getByTestId('camera-card-proxy')).not.toHaveAttribute('data-reachable', 'false');
+    await expect(page.getByTestId('live-badge')).toContainText('LIVE', { timeout: 30_000 });
+    await expect(page.getByTestId('stream-indicator')).toHaveAttribute('data-state', 'streaming', { timeout: 30_000 });
+    await expect(page.getByTestId('held-banner')).toHaveCount(0);
+    const snap = await page.request.get(`/api/cameras/${MOVE.CAMS_ID}/snapshot.jpg`);
+    expect(snap.status()).toBe(200);
+    expect((await snap.body()).subarray(0, 2).toString('hex')).toBe('ffd8');
+    // A recording of a new event on cam-sim B (proxy B's cam1): listed and played through proxy B.
+    const since = await trigger(B, 'person', 6);
+    let clip = '';
+    await expect
+      .poll(
+        async () => {
+          const { body } = await getJson<{ events: { id: string; start: string; triggers: string[]; sizeSub: number | null }[] }>(page.request, `/api/cameras/${MOVE.CAMS_ID}/events?date=${today()}`);
+          const ev = (body?.events ?? []).find((e) => near(Date.parse(e.start), since) && e.triggers.includes('person') && e.sizeSub);
+          if (ev) clip = ev.id;
+          return !!ev;
+        },
+        { timeout: 120_000, intervals: [3000] },
+      )
+      .toBe(true);
+    const video = await page.request.get(`/api/cameras/${MOVE.CAMS_ID}/clips/${clip}/video`, { timeout: 120_000 });
+    expect(video.status(), `mover plays ${clip}`).toBe(200);
+    expect((await video.body()).subarray(4, 8).toString('latin1')).toBe('ftyp');
+    await page.reload();
+    await expect(page.getByTestId('camera-card-name')).toHaveText('Bravo');
+    await expect(page.getByTestId('held-banner')).toHaveCount(0);
+  });
 });

@@ -31,6 +31,7 @@ export interface CamsReport {
   lastPullAt: number | null;
   held: { accountId: string; camsId: string; fields: TrustFieldName[] }[];
   keptOld: { accountId: string; camsId: string; fields: TrustFieldName[] }[];
+  heldProxies?: { accountId: string; proxyId: string; fields: TrustFieldName[] }[];
   shadow: { accountId: string; differences: number; items: string[] } | null;
   tokens: { managed: number; pending: number; legacy: number };
   problems: { code: string; accountId?: string; detail?: string }[];

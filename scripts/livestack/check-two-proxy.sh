@@ -14,11 +14,18 @@
 #    (its events flow, nothing old replayed). That step stops and starts
 #    proxy B through start-two-proxy-stack.sh --stop-proxy-b / --start-proxy-b.
 # 2. The generator again, a dry run: it must find nothing to change.
+# 3. The camera move (@move in the same spec, run on its own): a second cams
+#    in cams-admin mode and its fake cams-admin (start-two-proxy-stack.sh
+#    --start-admin, stopped again with --stop-admin also when the step fails):
+#    proxy B new, held, confirmed from the banner; the snapshot moves the
+#    camera to proxy B with a moveId and cam1.siteb.internal, applied without
+#    a hold; its live view and a recording come through proxy B. Sim cameras
+#    and the fake admin only.
 #
 # Runs from this repo's checkout (npm ci done, for Playwright and tsx).
 # Proxy B ends up running again, also when the spec fails midway. Never
 # prints a token (the spec reads run.env itself). Exit status 0 only when
-# both parts pass.
+# all three parts pass.
 set -uo pipefail
 source "$(dirname "$0")/lib.sh"
 
@@ -27,7 +34,7 @@ source "$(dirname "$0")/lib.sh"
 
 FAILS=0
 echo "== 1. Playwright: scripts/livestack/two-proxy.spec.ts"
-( cd "$CAMS_REPO" && TWOPROXY_RUN_ENV="$RUN_ENV" npx --no-install playwright test -c scripts/livestack/two-proxy.config.ts ) || FAILS=$((FAILS + 1))
+( cd "$CAMS_REPO" && TWOPROXY_RUN_ENV="$RUN_ENV" npx --no-install playwright test -c scripts/livestack/two-proxy.config.ts --grep-invert @move ) || FAILS=$((FAILS + 1))
 
 # Proxy B back up whatever the spec did (it stops it on purpose midway).
 if ! curl -fsS -o /dev/null --max-time 3 "$(env_get "$RUN_ENV" PROXY_B_URL)/health" 2>/dev/null; then
@@ -44,6 +51,14 @@ if [ "$rc" = 0 ] && printf '%s\n' "$OUT" | grep -qx '(no changes)'; then
 else
   echo "  FAIL generator re-run (exit $rc) wants changes"; FAILS=$((FAILS + 1))
 fi
+
+echo "== 3. Playwright: the camera move (@move), with cams in cams-admin mode"
+if "$HERE/start-two-proxy-stack.sh" --start-admin; then
+  ( cd "$CAMS_REPO" && TWOPROXY_RUN_ENV="$RUN_ENV" npx --no-install playwright test -c scripts/livestack/two-proxy.config.ts --grep @move ) || FAILS=$((FAILS + 1))
+else
+  echo "  FAIL the admin cams or its fake cams-admin did not start"; FAILS=$((FAILS + 1))
+fi
+"$HERE/start-two-proxy-stack.sh" --stop-admin || FAILS=$((FAILS + 1))
 
 echo
 [ "$FAILS" -eq 0 ] && echo "check-two-proxy: all passed" || echo "check-two-proxy: $FAILS part(s) failed"

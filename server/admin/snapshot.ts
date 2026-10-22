@@ -7,10 +7,10 @@ import { ACCOUNT_ID_RE, CAMS_ID_RE, type AccountRef, type FleetUser } from '../f
 import { verifySigned } from './sign';
 
 export interface SnapToken { id: string; kind: 'client' | 'admin'; state: string; retireAt: number | null }
-export interface SnapProxy { id: string; name: string; displayName: string; url: string | null; adminUiUrl: string | null; tlsServername: string | null; caFingerprints: string[]; tokens: SnapToken[] }
+export interface SnapProxy { id: string; name: string; displayName: string; url: string | null; adminUiUrl: string | null; tlsServername: string | null; caFingerprints: string[]; site: string | null; tokens: SnapToken[] }
 export interface SnapCamera {
   id: string; camsId: string; name: string; proxyId: string | null; proxyCameraId: string | null; host: string; protocol: string;
-  tlsServername: string | null; cameraUser: string | null; webUiUrl: string | null; webUiNote: string | null;
+  tlsServername: string | null; cameraUser: string | null; webUiUrl: string | null; webUiNote: string | null; moveId: string | null;
 }
 export interface SnapAccount { id: string; name: string; displayName: string; revision: number; users: FleetUser[]; proxies: SnapProxy[]; cameras: SnapCamera[] }
 export interface Snapshot { v: 1; type: 'cams-config'; instance: { id: string; name: string; rotateBefore: number | null }; revision: string; generatedAt: number; accounts: SnapAccount[]; sig: string }
@@ -31,6 +31,10 @@ export interface AccountPart { account: AccountRef; revision: number; users: Fle
 
 const str = (v: unknown, max = 256): v is string => typeof v === 'string' && v.length > 0 && v.length <= max;
 const strOrNull = (v: unknown, max = 2048) => v === null || (typeof v === 'string' && v.length <= max);
+const SITE_RE = /^[a-z0-9][a-z0-9-]{0,30}$/;
+const MOVE_ID_RE = /^mv_[0-9A-HJKMNP-TV-Z]{20}$/;
+// Absent (a snapshot cached before the field existed) reads as null.
+const optNull = (v: unknown, re: RegExp): boolean => v === undefined || v === null || (typeof v === 'string' && re.test(v));
 const fail = (detail: string): never => {
   throw new Error(detail.slice(0, 200));
 };
@@ -52,19 +56,19 @@ function checkAccount(a: Record<string, unknown>): AccountPart {
   if (!Array.isArray(a.proxies) || a.proxies.length > 64) fail('proxies');
   const proxies = (a.proxies as unknown[]).map((p0, i) => {
     const p = (obj(p0) ? p0 : {}) as Record<string, unknown>;
-    if (!obj(p0) || !str(p.id, 64) || !/^prx_/.test(p.id) || !strOrNull(p.url) || !strOrNull(p.tlsServername, 253) || !Array.isArray(p.caFingerprints) || !p.caFingerprints.every((f) => typeof f === 'string')) fail(`proxy ${i}`);
+    if (!obj(p0) || !str(p.id, 64) || !/^prx_/.test(p.id) || !strOrNull(p.url) || !strOrNull(p.tlsServername, 253) || !Array.isArray(p.caFingerprints) || !p.caFingerprints.every((f) => typeof f === 'string') || !optNull(p.site, SITE_RE)) fail(`proxy ${i}`);
     const tokens = Array.isArray(p.tokens) ? (p.tokens as unknown[]).filter(obj).filter((t) => str(t.id, 64) && (t.kind === 'client' || t.kind === 'admin') && str(t.state, 16)) : [];
     return { id: p.id as string, name: String(p.name ?? ''), displayName: String(p.displayName ?? p.name ?? ''), url: (p.url as string | null) ?? null, adminUiUrl: typeof p.adminUiUrl === 'string' ? p.adminUiUrl : null,
-      tlsServername: (p.tlsServername as string | null) ?? null, caFingerprints: p.caFingerprints as string[], tokens: tokens.map((t) => ({ id: t.id as string, kind: t.kind as 'client' | 'admin', state: t.state as string, retireAt: typeof t.retireAt === 'number' ? t.retireAt : null })) } as SnapProxy;
+      tlsServername: (p.tlsServername as string | null) ?? null, caFingerprints: p.caFingerprints as string[], site: (p.site as string | null | undefined) ?? null, tokens: tokens.map((t) => ({ id: t.id as string, kind: t.kind as 'client' | 'admin', state: t.state as string, retireAt: typeof t.retireAt === 'number' ? t.retireAt : null })) } as SnapProxy;
   });
   const byId = new Map(proxies.map((p) => [p.id, p]));
   if (!Array.isArray(a.cameras) || a.cameras.length > 256) fail('cameras');
   const cameras = (a.cameras as unknown[]).map((c0, i) => {
     const c = (obj(c0) ? c0 : {}) as Record<string, unknown>;
     if (!obj(c0) || !str(c.camsId, 32) || !CAMS_ID_RE.test(c.camsId) || !str(c.name, 128) || !str(c.host, 260) || typeof c.protocol !== 'string'
-      || !strOrNull(c.proxyId, 64) || !strOrNull(c.proxyCameraId, 64) || !strOrNull(c.tlsServername, 253) || !strOrNull(c.cameraUser, 128) || !strOrNull(c.webUiUrl) || !strOrNull(c.webUiNote, 120)) fail(`camera ${i}`);
+      || !strOrNull(c.proxyId, 64) || !strOrNull(c.proxyCameraId, 64) || !strOrNull(c.tlsServername, 253) || !strOrNull(c.cameraUser, 128) || !strOrNull(c.webUiUrl) || !strOrNull(c.webUiNote, 120) || !optNull(c.moveId, MOVE_ID_RE)) fail(`camera ${i}`);
     if (c.proxyId !== null && !byId.has(c.proxyId as string)) fail(`camera ${i}: proxy`);
-    return c as unknown as SnapCamera;
+    return { ...c, moveId: (c.moveId as string | null | undefined) ?? null } as unknown as SnapCamera;
   });
   // cams's own rules (parseCameras: ids, protocol, host, TLS names, web
   // links, proxy URL and pins, groups), on the file shape with placeholders.

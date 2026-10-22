@@ -6,7 +6,7 @@ import { currentUser, type AuthState } from '../middleware/requireAuth';
 import { SESSION_COOKIE, SESSION_MAX_AGE_MS, signSession } from '../session';
 import { getCamera } from '../cameraRegistry';
 import { configMode, configStatus, reapplyConfig, reportSoon, trustStore } from '../configSource';
-import type { TrustField, TrustValues } from '../admin/trust';
+import type { HeldProxy, ProxyTrust, TrustField, TrustValues } from '../admin/trust';
 import { sessionAccount } from './common';
 import { credentialsWritable, setCameraPassword } from '../credentials';
 import { resetClients } from '../reolink/clients';
@@ -74,6 +74,12 @@ accountsRouter.put('/api/cameras/:id/credentials', async (req: Request, res: Res
 // offer in that revision (security review I1).
 const pick = (v: TrustValues | null, fields: TrustField[]): Partial<TrustValues> => (v ? Object.fromEntries(fields.map((f) => [f, v[f]])) : {});
 const revision = () => configStatus().appliedRevision ?? '';
+// A held proxy as the banner shows it (camera move, M5): only the changed
+// proxy fields, picked one by one (a loaded trust entry may carry more
+// keys); `from` null: a new proxy. Its digest binds the offer and the
+// revision it was offered in (the one proxyOffer recorded).
+const pickProxy = (v: ProxyTrust, fields: HeldProxy['fields']): Partial<ProxyTrust> => Object.fromEntries(fields.map((f) => [f, v[f]]));
+const proxyView = (h: HeldProxy) => ({ proxyId: h.proxyId, name: h.name, fields: h.fields, from: h.trusted ? pickProxy(h.trusted, h.fields) : null, to: pickProxy(h.offered, h.fields), digest: h.digest });
 accountsRouter.get('/api/admin/held', (req: Request, res: Response) => {
   const account = sessionAccount(req, res).id;
   const store = trustStore();
@@ -81,7 +87,7 @@ accountsRouter.get('/api/admin/held', (req: Request, res: Response) => {
     camsId: h.camsId, fields: h.fields, from: pick(h.confirmed, h.fields), to: pick(h.offered, h.fields), keptOld: h.keptOld, isNew: !!h.isNew,
     digest: store!.offerDigest(account, h.camsId, revision()),
   }));
-  res.json({ items });
+  res.json({ items, proxies: (store?.heldProxies(account) ?? []).map(proxyView) });
 });
 
 function heldAction(action: 'confirm' | 'keep') {
@@ -113,3 +119,26 @@ function heldAction(action: 'confirm' | 'keep') {
 }
 accountsRouter.post('/api/admin/held/confirm', heldAction('confirm'));
 accountsRouter.post('/api/admin/held/keep', heldAction('keep'));
+
+// Confirm a proxy once (camera move, S §9.2, M5): the session's account
+// only, exactly the offers shown (digest), all or nothing. Cameras then
+// move to it by the move rule; the rebuild applies a move waiting on it.
+const PROXY_ID = /^prx_[0-9A-HJKMNP-TV-Z]{20}$/;
+accountsRouter.post('/api/admin/held/proxies/confirm', (req: Request, res: Response) => {
+  const items = (req.body as { items?: unknown } | undefined)?.items;
+  if (!Array.isArray(items) || !items.length || items.length > 64
+    || !items.every((i) => i && typeof i === 'object' && typeof i.proxyId === 'string' && PROXY_ID.test(i.proxyId) && typeof i.digest === 'string' && /^[0-9a-f]{64}$/.test(i.digest))) {
+    return void res.status(400).json({ error: 'invalid', detail: 'items is a list of 1 to 64 {proxyId, digest}' });
+  }
+  const account = sessionAccount(req, res).id;
+  const store = trustStore();
+  const list = (items as { proxyId: string; digest: string }[]).map((i) => ({ proxyId: i.proxyId, digest: i.digest }));
+  if (!store) return void res.status(409).json({ error: 'offer_changed', changed: list.map((i) => i.proxyId) });
+  const r = store.confirmProxies(currentUser(req)!.email, account, list);
+  if (!r.confirmed.length) return void res.status(409).json({ error: 'offer_changed', changed: r.changed });
+  reapplyConfig();
+  resetClients();
+  logger.info({ accountId: account, proxyIds: r.confirmed }, 'held_proxy_confirmed');
+  reportSoon(true);
+  res.json({ confirmed: r.confirmed });
+});

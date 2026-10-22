@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# start-two-proxy-stack.sh [--stop-proxy-b | --start-proxy-b]: one cams with
+# start-two-proxy-stack.sh [--stop-proxy-b | --start-proxy-b | --start-admin |
+# --stop-admin | --admin-token-to-proxy-b PROXY_ID]: one cams with
 # two cam-proxies, each with its own cam-sim, all local. See docs/livestack.md,
 # "Two proxies".
 #
@@ -12,6 +13,25 @@
 # check-two-proxy.sh checks it, and stop-stack.sh stops it.
 #   --stop-proxy-b   stops only cam-proxy B (the outage check)
 #   --start-proxy-b  starts cam-proxy B again with the same config and data
+#   --start-admin    starts the camera move scenario's second cams, in
+#                    cams-admin mode, and its fake cams-admin
+#                    (two-proxy-admin.ts); a fresh data folder each time
+#   --stop-admin     stops those two again
+#   --admin-token-to-proxy-b PROXY_ID
+#                    plays cams-admin's tokens.apply: the admin cams's own
+#                    client token for that proxy (its admin/tokens.json, never
+#                    printed) joins proxy B's tokens, and proxy B restarts
+#
+# The camera move (cams plan 2026-10-21-camera-move-cams, Task 5): the second
+# cams ("admin cams", :19881) serves one camera, "mover" (cam-sim B's host),
+# from the fake cams-admin's snapshot (:19882, test hooks :19883): first on
+# proxy A, then moved to proxy B. Its CAMERAS_FILE (the file account's
+# legacy entry, mode 600) has proxy A's own token: cams uses a legacy token
+# only on the proxy its entry names. On proxy B it uses its own managed token,
+# which the spec installs there with --admin-token-to-proxy-b (this stack has
+# no fleet channel for cams-admin's tokens.apply) before the fake admin lists
+# it active. check-two-proxy.sh starts it after the main checks (one SSE
+# client per proxy until then) and stops it again.
 #
 # What runs (detached worktrees in the work dir, built once per commit):
 #   cam-sim   origin/main, as in the sim stack
@@ -40,7 +60,7 @@
 #   cam-proxy A  19680, go2rtc 19681/19682, FTPS 19683, passive 19690-19699
 #   cam-proxy B  19780, go2rtc 19781/19782, FTPS 19783, passive 19790-19799
 #                (10 more per further camera: up to 19829)
-#   cams         19880
+#   cams         19880; admin cams 19881, fake cams-admin 19882, its hooks 19883
 #
 # Secrets: every password and token is random per run, in run/secrets-a and
 # run/secrets-b (mode 600) and run.env (mode 600); never printed, never on a
@@ -51,26 +71,95 @@ set -euo pipefail
 source "$(dirname "$0")/lib.sh"
 
 MODE="${1:-}"
-case "$MODE" in ""|--stop-proxy-b|--start-proxy-b) ;; *) die "usage: start-two-proxy-stack.sh [--stop-proxy-b | --start-proxy-b]" ;; esac
+case "$MODE" in ""|--stop-proxy-b|--start-proxy-b|--start-admin|--stop-admin|--admin-token-to-proxy-b) ;; *) die "usage: start-two-proxy-stack.sh [--stop-proxy-b | --start-proxy-b | --start-admin | --stop-admin | --admin-token-to-proxy-b PROXY_ID]" ;; esac
 
 PROXY_A_PORT=19680 PROXY_B_PORT=19780 CAMS_PORT=19880
+ADMIN_CAMS_PORT=19881 FAKE_ADMIN_PORT=19882 FAKE_ADMIN_HOOKS=19883
 TZ_CAM=America/Chicago
 sim_port() { echo $((19600 + 10 * ($1 - 1) + $2)); }   # sim_port N OFFSET
 
 # --- outage control (proxy B only) --------------------------------------------
 pid_of() { awk -v n="$1" '$2 == n {p=$1} END {print p}' "$PIDS" 2>/dev/null; }
-if [ "$MODE" = --stop-proxy-b ]; then
-  [ "$(env_get "$RUN_ENV" STACK)" = two-proxy ] || die "no two-proxy stack in $WORK"
-  pid="$(pid_of cam-proxy-b)"
+stop_named() { # stop_named NAME: the pids file's process NAME, by its pid, if it is ours
+  local pid; pid="$(pid_of "$1")"
   if [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null && ps -p "$pid" -o command= | grep -q "$HERE"; then
     kill -TERM "$pid"
     for _ in $(seq 1 20); do kill -0 "$pid" 2>/dev/null || break; sleep 1; done
     kill -0 "$pid" 2>/dev/null && kill -KILL "$pid"
-    note "cam-proxy B stopped (pid $pid)"
+    note "$1 stopped (pid $pid)"
   else
-    note "cam-proxy B is not running"
+    note "$1 is not running"
   fi
-  awk '$2 != "cam-proxy-b"' "$PIDS" > "$PIDS.tmp" && mv "$PIDS.tmp" "$PIDS"
+  awk -v n="$1" '$2 != n' "$PIDS" > "$PIDS.tmp" && mv "$PIDS.tmp" "$PIDS"
+}
+if [ "$MODE" = --stop-proxy-b ]; then
+  [ "$(env_get "$RUN_ENV" STACK)" = two-proxy ] || die "no two-proxy stack in $WORK"
+  stop_named cam-proxy-b
+  exit 0
+fi
+if [ "$MODE" = --stop-admin ]; then
+  [ "$(env_get "$RUN_ENV" STACK)" = two-proxy ] || die "no two-proxy stack in $WORK"
+  stop_named cams-admin-mode
+  stop_named fake-cams-admin
+  exit 0
+fi
+if [ "$MODE" = --admin-token-to-proxy-b ]; then
+  [ "$(env_get "$RUN_ENV" STACK)" = two-proxy ] || die "no two-proxy stack in $WORK"
+  prx="${2:-}"
+  [[ "$prx" =~ ^prx_[0-9A-HJKMNP-TV-Z]{20}$ ]] || die "usage: --admin-token-to-proxy-b PROXY_ID"
+  f="$RUN/cams-admin/admin/tokens.json"
+  [ -r "$f" ] || die "no $f: is the admin cams running?"
+  # The newest registered client token for that proxy; only its value goes to the file, never to the output.
+  ( umask 077
+    managed="$(jq -r --arg p "$prx" '[.tokens[] | select(.proxyId == $p and .kind == "client" and .id != null)] | sort_by(.createdAt) | last | .token // empty' "$f")"
+    [ -n "$managed" ] || { echo "livestack: no registered client token for $prx in $f" >&2; exit 1; }
+    printf '%s,%s' "$(cat "$RUN/secrets-b/proxy_tokens")" "$managed" > "$RUN/secrets-b/proxy_tokens_all" ) || exit 1
+  stop_named cam-proxy-b
+  require_ports_free $PROXY_B_PORT 19781 19782 19783
+  start_proxy "$RUN/proxy-b/config.json" cam-proxy-b "$(env_get "$RUN_ENV" PROXY_B_SRC)" "$RUN/secrets-b"
+  wait_http "http://127.0.0.1:$PROXY_B_PORT/health" 60 "cam-proxy B (with the admin cams's token)"
+  exit 0
+fi
+if [ "$MODE" = --start-admin ]; then
+  [ "$(env_get "$RUN_ENV" STACK)" = two-proxy ] || die "no two-proxy stack in $WORK"
+  for n in cams-admin-mode fake-cams-admin; do
+    pid="$(pid_of "$n")"
+    [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null && die "$n is running (pid $pid): --stop-admin first"
+  done
+  require_ports_free $ADMIN_CAMS_PORT $FAKE_ADMIN_PORT $FAKE_ADMIN_HOOKS
+  [ -x "$CAMS_REPO/node_modules/.bin/tsx" ] || die "no tsx in $CAMS_REPO: npm ci first"
+  D="$RUN/cams-admin"
+  rm -rf "$D"
+  ( umask 077; mkdir -p "$D/cache" )
+  chmod 700 "$D"
+  # The file account's legacy camera (R4-11 seeds trust from it; R4-12 its
+  # token and password): mover on proxy A with A's own token, cam-sim B's
+  # host and "cams" user.
+  ( umask 077; jq -n --arg a "$(env_get "$RUN_ENV" PROXY_A_URL)" --arg host "$(env_get "$RUN_ENV" MOVER_HOST)" \
+      --rawfile pw "$RUN/secrets-b/cams_password" --rawfile tok "$RUN/secrets-a/proxy_tokens" \
+      '[{ id: "mover", name: "Mover", host: $host, protocol: "http", user: "cams", password: $pw,
+          proxy: { url: $a, token: $tok, camera: "cam1" } }]' > "$D/cameras.json" )
+  start_bg fake-cams-admin env -C "$CAMS_REPO" \
+    TWOPROXY_ADMIN_PORT=$FAKE_ADMIN_PORT TWOPROXY_ADMIN_HOOKS=$FAKE_ADMIN_HOOKS TWOPROXY_ADMIN_DATA="$D" \
+    TWOPROXY_PROXY_A_URL="$(env_get "$RUN_ENV" PROXY_A_URL)" TWOPROXY_PROXY_B_URL="$(env_get "$RUN_ENV" PROXY_B_URL)" \
+    TWOPROXY_MOVER_HOST="$(env_get "$RUN_ENV" MOVER_HOST)" TWOPROXY_ADMIN_EMAIL="$SESSION_EMAIL" \
+    node --import tsx "$HERE/two-proxy-admin.ts"
+  wait_http "http://127.0.0.1:$FAKE_ADMIN_HOOKS/reports" 60 "fake cams-admin"
+  [ -s "$D/admin/key.json" ] && [ -s "$D/admin/config-cache.json" ] || die "the fake cams-admin wrote no key file or cache in $D/admin"
+  cookie_secret="$(env_get "$RUN_ENV" CAMS_COOKIE_SECRET)"
+  start_bg cams-admin-mode env -C "$(env_get "$RUN_ENV" CAMS_SRC)" -u ALLOWED_EMAILS \
+    PORT=$ADMIN_CAMS_PORT COOKIE_SECRET="$cookie_secret" \
+    GOOGLE_CLIENT_ID=livestack GOOGLE_CLIENT_SECRET=livestack \
+    GOOGLE_REDIRECT_URI="http://127.0.0.1:$ADMIN_CAMS_PORT/auth/google/callback" \
+    CONFIG_SOURCE=cams-admin CAMS_DATA_DIR="$D" CAMS_ADMIN_PULL_MS=1000 \
+    CAMERAS_FILE="$D/cameras.json" CAMERA_CREDENTIALS_FILE="$D/credentials.json" \
+    PREFS_FILE="$D/prefs.json" PROXY_STATE_FILE="$D/proxy-state.json" CACHE_DIR="$D/cache" \
+    APP_VERSION=livestack LOG_LEVEL=info \
+    RATE_LIMIT_MAX=1000 RATE_LIMIT_API_MAX=10000 RATE_LIMIT_MEDIA_MAX=10000 RATE_LIMIT_IMAGE_MAX=50000 \
+    LIVESTACK_BIND=127.0.0.1 \
+    node --require "$HERE/bind-local.cjs" dist/server/server.js
+  unset cookie_secret
+  wait_http "http://127.0.0.1:$ADMIN_CAMS_PORT/health" 60 "admin cams"
   exit 0
 fi
 if [ "$MODE" = --start-proxy-b ]; then
@@ -90,7 +179,7 @@ SIMS=$((1 + B_CAMS))   # sim 1 is A's, sims 2.. are B's
 B_PASSIVE="19790-$((19789 + 10 * B_CAMS))"   # 10 per camera with FTP (cam-proxy spec 2026-10-05 §7)
 
 new_run
-ports=($PROXY_A_PORT 19681 19682 19683 $(seq 19690 19699) $PROXY_B_PORT 19781 19782 19783 $(seq 19790 $((19789 + 10 * B_CAMS))) $CAMS_PORT)
+ports=($ADMIN_CAMS_PORT $FAKE_ADMIN_PORT $FAKE_ADMIN_HOOKS $PROXY_A_PORT 19681 19682 19683 $(seq 19690 19699) $PROXY_B_PORT 19781 19782 19783 $(seq 19790 $((19789 + 10 * B_CAMS))) $CAMS_PORT)
 for n in $(seq 1 $SIMS); do for o in 0 1 2 3 4 5; do ports+=("$(sim_port "$n" $o)"); done; done
 require_ports_free "${ports[@]}"
 [ -x "$MEDIAMTX_BIN" ] || die "MediaMTX missing at $MEDIAMTX_BIN (cam-sim scripts/install-mediamtx.sh, or set MEDIAMTX_BIN)"
@@ -133,6 +222,9 @@ for i in $(seq 1 "$B_CAMS"); do B_IDS+=("cam$i"); done
 runenv_put STACK two-proxy
 runenv_put CAM_TZ "$TZ_CAM"
 runenv_put CAMS_URL "http://127.0.0.1:$CAMS_PORT"
+runenv_put ADMIN_CAMS_URL "http://127.0.0.1:$ADMIN_CAMS_PORT"
+runenv_put FAKE_ADMIN_HOOKS_URL "http://127.0.0.1:$FAKE_ADMIN_HOOKS"
+runenv_put MOVER_HOST "127.0.0.1:$(sim_port 2 0)"   # the camera move's camera: cam-sim B
 runenv_put PROXY_A_URL "http://127.0.0.1:$PROXY_A_PORT"
 runenv_put PROXY_B_URL "http://127.0.0.1:$PROXY_B_PORT"
 runenv_put PROXY_A_REF "$PROXY_A_REF"
@@ -163,6 +255,9 @@ camera_json() { # camera_json SIM_N ID NAME
     '{ id: $id, name: $name, host: ("127.0.0.1:" + ($http|tostring)), protocol: "http", user: "proxy",
        webUiUrl: "none", onvifPort: $onvif, rtspPort: $rtsp, baichuanPort: $bc, statusPollS: 5 }'
 }
+# A deep merge (*): one camera adds ftp.user to the ftp section, it must not
+# replace it (with "+" the proxy started without its FTP server, and no clip
+# was uploaded).
 proxy_config() { # proxy_config X PORT FTP_PORT PASSIVE CAMERAS_JSON_ARRAY
   local x="$1"
   mkdir -p "$RUN/proxy-$x/data"
@@ -175,7 +270,7 @@ proxy_config() { # proxy_config X PORT FTP_PORT PASSIVE CAMERAS_JSON_ARRAY
     recordings: { cacheMB: 1024 },
     analytics: { googleVision: { enabled: false } },
     ftp: { enabled: true, port: $ftp, passive: $passive, tls: true, stream: "sub", publicHost: "127.0.0.1" }
-  } + (if ($cams | length) == 1
+  } * (if ($cams | length) == 1
        then { camera: $cams[0] } | .ftp.user = "camera"
        else { cameras: ($cams | map(. + { ftp: { user: .id } })) } end)' > "$RUN/proxy-$x/config.json"
 }

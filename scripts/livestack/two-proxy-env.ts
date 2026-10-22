@@ -27,3 +27,13 @@ export function runEnv(): Record<string, string> {
   cached = out;
   return out;
 }
+
+// The camera move scenario (two-proxy-admin.ts, the fake cams-admin, and
+// the spec's "camera move" steps): made-up ids, the same in both.
+export const MOVE = {
+  ACCOUNT: 'acc_0000000000000000LSHOME',
+  PROXY_A: 'prx_0000000000000000PRXA',
+  PROXY_B: 'prx_0000000000000000PRXB',
+  MOVE_ID: 'mv_0000000000000000MV5T',
+  CAMS_ID: 'mover',
+} as const;
