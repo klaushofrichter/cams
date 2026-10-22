@@ -16,11 +16,13 @@ import type { FileCameraConfig, ProxyConfig } from '../cameraRegistry';
 import type { AccountRef } from '../fleet';
 import { logger } from '../logger';
 import { normalizeFingerprint } from '../tls/fingerprint';
-import type { HeldChange, TrustField, TrustValues } from './apply';
+import { proxyTrustOf, type HeldChange, type HeldProxy, type MoveContext, type ProxyTrust, type ProxyTrustField, type TrustField, type TrustValues } from './apply';
+import type { SnapCamera, SnapProxy } from './snapshot';
 import { adminDir, checkPrivate, dataDir, writePrivate } from './keyfile';
 
-export type { HeldChange, TrustField, TrustValues };
+export type { HeldChange, HeldProxy, ProxyTrust, TrustField, TrustValues };
 export const TRUST_FIELDS: readonly TrustField[] = ['proxyUrl', 'caFingerprints', 'proxyTlsServername', 'host', 'protocol', 'tlsServername'];
+export const PROXY_TRUST_FIELDS: readonly ProxyTrustField[] = ['proxyUrl', 'caFingerprints', 'proxyTlsServername'];
 
 export function trustValuesOf(c: { proxy?: Pick<ProxyConfig, 'url' | 'caFingerprint' | 'tlsServername'>; host: string; protocol: 'https' | 'http'; tlsServername?: string }): TrustValues {
   return {
@@ -34,15 +36,29 @@ export function trustValuesOf(c: { proxy?: Pick<ProxyConfig, 'url' | 'caFingerpr
 }
 
 const differs = (a: TrustValues, b: TrustValues): TrustField[] => TRUST_FIELDS.filter((f) => JSON.stringify(a[f]) !== JSON.stringify(b[f]));
+// The same comparison over the three proxy fields (M1).
+const proxyDiffers = (a: ProxyTrust, b: ProxyTrust): ProxyTrustField[] => PROXY_TRUST_FIELDS.filter((f) => JSON.stringify(a[f]) !== JSON.stringify(b[f]));
+const proxyPart = (v: ProxyTrust): ProxyTrust => ({ proxyUrl: v.proxyUrl, caFingerprints: v.caFingerprints, proxyTlsServername: v.proxyTlsServername });
+const isProxyTrust = (v: unknown): v is ProxyTrust => {
+  const o = v as Record<string, unknown> | null;
+  return !!o && typeof o === 'object' && !Array.isArray(o) && (o.proxyUrl === null || typeof o.proxyUrl === 'string')
+    && Array.isArray(o.caFingerprints) && o.caFingerprints.every((f) => typeof f === 'string')
+    && (o.proxyTlsServername === null || typeof o.proxyTlsServername === 'string');
+};
 const isValues = (v: unknown): v is TrustValues => {
   const o = v as Record<string, unknown> | null;
   return !!o && typeof o === 'object' && Array.isArray(o.caFingerprints) && TRUST_FIELDS.every((f) => f in o);
 };
 
-interface FileShape { v: 1; confirmed: Record<string, TrustValues>; keptOld: Record<string, TrustValues>; fileAccountId?: string; log: { at: number; email: string; accountId: string; camsIds: string[]; action: 'confirm' | 'keep' | 'seed' }[] }
+// A log entry carries ids, never values. `proxyIds`: bare proxy ids for
+// confirm-proxy, `<accountId>/<proxyId>` keys for seed-proxies (it spans accounts).
+type LogEntry = { at: number; email: string; accountId: string; camsIds: string[]; action: 'confirm' | 'keep' | 'seed' | 'seed-proxies' | 'confirm-proxy' | 'move'; moveId?: string; proxyIds?: string[] };
+// `proxies` absent: written before trusted proxies (seeded once, M2).
+interface FileShape { v: 1; confirmed: Record<string, TrustValues>; keptOld: Record<string, TrustValues>; proxies?: Record<string, ProxyTrust>; fileAccountId?: string; log: LogEntry[] }
 
 export class TrustStore {
   private offers = new Map<string, TrustValues>(); // the last offered values per camera (this process)
+  private proxyOffers = new Map<string, { name: string; offered: ProxyTrust; revision: string }>(); // per `<accountId>/<proxyId>` (this process)
   private constructor(
     private readonly file: string,
     private data: FileShape,
@@ -68,10 +84,11 @@ export class TrustStore {
     } catch {
       throw new Error('admin/trust.json is corrupt: restore it from a backup (cams will not start in cams-admin mode without it)');
     }
-    if (d.v !== 1 || typeof d.confirmed !== 'object' || !d.confirmed || !Object.values(d.confirmed).every(isValues) || (d.keptOld && !Object.values(d.keptOld).every(isValues))) {
+    if (d.v !== 1 || typeof d.confirmed !== 'object' || !d.confirmed || !Object.values(d.confirmed).every(isValues) || (d.keptOld && !Object.values(d.keptOld).every(isValues))
+      || (d.proxies !== undefined && (typeof d.proxies !== 'object' || !d.proxies || Array.isArray(d.proxies) || !Object.values(d.proxies).every(isProxyTrust)))) {
       throw new Error('admin/trust.json is corrupt: restore it from a backup (cams will not start in cams-admin mode without it)');
     }
-    return new TrustStore(file, { v: 1, confirmed: d.confirmed, keptOld: d.keptOld ?? {}, ...(typeof d.fileAccountId === 'string' && { fileAccountId: d.fileAccountId }), log: Array.isArray(d.log) ? d.log.slice(-200) : [] }, true);
+    return new TrustStore(file, { v: 1, confirmed: d.confirmed, keptOld: d.keptOld ?? {}, ...(d.proxies && { proxies: d.proxies }), ...(typeof d.fileAccountId === 'string' && { fileAccountId: d.fileAccountId }), log: Array.isArray(d.log) ? d.log.slice(-200) : [] }, true);
   }
 
   exists(): boolean {
@@ -115,12 +132,26 @@ export class TrustStore {
   // the held change if any. Nothing is confirmed here: a camera without
   // confirmed values (new, re-created, another account id) is held as new
   // and gets no secrets until an admin confirms it (security review C1, I2).
-  decide(accountId: string, camsId: string, offered: TrustValues): { use: TrustValues; confirmed: boolean; held: HeldChange | null } {
+  //
+  // The one exception is the move rule (camera move, S §9.2, M3): a changed
+  // offer of a confirmed camera that the snapshot marks as moving is
+  // confirmed on the spot when it lands on a trusted proxy with exactly its
+  // trusted values, whose own offer is not held, with host and protocol
+  // unchanged and the camera's TLS name `<proxyCameraId>.<site>.internal`.
+  decide(accountId: string, camsId: string, offered: TrustValues, move?: MoveContext): { use: TrustValues; confirmed: boolean; held: HeldChange | null } {
     const key = `${accountId}/${camsId}`;
     this.offers.set(key, offered);
     const confirmed = this.data.confirmed[key];
     if (!confirmed) return { use: offered, confirmed: false, held: this.heldOf(key, offered) };
     const fields = differs(confirmed, offered);
+    if (fields.length && move && this.moveAllowed(accountId, confirmed, offered, move)) {
+      this.data.confirmed[key] = offered;
+      delete this.data.keptOld[key];
+      this.data.log.push({ at: Date.now(), email: '', accountId, camsIds: [camsId], action: 'move', moveId: move.moveId });
+      this.save();
+      logger.info({ accountId, camsId, proxyId: move.proxyId, moveId: move.moveId }, 'camera_moved_trusted');
+      return { use: offered, confirmed: true, held: null };
+    }
     if (!fields.length) {
       if (this.data.keptOld[key]) {
         delete this.data.keptOld[key];
@@ -129,6 +160,22 @@ export class TrustStore {
       return { use: confirmed, confirmed: true, held: null };
     }
     return { use: confirmed, confirmed: true, held: this.heldOf(key, offered) };
+  }
+
+  // M3, every condition required: the offered proxy is the move's proxy, it
+  // is offered in this snapshot and not held (Review Focus 1), trusted with
+  // exactly the offered values; host and protocol are the confirmed ones;
+  // the TLS name is the camera's name under the proxy's (non-null) site. A
+  // moveId left set after the move excuses nothing else (Review Focus 2).
+  private moveAllowed(accountId: string, confirmed: TrustValues, offered: TrustValues, move: MoveContext): boolean {
+    const proxyKey = `${accountId}/${move.proxyId}`;
+    const proxyOffer = this.proxyOffers.get(proxyKey);
+    return !!move.moveId && !!move.proxyCameraId && !!move.site
+      && offered.proxyUrl !== null
+      && !!proxyOffer && !proxyDiffers(proxyOffer.offered, proxyPart(offered)).length && !this.heldProxyOf(proxyKey)
+      && this.isTrusted(accountId, move.proxyId, offered)
+      && offered.host !== null && offered.host === confirmed.host && offered.protocol !== null && offered.protocol === confirmed.protocol
+      && offered.tlsServername === `${move.proxyCameraId}.${move.site}.internal`;
   }
 
   private heldOf(key: string, offered: TrustValues): HeldChange | null {
@@ -144,6 +191,7 @@ export class TrustStore {
   // (their confirmed values stay: a re-created camera is a change).
   forgetOffers(): void {
     this.offers.clear();
+    this.proxyOffers.clear();
   }
 
   // The digest of the offer an admin is shown (and confirms): the camera, the
@@ -195,5 +243,92 @@ export class TrustStore {
       if (h) out.push(h);
     }
     return out;
+  }
+
+  // M2: once (the file has no `proxies` key yet), trust each proxy a
+  // confirmed camera already uses with exactly the values it was confirmed
+  // with. Only once trust.json exists: the camera seed (seedFromFile) comes
+  // first, and a fresh store has nothing confirmed to seed from.
+  seedProxiesOnce(accounts: { id: string; proxies: SnapProxy[]; cameras: SnapCamera[] }[]): void {
+    if (!this.present || this.data.proxies) return;
+    const proxies: Record<string, ProxyTrust> = {};
+    for (const a of accounts) {
+      const byId = new Map(a.proxies.map((p) => [p.id, p]));
+      for (const c of a.cameras) {
+        const p = c.proxyId ? byId.get(c.proxyId) : undefined;
+        const confirmed = this.data.confirmed[`${a.id}/${c.camsId}`];
+        if (!p || p.url === null || !confirmed) continue;
+        const offered = proxyTrustOf(p);
+        if (!proxyDiffers(proxyPart(confirmed), offered).length) proxies[`${a.id}/${p.id}`] = offered;
+      }
+    }
+    this.data.proxies = proxies;
+    this.data.log.push({ at: Date.now(), email: '', accountId: '', camsIds: [], proxyIds: Object.keys(proxies), action: 'seed-proxies' });
+    this.save();
+    logger.info({ proxies: Object.keys(proxies).length }, 'trust_proxies_seeded');
+  }
+
+  // The snapshot's offer for a proxy (like `offers` for cameras): what a held
+  // proxy item shows and what its Confirm digest binds to.
+  proxyOffer(accountId: string, proxy: SnapProxy, revision: string): void {
+    this.proxyOffers.set(`${accountId}/${proxy.id}`, { name: proxy.displayName || proxy.name, offered: proxyTrustOf(proxy), revision });
+  }
+
+  // The proxies of the account trusted at exactly this (normalised) URL: a
+  // token's owner for the URL a camera connects to (buildFleet).
+  trustedProxyIdsAt(accountId: string, url: string): string[] {
+    const prefix = `${accountId}/`;
+    return Object.entries(this.data.proxies ?? {}).filter(([k, v]) => k.startsWith(prefix) && v.proxyUrl === url).map(([k]) => k.slice(prefix.length));
+  }
+
+  // A camera may move to this proxy only with exactly its trusted values.
+  isTrusted(accountId: string, proxyId: string, offered: ProxyTrust): boolean {
+    const trusted = this.data.proxies?.[`${accountId}/${proxyId}`];
+    return !!trusted && !proxyDiffers(trusted, proxyPart(offered)).length;
+  }
+
+  private proxyDigest(proxyId: string, offered: ProxyTrust, revision: string): string {
+    return createHash('sha256').update(jcs({ proxyId, offered, revision })).digest('hex');
+  }
+
+  private heldProxyOf(key: string): HeldProxy | null {
+    const o = this.proxyOffers.get(key);
+    if (!o || o.offered.proxyUrl === null) return null; // a proxy without a URL carries no camera
+    const accountId = key.slice(0, key.indexOf('/')), proxyId = key.slice(key.indexOf('/') + 1);
+    const trusted = this.data.proxies?.[key] ?? null;
+    const fields = trusted ? proxyDiffers(trusted, o.offered) : [...PROXY_TRUST_FIELDS];
+    if (!fields.length) return null;
+    return { accountId, proxyId, name: o.name, fields, trusted, offered: o.offered, digest: this.proxyDigest(proxyId, o.offered, o.revision) };
+  }
+
+  // Proxies offered with values no admin trusted (new, or a changed URL, pin
+  // or TLS name): one account, or all.
+  heldProxies(accountId?: string): HeldProxy[] {
+    const out: HeldProxy[] = [];
+    for (const key of this.proxyOffers.keys()) {
+      if (accountId !== undefined && key.slice(0, key.indexOf('/')) !== accountId) continue;
+      const h = this.heldProxyOf(key);
+      if (h) out.push(h);
+    }
+    return out;
+  }
+
+  // Confirm (M5): only the exact offers the admin saw, still held, in the
+  // revision they were offered in; one stale item and nothing is confirmed.
+  confirmProxies(email: string, accountId: string, items: { proxyId: string; digest: string }[]): { confirmed: string[]; changed: string[] } {
+    const ok: HeldProxy[] = [], changed: string[] = [];
+    for (const { proxyId, digest } of items) {
+      const h = this.heldProxyOf(`${accountId}/${proxyId}`);
+      if (h && h.digest === digest) ok.push(h);
+      else changed.push(proxyId);
+    }
+    if (changed.length || !ok.length) return { confirmed: [], changed };
+    this.data.proxies ??= {};
+    for (const h of ok) this.data.proxies[`${accountId}/${h.proxyId}`] = h.offered;
+    const confirmed = ok.map((h) => h.proxyId);
+    this.data.log.push({ at: Date.now(), email, accountId, camsIds: [], proxyIds: confirmed, action: 'confirm-proxy' });
+    this.save();
+    logger.info({ accountId, proxyIds: confirmed }, 'trust_proxies_confirmed');
+    return { confirmed, changed: [] };
   }
 }

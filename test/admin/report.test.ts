@@ -4,7 +4,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { AdminClient } from '../../server/admin/client';
 import { enroll } from '../../server/admin/enroll';
 import { buildReport, Reporter } from '../../server/admin/report';
-import type { HeldChange } from '../../server/admin/apply';
+import type { HeldChange, HeldProxy } from '../../server/admin/apply';
 import { camsValidator, camsErrors } from '../helpers/contract';
 const ALPHA = 'acc_0123456789ABCDEFGHJK'; // a contract-shaped account id (Crockford, 20)
 import { startFakeAdmin, type FakeAdmin } from './fakeAdmin';
@@ -27,6 +27,21 @@ describe('buildReport', () => {
     const many = buildReport({ ...STATUS, problems: Array.from({ length: 80 }, () => ({ code: 'x'.repeat(100) })) }, { held: [], shadow: null, tokens: { managed: 0, pending: 0, legacy: 0 }, version: 'v' });
     expect(many.problems).toHaveLength(50);
     expect([camsValidator('report-request', 'strict')(many), camsErrors()]).toEqual([true, 'null']);
+  });
+});
+
+describe('buildReport: heldProxies (camera move)', () => {
+  it('report carries heldProxies: exactly {accountId, proxyId, fields}, at most 64, strict schema', () => {
+    const P = { proxyUrl: 'https://192.0.2.20:8443', caFingerprints: ['ab'.repeat(32)], proxyTlsServername: 'proxy.shed.internal' };
+    const hp = (i: number): HeldProxy => ({ accountId: ALPHA, proxyId: `prx_${String(i).padStart(20, '0')}`, name: 'Shed', fields: ['proxyUrl', 'caFingerprints'], trusted: null, offered: P, digest: 'd'.repeat(64) });
+    const r = buildReport(STATUS, { held: [], heldProxies: Array.from({ length: 100 }, (_, i) => hp(i)), shadow: null, tokens: { managed: 0, pending: 0, legacy: 0 }, version: 'v' });
+    expect(r.heldProxies).toHaveLength(64);
+    expect(r.heldProxies![0]).toEqual({ accountId: ALPHA, proxyId: 'prx_00000000000000000000', fields: ['proxyUrl', 'caFingerprints'] });
+    expect(JSON.stringify(r)).not.toContain('192.0.2.20');
+    expect([camsValidator('report-request', 'strict')(r), camsErrors()]).toEqual([true, 'null']);
+    const none = buildReport(STATUS, { held: [], shadow: null, tokens: { managed: 0, pending: 0, legacy: 0 }, version: 'v' });
+    expect(none.heldProxies).toEqual([]);
+    expect([camsValidator('report-request', 'strict')(none), camsErrors()]).toEqual([true, 'null']);
   });
 });
 

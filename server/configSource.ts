@@ -17,10 +17,10 @@ import { cacheWrittenAt, readCache, writeCache } from './admin/cache';
 import { readKeyFile, type AdminKeyFile } from './admin/keyfile';
 import { Puller } from './admin/puller';
 import { accountParts, verifySnapshot, type AccountPart, type SnapProxy, type Snapshot } from './admin/snapshot';
-import { buildFleet, type ApplyContext, type Problem, type TrustValues } from './admin/apply';
+import { buildFleet, proxyTrustOf, type ApplyContext, type MoveContext, type Problem, type TrustValues } from './admin/apply';
 import { credentialsFor, loadCredentials, setLegacyCredentials } from './credentials';
 import { bindSecret, clearSecretBindings, setSecretGuard } from './secretGuard';
-import { TrustStore } from './admin/trust';
+import { TrustStore, trustValuesOf } from './admin/trust';
 import { LocalTokens } from './admin/tokens';
 import { buildReport, Reporter } from './admin/report';
 import { shadowDiff } from './admin/shadow';
@@ -92,22 +92,28 @@ function fresh(): State {
 
 
 // Until cams's own token is active (Task 11), a proxy uses the legacy token
-// of the file account's camera with the same camsId on it (R4-12).
-function legacyToken(accountId: string, camsId: string): { token: string; adminToken?: string } | undefined {
+// of the file account's camera with the same camsId on it (R4-12) — only
+// when that entry names the URL the camera connects to (normalised as trust
+// compares it): a camera moved to another proxy, or a confirmed new URL,
+// never takes the old proxy's token along; it waits for cams's own token.
+function legacyToken(accountId: string, camsId: string, url: string): { token: string; adminToken?: string } | undefined {
   if (accountId !== fileAccount().id) return undefined; // by id, never by name (I2)
   const c = st.legacy.find((x) => x.id === camsId);
-  return c?.proxy ? { token: c.proxy.token, ...(c.proxy.adminToken && { adminToken: c.proxy.adminToken }) } : undefined;
+  if (!c?.proxy || trustValuesOf(c).proxyUrl !== url) return undefined;
+  return { token: c.proxy.token, ...(c.proxy.adminToken && { adminToken: c.proxy.adminToken }) };
 }
 
-// cams's own token once the snapshot lists it active, else the legacy one.
-function proxyToken(accountId: string, proxy: SnapProxy, camsId: string): { token: string; adminToken?: string } | undefined {
-  const states = new Map(proxy.tokens.map((t) => [t.id, t.state]));
-  const own = st.tokens?.tokenFor(accountId, proxy.id, 'client', states);
-  const ownAdmin = st.tokens?.tokenFor(accountId, proxy.id, 'admin', states);
-  const legacy = legacyToken(accountId, camsId);
+// cams's own token once the snapshot lists it active, else the legacy one:
+// each only for the URL in use (`url`): the own token of the proxy that owns
+// it (`proxy`, chosen by buildFleet's tokenOwner), a legacy entry naming it.
+function proxyToken(accountId: string, proxy: SnapProxy | undefined, camsId: string, url: string): { token: string; adminToken?: string } | undefined {
+  const states = new Map((proxy?.tokens ?? []).map((t) => [t.id, t.state]));
+  const own = proxy && st.tokens?.tokenFor(accountId, proxy.id, 'client', states);
+  const ownAdmin = proxy && st.tokens?.tokenFor(accountId, proxy.id, 'admin', states);
+  const legacy = legacyToken(accountId, camsId, url);
   const token = own ?? legacy?.token;
   if (!token) return undefined;
-  if (!own) st.legacyProxies.add(`${accountId}/${proxy.id}`);
+  if (!own) st.legacyProxies.add(`${accountId}/${proxy?.id ?? url}`);
   const adminToken = ownAdmin ?? legacy?.adminToken;
   return { token, ...(adminToken && { adminToken }) };
 }
@@ -116,7 +122,11 @@ export function applyContext(): ApplyContext {
   return {
     credentials: credentialsFor,
     proxyToken,
-    ...(st.trust && { trust: (a: string, c: string, o: TrustValues) => st.trust!.decide(a, c, o) }),
+    ...(st.trust && {
+      trust: (a: string, c: string, o: TrustValues, move?: MoveContext) => st.trust!.decide(a, c, o, move),
+      trustedProxiesAt: (a: string, u: string) => st.trust!.trustedProxyIdsAt(a, u),
+      proxyOffer: (a: string, p: SnapProxy) => st.trust!.proxyOffer(a, p, st.applied?.revision ?? ''),
+    }),
     bind: bindSecret,
   };
 }
@@ -144,9 +154,9 @@ function applySnapshot(s: Snapshot, source: 'cache' | 'pull'): void {
 // change confirmed): cams-admin mode only.
 function rebuild(): void {
   if (st.mode !== 'cams-admin' || !st.applied) return;
-  seedTrustOnce(st.applied);
-  st.trust?.forgetOffers();
   const parts = st.applied.accounts.map((a) => st.goodParts.get(a.id)).filter((p): p is AccountPart => !!p);
+  seedTrustOnce(st.applied, parts);
+  st.trust?.forgetOffers();
   st.legacyProxies = new Set();
   // Secrets only to confirmed endpoints: the bindings come from this build.
   clearSecretBindings();
@@ -255,6 +265,7 @@ async function sendReport(): Promise<void> {
   st.reporter ??= new Reporter(st.client, st.now, () => pullSoon('report'));
   const r = buildReport(configStatus(), {
     held: st.trust?.held() ?? [],
+    heldProxies: st.trust?.heldProxies() ?? [],
     shadow: st.shadow,
     tokens: { ...(st.tokens?.counts() ?? { managed: 0, pending: 0 }), legacy: st.legacyProxies.size },
     version: appVersion() || 'dev',
@@ -299,8 +310,9 @@ function recordedHome(): string | null {
 }
 
 // R4-11: at the first cams-admin start, today's cameras.json is the
-// confirmed state for the file account (before any decision is made).
-function seedTrustOnce(s: Snapshot): void {
+// confirmed state for the file account (before any decision is made). Then,
+// once, the proxies the confirmed cameras use are trusted (camera move, M2).
+function seedTrustOnce(s: Snapshot, parts: AccountPart[]): void {
   if (!st.trust) return;
   if (st.trust.exists()) {
     // Written before the file account appeared: record it now (N2).
@@ -309,13 +321,14 @@ function seedTrustOnce(s: Snapshot): void {
       st.trust.recordFileAccount(home.id);
       st.recordedHome = home.id;
     }
-    return;
+  } else {
+    const home = homeIn(s);
+    if (home) {
+      st.trust.seedFromFile({ id: home.id, name: home.name, displayName: home.displayName }, st.legacy);
+      st.recordedHome = home.id;
+    }
   }
-  const home = homeIn(s);
-  if (home) {
-    st.trust.seedFromFile({ id: home.id, name: home.name, displayName: home.displayName }, st.legacy);
-    st.recordedHome = home.id;
-  }
+  st.trust.seedProxiesOnce(parts.map((p) => ({ id: p.account.id, proxies: p.proxies, cameras: p.cameras })));
 }
 
 // The first cams-admin start (or the first snapshot of one that started

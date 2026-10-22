@@ -4,12 +4,12 @@
 // unless urgent; an answer saying "changed" asks for a pull.
 import type { ConfigStatus } from '../configSource';
 import { logger } from '../logger';
-import type { HeldChange } from './apply';
+import type { HeldChange, HeldProxy } from './apply';
 import type { AdminClient, CamsReport } from './client';
 
 const cut = (s: string, n: number) => (s.length > n ? s.slice(0, n) : s);
 
-export function buildReport(s: ConfigStatus, o: { held: HeldChange[]; shadow: { accountId: string; items: string[] } | null; tokens: { managed: number; pending: number; legacy: number }; version: string }): CamsReport {
+export function buildReport(s: ConfigStatus, o: { held: HeldChange[]; heldProxies?: HeldProxy[]; shadow: { accountId: string; items: string[] } | null; tokens: { managed: number; pending: number; legacy: number }; version: string }): CamsReport {
   const entry = (h: HeldChange) => ({ accountId: h.accountId, camsId: h.camsId, fields: h.fields });
   return {
     v: 1,
@@ -20,6 +20,8 @@ export function buildReport(s: ConfigStatus, o: { held: HeldChange[]; shadow: { 
     lastPullAt: s.lastPullAt,
     held: o.held.filter((h) => !h.keptOld).slice(0, 200).map(entry),
     keptOld: o.held.filter((h) => h.keptOld).slice(0, 200).map(entry),
+    // camera move: ids and field names only (contract: exactly these three keys, ≤ 64)
+    heldProxies: (o.heldProxies ?? []).slice(0, 64).map((h) => ({ accountId: h.accountId, proxyId: h.proxyId, fields: [...h.fields] })),
     shadow: s.mode === 'shadow' && o.shadow ? { accountId: o.shadow.accountId, differences: o.shadow.items.length, items: o.shadow.items.slice(0, 20).map((i) => cut(i, 200)) } : null,
     tokens: o.tokens,
     problems: s.problems.slice(0, 50).map((p) => ({ code: cut(p.code, 64), ...(p.accountId && { accountId: p.accountId }), detail: cut(p.detail ?? '', 200) })),

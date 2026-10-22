@@ -60,6 +60,51 @@ describe('accountParts', () => {
     }
   });
 
+  const parts = (o: Record<string, unknown>) => {
+    const v = verifySnapshot(signSnapshot(twoAccountsSnapshot(o)), KEYS, INSTANCE);
+    if (!v.ok) throw new Error(v.reason);
+    return accountParts(v.snapshot);
+  };
+  const MOVE = 'mv_0123456789ABCDEFGHJK';
+
+  it('camera moveId is read and validated', () => {
+    const p = parts({ alphaCameras: [snapCamera({ proxyId: PRX_A, proxyCameraId: 'cam1', moveId: MOVE })] });
+    expect(p.failed).toEqual([]);
+    expect(p.ok[0].cameras[0].moveId).toBe(MOVE);
+    expect(p.ok[1].cameras[0].moveId).toBeNull();
+  });
+
+  it('a bad moveId fails the account (last good part kept)', () => {
+    for (const moveId of ['mv_short', 'MV_0123456789ABCDEFGHJK', 'mv_0123456789ABCDEFGHJU', 5, '']) {
+      const p = parts({ alphaCameras: [snapCamera({ proxyId: PRX_A, proxyCameraId: 'cam1', moveId })] });
+      expect([String(moveId), p.failed.map((f) => f.accountId)]).toEqual([String(moveId), [ALPHA]]);
+      expect(p.ok.map((x) => x.account.id)).toEqual([BETA]);
+    }
+  });
+
+  it('proxy site is read; a bad site fails the account', () => {
+    expect(parts({}).ok[0].proxies[0].site).toBe('alpha');
+    expect(parts({ alphaProxyExtra: { site: null } }).ok[0].proxies[0].site).toBeNull();
+    expect(parts({ alphaProxyExtra: { site: 'a'.repeat(31) } }).failed).toEqual([]);
+    for (const site of ['Home', '-x', 'a b', 'a'.repeat(32), '', 7]) {
+      expect([String(site), parts({ alphaProxyExtra: { site } }).failed.map((f) => f.accountId)]).toEqual([String(site), [ALPHA]]);
+    }
+  });
+
+  it('a cached snapshot without site and moveId still applies, reading both as null', () => {
+    const raw = twoAccountsSnapshot() as { accounts: { proxies: Record<string, unknown>[]; cameras: Record<string, unknown>[] }[] };
+    for (const a of raw.accounts) {
+      for (const x of a.proxies) delete x.site;
+      for (const x of a.cameras) delete x.moveId;
+    }
+    const v = verifySnapshot(signSnapshot(raw as unknown as Record<string, unknown>), KEYS, INSTANCE);
+    if (!v.ok) throw new Error(v.reason);
+    const p = accountParts(v.snapshot);
+    expect(p.failed).toEqual([]);
+    expect(p.ok[0].proxies[0].site).toBeNull();
+    expect(p.ok[0].cameras[0].moveId).toBeNull();
+  });
+
   it('a bad user list fails its account', () => {
     const v = verifySnapshot(signSnapshot(twoAccountsSnapshot({ users: { b: [{ email: 'x@example.org', role: 'owner', disabled: false }] } })), KEYS, INSTANCE);
     if (!v.ok) throw new Error(v.reason);

@@ -40,8 +40,8 @@ apiRouter.get('/api/me', (_req: Request, res: Response) => {
     staleSince: p?.role === 'admin' ? configStatus().staleSince : null,
     // cams-admin refuses this instance (blocked, or its key revoked): admins re-enroll
     configProblem: p?.role === 'admin' ? configStatus().configProblem : null,
-    // held trust changes waiting for this account's admins (not kept)
-    held: p?.role === 'admin' ? (trustStore()?.held(p.account.id) ?? []).filter((h) => !h.keptOld).length : 0,
+    // held trust changes waiting for this account's admins (not kept), and held proxies
+    held: p?.role === 'admin' ? (trustStore()?.held(p.account.id) ?? []).filter((h) => !h.keptOld).length + (trustStore()?.heldProxies(p.account.id).length ?? 0) : 0,
   });
 });
 
