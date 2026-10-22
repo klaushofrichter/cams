@@ -16,7 +16,7 @@ import type { FileCameraConfig, ProxyConfig } from '../cameraRegistry';
 import type { AccountRef } from '../fleet';
 import { logger } from '../logger';
 import { normalizeFingerprint } from '../tls/fingerprint';
-import { proxyTrustOf, type HeldChange, type HeldProxy, type ProxyTrust, type ProxyTrustField, type TrustField, type TrustValues } from './apply';
+import { proxyTrustOf, type HeldChange, type HeldProxy, type MoveContext, type ProxyTrust, type ProxyTrustField, type TrustField, type TrustValues } from './apply';
 import type { SnapCamera, SnapProxy } from './snapshot';
 import { adminDir, checkPrivate, dataDir, writePrivate } from './keyfile';
 
@@ -132,12 +132,26 @@ export class TrustStore {
   // the held change if any. Nothing is confirmed here: a camera without
   // confirmed values (new, re-created, another account id) is held as new
   // and gets no secrets until an admin confirms it (security review C1, I2).
-  decide(accountId: string, camsId: string, offered: TrustValues): { use: TrustValues; confirmed: boolean; held: HeldChange | null } {
+  //
+  // The one exception is the move rule (camera move, S §9.2, M3): a changed
+  // offer of a confirmed camera that the snapshot marks as moving is
+  // confirmed on the spot when it lands on a trusted proxy with exactly its
+  // trusted values, whose own offer is not held, with host and protocol
+  // unchanged and the camera's TLS name `<proxyCameraId>.<site>.internal`.
+  decide(accountId: string, camsId: string, offered: TrustValues, move?: MoveContext): { use: TrustValues; confirmed: boolean; held: HeldChange | null } {
     const key = `${accountId}/${camsId}`;
     this.offers.set(key, offered);
     const confirmed = this.data.confirmed[key];
     if (!confirmed) return { use: offered, confirmed: false, held: this.heldOf(key, offered) };
     const fields = differs(confirmed, offered);
+    if (fields.length && move && this.moveAllowed(accountId, confirmed, offered, move)) {
+      this.data.confirmed[key] = offered;
+      delete this.data.keptOld[key];
+      this.data.log.push({ at: Date.now(), email: '', accountId, camsIds: [camsId], action: 'move', moveId: move.moveId });
+      this.save();
+      logger.info({ accountId, camsId, proxyId: move.proxyId, moveId: move.moveId }, 'camera_moved_trusted');
+      return { use: offered, confirmed: true, held: null };
+    }
     if (!fields.length) {
       if (this.data.keptOld[key]) {
         delete this.data.keptOld[key];
@@ -146,6 +160,22 @@ export class TrustStore {
       return { use: confirmed, confirmed: true, held: null };
     }
     return { use: confirmed, confirmed: true, held: this.heldOf(key, offered) };
+  }
+
+  // M3, every condition required: the offered proxy is the move's proxy, it
+  // is offered in this snapshot and not held (Review Focus 1), trusted with
+  // exactly the offered values; host and protocol are the confirmed ones;
+  // the TLS name is the camera's name under the proxy's (non-null) site. A
+  // moveId left set after the move excuses nothing else (Review Focus 2).
+  private moveAllowed(accountId: string, confirmed: TrustValues, offered: TrustValues, move: MoveContext): boolean {
+    const proxyKey = `${accountId}/${move.proxyId}`;
+    const proxyOffer = this.proxyOffers.get(proxyKey);
+    return !!move.moveId && !!move.proxyCameraId && !!move.site
+      && offered.proxyUrl !== null
+      && !!proxyOffer && !proxyDiffers(proxyOffer.offered, proxyPart(offered)).length && !this.heldProxyOf(proxyKey)
+      && this.isTrusted(accountId, move.proxyId, offered)
+      && offered.host !== null && offered.host === confirmed.host && offered.protocol !== null && offered.protocol === confirmed.protocol
+      && offered.tlsServername === `${move.proxyCameraId}.${move.site}.internal`;
   }
 
   private heldOf(key: string, offered: TrustValues): HeldChange | null {

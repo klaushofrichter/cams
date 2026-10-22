@@ -3,12 +3,13 @@
 // protocol — is used only once an account admin confirmed it. A camera with
 // no confirmed values (new, re-created, or under another account id) is held
 // too, and nothing confirms by itself except the first-start seed.
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { chmodSync, mkdirSync, mkdtempSync, readFileSync, statSync, writeFileSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
 import { TrustStore, trustValuesOf, type ProxyTrust, type TrustValues } from '../../server/admin/trust';
 import type { SnapCamera, SnapProxy } from '../../server/admin/snapshot';
+import { logger } from '../../server/logger';
 import { ALPHA, ALPHA_REF, BETA } from '../helpers/fleet';
 
 const dirOf = () => mkdtempSync(join(tmpdir(), 'cams-trust-'));
@@ -304,5 +305,128 @@ describe('TrustStore: trusted proxies', () => {
     t.proxyOffer(ALPHA, sp(), REV);
     t.forgetOffers();
     expect(t.heldProxies()).toEqual([]);
+  });
+});
+
+// The move rule (camera move, S §9.2, M3): a move-marked change applies
+// without a Confirm only onto a trusted proxy with exactly its trusted
+// values, with host and protocol unchanged and the camera's TLS name under
+// the new proxy's site. Anything else is held as before.
+describe('TrustStore: the move rule', () => {
+  const PRX = 'prx_PPPPPPPPPPPPPPPPPPPP', PRX2 = 'prx_QQQQQQQQQQQQQQQQQQQQ';
+  const PIN = 'a'.repeat(64), PIN2 = 'b'.repeat(64), PIN3 = 'c'.repeat(64);
+  const MOVE = 'mov_MMMMMMMMMMMMMMMMMMMM';
+  const PT = (o: Partial<ProxyTrust> = {}): ProxyTrust => ({ proxyUrl: 'https://192.0.2.10:8443', caFingerprints: [PIN], proxyTlsServername: 'proxy.home.internal', ...o });
+  const camV = (o: Partial<TrustValues> = {}) => V({ ...PT(), host: '192.0.2.5', protocol: 'https', tlsServername: 'cam1.home.internal', ...o });
+  // The target proxy, site "shed".
+  const shed = (o: Partial<SnapProxy> = {}): SnapProxy => ({ id: PRX2, name: 'shed', displayName: 'Shed', url: 'https://192.0.2.20:8443', adminUiUrl: null, tlsServername: 'proxy.shed.internal', caFingerprints: [PIN2], site: 'shed', tokens: [], ...o });
+  const SHED = { proxyUrl: 'https://192.0.2.20:8443', caFingerprints: [PIN2], proxyTlsServername: 'proxy.shed.internal' };
+  // cam1 as offered after the move onto the shed proxy.
+  const moved = (o: Partial<TrustValues> = {}) => camV({ ...SHED, tlsServername: 'cam1.shed.internal', ...o });
+  const mv = (o: Partial<{ moveId: string; proxyId: string; proxyCameraId: string; site: string | null }> = {}) => ({ moveId: MOVE, proxyId: PRX2, proxyCameraId: 'cam1', site: 'shed', ...o });
+  const trustFile = (dir: string) => JSON.parse(readFileSync(join(dir, 'admin/trust.json'), 'utf8'));
+  // cam1 confirmed on PRX; the shed proxy offered and (by default) trusted.
+  const setup = (trustShed = true) => {
+    const dir = dirOf();
+    mkdirSync(join(dir, 'admin'), { recursive: true, mode: 0o700 });
+    writeFileSync(join(dir, 'admin/trust.json'), JSON.stringify({ v: 1, confirmed: { [`${ALPHA}/cam1`]: camV() }, keptOld: {}, proxies: {}, fileAccountId: ALPHA, log: [] }), { mode: 0o600 });
+    const t = TrustStore.load(dir);
+    t.proxyOffer(ALPHA, shed(), REV);
+    if (trustShed) {
+      const h = t.heldProxies(ALPHA).find((x) => x.proxyId === PRX2)!;
+      t.confirmProxies('admin@example.org', ALPHA, [{ proxyId: PRX2, digest: h.digest }]);
+    }
+    return { dir, t };
+  };
+  afterEach(() => vi.restoreAllMocks());
+
+  it('move to a trusted proxy applies without a hold and logs move (ids only)', () => {
+    const { dir, t } = setup();
+    const lines: unknown[][] = [];
+    vi.spyOn(logger, 'info').mockImplementation(((...a: unknown[]) => void lines.push(a)) as never);
+    expect(t.decide(ALPHA, 'cam1', moved(), mv())).toEqual({ use: moved(), confirmed: true, held: null });
+    expect(t.held(ALPHA)).toEqual([]);
+    // saved: a new store uses the new values without the move context
+    expect(TrustStore.load(dir).decide(ALPHA, 'cam1', moved())).toEqual({ use: moved(), confirmed: true, held: null });
+    const f = trustFile(dir);
+    expect(f.log.at(-1)).toEqual({ at: expect.any(Number), email: '', accountId: ALPHA, camsIds: ['cam1'], action: 'move', moveId: MOVE });
+    expect(JSON.stringify(f.log)).not.toMatch(/192\.0\.2|shed\.internal/);
+    expect(statSync(join(dir, 'admin/trust.json')).mode & 0o777).toBe(0o600);
+    const line = lines.find((l) => l[1] === 'camera_moved_trusted');
+    expect(line?.[0]).toEqual({ accountId: ALPHA, camsId: 'cam1', proxyId: PRX2, moveId: MOVE });
+  });
+
+  it('a move clears a kept-old offer of the camera', async () => {
+    const { t } = setup();
+    t.decide(ALPHA, 'cam1', camV({ host: '192.0.2.99' }));
+    await t.keepOld(ALPHA, [{ camsId: 'cam1', digest: t.offerDigest(ALPHA, 'cam1', REV)! }], REV, 'admin@example.org');
+    t.decide(ALPHA, 'cam1', moved(), mv());
+    expect(t.decide(ALPHA, 'cam1', camV({ host: '192.0.2.99' })).held).toMatchObject({ keptOld: false });
+  });
+
+  it('move to an untrusted proxy is held', () => {
+    const { t } = setup(false);
+    const d = t.decide(ALPHA, 'cam1', moved(), mv());
+    expect(d.use).toEqual(camV());
+    expect(d.held).toMatchObject({ camsId: 'cam1', isNew: false, offered: moved() });
+  });
+
+  it('move to a proxy with a held pin is held (Review Focus 1)', () => {
+    const { t } = setup();
+    // the shed proxy's pin changed: its own item is held
+    t.proxyOffer(ALPHA, shed({ caFingerprints: [PIN3] }), REV);
+    expect(t.heldProxies(ALPHA)).toHaveLength(1);
+    // the camera offered with the new pin: not the trusted values
+    expect(t.decide(ALPHA, 'cam1', moved({ caFingerprints: [PIN3] }), mv()).held).toMatchObject({ camsId: 'cam1' });
+    // even with the old (trusted) pin while the proxy's offer is held
+    const d = t.decide(ALPHA, 'cam1', moved(), mv());
+    expect(d.use).toEqual(camV());
+    expect(d.held).toMatchObject({ camsId: 'cam1' });
+  });
+
+  it('move to a proxy not offered in this snapshot is held', () => {
+    const { t } = setup();
+    t.forgetOffers();
+    expect(t.decide(ALPHA, 'cam1', moved(), mv()).held).toMatchObject({ camsId: 'cam1' });
+  });
+
+  it('move with a changed host is held; a changed protocol too', () => {
+    const { t } = setup();
+    expect(t.decide(ALPHA, 'cam1', moved({ host: '192.0.2.99' }), mv()).held?.fields).toContain('host');
+    expect(t.decide(ALPHA, 'cam1', moved({ protocol: 'http' }), mv()).held?.fields).toContain('protocol');
+  });
+
+  it('move with a TLS name not under the site is held', () => {
+    const { t } = setup();
+    for (const name of ['cam1.home.internal', 'cam1.shed.internal.evil.example', 'cam2.shed.internal', 'x.cam1.shed.internal', null]) {
+      expect(t.decide(ALPHA, 'cam1', moved({ tlsServername: name }), mv()).held, String(name)).toMatchObject({ camsId: 'cam1' });
+    }
+    // the proxy has no site: nothing is under it
+    expect(t.decide(ALPHA, 'cam1', moved(), mv({ site: null })).held).toMatchObject({ camsId: 'cam1' });
+    // the move context names another proxy than the one offered
+    expect(t.decide(ALPHA, 'cam1', moved(), mv({ proxyId: PRX })).held).toMatchObject({ camsId: 'cam1' });
+  });
+
+  it('a new camera is never confirmed by a move', () => {
+    const { t } = setup();
+    const d = t.decide(ALPHA, 'cam9', moved({ tlsServername: 'cam9.shed.internal' }), mv({ proxyCameraId: 'cam9' }));
+    expect(d.confirmed).toBe(false);
+    expect(d.held).toMatchObject({ isNew: true });
+  });
+
+  it('moveId does not excuse a host change (Review Focus 2)', () => {
+    const { dir, t } = setup();
+    t.decide(ALPHA, 'cam1', moved(), mv());
+    // cams-admin keeps moveId set; a later unrelated host change is held
+    const d = t.decide(ALPHA, 'cam1', moved({ host: '203.0.113.66' }), mv());
+    expect(d.use).toEqual(moved());
+    expect(d.held).toMatchObject({ fields: ['host'] });
+    expect(TrustStore.load(dir).decide(ALPHA, 'cam1', moved()).held).toBeNull();
+    expect(trustFile(dir).log.filter((e: { action: string }) => e.action === 'move')).toHaveLength(1);
+  });
+
+  it('without a move context a proxy change onto a trusted proxy is held as before', () => {
+    const { t } = setup();
+    expect(t.decide(ALPHA, 'cam1', moved()).held).toMatchObject({ camsId: 'cam1' });
   });
 });

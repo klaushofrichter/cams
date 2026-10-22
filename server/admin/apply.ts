@@ -21,6 +21,10 @@ export type ProxyTrust = { proxyUrl: string | null; caFingerprints: string[]; pr
 export type HeldProxy = { accountId: string; proxyId: string; name: string; fields: ProxyTrustField[]; trusted: ProxyTrust | null /* null: new */; offered: ProxyTrust; digest: string };
 export interface HeldChange { accountId: string; camsId: string; fields: TrustField[]; confirmed: TrustValues | null /* null: new, nothing confirmed yet */; offered: TrustValues; keptOld: boolean; isNew?: boolean }
 
+// A camera's move as the snapshot marks it (camera move, M3): the move id,
+// the proxy it is offered on, its id there and that proxy's site.
+export interface MoveContext { moveId: string; proxyId: string; proxyCameraId: string; site: string | null }
+
 export interface ApplyContext {
   // The camera's password from the local credentials (account name, camsId, the snapshot's user name).
   // Keyed by the account's id, never its name (security review I2).
@@ -29,7 +33,12 @@ export interface ApplyContext {
   proxyToken?: (accountId: string, proxy: SnapProxy, camsId: string) => { token: string; adminToken?: string } | undefined;
   // The values to connect with: the confirmed ones while a change is held.
   // `confirmed` false: nothing confirmed yet (held as new) — no secrets at all.
-  trust?: (accountId: string, camsId: string, offered: TrustValues) => { use: TrustValues; confirmed: boolean; held: HeldChange | null };
+  // `move`: the camera's move context when the snapshot marks it as moving
+  // (S §9.2, M3); decide() applies it without a hold only by the move rule.
+  trust?: (accountId: string, camsId: string, offered: TrustValues, move?: MoveContext) => { use: TrustValues; confirmed: boolean; held: HeldChange | null };
+  // Every proxy of the account, before its cameras are decided: a proxy's
+  // offer (held proxy items, and the move rule refuses a held proxy).
+  proxyOffer?: (accountId: string, proxy: SnapProxy) => void;
   // Binds a secret to the confirmed endpoint it may go to (server/secretGuard.ts).
   bind?: (secret: string, endpoint: string) => void;
 }
@@ -70,10 +79,13 @@ export function buildFleet(parts: AccountPart[], ctx: ApplyContext): { accounts:
   const accounts = parts.map((part): FleetAccount => {
     const proxies = new Map(part.proxies.map((p) => [p.id, p]));
     const missingToken = new Set<string>();
+    for (const p of part.proxies) ctx.proxyOffer?.(part.account.id, p);
     const cameras = part.cameras.map((c): CameraConfig => {
       const p = c.proxyId ? proxies.get(c.proxyId) : undefined;
       const offered = offeredValues(c, p);
-      const t = ctx.trust ? ctx.trust(part.account.id, c.camsId, offered) : { use: offered, confirmed: true, held: null };
+      // A move context only with all its parts; anything less is no move (held as before).
+      const move: MoveContext | undefined = c.moveId && p && c.proxyCameraId ? { moveId: c.moveId, proxyId: p.id, proxyCameraId: c.proxyCameraId, site: p.site } : undefined;
+      const t = ctx.trust ? ctx.trust(part.account.id, c.camsId, offered, move) : { use: offered, confirmed: true, held: null };
       if (t.held) held.push(t.held);
       const v = t.use;
       // Unconfirmed connection data: no token, no password (C1).

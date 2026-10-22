@@ -17,7 +17,7 @@ import { cacheWrittenAt, readCache, writeCache } from './admin/cache';
 import { readKeyFile, type AdminKeyFile } from './admin/keyfile';
 import { Puller } from './admin/puller';
 import { accountParts, verifySnapshot, type AccountPart, type SnapProxy, type Snapshot } from './admin/snapshot';
-import { buildFleet, type ApplyContext, type Problem, type TrustValues } from './admin/apply';
+import { buildFleet, type ApplyContext, type MoveContext, type Problem, type TrustValues } from './admin/apply';
 import { credentialsFor, loadCredentials, setLegacyCredentials } from './credentials';
 import { bindSecret, clearSecretBindings, setSecretGuard } from './secretGuard';
 import { TrustStore } from './admin/trust';
@@ -116,7 +116,10 @@ export function applyContext(): ApplyContext {
   return {
     credentials: credentialsFor,
     proxyToken,
-    ...(st.trust && { trust: (a: string, c: string, o: TrustValues) => st.trust!.decide(a, c, o) }),
+    ...(st.trust && {
+      trust: (a: string, c: string, o: TrustValues, move?: MoveContext) => st.trust!.decide(a, c, o, move),
+      proxyOffer: (a: string, p: SnapProxy) => st.trust!.proxyOffer(a, p, st.applied?.revision ?? ''),
+    }),
     bind: bindSecret,
   };
 }
