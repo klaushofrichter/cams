@@ -126,6 +126,45 @@ describe('HeldBanner: new cameras and changed offers', () => {
   });
 });
 
+describe('HeldBanner: proxies (camera move)', () => {
+  const PRX = 'prx_CCCCCCCCCCCCCCCCCCCC';
+  const PIN = '0123abcd' + 'e'.repeat(56);
+  it('renders proxy items before camera items and posts {proxyId, digest}', async () => {
+    me.set({ ...BASE, held: 2 });
+    answers['GET /api/admin/held'] = { status: 200, body: {
+      items: [{ camsId: 'cam1', fields: ['host'], from: { host: 'a' }, to: { host: 'b' }, keptOld: false, isNew: false, digest: '1'.repeat(64) }],
+      proxies: [{ proxyId: PRX, name: 'Shed', fields: ['proxyUrl', 'caFingerprints', 'proxyTlsServername'], from: null, to: { proxyUrl: 'https://192.0.2.20:8443', caFingerprints: [PIN], proxyTlsServername: 'proxy.shed.internal' }, digest: '3'.repeat(64) }],
+    } };
+    answers['POST /api/admin/held/proxies/confirm'] = { status: 200, body: { confirmed: [PRX] } };
+    render(HeldBanner);
+    await settle();
+    const item = q(`held-proxy-${PRX}`)!;
+    expect(item.textContent!.replace(/\s+/g, ' ')).toContain('New proxy Shed at https://192.0.2.20:8443 (certificate 0123abcd…)');
+    const all = [...target!.querySelectorAll('[data-testid^="held-"]')].map((e) => e.getAttribute('data-testid'));
+    expect(all.indexOf(`held-proxy-${PRX}`)).toBeLessThan(all.indexOf('held-cam1'));
+    expect(q('held-proxy-help')!.textContent).toBe('Confirm a proxy once; cameras can then move to it without asking again.');
+    expect(q(`held-proxy-confirm-${PRX}`)!.textContent).toBe('Confirm');
+    answers['GET /api/admin/held'] = { status: 200, body: { items: [], proxies: [] } };
+    q(`held-proxy-confirm-${PRX}`)!.click();
+    await settle();
+    const sent = calls.find((c) => c.url === '/api/admin/held/proxies/confirm')!;
+    expect(JSON.parse(String(sent.init!.body))).toEqual({ items: [{ proxyId: PRX, digest: '3'.repeat(64) }] });
+    expect(q('held-banner')).toBeNull();
+  });
+  it('a changed proxy shows "Proxy <name>: <label> <from> → <to>", Confirm only', async () => {
+    me.set({ ...BASE, held: 1 });
+    answers['GET /api/admin/held'] = { status: 200, body: { items: [], proxies: [{ proxyId: PRX, name: 'Shed', fields: ['proxyUrl'], from: { proxyUrl: 'https://192.0.2.20:8443' }, to: { proxyUrl: 'https://192.0.2.21:8443' }, digest: '4'.repeat(64) }] } };
+    answers['POST /api/admin/held/proxies/confirm'] = { status: 409, body: { error: 'offer_changed', changed: [PRX] } };
+    render(HeldBanner);
+    await settle();
+    expect(q(`held-proxy-${PRX}`)!.textContent!.replace(/\s+/g, ' ')).toContain('Proxy Shed: proxy address https://192.0.2.20:8443 → https://192.0.2.21:8443');
+    expect(target!.querySelector('[data-testid^="held-keep-"]')).toBeNull();
+    q(`held-proxy-confirm-${PRX}`)!.click();
+    await settle();
+    expect(q('held-changed')).not.toBeNull();
+  });
+});
+
 describe('StaleBanner', () => {
   it('shows "Configuration not refreshed since …" to admins when staleSince is set', () => {
     me.set({ ...BASE, staleSince: Date.UTC(2026, 9, 5, 12, 0) });

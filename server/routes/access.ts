@@ -82,6 +82,7 @@ export const ACCESS: Readonly<Record<string, Need>> = {
   'GET /api/admin/held': 'admin',
   'POST /api/admin/held/confirm': 'admin',
   'POST /api/admin/held/keep': 'admin',
+  'POST /api/admin/held/proxies/confirm': 'admin',
 };
 
 interface Layer { route?: { path: unknown; methods: Record<string, boolean> }; handle?: { stack?: Layer[] } }

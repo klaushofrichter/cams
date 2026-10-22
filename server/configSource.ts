@@ -258,6 +258,7 @@ async function sendReport(): Promise<void> {
   st.reporter ??= new Reporter(st.client, st.now, () => pullSoon('report'));
   const r = buildReport(configStatus(), {
     held: st.trust?.held() ?? [],
+    heldProxies: st.trust?.heldProxies() ?? [],
     shadow: st.shadow,
     tokens: { ...(st.tokens?.counts() ?? { managed: 0, pending: 0 }), legacy: st.legacyProxies.size },
     version: appVersion() || 'dev',
