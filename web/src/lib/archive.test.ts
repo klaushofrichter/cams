@@ -1,10 +1,10 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { applyLabelStates, clickSelect, createArchive, defaultName, deleteItems, errorText, expiresText, zipDelays, filterItems, formatBytes, headerState, labelChoices, labelStates, stillRecorded, toggleAll, videoHref, zipUrls, type ArchiveItem } from './archive';
+import { applyLabelStates, clickSelect, createArchive, defaultName, deleteItems, errorText, expiresText, zipDelays, filterItems, formatBytes, headerState, labelChoices, labelStates, stillRecorded, toggleAll, videoHref, zipUrls, moveNoteText, type ArchiveItem } from './archive';
 
 afterEach(() => vi.unstubAllGlobals());
 
 const item = (via: string, id: number, o: Partial<ArchiveItem> = {}): ArchiveItem => ({
-  via, id, cam: 'cam1', camera: via, cameraName: 'Den', name: `clip ${id}`, labels: [], retentionDays: 365, createdAt: 0, expiresAt: null, recordedFrom: 0, recordedTo: 0, durationS: 10, quality: 'sd', original: false, bytes: 1, source: {}, eventKinds: [], found: [], thumbnail: { from: 'frame', at: null }, createdBy: 'client',
+  via, id, cam: 'cam1', camera: via, cameraName: 'Den', name: `clip ${id}`, labels: [], retentionDays: 365, createdAt: 0, expiresAt: null, recordedFrom: 0, recordedTo: 0, durationS: 10, quality: 'sd', original: false, bytes: 1, source: {}, eventKinds: [], found: [], thumbnail: { from: 'frame', at: null }, createdBy: 'client', move: null,
   urls: { video: '', download: '', thumbnail: null, metadata: '' }, ...o,
 });
 const DAY = 86_400_000;
@@ -148,5 +148,19 @@ describe('links', () => {
     expect(stillRecorded(it0, it0.recordedFrom - 1)).toBe(true);
     expect(stillRecorded(it0, it0.recordedFrom + 1)).toBe(false);
     expect(stillRecorded(it0, null)).toBe(false);
+  });
+});
+
+describe('move note', () => {
+  const T = Date.parse('2026-10-20T12:00:00-05:00');
+  it('says a moved item came from a proxy', () => {
+    expect(moveNoteText({ moveId: 'mv_A', from: 'old proxy', to: null, at: T, kept: false, reason: null })).toBe('Moved here from old proxy by move mv_A on 2026-10-20');
+  });
+  it('says a kept item could not be copied, and why', () => {
+    const m = { moveId: 'mv_A', from: null, to: 'new proxy', at: T, kept: true } as const;
+    expect(moveNoteText({ ...m, reason: 'failed' })).toBe("Kept here: the move to new proxy on 2026-10-20 couldn't copy it (failed its checks)");
+    expect(moveNoteText({ ...m, reason: 'missing' })).toMatch(/\(still missing\)$/);
+    expect(moveNoteText({ ...m, reason: 'not_copied' })).toMatch(/\(not copied\)$/);
+    expect(moveNoteText({ ...m, reason: null })).toBe("Kept here: the move to new proxy on 2026-10-20 couldn't copy it");
   });
 });

@@ -31,6 +31,7 @@ export interface ArchiveItem {
   found: string[];
   thumbnail: { from: string; at: number | null };
   createdBy: string;
+  move: { moveId: string; from: string | null; to: string | null; at: number; kept: boolean; reason: 'failed' | 'missing' | 'not_copied' | null } | null;
   urls: { video: string; download: string; thumbnail: string | null; metadata: string };
 }
 
@@ -82,6 +83,17 @@ export function formatBytes(n: number): string {
 // starts with it, and the proxy makes the same in the camera's clock when it
 // is left as it is (spec ruling 3).
 export const defaultName = (recordedFrom: number, cameraName: string) => `${dateTime(recordedFrom)} ${cameraName}`;
+
+// Why an item is on this proxy because of a camera move (names, never addresses).
+const MOVE_REASON_TEXT = { failed: 'failed its checks', missing: 'still missing', not_copied: 'not copied' } as const;
+export function moveNoteText(m: NonNullable<ArchiveItem['move']>): string {
+  const day = localDate(new Date(m.at));
+  if (m.kept) {
+    const why = m.reason ? ` (${MOVE_REASON_TEXT[m.reason]})` : '';
+    return `Kept here: the move to ${m.to ?? 'another proxy'} on ${day} couldn't copy it${why}`;
+  }
+  return `Moved here from ${m.from ?? 'another proxy'} by move ${m.moveId} on ${day}`;
+}
 
 const DAY = 86_400_000;
 // "in 120 days", "in 1 day", "today" (within a day), "forever", "expired".
