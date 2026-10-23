@@ -23,7 +23,10 @@ export interface HeldChange { accountId: string; camsId: string; fields: TrustFi
 
 // A camera's move as the snapshot marks it (camera move, M3): the move id,
 // the proxy it is offered on, its id there and that proxy's site.
-export interface MoveContext { moveId: string; proxyId: string; proxyCameraId: string; site: string | null }
+// `attested`: cams-admin's attestation of this very move (its id is the
+// camera's moveId, its target the offered proxy), for the attested rules (#269).
+export interface MoveAttestation { sourceProxyId: string; targetProxyId: string; expiresAt: number }
+export interface MoveContext { moveId: string; proxyId: string; proxyCameraId: string; site: string | null; attested?: MoveAttestation }
 
 export interface ApplyContext {
   // The camera's password from the local credentials (account name, camsId, the snapshot's user name).
@@ -102,7 +105,10 @@ export function buildFleet(parts: AccountPart[], ctx: ApplyContext): { accounts:
       const p = c.proxyId ? proxies.get(c.proxyId) : undefined;
       const offered = offeredValues(c, p);
       // A move context only with all its parts; anything less is no move (held as before).
-      const move: MoveContext | undefined = c.moveId && p && c.proxyCameraId ? { moveId: c.moveId, proxyId: p.id, proxyCameraId: c.proxyCameraId, site: p.site } : undefined;
+      // The attestation only for this move onto this proxy; any other is ignored.
+      const attested = c.move && c.move.id === c.moveId && p && c.move.targetProxyId === p.id
+        ? { attested: { sourceProxyId: c.move.sourceProxyId, targetProxyId: c.move.targetProxyId, expiresAt: c.move.expiresAt } } : {};
+      const move: MoveContext | undefined = c.moveId && p && c.proxyCameraId ? { moveId: c.moveId, proxyId: p.id, proxyCameraId: c.proxyCameraId, site: p.site, ...attested } : undefined;
       const t = ctx.trust ? ctx.trust(part.account.id, c.camsId, offered, move) : { use: offered, confirmed: true, held: null };
       if (t.held) held.push(t.held);
       const v = t.use;

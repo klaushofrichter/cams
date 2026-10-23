@@ -142,7 +142,7 @@ describe('TrustStore: trusted proxies', () => {
   const PRX = 'prx_PPPPPPPPPPPPPPPPPPPP', PRX2 = 'prx_QQQQQQQQQQQQQQQQQQQQ';
   const PIN = 'a'.repeat(64), PIN2 = 'b'.repeat(64);
   const sp = (o: Partial<SnapProxy> = {}): SnapProxy => ({ id: PRX, name: 'home', displayName: 'Home', url: 'https://192.0.2.10:8443/', adminUiUrl: null, tlsServername: 'proxy.home.internal', caFingerprints: [`SHA256:${'A'.repeat(64)}`], site: 'home', tokens: [], ...o });
-  const sc = (camsId: string, o: Partial<SnapCamera> = {}): SnapCamera => ({ id: `cam_${camsId.toUpperCase().padEnd(20, 'X')}`, camsId, name: camsId, proxyId: PRX, proxyCameraId: camsId, host: '192.0.2.5', protocol: 'https', tlsServername: `${camsId}.home.internal`, cameraUser: 'u', webUiUrl: null, webUiNote: null, moveId: null, ...o });
+  const sc = (camsId: string, o: Partial<SnapCamera> = {}): SnapCamera => ({ id: `cam_${camsId.toUpperCase().padEnd(20, 'X')}`, camsId, name: camsId, proxyId: PRX, proxyCameraId: camsId, host: '192.0.2.5', protocol: 'https', tlsServername: `${camsId}.home.internal`, cameraUser: 'u', webUiUrl: null, webUiNote: null, moveId: null, move: null, ...o });
   const PT = (o: Partial<ProxyTrust> = {}): ProxyTrust => ({ proxyUrl: 'https://192.0.2.10:8443', caFingerprints: [PIN], proxyTlsServername: 'proxy.home.internal', ...o });
   const camV = (camsId: string, o: Partial<TrustValues> = {}) => V({ ...PT(), host: '192.0.2.5', protocol: 'https', tlsServername: `${camsId}.home.internal`, ...o });
   const trustFile = (dir: string) => JSON.parse(readFileSync(join(dir, 'admin/trust.json'), 'utf8'));
@@ -428,5 +428,279 @@ describe('TrustStore: the move rule', () => {
   it('without a move context a proxy change onto a trusted proxy is held as before', () => {
     const { t } = setup();
     expect(t.decide(ALPHA, 'cam1', moved()).held).toMatchObject({ camsId: 'cam1' });
+  });
+});
+
+// Attested moves (#269): cams-admin's signed snapshot names the move (id,
+// source and target proxy, expiry). Rule A: a confirmed camera moving from a
+// trusted source onto a proxy this instance has not trusted yet trusts that
+// proxy. Rule B: a camera new to this instance, landing on a proxy it already
+// trusts, is confirmed. Both only before the attestation expires.
+describe('TrustStore: attested moves', () => {
+  const PRX = 'prx_PPPPPPPPPPPPPPPPPPPP', PRX2 = 'prx_QQQQQQQQQQQQQQQQQQQQ', PRXM = 'prx_RRRRRRRRRRRRRRRRRRRR';
+  const PIN = 'a'.repeat(64), PIN2 = 'b'.repeat(64), PIN3 = 'c'.repeat(64);
+  const MOVE = 'mv_MMMMMMMMMMMMMMMMMMMM';
+  const HOME = { proxyUrl: 'https://192.0.2.10:8443', caFingerprints: [PIN], proxyTlsServername: 'proxy.home.internal' };
+  const SHED = { proxyUrl: 'https://192.0.2.20:8443', caFingerprints: [PIN2], proxyTlsServername: 'proxy.shed.internal' };
+  const MINIPC = { proxyUrl: 'https://192.0.2.40:8443', caFingerprints: [PIN3], proxyTlsServername: 'proxy.minipc.internal' };
+  const camV = (o: Partial<TrustValues> = {}) => V({ ...HOME, host: '192.0.2.5', protocol: 'https', tlsServername: 'cam1.home.internal', ...o });
+  const shed = (o: Partial<SnapProxy> = {}): SnapProxy => ({ id: PRX2, name: 'shed', displayName: 'Shed', url: 'https://192.0.2.20:8443', adminUiUrl: null, tlsServername: 'proxy.shed.internal', caFingerprints: [PIN2], site: 'shed', tokens: [], ...o });
+  const minipc = (o: Partial<SnapProxy> = {}): SnapProxy => ({ id: PRXM, name: 'minipc', displayName: 'Mini PC', url: 'https://192.0.2.40:8443', adminUiUrl: null, tlsServername: 'proxy.minipc.internal', caFingerprints: [PIN3], site: 'minipc', tokens: [], ...o });
+  const moved = (o: Partial<TrustValues> = {}) => camV({ ...SHED, tlsServername: 'cam1.shed.internal', ...o });
+  const att = (o: Partial<{ sourceProxyId: string; targetProxyId: string; expiresAt: number }> = {}) => ({ sourceProxyId: PRX, targetProxyId: PRX2, expiresAt: Date.now() + 3600_000, ...o });
+  const mvA = (o: Partial<{ moveId: string; proxyId: string; proxyCameraId: string; site: string | null; attested: ReturnType<typeof att> | undefined }> = {}) =>
+    ({ moveId: MOVE, proxyId: PRX2, proxyCameraId: 'cam1', site: 'shed', attested: att(), ...o });
+  // cam4 as offered on the mini PC proxy (the #269 shape).
+  const cam4 = (o: Partial<TrustValues> = {}) => V({ ...MINIPC, host: '192.0.2.44', protocol: 'https', tlsServername: 'cam4.minipc.internal', ...o });
+  const mvB = (o: Partial<{ moveId: string; proxyId: string; proxyCameraId: string; site: string | null; attested: ReturnType<typeof att> | undefined }> = {}) =>
+    ({ moveId: MOVE, proxyId: PRXM, proxyCameraId: 'cam4', site: 'minipc', attested: att({ targetProxyId: PRXM }), ...o });
+  const trustFile = (dir: string) => JSON.parse(readFileSync(join(dir, 'admin/trust.json'), 'utf8'));
+  const write = (dir: string, d: object) => {
+    mkdirSync(join(dir, 'admin'), { recursive: true, mode: 0o700 });
+    writeFileSync(join(dir, 'admin/trust.json'), JSON.stringify({ v: 1, keptOld: {}, fileAccountId: ALPHA, log: [], ...d }), { mode: 0o600 });
+  };
+  // Rule A: cam1 confirmed on the trusted home proxy; the shed proxy offered, not trusted.
+  const setupA = (proxies: Record<string, ProxyTrust> = { [`${ALPHA}/${PRX}`]: HOME }) => {
+    const dir = dirOf();
+    write(dir, { confirmed: { [`${ALPHA}/cam1`]: camV() }, proxies });
+    const t = TrustStore.load(dir);
+    t.proxyOffer(ALPHA, shed(), REV);
+    return { dir, t };
+  };
+  // Rule B: nothing confirmed for cam4; the mini PC proxy trusted and offered.
+  const setupB = () => {
+    const dir = dirOf();
+    write(dir, { confirmed: {}, proxies: { [`${ALPHA}/${PRXM}`]: MINIPC } });
+    const t = TrustStore.load(dir);
+    t.proxyOffer(ALPHA, minipc(), REV);
+    return { dir, t };
+  };
+  afterEach(() => vi.restoreAllMocks());
+
+  it('A: a confirmed camera moving from a trusted source onto a new proxy trusts it', () => {
+    const { dir, t } = setupA();
+    expect(t.heldProxies(ALPHA).map((h) => h.proxyId)).toEqual([PRX2]);
+    const lines: unknown[][] = [];
+    vi.spyOn(logger, 'info').mockImplementation(((...a: unknown[]) => void lines.push(a)) as never);
+    expect(t.decide(ALPHA, 'cam1', moved(), mvA())).toEqual({ use: moved(), confirmed: true, held: null });
+    expect(t.heldProxies(ALPHA)).toEqual([]);
+    expect(t.held(ALPHA)).toEqual([]);
+    expect(t.isTrusted(ALPHA, PRX2, SHED)).toBe(true);
+    // saved once: a new store uses the new values and trusts the shed proxy
+    const t2 = TrustStore.load(dir);
+    expect(t2.decide(ALPHA, 'cam1', moved())).toEqual({ use: moved(), confirmed: true, held: null });
+    expect(t2.isTrusted(ALPHA, PRX2, SHED)).toBe(true);
+    const f = trustFile(dir);
+    expect(f.log).toHaveLength(1);
+    expect(f.log[0]).toEqual({ at: expect.any(Number), email: '', accountId: ALPHA, camsIds: ['cam1'], action: 'move-attested', moveId: MOVE, proxyIds: [PRX2] });
+    expect(JSON.stringify(f.log)).not.toMatch(/192\.0\.2|\.internal|aaaa|bbbb/);
+    expect(statSync(join(dir, 'admin/trust.json')).mode & 0o777).toBe(0o600);
+    const line = lines.find((l) => l[1] === 'camera_move_attested');
+    expect(line).toBeDefined();
+    expect(JSON.stringify(line)).not.toMatch(/192\.0\.2|\.internal|aaaa|bbbb/);
+    expect(line?.[0]).toMatchObject({ accountId: ALPHA, camsId: 'cam1', moveId: MOVE, proxyId: PRX2 });
+  });
+
+  it('A clears a kept-old offer of the camera', async () => {
+    const { t } = setupA();
+    t.decide(ALPHA, 'cam1', camV({ host: '192.0.2.99' }));
+    await t.keepOld(ALPHA, [{ camsId: 'cam1', digest: t.offerDigest(ALPHA, 'cam1', REV)! }], REV, 'admin@example.org');
+    t.decide(ALPHA, 'cam1', moved(), mvA());
+    expect(t.decide(ALPHA, 'cam1', camV({ host: '192.0.2.99' })).held).toMatchObject({ keptOld: false });
+  });
+
+  const heldAsToday = (t: TrustStore, d: ReturnType<TrustStore['decide']>) => {
+    expect(d.use).toEqual(camV());
+    expect(d.confirmed).toBe(true);
+    expect(d.held).toMatchObject({ camsId: 'cam1', isNew: false });
+    expect(t.heldProxies(ALPHA).map((h) => h.proxyId)).toEqual([PRX2]);
+  };
+
+  it('A refused: source not trusted', () => {
+    const { t } = setupA({});
+    heldAsToday(t, t.decide(ALPHA, 'cam1', moved(), mvA()));
+  });
+
+  it('A refused: the camera was not on the source as trusted here', () => {
+    // the source is trusted with other values than the camera was confirmed with
+    const { t } = setupA({ [`${ALPHA}/${PRX}`]: { ...HOME, caFingerprints: [PIN3] } });
+    heldAsToday(t, t.decide(ALPHA, 'cam1', moved(), mvA()));
+  });
+
+  it('A refused: host changed; protocol changed', () => {
+    const { t } = setupA();
+    expect(t.decide(ALPHA, 'cam1', moved({ host: '192.0.2.99' }), mvA()).held?.fields).toContain('host');
+    expect(t.decide(ALPHA, 'cam1', moved({ protocol: 'http' }), mvA()).held?.fields).toContain('protocol');
+    expect(t.heldProxies(ALPHA).map((h) => h.proxyId)).toEqual([PRX2]);
+  });
+
+  it('A refused: expired (Review Focus 1)', () => {
+    const { t } = setupA();
+    heldAsToday(t, t.decide(ALPHA, 'cam1', moved(), mvA({ attested: att({ expiresAt: Date.now() - 1 }) })));
+    // exactly at expiresAt is expired too
+    const now = Date.now();
+    vi.spyOn(Date, 'now').mockReturnValue(now);
+    heldAsToday(t, t.decide(ALPHA, 'cam1', moved(), mvA({ attested: att({ expiresAt: now }) })));
+  });
+
+  it('A refused: attestation names another target (Review Focus 2)', () => {
+    const { t } = setupA();
+    heldAsToday(t, t.decide(ALPHA, 'cam1', moved(), mvA({ attested: att({ targetProxyId: PRXM }) })));
+  });
+
+  it('A refused: no attestation (held as today)', () => {
+    const { t } = setupA();
+    heldAsToday(t, t.decide(ALPHA, 'cam1', moved(), mvA({ attested: undefined })));
+  });
+
+  it('A refused: the camera offered with other proxy values than the target proxy', () => {
+    const { t } = setupA();
+    heldAsToday(t, t.decide(ALPHA, 'cam1', moved({ caFingerprints: [PIN3] }), mvA()));
+    // the target proxy not offered in this snapshot
+    t.forgetOffers();
+    expect(t.decide(ALPHA, 'cam1', moved(), mvA()).held).toMatchObject({ camsId: 'cam1' });
+    expect(t.isTrusted(ALPHA, PRX2, SHED)).toBe(false);
+  });
+
+  it('A refused: no pins, or a TLS name not under the site', () => {
+    const { t } = setupA();
+    t.proxyOffer(ALPHA, shed({ caFingerprints: [] }), REV);
+    heldAsToday(t, t.decide(ALPHA, 'cam1', moved({ caFingerprints: [] }), mvA()));
+    t.proxyOffer(ALPHA, shed(), REV);
+    for (const name of ['cam1.home.internal', 'cam1.shed.internal.evil.example', 'cam2.shed.internal', null]) {
+      heldAsToday(t, t.decide(ALPHA, 'cam1', moved({ tlsServername: name }), mvA()));
+    }
+    heldAsToday(t, t.decide(ALPHA, 'cam1', moved(), mvA({ site: null })));
+  });
+
+  it('A refused: the target proxy is trusted with other values (held pin)', () => {
+    const { t } = setupA({ [`${ALPHA}/${PRX}`]: HOME, [`${ALPHA}/${PRX2}`]: { ...SHED, caFingerprints: [PIN3] } });
+    const d = t.decide(ALPHA, 'cam1', moved(), mvA());
+    expect(d.use).toEqual(camV());
+    expect(d.held).toMatchObject({ camsId: 'cam1' });
+    expect(t.isTrusted(ALPHA, PRX2, SHED)).toBe(false);
+  });
+
+  it('A refused: protocol http', () => {
+    const dir = dirOf();
+    write(dir, { confirmed: { [`${ALPHA}/cam1`]: camV({ protocol: 'http' }) }, proxies: { [`${ALPHA}/${PRX}`]: HOME } });
+    const t = TrustStore.load(dir);
+    t.proxyOffer(ALPHA, shed(), REV);
+    const d = t.decide(ALPHA, 'cam1', moved({ protocol: 'http' }), mvA());
+    expect(d.use).toEqual(camV({ protocol: 'http' }));
+    expect(d.held).toMatchObject({ camsId: 'cam1' });
+    expect(t.isTrusted(ALPHA, PRX2, SHED)).toBe(false);
+    expect(trustFile(dir).log.some((e: { action: string }) => e.action === 'move-attested')).toBe(false);
+  });
+
+  it('A refused: target URL is a trusted proxy\'s URL', () => {
+    const { dir, t } = setupA();
+    // the target offered at the source's URL with other pins
+    t.proxyOffer(ALPHA, shed({ url: HOME.proxyUrl }), REV);
+    const d = t.decide(ALPHA, 'cam1', moved({ proxyUrl: HOME.proxyUrl }), mvA());
+    expect(d.use).toEqual(camV());
+    expect(d.held).toMatchObject({ camsId: 'cam1' });
+    expect(t.heldProxies(ALPHA).map((h) => h.proxyId)).toEqual([PRX2]);
+    expect(t.trustedProxyIdsAt(ALPHA, HOME.proxyUrl)).toEqual([PRX]);
+    expect(trustFile(dir).log).toEqual([]);
+  });
+
+  it('A/B refused: expiry beyond 24 h (+5 min)', () => {
+    const now = Date.now();
+    vi.spyOn(Date, 'now').mockReturnValue(now);
+    const far = now + 24 * 3600_000 + 5 * 60_000 + 1;
+    const a = setupA();
+    heldAsToday(a.t, a.t.decide(ALPHA, 'cam1', moved(), mvA({ attested: att({ expiresAt: far }) })));
+    const b = setupB();
+    const d = b.t.decide(ALPHA, 'cam4', cam4(), mvB({ attested: att({ targetProxyId: PRXM, expiresAt: far }) }));
+    expect(d.confirmed).toBe(false);
+    // exactly 24 h + 5 min still counts
+    expect(b.t.decide(ALPHA, 'cam4', cam4(), mvB({ attested: att({ targetProxyId: PRXM, expiresAt: far - 1 }) })).confirmed).toBe(true);
+  });
+
+  it('B: a new camera on a trusted proxy is confirmed (#269)', () => {
+    const { dir, t } = setupB();
+    const lines: unknown[][] = [];
+    vi.spyOn(logger, 'info').mockImplementation(((...a: unknown[]) => void lines.push(a)) as never);
+    expect(t.decide(ALPHA, 'cam4', cam4(), mvB())).toEqual({ use: cam4(), confirmed: true, held: null });
+    expect(t.held(ALPHA)).toEqual([]);
+    expect(TrustStore.load(dir).decide(ALPHA, 'cam4', cam4())).toEqual({ use: cam4(), confirmed: true, held: null });
+    const f = trustFile(dir);
+    expect(f.log).toHaveLength(1);
+    expect(f.log[0]).toEqual({ at: expect.any(Number), email: '', accountId: ALPHA, camsIds: ['cam4'], action: 'move-attested', moveId: MOVE, proxyIds: [] });
+    expect(JSON.stringify(f.log)).not.toMatch(/192\.0\.2|\.internal|cccc/);
+    const line = lines.find((l) => l[1] === 'camera_move_attested');
+    expect(JSON.stringify(line)).not.toMatch(/192\.0\.2|\.internal|cccc/);
+    expect(line?.[0]).toMatchObject({ accountId: ALPHA, camsId: 'cam4', moveId: MOVE, proxyId: PRXM });
+  });
+
+  const heldAsNew = (d: ReturnType<TrustStore['decide']>) => {
+    expect(d.confirmed).toBe(false);
+    expect(d.held).toMatchObject({ camsId: 'cam4', isNew: true });
+  };
+
+  it('B refused: proxy trusted with other values (held pin, Review Focus 3)', () => {
+    const { t } = setupB();
+    t.proxyOffer(ALPHA, minipc({ caFingerprints: [PIN2] }), REV);
+    expect(t.heldProxies(ALPHA)).toHaveLength(1);
+    heldAsNew(t.decide(ALPHA, 'cam4', cam4({ caFingerprints: [PIN2] }), mvB()));
+    // the trusted values on the camera while the proxy's offer is held
+    heldAsNew(t.decide(ALPHA, 'cam4', cam4(), mvB()));
+    // a changed URL too
+    t.proxyOffer(ALPHA, minipc({ url: 'https://192.0.2.41:8443' }), REV);
+    heldAsNew(t.decide(ALPHA, 'cam4', cam4({ proxyUrl: 'https://192.0.2.41:8443' }), mvB()));
+  });
+
+  it('B refused: proxy not trusted, or not offered in this snapshot', () => {
+    const dir = dirOf();
+    write(dir, { confirmed: {}, proxies: {} });
+    const t = TrustStore.load(dir);
+    t.proxyOffer(ALPHA, minipc(), REV);
+    heldAsNew(t.decide(ALPHA, 'cam4', cam4(), mvB()));
+    const b = setupB();
+    b.t.forgetOffers();
+    heldAsNew(b.t.decide(ALPHA, 'cam4', cam4(), mvB()));
+  });
+
+  it('B refused: TLS name not under the site', () => {
+    const { t } = setupB();
+    for (const name of ['cam4.home.internal', 'cam4.minipc.internal.evil.example', 'cam5.minipc.internal', 'x.cam4.minipc.internal', null]) {
+      heldAsNew(t.decide(ALPHA, 'cam4', cam4({ tlsServername: name }), mvB()));
+    }
+    heldAsNew(t.decide(ALPHA, 'cam4', cam4(), mvB({ site: null })));
+  });
+
+  it('B refused: no attestation', () => {
+    const { t } = setupB();
+    heldAsNew(t.decide(ALPHA, 'cam4', cam4(), mvB({ attested: undefined })));
+    heldAsNew(t.decide(ALPHA, 'cam4', cam4()));
+  });
+
+  it('B refused: expired', () => {
+    const { t } = setupB();
+    heldAsNew(t.decide(ALPHA, 'cam4', cam4(), mvB({ attested: att({ targetProxyId: PRXM, expiresAt: Date.now() - 1 }) })));
+  });
+
+  it('B refused: attestation names another target, or the context another proxy', () => {
+    const { t } = setupB();
+    heldAsNew(t.decide(ALPHA, 'cam4', cam4(), mvB({ attested: att({ targetProxyId: PRX2 }) })));
+    heldAsNew(t.decide(ALPHA, 'cam4', cam4(), mvB({ proxyId: PRX2 })));
+  });
+
+  it('B refused: protocol http', () => {
+    const { dir, t } = setupB();
+    heldAsNew(t.decide(ALPHA, 'cam4', cam4({ protocol: 'http' }), mvB()));
+    expect(trustFile(dir).log.some((e: { action: string }) => e.action === 'move-attested')).toBe(false);
+  });
+
+  it('B refused: no pins, or no host', () => {
+    const dir = dirOf();
+    const open = { proxyUrl: 'https://192.0.2.40:8443', caFingerprints: [], proxyTlsServername: 'proxy.minipc.internal' };
+    write(dir, { confirmed: {}, proxies: { [`${ALPHA}/${PRXM}`]: open } });
+    const t = TrustStore.load(dir);
+    t.proxyOffer(ALPHA, minipc({ caFingerprints: [] }), REV);
+    heldAsNew(t.decide(ALPHA, 'cam4', cam4({ caFingerprints: [] }), mvB()));
+    const b = setupB();
+    heldAsNew(b.t.decide(ALPHA, 'cam4', cam4({ host: null }), mvB()));
   });
 });
