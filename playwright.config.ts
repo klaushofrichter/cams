@@ -54,12 +54,13 @@ export default defineConfig({
       dependencies: ['admin-desktop'],
       use: { ...devices['Desktop Chrome'], channel: 'chrome', viewport: { width: 390, height: 844 }, hasTouch: true, baseURL: `http://localhost:${E2E_ADMIN_PORT}` },
     },
-    // e2e/camera-name.spec.ts renames Den, whose name the other specs check:
-    // after them, one size at a time.
+    // e2e/camera-name.spec.ts renames Den, whose name the other specs check
+    // (the cams-admin-mode ones too, offline-start among them: #271): after
+    // them, one size at a time.
     {
       name: 'camera-name-desktop',
       testMatch: /camera-name\.spec\.ts/,
-      dependencies: ['desktop', 'phone'],
+      dependencies: ['desktop', 'phone', 'admin-phone'],
       use: { ...devices['Desktop Chrome'], channel: 'chrome', viewport: { width: 1440, height: 900 } },
     },
     {
