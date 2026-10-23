@@ -8,5 +8,3 @@ published as [GitHub releases](https://github.com/klaushofrichter/cams/releases)
 
 ## [Unreleased]
 
-- A camera moved by cams-admin is accepted without Confirm, also on a cams that hadn't seen it before (#269)
-
