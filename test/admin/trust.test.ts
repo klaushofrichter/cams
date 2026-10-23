@@ -581,6 +581,43 @@ describe('TrustStore: attested moves', () => {
     expect(t.isTrusted(ALPHA, PRX2, SHED)).toBe(false);
   });
 
+  it('A refused: protocol http', () => {
+    const dir = dirOf();
+    write(dir, { confirmed: { [`${ALPHA}/cam1`]: camV({ protocol: 'http' }) }, proxies: { [`${ALPHA}/${PRX}`]: HOME } });
+    const t = TrustStore.load(dir);
+    t.proxyOffer(ALPHA, shed(), REV);
+    const d = t.decide(ALPHA, 'cam1', moved({ protocol: 'http' }), mvA());
+    expect(d.use).toEqual(camV({ protocol: 'http' }));
+    expect(d.held).toMatchObject({ camsId: 'cam1' });
+    expect(t.isTrusted(ALPHA, PRX2, SHED)).toBe(false);
+    expect(trustFile(dir).log.some((e: { action: string }) => e.action === 'move-attested')).toBe(false);
+  });
+
+  it('A refused: target URL is a trusted proxy\'s URL', () => {
+    const { dir, t } = setupA();
+    // the target offered at the source's URL with other pins
+    t.proxyOffer(ALPHA, shed({ url: HOME.proxyUrl }), REV);
+    const d = t.decide(ALPHA, 'cam1', moved({ proxyUrl: HOME.proxyUrl }), mvA());
+    expect(d.use).toEqual(camV());
+    expect(d.held).toMatchObject({ camsId: 'cam1' });
+    expect(t.heldProxies(ALPHA).map((h) => h.proxyId)).toEqual([PRX2]);
+    expect(t.trustedProxyIdsAt(ALPHA, HOME.proxyUrl)).toEqual([PRX]);
+    expect(trustFile(dir).log).toEqual([]);
+  });
+
+  it('A/B refused: expiry beyond 24 h (+5 min)', () => {
+    const now = Date.now();
+    vi.spyOn(Date, 'now').mockReturnValue(now);
+    const far = now + 24 * 3600_000 + 5 * 60_000 + 1;
+    const a = setupA();
+    heldAsToday(a.t, a.t.decide(ALPHA, 'cam1', moved(), mvA({ attested: att({ expiresAt: far }) })));
+    const b = setupB();
+    const d = b.t.decide(ALPHA, 'cam4', cam4(), mvB({ attested: att({ targetProxyId: PRXM, expiresAt: far }) }));
+    expect(d.confirmed).toBe(false);
+    // exactly 24 h + 5 min still counts
+    expect(b.t.decide(ALPHA, 'cam4', cam4(), mvB({ attested: att({ targetProxyId: PRXM, expiresAt: far - 1 }) })).confirmed).toBe(true);
+  });
+
   it('B: a new camera on a trusted proxy is confirmed (#269)', () => {
     const { dir, t } = setupB();
     const lines: unknown[][] = [];
@@ -648,6 +685,12 @@ describe('TrustStore: attested moves', () => {
     const { t } = setupB();
     heldAsNew(t.decide(ALPHA, 'cam4', cam4(), mvB({ attested: att({ targetProxyId: PRX2 }) })));
     heldAsNew(t.decide(ALPHA, 'cam4', cam4(), mvB({ proxyId: PRX2 })));
+  });
+
+  it('B refused: protocol http', () => {
+    const { dir, t } = setupB();
+    heldAsNew(t.decide(ALPHA, 'cam4', cam4({ protocol: 'http' }), mvB()));
+    expect(trustFile(dir).log.some((e: { action: string }) => e.action === 'move-attested')).toBe(false);
   });
 
   it('B refused: no pins, or no host', () => {

@@ -75,10 +75,11 @@ function checkAccount(a: Record<string, unknown>): AccountPart {
   if (!Array.isArray(a.cameras) || a.cameras.length > 256) fail('cameras');
   const cameras = (a.cameras as unknown[]).map((c0, i) => {
     const c = (obj(c0) ? c0 : {}) as Record<string, unknown>;
+    const move = parseMove(c.move);
     if (!obj(c0) || !str(c.camsId, 32) || !CAMS_ID_RE.test(c.camsId) || !str(c.name, 128) || !str(c.host, 260) || typeof c.protocol !== 'string'
-      || !strOrNull(c.proxyId, 64) || !strOrNull(c.proxyCameraId, 64) || !strOrNull(c.tlsServername, 253) || !strOrNull(c.cameraUser, 128) || !strOrNull(c.webUiUrl) || !strOrNull(c.webUiNote, 120) || !optNull(c.moveId, MOVE_ID_RE) || parseMove(c.move) === undefined) fail(`camera ${i}`);
+      || !strOrNull(c.proxyId, 64) || !strOrNull(c.proxyCameraId, 64) || !strOrNull(c.tlsServername, 253) || !strOrNull(c.cameraUser, 128) || !strOrNull(c.webUiUrl) || !strOrNull(c.webUiNote, 120) || !optNull(c.moveId, MOVE_ID_RE) || move === undefined) fail(`camera ${i}`);
     if (c.proxyId !== null && !byId.has(c.proxyId as string)) fail(`camera ${i}: proxy`);
-    return { ...c, moveId: (c.moveId as string | null | undefined) ?? null, move: parseMove(c.move) ?? null } as unknown as SnapCamera;
+    return { ...c, moveId: (c.moveId as string | null | undefined) ?? null, move: move ?? null } as unknown as SnapCamera;
   });
   // cams's own rules (parseCameras: ids, protocol, host, TLS names, web
   // links, proxy URL and pins, groups), on the file shape with placeholders.

@@ -120,3 +120,35 @@ describe('buildFleet: the move attestation', () => {
     expect(seen(cam({ proxyId: PRX2, moveId: null, move: att }))).toBeUndefined();
   });
 });
+
+// Review I1: a target at the URL of an already-trusted proxy is not trusted by
+// an attestation, so the trusted proxy's cameras keep their own token owner.
+describe('buildFleet: an attested target at a trusted URL', () => {
+  it("the trusted proxy's other cameras keep their token owner", () => {
+    const dir = mkdtempSync(join(tmpdir(), 'cams-apply-'));
+    mkdirSync(join(dir, 'admin'), { recursive: true, mode: 0o700 });
+    const cam2Home: TrustValues = { ...confirmedHome, host: '192.0.2.6', tlsServername: 'cam2.home.internal' };
+    writeFileSync(join(dir, 'admin/trust.json'), JSON.stringify({
+      v: 1, confirmed: { [`${ALPHA}/cam1`]: confirmedHome, [`${ALPHA}/cam2`]: cam2Home }, keptOld: {}, fileAccountId: ALPHA, log: [],
+      proxies: { [`${ALPHA}/${PRX}`]: { proxyUrl: home.url, caFingerprints: [PIN], proxyTlsServername: home.tlsServername } },
+    }), { mode: 0o600 });
+    const t = TrustStore.load(dir);
+    const rogue: SnapProxy = { ...shed, url: home.url };
+    const MV = 'mv_MMMMMMMMMMMMMMMMMMMM';
+    const ctx: ApplyContext = {
+      credentials: () => ({ ok: true, user: 'cams', password: 'pw' }),
+      proxyToken: (_a, p) => (p ? { token: TOKEN } : undefined),
+      trust: (a, c, o, move) => t.decide(a, c, o, move),
+      trustedProxiesAt: (a, url) => t.trustedProxyIdsAt(a, url),
+      proxyOffer: (a, p) => t.proxyOffer(a, p, REV),
+    };
+    const p: AccountPart = { ...part([]), proxies: [home, rogue], cameras: [
+      cam({ proxyId: PRX2, tlsServername: 'cam1.shed.internal', moveId: MV, move: { id: MV, sourceProxyId: PRX, targetProxyId: PRX2, expiresAt: Date.now() + 3600_000 } }),
+      cam({ id: 'cam_AAAAAAAAAAAAAAAAAAA2', camsId: 'cam2', host: '192.0.2.6', tlsServername: 'cam2.home.internal' }),
+    ] };
+    const { accounts, held } = buildFleet([p], ctx);
+    expect(held.map((h) => h.camsId)).toEqual(['cam1']);
+    expect(accounts[0].cameras[1].proxy).toMatchObject({ url: home.url, proxyId: PRX, caFingerprint: [PIN] });
+    expect(t.trustedProxyIdsAt(ALPHA, home.url!)).toEqual([PRX]);
+  });
+});
