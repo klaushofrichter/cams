@@ -18,7 +18,8 @@ jobs:
           node-version: 26
       - run: sudo rm -f /etc/apt/sources.list.d/google-chrome.list
       - name: Ensure ffmpeg (thumbnail tests)
-        run: command -v ffmpeg || (sudo apt-get update && sudo apt-get install -y --no-install-recommends ffmpeg)
+        timeout-minutes: 16
+        run: command -v ffmpeg || for i in 1 2 3; do timeout 300 sh -c 'sudo apt-get update && sudo apt-get install -y --no-install-recommends ffmpeg' && exit 0; echo "try $i failed"; done; exit 1
       - run: |
           npm ci
           npm test

@@ -16,10 +16,12 @@ jobs:
       - uses: actions/setup-node@v7
         with:
           node-version: 26
-      - run: npm ci
+      - name: npm ci (retried on a network error)
+        run: for i in 1 2 3; do npm ci && exit 0; echo "try $i failed"; sleep 10; done; exit 1
       - run: sudo rm -f /etc/apt/sources.list.d/google-chrome.list
       - name: Ensure ffmpeg (thumbnail tests)
-        run: command -v ffmpeg || (sudo apt-get update && sudo apt-get install -y --no-install-recommends ffmpeg)
+        timeout-minutes: 16
+        run: command -v ffmpeg || for i in 1 2 3; do timeout 300 sh -c 'sudo apt-get update && sudo apt-get install -y --no-install-recommends ffmpeg' && exit 0; echo "try $i failed"; done; exit 1
       # Type-check the server, test/ and e2e/ (tsconfig.check.json); the
       # build only covers server/ and `check` only web/.
       - run: npm run lint:types
@@ -44,11 +46,17 @@ jobs:
       - uses: actions/setup-node@v7
         with:
           node-version: 26
-      - run: npm ci
+      - name: npm ci (retried on a network error)
+        run: for i in 1 2 3; do npm ci && exit 0; echo "try $i failed"; sleep 10; done; exit 1
       - run: sudo rm -f /etc/apt/sources.list.d/google-chrome.list
       - name: Ensure ffmpeg (thumbnail tests)
-        run: command -v ffmpeg || (sudo apt-get update && sudo apt-get install -y --no-install-recommends ffmpeg)
-      - run: npx playwright install --with-deps chromium
+        timeout-minutes: 16
+        run: command -v ffmpeg || for i in 1 2 3; do timeout 300 sh -c 'sudo apt-get update && sudo apt-get install -y --no-install-recommends ffmpeg' && exit 0; echo "try $i failed"; done; exit 1
+      # A stalled apt mirror once hung this step for 40 minutes: each try is cut
+      # after 5 minutes and retried, three times at most.
+      - name: Install Chromium for Playwright
+        timeout-minutes: 16
+        run: for i in 1 2 3; do timeout 300 npx playwright install --with-deps chromium && exit 0; echo "try $i failed"; done; exit 1
       - run: npm run build
       # playwright.config.ts starts the built server with e2e/env.ts values.
       # Which browser `channel: 'chrome'` actually launches on this runner.
@@ -85,11 +93,17 @@ jobs:
       - uses: actions/setup-node@v7
         with:
           node-version: 26
-      - run: npm ci
+      - name: npm ci (retried on a network error)
+        run: for i in 1 2 3; do npm ci && exit 0; echo "try $i failed"; sleep 10; done; exit 1
       - run: sudo rm -f /etc/apt/sources.list.d/google-chrome.list
       - name: Ensure ffmpeg (the fake cam-proxy's media)
-        run: command -v ffmpeg || (sudo apt-get update && sudo apt-get install -y --no-install-recommends ffmpeg)
-      - run: npx playwright install --with-deps chromium
+        timeout-minutes: 16
+        run: command -v ffmpeg || for i in 1 2 3; do timeout 300 sh -c 'sudo apt-get update && sudo apt-get install -y --no-install-recommends ffmpeg' && exit 0; echo "try $i failed"; done; exit 1
+      # A stalled apt mirror once hung this step for 40 minutes: each try is cut
+      # after 5 minutes and retried, three times at most.
+      - name: Install Chromium for Playwright
+        timeout-minutes: 16
+        run: for i in 1 2 3; do timeout 300 npx playwright install --with-deps chromium && exit 0; echo "try $i failed"; done; exit 1
       - run: npm run build
       - run: npm run test:e2e:times
       - uses: actions/upload-artifact@v7
