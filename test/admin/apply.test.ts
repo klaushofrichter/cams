@@ -20,7 +20,7 @@ const TOKEN = 'T'.repeat(40);
 const home: SnapProxy = { id: PRX, name: 'home', displayName: 'Home', url: 'https://192.0.2.10:8443', adminUiUrl: null, tlsServername: 'proxy.home.internal', caFingerprints: [PIN], site: 'home', tokens: [] };
 const shed: SnapProxy = { id: PRX2, name: 'shed', displayName: 'Shed', url: 'https://192.0.2.20:8443', adminUiUrl: null, tlsServername: 'proxy.shed.internal', caFingerprints: [PIN2], site: 'shed', tokens: [] };
 const spare: SnapProxy = { ...shed, id: PRX3, name: 'spare', displayName: 'Spare', url: 'https://192.0.2.30:8443', tlsServername: null, caFingerprints: [], site: null };
-const cam = (o: Partial<SnapCamera> = {}): SnapCamera => ({ id: 'cam_AAAAAAAAAAAAAAAAAAA1', camsId: 'cam1', name: 'Den', proxyId: PRX, proxyCameraId: 'cam1', host: '192.0.2.5', protocol: 'https', tlsServername: 'cam1.home.internal', cameraUser: 'cams', webUiUrl: null, webUiNote: null, moveId: null, ...o });
+const cam = (o: Partial<SnapCamera> = {}): SnapCamera => ({ id: 'cam_AAAAAAAAAAAAAAAAAAA1', camsId: 'cam1', name: 'Den', proxyId: PRX, proxyCameraId: 'cam1', host: '192.0.2.5', protocol: 'https', tlsServername: 'cam1.home.internal', cameraUser: 'cams', webUiUrl: null, webUiNote: null, moveId: null, move: null, ...o });
 const confirmedHome: TrustValues = { proxyUrl: 'https://192.0.2.10:8443', caFingerprints: [PIN], proxyTlsServername: 'proxy.home.internal', host: '192.0.2.5', protocol: 'https', tlsServername: 'cam1.home.internal' };
 const part = (cameras: SnapCamera[]): AccountPart => ({ account: ALPHA_REF, revision: 1, users: [{ email: 'admin@example.org', role: 'admin', disabled: false }], proxies: [home, shed, spare], cameras });
 
@@ -92,5 +92,63 @@ describe('buildFleet: the move rule', () => {
     const { ctx } = ctxOf(t);
     const { held } = buildFleet([part([cam({ proxyId: PRX3, tlsServername: 'cam1.spare.internal', moveId: MOVE })])], ctx);
     expect(held).toEqual([expect.objectContaining({ camsId: 'cam1' })]);
+  });
+});
+
+// The attestation reaches decide() only for the camera's own move onto the
+// offered proxy (Review Focus 2): its id is the camera's moveId and its
+// target the proxy the camera is offered on.
+describe('buildFleet: the move attestation', () => {
+  const MV = 'mv_MMMMMMMMMMMMMMMMMMMM', MV2 = 'mv_NNNNNNNNNNNNNNNNNNNN';
+  const EXP = 1_900_000_000_000;
+  const seen = (c: SnapCamera) => {
+    const moves: unknown[] = [];
+    buildFleet([part([c])], { credentials: () => ({ ok: true, user: 'cams', password: 'pw' }), trust: (_a, _c, o, move) => (moves.push(move), { use: o, confirmed: true, held: null }) });
+    return moves[0];
+  };
+  const att = { id: MV, sourceProxyId: PRX, targetProxyId: PRX2, expiresAt: EXP };
+
+  it('passes attested when the ids match', () => {
+    expect(seen(cam({ proxyId: PRX2, moveId: MV, move: att }))).toEqual({ moveId: MV, proxyId: PRX2, proxyCameraId: 'cam1', site: 'shed', attested: { sourceProxyId: PRX, targetProxyId: PRX2, expiresAt: EXP } });
+  });
+
+  it('no attested for another move id, another target, or no attestation', () => {
+    expect(seen(cam({ proxyId: PRX2, moveId: MV2, move: att }))).toEqual({ moveId: MV2, proxyId: PRX2, proxyCameraId: 'cam1', site: 'shed' });
+    expect(seen(cam({ proxyId: PRX3, moveId: MV, move: att }))).toEqual({ moveId: MV, proxyId: PRX3, proxyCameraId: 'cam1', site: null });
+    expect(seen(cam({ proxyId: PRX2, moveId: MV, move: null }))).toEqual({ moveId: MV, proxyId: PRX2, proxyCameraId: 'cam1', site: 'shed' });
+    // an attestation without the camera's moveId is no move at all
+    expect(seen(cam({ proxyId: PRX2, moveId: null, move: att }))).toBeUndefined();
+  });
+});
+
+// Review I1: a target at the URL of an already-trusted proxy is not trusted by
+// an attestation, so the trusted proxy's cameras keep their own token owner.
+describe('buildFleet: an attested target at a trusted URL', () => {
+  it("the trusted proxy's other cameras keep their token owner", () => {
+    const dir = mkdtempSync(join(tmpdir(), 'cams-apply-'));
+    mkdirSync(join(dir, 'admin'), { recursive: true, mode: 0o700 });
+    const cam2Home: TrustValues = { ...confirmedHome, host: '192.0.2.6', tlsServername: 'cam2.home.internal' };
+    writeFileSync(join(dir, 'admin/trust.json'), JSON.stringify({
+      v: 1, confirmed: { [`${ALPHA}/cam1`]: confirmedHome, [`${ALPHA}/cam2`]: cam2Home }, keptOld: {}, fileAccountId: ALPHA, log: [],
+      proxies: { [`${ALPHA}/${PRX}`]: { proxyUrl: home.url, caFingerprints: [PIN], proxyTlsServername: home.tlsServername } },
+    }), { mode: 0o600 });
+    const t = TrustStore.load(dir);
+    const rogue: SnapProxy = { ...shed, url: home.url };
+    const MV = 'mv_MMMMMMMMMMMMMMMMMMMM';
+    const ctx: ApplyContext = {
+      credentials: () => ({ ok: true, user: 'cams', password: 'pw' }),
+      proxyToken: (_a, p) => (p ? { token: TOKEN } : undefined),
+      trust: (a, c, o, move) => t.decide(a, c, o, move),
+      trustedProxiesAt: (a, url) => t.trustedProxyIdsAt(a, url),
+      proxyOffer: (a, p) => t.proxyOffer(a, p, REV),
+    };
+    const p: AccountPart = { ...part([]), proxies: [home, rogue], cameras: [
+      cam({ proxyId: PRX2, tlsServername: 'cam1.shed.internal', moveId: MV, move: { id: MV, sourceProxyId: PRX, targetProxyId: PRX2, expiresAt: Date.now() + 3600_000 } }),
+      cam({ id: 'cam_AAAAAAAAAAAAAAAAAAA2', camsId: 'cam2', host: '192.0.2.6', tlsServername: 'cam2.home.internal' }),
+    ] };
+    const { accounts, held } = buildFleet([p], ctx);
+    expect(held.map((h) => h.camsId)).toEqual(['cam1']);
+    expect(accounts[0].cameras[1].proxy).toMatchObject({ url: home.url, proxyId: PRX, caFingerprint: [PIN] });
+    expect(t.trustedProxyIdsAt(ALPHA, home.url!)).toEqual([PRX]);
   });
 });

@@ -8,9 +8,11 @@ import { verifySigned } from './sign';
 
 export interface SnapToken { id: string; kind: 'client' | 'admin'; state: string; retireAt: number | null }
 export interface SnapProxy { id: string; name: string; displayName: string; url: string | null; adminUiUrl: string | null; tlsServername: string | null; caFingerprints: string[]; site: string | null; tokens: SnapToken[] }
+export interface SnapMove { id: string; sourceProxyId: string; targetProxyId: string; expiresAt: number }
 export interface SnapCamera {
   id: string; camsId: string; name: string; proxyId: string | null; proxyCameraId: string | null; host: string; protocol: string;
   tlsServername: string | null; cameraUser: string | null; webUiUrl: string | null; webUiNote: string | null; moveId: string | null;
+  move: SnapMove | null;
 }
 export interface SnapAccount { id: string; name: string; displayName: string; revision: number; users: FleetUser[]; proxies: SnapProxy[]; cameras: SnapCamera[] }
 export interface Snapshot { v: 1; type: 'cams-config'; instance: { id: string; name: string; rotateBefore: number | null }; revision: string; generatedAt: number; accounts: SnapAccount[]; sig: string }
@@ -33,8 +35,16 @@ const str = (v: unknown, max = 256): v is string => typeof v === 'string' && v.l
 const strOrNull = (v: unknown, max = 2048) => v === null || (typeof v === 'string' && v.length <= max);
 const SITE_RE = /^[a-z0-9][a-z0-9-]{0,30}$/;
 const MOVE_ID_RE = /^mv_[0-9A-HJKMNP-TV-Z]{20}$/;
+const PRX_RE = /^prx_[0-9A-HJKMNP-TV-Z]{20}$/;
 // Absent (a snapshot cached before the field existed) reads as null.
 const optNull = (v: unknown, re: RegExp): boolean => v === undefined || v === null || (typeof v === 'string' && re.test(v));
+// The cams-admin move attestation: absent or null reads as null; anything else must be exactly valid.
+const parseMove = (v: unknown): SnapMove | null | undefined => {
+  if (v === undefined || v === null) return null;
+  if (!obj(v) || typeof v.id !== 'string' || !MOVE_ID_RE.test(v.id) || typeof v.sourceProxyId !== 'string' || !PRX_RE.test(v.sourceProxyId)
+    || typeof v.targetProxyId !== 'string' || !PRX_RE.test(v.targetProxyId) || !Number.isSafeInteger(v.expiresAt)) return undefined;
+  return { id: v.id, sourceProxyId: v.sourceProxyId, targetProxyId: v.targetProxyId, expiresAt: v.expiresAt as number };
+};
 const fail = (detail: string): never => {
   throw new Error(detail.slice(0, 200));
 };
@@ -65,10 +75,11 @@ function checkAccount(a: Record<string, unknown>): AccountPart {
   if (!Array.isArray(a.cameras) || a.cameras.length > 256) fail('cameras');
   const cameras = (a.cameras as unknown[]).map((c0, i) => {
     const c = (obj(c0) ? c0 : {}) as Record<string, unknown>;
+    const move = parseMove(c.move);
     if (!obj(c0) || !str(c.camsId, 32) || !CAMS_ID_RE.test(c.camsId) || !str(c.name, 128) || !str(c.host, 260) || typeof c.protocol !== 'string'
-      || !strOrNull(c.proxyId, 64) || !strOrNull(c.proxyCameraId, 64) || !strOrNull(c.tlsServername, 253) || !strOrNull(c.cameraUser, 128) || !strOrNull(c.webUiUrl) || !strOrNull(c.webUiNote, 120) || !optNull(c.moveId, MOVE_ID_RE)) fail(`camera ${i}`);
+      || !strOrNull(c.proxyId, 64) || !strOrNull(c.proxyCameraId, 64) || !strOrNull(c.tlsServername, 253) || !strOrNull(c.cameraUser, 128) || !strOrNull(c.webUiUrl) || !strOrNull(c.webUiNote, 120) || !optNull(c.moveId, MOVE_ID_RE) || move === undefined) fail(`camera ${i}`);
     if (c.proxyId !== null && !byId.has(c.proxyId as string)) fail(`camera ${i}: proxy`);
-    return { ...c, moveId: (c.moveId as string | null | undefined) ?? null } as unknown as SnapCamera;
+    return { ...c, moveId: (c.moveId as string | null | undefined) ?? null, move: move ?? null } as unknown as SnapCamera;
   });
   // cams's own rules (parseCameras: ids, protocol, host, TLS names, web
   // links, proxy URL and pins, groups), on the file shape with placeholders.

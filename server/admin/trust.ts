@@ -22,6 +22,8 @@ import { adminDir, checkPrivate, dataDir, writePrivate } from './keyfile';
 
 export type { HeldChange, HeldProxy, ProxyTrust, TrustField, TrustValues };
 export const TRUST_FIELDS: readonly TrustField[] = ['proxyUrl', 'caFingerprints', 'proxyTlsServername', 'host', 'protocol', 'tlsServername'];
+// cams-admin attests a move until 24 h after the switch-over; 5 min for clocks.
+const ATTESTATION_MAX_MS = 24 * 3600_000 + 5 * 60_000;
 export const PROXY_TRUST_FIELDS: readonly ProxyTrustField[] = ['proxyUrl', 'caFingerprints', 'proxyTlsServername'];
 
 export function trustValuesOf(c: { proxy?: Pick<ProxyConfig, 'url' | 'caFingerprint' | 'tlsServername'>; host: string; protocol: 'https' | 'http'; tlsServername?: string }): TrustValues {
@@ -51,8 +53,9 @@ const isValues = (v: unknown): v is TrustValues => {
 };
 
 // A log entry carries ids, never values. `proxyIds`: bare proxy ids for
-// confirm-proxy, `<accountId>/<proxyId>` keys for seed-proxies (it spans accounts).
-type LogEntry = { at: number; email: string; accountId: string; camsIds: string[]; action: 'confirm' | 'keep' | 'seed' | 'seed-proxies' | 'confirm-proxy' | 'move'; moveId?: string; proxyIds?: string[] };
+// confirm-proxy and move-attested (the proxy it trusted, if any),
+// `<accountId>/<proxyId>` keys for seed-proxies (it spans accounts).
+type LogEntry = { at: number; email: string; accountId: string; camsIds: string[]; action: 'confirm' | 'keep' | 'seed' | 'seed-proxies' | 'confirm-proxy' | 'move' | 'move-attested'; moveId?: string; proxyIds?: string[] };
 // `proxies` absent: written before trusted proxies (seeded once, M2).
 interface FileShape { v: 1; confirmed: Record<string, TrustValues>; keptOld: Record<string, TrustValues>; proxies?: Record<string, ProxyTrust>; fileAccountId?: string; log: LogEntry[] }
 
@@ -138,11 +141,20 @@ export class TrustStore {
   // confirmed on the spot when it lands on a trusted proxy with exactly its
   // trusted values, whose own offer is not held, with host and protocol
   // unchanged and the camera's TLS name `<proxyCameraId>.<site>.internal`.
+  //
+  // When it does not apply, the attested rules (#269) may: cams-admin's
+  // signed snapshot attests this very move, not yet expired. Rule A: a
+  // confirmed camera moving off a trusted source onto a proxy not trusted
+  // here trusts that proxy. Rule B: a camera with nothing confirmed here,
+  // landing on a proxy trusted here, is confirmed.
   decide(accountId: string, camsId: string, offered: TrustValues, move?: MoveContext): { use: TrustValues; confirmed: boolean; held: HeldChange | null } {
     const key = `${accountId}/${camsId}`;
     this.offers.set(key, offered);
     const confirmed = this.data.confirmed[key];
-    if (!confirmed) return { use: offered, confirmed: false, held: this.heldOf(key, offered) };
+    if (!confirmed) {
+      if (move && this.attestedNewAllowed(accountId, offered, move)) return this.applyAttested(accountId, camsId, offered, move, false);
+      return { use: offered, confirmed: false, held: this.heldOf(key, offered) };
+    }
     const fields = differs(confirmed, offered);
     if (fields.length && move && this.moveAllowed(accountId, confirmed, offered, move)) {
       this.data.confirmed[key] = offered;
@@ -152,6 +164,7 @@ export class TrustStore {
       logger.info({ accountId, camsId, proxyId: move.proxyId, moveId: move.moveId }, 'camera_moved_trusted');
       return { use: offered, confirmed: true, held: null };
     }
+    if (fields.length && move && this.attestedMoveAllowed(accountId, confirmed, offered, move)) return this.applyAttested(accountId, camsId, offered, move, true);
     if (!fields.length) {
       if (this.data.keptOld[key]) {
         delete this.data.keptOld[key];
@@ -176,6 +189,68 @@ export class TrustStore {
       && this.isTrusted(accountId, move.proxyId, offered)
       && offered.host !== null && offered.host === confirmed.host && offered.protocol !== null && offered.protocol === confirmed.protocol
       && offered.tlsServername === `${move.proxyCameraId}.${move.site}.internal`;
+  }
+
+  // Both attested rules: an attestation of this move onto the offered proxy,
+  // before its expiry (this instance's clock) and not further ahead than
+  // cams-admin ever sets it (24 h after the switch-over, plus clock slack);
+  // the camera over https (its password never goes in clear, review C1) with
+  // its TLS name under the proxy's (non-null) site; a proxy URL, pins, host.
+  // The site comes from the snapshot, not from trusted values: the name check
+  // only proves the name's shape; what binds the camera is the target proxy's
+  // pinned site CA verifying that name, so the pins must stay required.
+  private attestedBase(offered: TrustValues, move: MoveContext): boolean {
+    const a = move.attested, now = Date.now();
+    return !!a && now < a.expiresAt && a.expiresAt - now <= ATTESTATION_MAX_MS && a.targetProxyId === move.proxyId
+      && !!move.moveId && !!move.proxyCameraId && !!move.site
+      && offered.proxyUrl !== null && offered.caFingerprints.length > 0 && offered.host !== null && offered.protocol === 'https'
+      && offered.tlsServername === `${move.proxyCameraId}.${move.site}.internal`;
+  }
+
+  // The target proxy offered in this snapshot with exactly the camera's proxy values.
+  private offeredAs(proxyKey: string, offered: TrustValues): boolean {
+    const o = this.proxyOffers.get(proxyKey);
+    return !!o && !proxyDiffers(o.offered, proxyPart(offered)).length;
+  }
+
+  // Rule A: the camera was on the attested source as this instance trusts
+  // it (its confirmed proxy values are the source's trusted entry), host and
+  // protocol unchanged, the target has no trusted entry yet (a trusted
+  // proxy with new values stays a held proxy item) and no trusted proxy holds
+  // its URL (tokens would lose their owner, review I1).
+  private attestedMoveAllowed(accountId: string, confirmed: TrustValues, offered: TrustValues, move: MoveContext): boolean {
+    if (!this.attestedBase(offered, move)) return false;
+    const a = move.attested!;
+    const source = this.data.proxies?.[`${accountId}/${a.sourceProxyId}`];
+    const targetKey = `${accountId}/${move.proxyId}`;
+    return a.sourceProxyId !== move.proxyId && !!source && !proxyDiffers(source, proxyPart(confirmed)).length
+      && offered.host === confirmed.host && offered.protocol === confirmed.protocol
+      && this.offeredAs(targetKey, offered) && !this.data.proxies?.[targetKey]
+      && this.trustedProxyIdsAt(accountId, offered.proxyUrl!).length === 0;
+  }
+
+  // Rule B: the target proxy trusted here with exactly the offered values,
+  // offered so in this snapshot and not held (Review Focus 3).
+  private attestedNewAllowed(accountId: string, offered: TrustValues, move: MoveContext): boolean {
+    const targetKey = `${accountId}/${move.proxyId}`;
+    return this.attestedBase(offered, move) && this.offeredAs(targetKey, offered) && !this.heldProxyOf(targetKey)
+      && this.isTrusted(accountId, move.proxyId, offered);
+  }
+
+  // Confirms the camera (and with rule A trusts the target proxy): one log
+  // entry, one save, ids only.
+  private applyAttested(accountId: string, camsId: string, offered: TrustValues, move: MoveContext, trustTarget: boolean): { use: TrustValues; confirmed: boolean; held: HeldChange | null } {
+    const key = `${accountId}/${camsId}`;
+    if (trustTarget) {
+      this.data.proxies ??= {};
+      this.data.proxies[`${accountId}/${move.proxyId}`] = proxyPart(offered);
+    }
+    this.data.confirmed[key] = offered;
+    delete this.data.keptOld[key];
+    this.data.log.push({ at: Date.now(), email: '', accountId, camsIds: [camsId], action: 'move-attested', moveId: move.moveId, proxyIds: trustTarget ? [move.proxyId] : [] });
+    this.save();
+    logger.info({ accountId, camsId, proxyId: move.proxyId, sourceProxyId: move.attested!.sourceProxyId, moveId: move.moveId, rule: trustTarget ? 'A' : 'B' }, 'camera_move_attested');
+    return { use: offered, confirmed: true, held: null };
   }
 
   private heldOf(key: string, offered: TrustValues): HeldChange | null {
