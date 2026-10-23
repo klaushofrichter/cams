@@ -20,7 +20,7 @@ const TOKEN = 'T'.repeat(40);
 const home: SnapProxy = { id: PRX, name: 'home', displayName: 'Home', url: 'https://192.0.2.10:8443', adminUiUrl: null, tlsServername: 'proxy.home.internal', caFingerprints: [PIN], site: 'home', tokens: [] };
 const shed: SnapProxy = { id: PRX2, name: 'shed', displayName: 'Shed', url: 'https://192.0.2.20:8443', adminUiUrl: null, tlsServername: 'proxy.shed.internal', caFingerprints: [PIN2], site: 'shed', tokens: [] };
 const spare: SnapProxy = { ...shed, id: PRX3, name: 'spare', displayName: 'Spare', url: 'https://192.0.2.30:8443', tlsServername: null, caFingerprints: [], site: null };
-const cam = (o: Partial<SnapCamera> = {}): SnapCamera => ({ id: 'cam_AAAAAAAAAAAAAAAAAAA1', camsId: 'cam1', name: 'Den', proxyId: PRX, proxyCameraId: 'cam1', host: '192.0.2.5', protocol: 'https', tlsServername: 'cam1.home.internal', cameraUser: 'cams', webUiUrl: null, webUiNote: null, moveId: null, ...o });
+const cam = (o: Partial<SnapCamera> = {}): SnapCamera => ({ id: 'cam_AAAAAAAAAAAAAAAAAAA1', camsId: 'cam1', name: 'Den', proxyId: PRX, proxyCameraId: 'cam1', host: '192.0.2.5', protocol: 'https', tlsServername: 'cam1.home.internal', cameraUser: 'cams', webUiUrl: null, webUiNote: null, moveId: null, move: null, ...o });
 const confirmedHome: TrustValues = { proxyUrl: 'https://192.0.2.10:8443', caFingerprints: [PIN], proxyTlsServername: 'proxy.home.internal', host: '192.0.2.5', protocol: 'https', tlsServername: 'cam1.home.internal' };
 const part = (cameras: SnapCamera[]): AccountPart => ({ account: ALPHA_REF, revision: 1, users: [{ email: 'admin@example.org', role: 'admin', disabled: false }], proxies: [home, shed, spare], cameras });
 

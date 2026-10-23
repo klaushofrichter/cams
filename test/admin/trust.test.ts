@@ -142,7 +142,7 @@ describe('TrustStore: trusted proxies', () => {
   const PRX = 'prx_PPPPPPPPPPPPPPPPPPPP', PRX2 = 'prx_QQQQQQQQQQQQQQQQQQQQ';
   const PIN = 'a'.repeat(64), PIN2 = 'b'.repeat(64);
   const sp = (o: Partial<SnapProxy> = {}): SnapProxy => ({ id: PRX, name: 'home', displayName: 'Home', url: 'https://192.0.2.10:8443/', adminUiUrl: null, tlsServername: 'proxy.home.internal', caFingerprints: [`SHA256:${'A'.repeat(64)}`], site: 'home', tokens: [], ...o });
-  const sc = (camsId: string, o: Partial<SnapCamera> = {}): SnapCamera => ({ id: `cam_${camsId.toUpperCase().padEnd(20, 'X')}`, camsId, name: camsId, proxyId: PRX, proxyCameraId: camsId, host: '192.0.2.5', protocol: 'https', tlsServername: `${camsId}.home.internal`, cameraUser: 'u', webUiUrl: null, webUiNote: null, moveId: null, ...o });
+  const sc = (camsId: string, o: Partial<SnapCamera> = {}): SnapCamera => ({ id: `cam_${camsId.toUpperCase().padEnd(20, 'X')}`, camsId, name: camsId, proxyId: PRX, proxyCameraId: camsId, host: '192.0.2.5', protocol: 'https', tlsServername: `${camsId}.home.internal`, cameraUser: 'u', webUiUrl: null, webUiNote: null, moveId: null, move: null, ...o });
   const PT = (o: Partial<ProxyTrust> = {}): ProxyTrust => ({ proxyUrl: 'https://192.0.2.10:8443', caFingerprints: [PIN], proxyTlsServername: 'proxy.home.internal', ...o });
   const camV = (camsId: string, o: Partial<TrustValues> = {}) => V({ ...PT(), host: '192.0.2.5', protocol: 'https', tlsServername: `${camsId}.home.internal`, ...o });
   const trustFile = (dir: string) => JSON.parse(readFileSync(join(dir, 'admin/trust.json'), 'utf8'));

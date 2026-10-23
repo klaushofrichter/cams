@@ -82,6 +82,31 @@ describe('accountParts', () => {
     }
   });
 
+  const PRX_S = 'prx_0123456789ABCDEFGHJK';
+  const PRX_T = 'prx_ABCDEFGHJKMNPQRSTVWX';
+  const moveOk = { id: MOVE, sourceProxyId: PRX_S, targetProxyId: PRX_T, expiresAt: 1790000000000 };
+
+  it('camera move attestation is read, copied field by field; absent is null', () => {
+    const p = parts({ alphaCameras: [snapCamera({ proxyId: PRX_A, proxyCameraId: 'cam1', moveId: MOVE, move: { ...moveOk, extra: 'x' } })] });
+    expect(p.failed).toEqual([]);
+    expect(p.ok[0].cameras[0].move).toEqual(moveOk);
+    expect(p.ok[1].cameras[0].move).toBeNull();
+    const q = parts({ alphaCameras: [snapCamera({ proxyId: PRX_A, proxyCameraId: 'cam1', move: null })] });
+    expect(q.ok[0].cameras[0].move).toBeNull();
+  });
+
+  it('a bad move attestation fails the account (last good part kept)', () => {
+    const bad: unknown[] = [
+      'x', 5, [], { ...moveOk, id: 'mv_short' }, { ...moveOk, id: 7 }, { ...moveOk, sourceProxyId: 'prx_short' }, { ...moveOk, targetProxyId: 'PRX_ABCDEFGHJKMNPQRSTVWX' },
+      { ...moveOk, targetProxyId: null }, { ...moveOk, expiresAt: 1.5 }, { ...moveOk, expiresAt: '1790000000000' }, { ...moveOk, expiresAt: 1e300 }, { id: MOVE },
+    ];
+    for (const move of bad) {
+      const p = parts({ alphaCameras: [snapCamera({ proxyId: PRX_A, proxyCameraId: 'cam1', move })] });
+      expect([JSON.stringify(move), p.failed.map((f) => f.accountId)]).toEqual([JSON.stringify(move), [ALPHA]]);
+      expect(p.ok.map((x) => x.account.id)).toEqual([BETA]);
+    }
+  });
+
   it('proxy site is read; a bad site fails the account', () => {
     expect(parts({}).ok[0].proxies[0].site).toBe('alpha');
     expect(parts({ alphaProxyExtra: { site: null } }).ok[0].proxies[0].site).toBeNull();
