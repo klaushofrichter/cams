@@ -94,3 +94,29 @@ describe('buildFleet: the move rule', () => {
     expect(held).toEqual([expect.objectContaining({ camsId: 'cam1' })]);
   });
 });
+
+// The attestation reaches decide() only for the camera's own move onto the
+// offered proxy (Review Focus 2): its id is the camera's moveId and its
+// target the proxy the camera is offered on.
+describe('buildFleet: the move attestation', () => {
+  const MV = 'mv_MMMMMMMMMMMMMMMMMMMM', MV2 = 'mv_NNNNNNNNNNNNNNNNNNNN';
+  const EXP = 1_900_000_000_000;
+  const seen = (c: SnapCamera) => {
+    const moves: unknown[] = [];
+    buildFleet([part([c])], { credentials: () => ({ ok: true, user: 'cams', password: 'pw' }), trust: (_a, _c, o, move) => (moves.push(move), { use: o, confirmed: true, held: null }) });
+    return moves[0];
+  };
+  const att = { id: MV, sourceProxyId: PRX, targetProxyId: PRX2, expiresAt: EXP };
+
+  it('passes attested when the ids match', () => {
+    expect(seen(cam({ proxyId: PRX2, moveId: MV, move: att }))).toEqual({ moveId: MV, proxyId: PRX2, proxyCameraId: 'cam1', site: 'shed', attested: { sourceProxyId: PRX, targetProxyId: PRX2, expiresAt: EXP } });
+  });
+
+  it('no attested for another move id, another target, or no attestation', () => {
+    expect(seen(cam({ proxyId: PRX2, moveId: MV2, move: att }))).toEqual({ moveId: MV2, proxyId: PRX2, proxyCameraId: 'cam1', site: 'shed' });
+    expect(seen(cam({ proxyId: PRX3, moveId: MV, move: att }))).toEqual({ moveId: MV, proxyId: PRX3, proxyCameraId: 'cam1', site: null });
+    expect(seen(cam({ proxyId: PRX2, moveId: MV, move: null }))).toEqual({ moveId: MV, proxyId: PRX2, proxyCameraId: 'cam1', site: 'shed' });
+    // an attestation without the camera's moveId is no move at all
+    expect(seen(cam({ proxyId: PRX2, moveId: null, move: att }))).toBeUndefined();
+  });
+});
