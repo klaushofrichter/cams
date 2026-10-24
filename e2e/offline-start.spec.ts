@@ -30,8 +30,14 @@ test.beforeAll(async () => {
   });
   await expect.poll(async () => fetch(`http://127.0.0.1:${PORT}/health`).then((r) => r.status).catch(() => 0), { timeout: 20_000 }).toBe(200);
 });
+// Waits for the process to exit, so the next project's run never reaches a
+// cams still shutting down on the same port (#271).
 test.afterAll(async () => {
-  if (proc?.pid && proc.exitCode === null) process.kill(proc.pid, 'SIGTERM');
+  if (proc?.pid && proc.exitCode === null) {
+    const exited = new Promise<void>((resolve) => proc!.once('exit', () => resolve()));
+    process.kill(proc.pid, 'SIGTERM');
+    await exited;
+  }
   rmSync(dir, { recursive: true, force: true });
 });
 

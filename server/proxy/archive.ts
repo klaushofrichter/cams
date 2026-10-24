@@ -49,6 +49,16 @@ export function proxyOfCamera(id: CamKey): { proxy: ArchiveProxy; remote: string
   return proxy && { proxy, remote: proxyCameraId(id) };
 }
 
+// Why the item is on this proxy because of a camera move (names only, never an address).
+export interface ArchiveMove {
+  moveId: string;
+  from: string | null;
+  to: string | null;
+  at: number;
+  kept: boolean;
+  reason: 'failed' | 'missing' | 'not_copied' | null;
+}
+
 export interface ArchiveItem {
   via: string;
   id: number;
@@ -71,6 +81,7 @@ export interface ArchiveItem {
   found: string[];
   thumbnail: { from: string; at: number | null };
   createdBy: string;
+  move: ArchiveMove | null;
   urls: { video: string; download: string; thumbnail: string | null; metadata: string };
 }
 
@@ -99,6 +110,26 @@ function source(v: unknown): ArchiveItem['source'] {
   const span = s.span as { start?: unknown; end?: unknown } | null | undefined;
   if (span && int(span.start) && int(span.end)) out.span = { start: span.start, end: span.end };
   return out;
+}
+
+const MOVE_REASONS = ['failed', 'missing', 'not_copied'];
+// The peer proxy's name; an empty name falls back to its id (never an address).
+function peerName(v: unknown): string | null {
+  const p = v as { proxyId?: unknown; name?: unknown } | null | undefined;
+  if (!p || typeof p !== 'object') return null;
+  const name = typeof p.name === 'string' ? p.name.trim() : '';
+  const id = typeof p.proxyId === 'string' ? p.proxyId.trim() : '';
+  const out = (name || id).slice(0, 64);
+  return out || null;
+}
+
+// The move note of an item, or null when absent or malformed.
+export function parseMove(v: unknown): ArchiveMove | null {
+  const m = v as Record<string, unknown> | null | undefined;
+  if (!m || typeof m !== 'object' || Array.isArray(m)) return null;
+  if (typeof m.moveId !== 'string' || !m.moveId || m.moveId.length > 64 || typeof m.at !== 'number' || !Number.isFinite(m.at)) return null;
+  const reason = typeof m.reason === 'string' && MOVE_REASONS.includes(m.reason) ? (m.reason as ArchiveMove['reason']) : null;
+  return { moveId: m.moveId, from: peerName(m.from), to: peerName(m.to), at: m.at, kept: m.kept === true, reason };
 }
 
 export const itemBase = (via: string, id: number) => `/api/archive/${encodeURIComponent(via)}/items/${id}`;
@@ -136,6 +167,7 @@ export function parseItem(x: unknown, proxy: Pick<ArchiveProxy, 'via' | 'toCams'
     found: words(r.found),
     thumbnail: { from: thumbFrom, at: int(t.at) ? t.at : null },
     createdBy: r.createdBy === 'admin' ? 'admin' : 'client',
+    move: parseMove(r.move),
     urls: { video: `${base}/video`, download: `${base}/video?download=1`, thumbnail: thumbFrom === 'none' ? null : `${base}/thumbnail`, metadata: `${base}/metadata` },
   };
 }
