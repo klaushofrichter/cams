@@ -8,5 +8,3 @@ published as [GitHub releases](https://github.com/klaushofrichter/cams/releases)
 
 ## [Unreleased]
 
-- An Archive item moved to this proxy by a camera move, or kept here because the move could not copy it, now says why in its details.
-
