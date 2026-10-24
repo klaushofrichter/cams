@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import http from 'http';
 import type { AddressInfo } from 'net';
 import request from 'supertest';
+import { parseItem } from '../server/proxy/archive';
 import { createApp } from '../server/app';
 import { setCameras } from '../server/cameraRegistry';
 import { resetProxyClients } from '../server/proxy/client';
@@ -387,5 +388,30 @@ describe('ZIP (contract §5)', () => {
     expect((await get(`/api/archive/den/zip?ids=${Array.from({ length: 201 }, (_, i) => i + 1).join(',')}`)).status).toBe(400);
     expect((await get(`/api/archive/den/zip?ids=${x.id}`)).status).toBe(200);
     expect((await get(`/api/archive/den/zip?ids=${x.id}`)).status).toBe(429); // the fifth this minute
+  });
+});
+
+describe('parseItem move note', () => {
+  const T = Date.parse('2026-10-20T12:00:00-05:00');
+  const raw = { id: 1, cam: 'cam1', createdAt: 1, expiresAt: null, recordedFrom: 1, recordedTo: 2, bytes: 1, durationS: 1, retentionDays: null, name: 'x' };
+  const proxy = { via: 'cam1', toCams: new Map<string, string>() };
+  it('keeps the peer name only, never the proxy id', () => {
+    const it = parseItem({ ...raw, move: { moveId: 'mv_A', from: { proxyId: 'prx_X', name: 'old proxy' }, at: T } }, proxy);
+    expect(it?.move).toEqual({ moveId: 'mv_A', from: 'old proxy', to: null, at: T, kept: false, reason: null });
+    expect(JSON.stringify(it?.move)).not.toContain('prx_X');
+  });
+  it('falls back to the proxy id for an empty name, and reads kept and reason', () => {
+    const it = parseItem({ ...raw, move: { moveId: 'mv_A', to: { proxyId: 'prx_Y', name: '' }, at: T, kept: true, reason: 'missing' } }, proxy);
+    expect(it?.move).toEqual({ moveId: 'mv_A', from: null, to: 'prx_Y', at: T, kept: true, reason: 'missing' });
+  });
+  it('caps names at 64 characters and ignores an unknown reason', () => {
+    const it = parseItem({ ...raw, move: { moveId: 'mv_A', from: { proxyId: 'p', name: 'n'.repeat(100) }, at: T, reason: 'zzz' } }, proxy);
+    expect(it?.move?.from).toHaveLength(64);
+    expect(it?.move?.reason).toBeNull();
+  });
+  it('is null when absent or malformed', () => {
+    expect(parseItem(raw, proxy)?.move).toBeNull();
+    expect(parseItem({ ...raw, move: 'x' }, proxy)?.move).toBeNull();
+    expect(parseItem({ ...raw, move: { moveId: 'mv_A' } }, proxy)?.move).toBeNull();
   });
 });

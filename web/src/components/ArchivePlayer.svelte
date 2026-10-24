@@ -2,7 +2,7 @@
   import { onDestroy, onMount } from 'svelte';
   import Icon from './Icon.svelte';
   import Modal from './Modal.svelte';
-  import { dateTime, durationText, expiresText, formatBytes, getMetadata, qualityText, type ArchiveItem, type ArchiveMetadata } from '../lib/archive';
+  import { dateTime, durationText, expiresText, formatBytes, getMetadata, moveNoteText, qualityText, type ArchiveItem, type ArchiveMetadata } from '../lib/archive';
   import { formatClock, pad2, TRIGGER_LABELS, type Trigger } from '../lib/recordings';
   import { cameraById } from '../lib/stores';
 
@@ -104,6 +104,7 @@
       <dt>Source</dt><dd data-testid="archive-source">{sourceText}</dd>
       <dt>Labels</dt><dd data-testid="archive-meta-labels">{item.labels.length ? item.labels.join(', ') : 'none'}</dd>
       <dt>Archived</dt><dd>{dateTime(item.createdAt)}</dd>
+      {#if item.move}<dt>Moved</dt><dd data-testid="archive-move-note">{moveNoteText(item.move)}</dd>{/if}
       <dt>Expires</dt><dd>{expiresText(item.expiresAt, Date.now())}{item.expiresAt ? ` (${dateTime(item.expiresAt).slice(0, 10)})` : ''}</dd>
     </dl>
     <div class="events">

@@ -15,7 +15,7 @@ const item = (via: string, id: number, o: Partial<ArchiveItem> = {}): ArchiveIte
   return {
     via, id, cam: 'cam1', camera: via, cameraName: via === 'den' ? 'Den' : 'Cam 2', name: `clip ${via} ${id}`, labels: [], retentionDays: 365, createdAt: T + id * 1000, expiresAt: T + id * 1000 + 365 * DAY,
     recordedFrom: T - id * 60_000, recordedTo: T - id * 60_000 + 30_000, durationS: 30, quality: 'sd', original: false, bytes: 1_000_000 * id, source: { type: 'composition', size: 'sd', preS: 0, postS: 5 },
-    eventKinds: [], found: [], thumbnail: { from: 'frame', at: null }, createdBy: 'client', urls: { video: `${base}/video`, download: `${base}/video?download=1`, thumbnail: `${base}/thumbnail`, metadata: `${base}/metadata` }, ...o,
+    eventKinds: [], found: [], thumbnail: { from: 'frame', at: null }, createdBy: 'client', move: null, urls: { video: `${base}/video`, download: `${base}/video?download=1`, thumbnail: `${base}/thumbnail`, metadata: `${base}/metadata` }, ...o,
   };
 };
 let items: ArchiveItem[] = [];
