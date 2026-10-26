@@ -32,7 +32,8 @@ jobs:
       - run: npm run build
       - run: npm run check
       # Template errors in .svelte files (tsc doesn't read them). Pinned; run
-      # through npx because svelte-check doesn't accept TypeScript 7 yet.
+      # through npx because svelte-check doesn't accept TypeScript 7 yet, with
+      # the lockfile's svelte (scripts/check-svelte.sh).
       - run: npm run check:svelte
       - run: npm audit --audit-level=high
 
