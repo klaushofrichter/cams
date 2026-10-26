@@ -16,7 +16,7 @@ import { makeThumbnail } from './thumbnail';
 import { Semaphore } from '../reolink/semaphore';
 import { findProxyClip, findProxyStill, openProxyClip, openProxyStill } from './proxyClips';
 import { cardEvents, proxyCardEvents, thumbPlan } from './detection';
-import { RecordingError } from './errors';
+import { abortError, RecordingError } from './errors';
 import { fallsBack, headProxyRecording, listProxyDays, listProxyDay, logProxyFailure, openProxyRecording, type ProxyRecording } from './proxyRecordings';
 import { ProxyError } from '../proxy/client';
 import { camsIdOf, fileSafe, type CamKey } from '../fleet';
@@ -106,12 +106,6 @@ function perCamera<T>(make: () => T): (cameraId: CamKey) => T {
     if (v === undefined) values.set(cameraId, (v = make()));
     return v;
   };
-}
-
-function abortError(): Error {
-  const err = new Error('aborted');
-  err.name = 'AbortError';
-  return err;
 }
 
 // Real-time order, not string order: on the fall-back night, a clip at

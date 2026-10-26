@@ -6,3 +6,10 @@ export class RecordingError extends Error {
     this.name = 'RecordingError';
   }
 }
+
+// What an aborted wait rejects with (callers test name === 'AbortError').
+export function abortError(): Error {
+  const err = new Error('aborted');
+  err.name = 'AbortError';
+  return err;
+}

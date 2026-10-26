@@ -1,14 +1,10 @@
+import { abortError } from './errors';
+
 // A concurrency gate whose queue serves high-priority work first. Recording
 // transfers use it so a clip someone is waiting to watch isn't stuck behind a
 // page's worth of thumbnail fetches (the camera sends ~150 KB/s, one transfer
 // at a time). A queued entry can be promoted by key when someone starts
 // waiting on it directly.
-function abortError(): Error {
-  const err = new Error('aborted');
-  err.name = 'AbortError';
-  return err;
-}
-
 interface Waiter {
   start: () => void;
   high: boolean;
