@@ -399,10 +399,6 @@ export class RecordingsService {
     return cacheName(cameraId, `${clipId}.${ext}`);
   }
 
-  // Pins the clip's cached sub-stream file for as long as `use` needs it:
-  // pinned BEFORE fill() starts and unpinned only once `use` is done, so a
-  // concurrent evict() from another key filling at the same time can never
-  // remove this file out from under a reader.
   // The camera occasionally resets a Download before sending anything, and
   // the same request succeeds moments later: retry that case once.
   private async downloadWithRetry(cameraId: CamKey, name: string, signal?: AbortSignal): Promise<IncomingMessage> {
@@ -556,6 +552,11 @@ export class RecordingsService {
     return path;
   }
 
+  // Pins the clip's cached sub-stream file for as long as `use` needs it:
+  // pinned BEFORE fill() starts and unpinned only once `use` is done, so a
+  // concurrent evict() from another key filling at the same time can never
+  // remove this file out from under a reader.
+  //
   // `priority` 'high' is for someone waiting to watch the clip; thumbnails
   // pass 'low'. If a low-priority fetch of this clip is already queued, a
   // high-priority caller promotes it rather than waiting behind other clips.
