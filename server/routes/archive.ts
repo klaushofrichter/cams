@@ -13,7 +13,7 @@ import { CLIP_ID } from '../recordings/clipNames';
 import { RecordingError } from '../recordings/errors';
 import { getRecordings } from '../recordings/service';
 import { startedComposition } from './compose';
-import { knownCamera, sessionAccount } from './common';
+import { badRequest, knownCamera, proxyFailed, readJson, sessionAccount } from './common';
 import { relayImage } from './proxy';
 
 // The Archive (cam-proxy's archive contract, docs/archive.md there; cams spec
@@ -23,7 +23,6 @@ import { relayImage } from './proxy';
 // no request value becomes a proxy path unchecked (CodeQL js/request-forgery).
 export const archiveRouter = Router();
 
-const bad = (res: Response, detail: string) => void res.status(400).json({ error: 'invalid', detail });
 const who = (req: Request) => onBehalfOf(currentUser(req)?.email);
 // The statuses the contract answers with; anything else is the gateway failing.
 const PASSED = new Set([400, 404, 409, 429, 503, 507]);
@@ -31,20 +30,7 @@ const PASSED = new Set([400, 404, 409, 429, 503, 507]);
 const FAILED_STATUS = new Set([404, 409, 500, 502, 503, 507]);
 
 function failed(err: unknown, res: Response, what: string): void {
-  if (res.destroyed) return;
-  if (!(err instanceof ProxyError)) throw err;
-  logger.warn({ code: err.code, message: err.message, what }, 'archive_proxy_failed');
-  if (!res.headersSent) res.status(502).json({ error: 'proxy_unavailable' });
-  else res.destroy();
-}
-
-async function readJson(up: globalThis.Response): Promise<unknown> {
-  const t = await up.text();
-  try {
-    return t ? (JSON.parse(t) as unknown) : null;
-  } catch {
-    return null;
-  }
+  proxyFailed(err, res, 'archive_proxy_failed', { what });
 }
 
 // A refused request as the browser gets it: the contract's statuses and fields.
@@ -87,7 +73,7 @@ function proxyOf(req: Request, res: Response): ArchiveProxy | undefined {
 // :id as a number (the proxy path is built from it), or 400.
 function itemId(req: Request, res: Response): number | undefined {
   const s = String(req.params.id); // isolation-ok: an archive item number, not a camera
-  if (!/^\d{1,12}$/.test(s) || Number(s) < 1) return void bad(res, 'an item id is a whole number');
+  if (!/^\d{1,12}$/.test(s) || Number(s) < 1) return void badRequest(res, 'an item id is a whole number');
   return Number(s);
 }
 
@@ -113,9 +99,9 @@ archiveRouter.post('/api/cameras/:id/archive', createArchiveRateLimit('create'),
   if (!target) return void res.status(404).json({ error: 'no_proxy' });
   const b = (req.body ?? {}) as CreateBody;
   const out = editFields(b);
-  if (typeof out === 'string') return bad(res, out);
+  if (typeof out === 'string') return badRequest(res, out);
   if (b.thumbnailAt !== undefined) {
-    if (!Number.isSafeInteger(b.thumbnailAt) || (b.thumbnailAt as number) < 0) return bad(res, 'thumbnailAt is unix ms');
+    if (!Number.isSafeInteger(b.thumbnailAt) || (b.thumbnailAt as number) < 0) return badRequest(res, 'thumbnailAt is unix ms');
     out.thumbnailAt = b.thumbnailAt;
   }
   const s = b.source ?? {};
@@ -126,8 +112,8 @@ archiveRouter.post('/api/cameras/:id/archive', createArchiveRateLimit('create'),
     out.source = { type: 'composition', id: job };
   } else if (s.type === 'event') {
     // A plain save (SD or 4K as recorded): the file the download would serve.
-    if (typeof s.eventId !== 'string' || !CLIP_ID.test(s.eventId)) return bad(res, 'eventId is a recording');
-    if (s.quality !== 'sub' && s.quality !== 'main') return bad(res, 'quality is sub or main');
+    if (typeof s.eventId !== 'string' || !CLIP_ID.test(s.eventId)) return badRequest(res, 'eventId is a recording');
+    if (s.quality !== 'sub' && s.quality !== 'main') return badRequest(res, 'quality is sub or main');
     try {
       const src = await getRecordings().archiveSource(cam, s.eventId, s.quality);
       if (!src) return void res.status(409).json({ error: s.quality === 'main' ? 'full_quality_unavailable' : 'no_recording' });
@@ -137,7 +123,7 @@ archiveRouter.post('/api/cameras/:id/archive', createArchiveRateLimit('create'),
       logger.warn({ cameraId: cam, message: (err as Error).message }, 'archive_source_failed');
       return void res.status(502).json({ error: 'proxy_unavailable' });
     }
-  } else return bad(res, 'source is a composition or an event');
+  } else return badRequest(res, 'source is a composition or an event');
   try {
     // The proxy waits up to 3 s for the job before answering 202.
     const up = await target.proxy.client.open(`/api/cameras/${encodeURIComponent(target.remote)}/archive`, undefined, { method: 'POST', body: JSON.stringify(out), headers: who(req), timeoutMs: 30_000 });
@@ -276,7 +262,7 @@ async function listProxy(p: ArchiveProxy, query: Record<string, string>): Promis
 archiveRouter.get('/api/archive', async (req, res) => {
   const account = sessionAccount(req, res).id;
   const q = listQuery(req, account);
-  if (typeof q === 'string') return bad(res, q);
+  if (typeof q === 'string') return badRequest(res, q);
   let proxies = archiveProxies(account);
   if (q.cam) proxies = proxies.filter((p) => p.cams.includes(q.cam!));
   const lists = await Promise.all(
@@ -328,8 +314,8 @@ archiveRouter.patch('/api/archive/:via/items/:id', async (req, res) => {
   if (!p || !id) return;
   const b = (req.body ?? {}) as { name?: unknown; labels?: unknown; retentionDays?: unknown };
   const out = editFields(b);
-  if (typeof out === 'string') return bad(res, out);
-  if (!Object.keys(out).length) return bad(res, 'name, labels or retentionDays');
+  if (typeof out === 'string') return badRequest(res, out);
+  if (!Object.keys(out).length) return badRequest(res, 'name, labels or retentionDays');
   try {
     const up = await p.client.open(`/api/archive/${id}`, undefined, { method: 'PATCH', body: JSON.stringify(out), headers: who(req) });
     if (!up.ok) return void (await passRefusal(up, res));
@@ -366,7 +352,7 @@ archiveRouter.post('/api/archive/:via/delete', async (req, res) => {
   const p = proxyOf(req, res);
   if (!p) return;
   const ids = idList((req.body as { ids?: unknown } | undefined)?.ids, 500);
-  if (typeof ids === 'string') return bad(res, ids);
+  if (typeof ids === 'string') return badRequest(res, ids);
   try {
     const up = await p.client.open('/api/archive/delete', undefined, { method: 'POST', body: JSON.stringify({ ids }), headers: who(req) });
     if (!up.ok) return void (await passRefusal(up, res));
@@ -493,7 +479,7 @@ archiveRouter.get('/api/archive/:via/zip', createArchiveRateLimit('zip'), async 
   const p = proxyOf(req, res);
   if (!p) return;
   const ids = idList(req.query.ids, 200);
-  if (typeof ids === 'string') return bad(res, ids);
+  if (typeof ids === 'string') return badRequest(res, ids);
   try {
     // A ZIP of many 4K clips takes long: no idle cut while the proxy sends.
     const up = await p.client.open('/api/archive/zip', { ids: ids.join(',') }, { signal: viewerGone(res), idleMs: 60_000, timeoutMs: 60_000 });

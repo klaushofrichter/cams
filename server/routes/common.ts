@@ -3,7 +3,7 @@ import { resolveCamera } from '../cameraRegistry';
 import { camsIdOf, type AccountRef, type CamKey } from '../fleet';
 import type { Principal } from '../middleware/requireAuth';
 import { logger } from '../logger';
-import { getProxyClient, type ProxyClient } from '../proxy/client';
+import { getProxyClient, ProxyError, type ProxyClient } from '../proxy/client';
 import { CameraError } from '../reolink/client';
 
 // Helpers shared by the /api/cameras/:id routers.
@@ -68,4 +68,28 @@ export function sendFileQuietly(req: Request, res: Response, path: string, opts:
       else resolve();
     });
   });
+}
+
+// A request that fails validation: 400 invalid with a detail for the developer.
+export const badRequest = (res: Response, detail: string): void => void res.status(400).json({ error: 'invalid', detail });
+
+// A cam-proxy call that failed: 502 proxy_unavailable (or the response cut
+// once headers are out), logged as `event` with `fields`. Anything but a
+// ProxyError is rethrown; a viewer who already left gets nothing.
+export function proxyFailed(err: unknown, res: Response, event: string, fields: Record<string, unknown> = {}): void {
+  if (res.destroyed) return;
+  if (!(err instanceof ProxyError)) throw err;
+  logger.warn({ ...fields, code: err.code, message: err.message }, event);
+  if (!res.headersSent) res.status(502).json({ error: 'proxy_unavailable' });
+  else res.destroy();
+}
+
+// A proxy answer's JSON body; null when it is empty or not JSON.
+export async function readJson(up: globalThis.Response): Promise<unknown> {
+  const text = await up.text();
+  try {
+    return text ? (JSON.parse(text) as unknown) : null;
+  } catch {
+    return null;
+  }
 }

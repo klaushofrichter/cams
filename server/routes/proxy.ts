@@ -9,7 +9,7 @@ import { proxyHub, startProxyStream, stopProxyStream } from '../proxy/stream';
 import { parseObjects, parseSummary } from '../proxy/analyses';
 import { groupTrustOptions, ProxyClient, ProxyError, proxyPath } from '../proxy/client';
 import { entryOf, readProxyList, type ProxyCameraEntry } from '../proxy/cameraList';
-import { knownCamera, outId, proxyTarget } from './common';
+import { badRequest, knownCamera, outId, proxyFailed, proxyTarget } from './common';
 import { accountIdOf, type CamKey } from '../fleet';
 
 // Stills and preview sprites from a camera's cam-proxy, for the Timeline
@@ -17,7 +17,6 @@ import { accountIdOf, type CamKey } from '../fleet';
 export const proxyRouter = Router();
 
 const DAY = 86_400_000;
-const bad = (res: Response, detail: string) => void res.status(400).json({ error: 'invalid', detail });
 
 // A camera with a cam-proxy in use: its client, the proxy's id for it
 // (encoded) and cams's own URL base for it.
@@ -41,7 +40,7 @@ proxyRouter.put('/api/cameras/:id/proxy', async (req: Request, res: Response) =>
   if (!c) return;
   const { id } = c;
   const enabled = (req.body as { enabled?: unknown } | undefined)?.enabled;
-  if (typeof enabled !== 'boolean') return bad(res, 'enabled must be true or false');
+  if (typeof enabled !== 'boolean') return badRequest(res, 'enabled must be true or false');
   await setProxyEnabled(id, enabled);
   if (enabled) startProxyStream(id);
   else {
@@ -114,20 +113,17 @@ proxyRouter.post('/api/cameras/:id/proxy/login-link', async (req: Request, res: 
 
 function range(req: Request, res: Response): [number, number] | undefined {
   const from = String(req.query.from ?? ''), to = String(req.query.to ?? '');
-  if (!/^\d{1,15}$/.test(from) || !/^\d{1,15}$/.test(to) || Number(to) < Number(from)) return bad(res, 'from and to (unix ms) are required'), undefined;
-  if (Number(to) - Number(from) > DAY) return bad(res, 'at most one day per request'), undefined;
+  if (!/^\d{1,15}$/.test(from) || !/^\d{1,15}$/.test(to) || Number(to) < Number(from)) return badRequest(res, 'from and to (unix ms) are required'), undefined;
+  if (Number(to) - Number(from) > DAY) return badRequest(res, 'at most one day per request'), undefined;
   return [Number(from), Number(to)];
 }
 
-function proxyFailed(err: unknown, id: CamKey, res: Response): void {
+function failed(err: unknown, id: CamKey, res: Response): void {
   // The browser left (a tile scrolled away, a page closed): nothing to answer.
   if (res.destroyed) return;
-  if (!(err instanceof ProxyError)) throw err;
   // The proxy keeps no stills (stills.enabled false): say so, not "not reachable" (issue #38).
-  if (err.status === 404 && err.upstream === 'stills_disabled' && !res.headersSent) return void res.status(404).json({ error: 'stills_disabled' });
-  logger.warn({ cameraId: id, code: err.code, message: err.message }, 'proxy_request_failed');
-  if (!res.headersSent) res.status(502).json({ error: 'proxy_unavailable' });
-  else res.destroy();
+  if (err instanceof ProxyError && err.status === 404 && err.upstream === 'stills_disabled' && !res.headersSent) return void res.status(404).json({ error: 'stills_disabled' });
+  proxyFailed(err, res, 'proxy_request_failed', { cameraId: id });
 }
 
 // A minute with missing tiles may still be collected: cam-proxy composes its
@@ -151,7 +147,7 @@ proxyRouter.get('/api/cameras/:id/previews', async (req: Request, res: Response)
     const ok = (Array.isArray(list) ? list : []).filter((m): m is { minute: number; url: string; present?: unknown } => Number.isSafeInteger(m?.minute) && (m.minute as number) % 60_000 === 0);
     res.json(ok.map((m) => ({ ...m, url: `${p.base}/previews/${m.minute}.jpg${spriteVersion(m.present)}` })));
   } catch (err) {
-    proxyFailed(err, p.id, res);
+    failed(err, p.id, res);
   }
 });
 
@@ -162,14 +158,14 @@ proxyRouter.get('/api/cameras/:id/stills', async (req: Request, res: Response) =
   try {
     res.json(await p.client.json<number[]>(proxyPath(p.id, '/stills'), { from: r[0], to: r[1] }));
   } catch (err) {
-    proxyFailed(err, p.id, res);
+    failed(err, p.id, res);
   }
 });
 
 // One analysis in full, for the Timeline's "Show all objects": the summary
 // and every object, never the provider's raw answer.
 proxyRouter.get('/api/cameras/:id/analyses/:eventId', async (req: Request, res: Response) => {
-  if (!/^\d{1,12}$/.test(String(req.params.eventId))) return bad(res, 'an event id is a number');
+  if (!/^\d{1,12}$/.test(String(req.params.eventId))) return badRequest(res, 'an event id is a number');
   const p = proxied(req, res);
   if (!p) return;
   const eventId = Number(req.params.eventId);
@@ -184,7 +180,7 @@ proxyRouter.get('/api/cameras/:id/analyses/:eventId', async (req: Request, res: 
     });
   } catch (err) {
     if (err instanceof ProxyError && err.status === 404 && !res.headersSent) return void res.status(404).json({ error: 'not_found' });
-    proxyFailed(err, p.id, res);
+    failed(err, p.id, res);
   }
 });
 
@@ -206,7 +202,7 @@ export async function relayImage(res: Response, client: ProxyClient, path: strin
 for (const kind of ['previews', 'stills'] as const) {
   proxyRouter.get(`/api/cameras/:id/${kind}/:file`, async (req: Request, res: Response) => {
     const m = /^(\d{1,15})\.jpg$/.exec(String(req.params.file));
-    if (!m) return bad(res, 'an image is <unix ms>.jpg');
+    if (!m) return badRequest(res, 'an image is <unix ms>.jpg');
     const p = proxied(req, res);
     if (!p) return;
     // The proxy path is built from the parsed number, never the raw parameter.
@@ -214,7 +210,7 @@ for (const kind of ['previews', 'stills'] as const) {
     try {
       await relayImage(res, p.client, proxyPath(p.id, `/${kind}/${ts}.jpg`), (up) => ({ 'Cache-Control': up.headers.get('cache-control') ?? 'no-store' }));
     } catch (err) {
-      proxyFailed(err, p.id, res);
+      failed(err, p.id, res);
     }
   });
 }
@@ -231,6 +227,6 @@ proxyRouter.get('/api/cameras/:id/still/latest.jpg', async (req: Request, res: R
     if (ts === undefined) return void res.status(404).json({ error: 'not_found' });
     await relayImage(res, p.client, proxyPath(p.id, `/stills/${ts}.jpg`), () => ({ 'Cache-Control': 'no-store', 'X-Still-Time': String(ts) }));
   } catch (err) {
-    proxyFailed(err, p.id, res);
+    failed(err, p.id, res);
   }
 });
