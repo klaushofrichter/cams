@@ -26,8 +26,8 @@ const intEnv = (name: string, def: number, min: number, max: number) => {
   const v = Number(process.env[name]);
   return Number.isInteger(v) && v >= min && v <= max ? v : def;
 };
-export const rotateDays = () => intEnv('TOKEN_ROTATE_DAYS', 90, 1, 365);
-export const retireHours = () => intEnv('TOKEN_RETIRE_HOURS', 24, 1, 168);
+const rotateDays = () => intEnv('TOKEN_ROTATE_DAYS', 90, 1, 365);
+const retireHours = () => intEnv('TOKEN_RETIRE_HOURS', 24, 1, 168);
 
 const hashOf = (token: string) => `sha256:${createHash('sha256').update(token).digest('hex')}`;
 const newToken = () => randomBytes(32).toString('base64url');

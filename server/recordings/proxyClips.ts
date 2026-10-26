@@ -1,6 +1,7 @@
-import { Readable } from 'stream';
+import type { Readable } from 'stream';
 import { getProxyClient, proxyPath, requireProxyClient } from '../proxy/client';
 import type { CamKey } from '../fleet';
+import { contentLength, nodeBody } from '../httpBody';
 
 // A camera's recording from its cam-proxy (Plan 6): the clip the camera
 // uploaded by FTP that covers the event's start, when the camera itself
@@ -34,8 +35,7 @@ export async function openProxyClip(cameraId: CamKey, id: number, signal?: Abort
     await res.body?.cancel();
     throw new Error(`cam-proxy ${client.host()} answered ${res.status} for clip ${id}`);
   }
-  const cl = res.headers.get('content-length');
-  return { stream: Readable.fromWeb(res.body as import('stream/web').ReadableStream), size: cl && /^\d+$/.test(cl) ? Number(cl) : null };
+  return { stream: nodeBody(res), size: contentLength(res.headers.get('content-length')) };
 }
 
 // The first still the proxy has in [from, to] (unix ms), for thumbnails.
@@ -54,5 +54,5 @@ export async function openProxyStill(cameraId: CamKey, ts: number): Promise<Read
     await res.body?.cancel();
     throw new Error(`cam-proxy ${client.host()} answered ${res.status} for still ${ts}`);
   }
-  return Readable.fromWeb(res.body as import('stream/web').ReadableStream);
+  return nodeBody(res);
 }

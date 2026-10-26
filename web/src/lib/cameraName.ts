@@ -1,5 +1,5 @@
 import { cameras } from './stores';
-import { putJson } from './settings';
+import { putJson } from './api';
 
 // The camera's name (design camera-name-design.md): the camera stores it,
 // cams shows it and renames it. The rules are the server's own module

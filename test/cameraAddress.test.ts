@@ -15,6 +15,7 @@ import { SESSION_COOKIE, signSession } from '../server/session';
 import { FAKE_TOKEN, startFakeProxy, type FakeProxy } from './proxy/fakeProxy';
 import { k } from './helpers/fleet';
 import { fileAccount } from '../server/fleet';
+import { until } from './helpers/wait';
 
 // Spec 2026-10-04-camera-address-from-proxy-design: a camera with
 // "host": "from-proxy" is reached at the address its cam-proxy reports.
@@ -27,14 +28,6 @@ afterEach(async () => {
   resetClients();
   resetProxyClients();
 });
-
-async function until(cond: () => boolean, ms = 5000): Promise<void> {
-  const t0 = Date.now();
-  while (!cond()) {
-    if (Date.now() - t0 > ms) throw new Error('timed out');
-    await new Promise((r) => setTimeout(r, 20));
-  }
-}
 
 const dir = mkdtempSync(join(tmpdir(), 'cams-addr-'));
 const file = (name: string, v: unknown) => {

@@ -36,14 +36,14 @@ function eventFilterOf(v: unknown): EventKind[] | null {
 // 12 h; 10 min and 1 min added). A 12 h saved earlier, or sent by a page
 // loaded before that, is taken as 6 h. Matched within a hair, since 1/6 and
 // 1/60 are no exact decimals.
-export const TIMELINE_ZOOMS = [24, 6, 3, 1, 0.5, 1 / 6, 1 / 60] as const;
+const TIMELINE_ZOOMS = [24, 6, 3, 1, 0.5, 1 / 6, 1 / 60] as const;
 function timelineZoomOf(v: unknown): number | null {
   if (v === 12) return 6;
   if (typeof v !== 'number') return null;
   return TIMELINE_ZOOMS.find((z) => Math.abs(z - v) < 1e-6) ?? null;
 }
 
-export const KEEP_ALIVE_CHOICES = [0, 30, 60, 120, 300, 900] as const;
+const KEEP_ALIVE_CHOICES = [0, 30, 60, 120, 300, 900] as const;
 export const DEFAULT_PREFERENCES: Preferences = { defaultCamera: null, lastCamera: null, liveQuality: 'sub', eventFilter: ['person', 'vehicle', 'pet', 'motion'], timelineZoom: 24, liveKeepAlive: 60, liveEvents: true, liveEventTypes: ['person', 'vehicle', 'pet', 'motion'] };
 
 const file = () => process.env.PREFS_FILE || join(tmpdir(), 'cams-preferences.json');

@@ -1,5 +1,4 @@
 import { Router, type Request, type Response } from 'express';
-import { Readable } from 'stream';
 import { pipeline } from 'stream/promises';
 import { aroundLength, generateMaxS, resultLength } from '../clipLimits';
 import { logger } from '../logger';
@@ -9,6 +8,7 @@ import { getRecordings } from '../recordings/service';
 import { getClient } from '../reolink/clients';
 import { knownCamera, proxyTarget } from './common';
 import { camsIdOf, type CamKey } from '../fleet';
+import { nodeBody } from '../httpBody';
 
 // Composed clips (cam-proxy spec 2026-09-28): the Downloads modal's calls,
 // passed to the camera's cam-proxy with its token.
@@ -216,7 +216,7 @@ composeRouter.get('/api/cameras/:id/compositions/:job/video', async (req, res) =
     if (len && /^\d+$/.test(len)) res.setHeader('Content-Length', len);
     const cr = up.headers.get('content-range');
     if (cr && /^bytes \d+-\d+\/\d+$/.test(cr)) res.setHeader('Content-Range', cr);
-    await pipeline(Readable.fromWeb(up.body as import('stream/web').ReadableStream), res);
+    await pipeline(nodeBody(up), res);
   } catch (err) {
     failed(err, res);
   }

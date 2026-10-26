@@ -107,7 +107,7 @@ export function expiresText(expiresAt: number | null, now: number): string {
 }
 
 export const durationText = (s: number) => formatSeconds(Math.max(0, Math.round(s)));
-export const QUALITY_LABELS: Record<string, string> = { '360p': '360p', sd: 'SD', '720p': '720p', '1080p': '1080p', '4k': '4K' };
+const QUALITY_LABELS: Record<string, string> = { '360p': '360p', sd: 'SD', '720p': '720p', '1080p': '1080p', '4k': '4K' };
 export const qualityText = (q: string) => QUALITY_LABELS[q] ?? q;
 // "2026-10-05 14:03:22", the viewer's clock.
 export const dateTime = (t: number) => `${localDate(new Date(t))} ${formatClock(t)}`;
@@ -193,7 +193,7 @@ export async function patchItem(item: Pick<ArchiveItem, 'via' | 'id'>, patch: Pa
 }
 
 // The items per proxy, in the given order.
-export function byProxy<T extends Pick<ArchiveItem, 'via'>>(items: T[]): Map<string, T[]> {
+function byProxy<T extends Pick<ArchiveItem, 'via'>>(items: T[]): Map<string, T[]> {
   const m = new Map<string, T[]>();
   for (const x of items) m.set(x.via, [...(m.get(x.via) ?? []), x]);
   return m;
@@ -239,7 +239,7 @@ export function zipUrls(items: ArchiveItem[]): string[] {
 // `n` new downloads waits so that no 60 s window holds more than 4 starts,
 // given the starts before (unix ms). A second's margin. A refused ZIP would
 // be saved as a file holding the refusal, so they are spaced, never refused.
-export const ZIPS_PER_MIN = 4;
+const ZIPS_PER_MIN = 4;
 export function zipDelays(started: number[], n: number, now: number): number[] {
   const times = [...started].sort((a, b) => a - b);
   const out: number[] = [];

@@ -132,7 +132,7 @@ export function parseMove(v: unknown): ArchiveMove | null {
   return { moveId: m.moveId, from: peerName(m.from), to: peerName(m.to), at: m.at, kept: m.kept === true, reason };
 }
 
-export const itemBase = (via: string, id: number) => `/api/archive/${encodeURIComponent(via)}/items/${id}`;
+const itemBase = (via: string, id: number) => `/api/archive/${encodeURIComponent(via)}/items/${id}`;
 
 // An item from the proxy, or null when it isn't one.
 export function parseItem(x: unknown, proxy: Pick<ArchiveProxy, 'via' | 'toCams'>): ArchiveItem | null {

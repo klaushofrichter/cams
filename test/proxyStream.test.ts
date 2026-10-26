@@ -9,19 +9,12 @@ import { getAnalysisStore, resetAnalysisStore } from '../server/proxy/analyses';
 import { SESSION_COOKIE, signSession } from '../server/session';
 import { FAKE_TOKEN, startFakeProxy, type FakeProxy } from './proxy/fakeProxy';
 import { k } from './helpers/fleet';
+import { until } from './helpers/wait';
 
 const cleanup: (() => unknown)[] = [];
 afterEach(async () => {
   for (const f of cleanup.splice(0).reverse()) await f();
 });
-
-async function until(cond: () => boolean, ms = 5000): Promise<void> {
-  const t0 = Date.now();
-  while (!cond()) {
-    if (Date.now() - t0 > ms) throw new Error('timed out');
-    await new Promise((r) => setTimeout(r, 20));
-  }
-}
 
 async function fakeProxy(): Promise<FakeProxy> {
   const fake = await startFakeProxy();

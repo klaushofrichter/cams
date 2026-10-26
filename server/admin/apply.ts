@@ -73,7 +73,7 @@ export function proxyTrustOf(p: SnapProxy | undefined): ProxyTrust {
   };
 }
 
-export function offeredValues(c: SnapCamera, p: SnapProxy | undefined): TrustValues {
+function offeredValues(c: SnapCamera, p: SnapProxy | undefined): TrustValues {
   return {
     ...proxyTrustOf(p),
     host: c.host,

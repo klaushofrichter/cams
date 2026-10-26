@@ -123,9 +123,9 @@ describe('the minute view (spec 2026-09-30-analytics-in-cams-design)', () => {
   it('marks a minute with its card count and with a still that found something', () => {
     const found = card(M, M + 30_000, ['person'], [{ eventId: 1, stillTs: M + 20_000, n: 1 }]);
     const nothing = card(M + 40_000, M + 50_000, ['person'], [{ eventId: 2, stillTs: M + 41_000, n: 0 }]);
-    expect(minuteIndex([minute], [found, nothing]).get(M)).toMatchObject({ count: 2, analysed: true });
-    expect(minuteIndex([minute], [nothing]).get(M)).toMatchObject({ count: 1, analysed: false });
-    expect(minuteIndex([{ minute: M + 60_000 }], [found]).get(M + 60_000)).toMatchObject({ count: 0, analysed: false }); // the still's minute only
+    expect(minuteIndex([minute], [found, nothing]).get(M)).toMatchObject({ cards: { length: 2 }, analysed: true });
+    expect(minuteIndex([minute], [nothing]).get(M)).toMatchObject({ cards: { length: 1 }, analysed: false });
+    expect(minuteIndex([{ minute: M + 60_000 }], [found]).get(M + 60_000)).toMatchObject({ cards: { length: 0 }, analysed: false }); // the still's minute only
   });
 
   it('does not count a card that ends exactly where the minute starts (issue #109)', () => {
@@ -146,7 +146,7 @@ describe('the minute view (spec 2026-09-30-analytics-in-cams-design)', () => {
     expect(tileIndex({ ...m(M), intervalS: 2 }, M + 21_000)).toBe(10);
   });
 
-  it('indexes the day once: per minute its cards, count, kind and Vision mark (issue #109)', () => {
+  it('indexes the day once: per minute its cards, kind and Vision mark (issue #109)', () => {
     const cards = [
       card(M - 30_000, M + 5000, ['motion']),
       card(M + 20_000, M + 70_000, ['person'], [{ eventId: 1, stillTs: M + 65_000, n: 1 }]),
@@ -154,10 +154,10 @@ describe('the minute view (spec 2026-09-30-analytics-in-cams-design)', () => {
     ];
     const idx = minuteIndex([{ minute: M - 60_000 }, { minute: M }, { minute: M + 60_000 }, { minute: M + 120_000 }], cards);
     const [a, b, c] = cards;
-    expect(idx.get(M - 60_000)).toEqual({ cards: [a], kind: 'motion', count: 1, analysed: false });
-    expect(idx.get(M)).toEqual({ cards: [a, b], kind: 'person', count: 2, analysed: false });
-    expect(idx.get(M + 60_000)).toEqual({ cards: [b, c], kind: 'person', count: 2, analysed: true });
-    expect(idx.get(M + 120_000)).toEqual({ cards: [], kind: null, count: 0, analysed: false });
+    expect(idx.get(M - 60_000)).toEqual({ cards: [a], kind: 'motion', analysed: false });
+    expect(idx.get(M)).toEqual({ cards: [a, b], kind: 'person', analysed: false });
+    expect(idx.get(M + 60_000)).toEqual({ cards: [b, c], kind: 'person', analysed: true });
+    expect(idx.get(M + 120_000)).toEqual({ cards: [], kind: null, analysed: false });
     for (const x of [M - 60_000, M, M + 60_000]) expect(idx.get(x)?.cards).toEqual(cardsInMinute({ minute: x }, cards));
   });
 

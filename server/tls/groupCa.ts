@@ -1,4 +1,5 @@
 import type { Dispatcher } from 'undici';
+import { logger } from '../logger';
 import type { ProxyGroup } from '../proxy/groups';
 import { fetchPinnedCa, siteCaDispatcher } from './siteCa';
 import { addVerifiedCa, trustEvents, verifiedCas } from './store';
@@ -30,6 +31,15 @@ export function ensureGroupCa(g: ProxyGroup, o: { force?: boolean } = {}): Promi
     inflight.set(g.key, p);
   }
   return p;
+}
+
+// ensureGroupCa for a caller that goes on without it: a failure is logged
+// (proxy_site_ca_unverified), never thrown.
+export function verifyGroupCa(g: ProxyGroup): Promise<void> {
+  return ensureGroupCa(g).then(
+    () => undefined,
+    (err: unknown) => logger.warn({ proxy: new URL(g.url).host, message: (err as Error).message }, 'proxy_site_ca_unverified'),
+  );
 }
 
 // The dispatcher for an https proxy with a pinned site CA; undefined for any

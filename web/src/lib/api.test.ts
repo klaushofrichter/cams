@@ -5,6 +5,7 @@ import {
   checkSession,
   getJson,
   HttpError,
+  putJson,
   renewalUrl,
   resetSessionState,
   safeReturnPath,
@@ -13,7 +14,6 @@ import {
   UnauthorizedError,
   watchMediaErrors,
 } from './api';
-import { putJson } from './settings';
 
 // An expired session (issue #153, R2): a silent renewal back to the same
 // page, else the start page; once per page load, never in a loop.

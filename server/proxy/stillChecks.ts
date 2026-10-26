@@ -85,7 +85,7 @@ const FAIL_TTL = 30_000;
 // events' store: a day fetched while it goes on is kept a minute, a past one
 // an hour; a failed fetch is not repeated for 30 s; a `still-check` message
 // drops the camera's days.
-export class CheckStore {
+class CheckStore {
   private days = new Map<string, { at: number; list: StillCheck[] }>();
   private inflight = new Map<string, Promise<StillCheck[]>>();
   private failed = new Map<string, number>();

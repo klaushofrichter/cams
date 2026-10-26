@@ -118,7 +118,7 @@ function proxyToken(accountId: string, proxy: SnapProxy | undefined, camsId: str
   return { token, ...(adminToken && { adminToken }) };
 }
 
-export function applyContext(): ApplyContext {
+function applyContext(): ApplyContext {
   return {
     credentials: credentialsFor,
     proxyToken,
@@ -243,7 +243,6 @@ function ensureTokens(): Promise<void> {
   });
   return mine.ensuring;
 }
-export const ensureTokensNow = (): Promise<void> => ensureTokens();
 
 // At most one report per 60 s, at once when urgent (a held change
 // confirmed or kept); one at start.

@@ -78,6 +78,40 @@ describe('Timeline', () => {
     expect(target.querySelectorAll('[data-testid="timeline-minute"]').length).toBe(1);
   });
 
+  // Pins the open minute's per-second colours: the most specific card
+  // covering each second, cards of other minutes ignored.
+  it('colours the open minute\'s seconds by the cards covering them', async () => {
+    const iso = (t: number) => new Date(t).toISOString();
+    const ev = (id: string, s: number, e: number, triggers: string[]) => ({ id, start: iso(s), end: iso(e), durationSec: (e - s) / 1000, triggers, sizeSub: 1, sizeMain: 1 });
+    const events = [
+      ev('a', minute - 30_000, minute + 2000, ['person']),
+      ev('b', minute, minute + 10_000, ['motion']),
+      ev('c', minute + 5000, minute + 7000, ['vehicle']),
+      ev('d', minute - 180_000, minute - 170_000, ['pet']),
+    ];
+    vi.stubGlobal('IntersectionObserver', class { observe() {} disconnect() {} });
+    vi.stubGlobal('fetch', async (url: string) => {
+      if (url.includes('/previews?')) return json([{ minute, cols: 10, rows: 6, tileW: 160, tileH: 90, intervalS: 1, present: Array(60).fill(true), url: `/x/${minute}.jpg` }]);
+      if (url.includes('/stills?')) return json([minute]);
+      if (url.includes('/events?')) return json({ events: new URL(url, 'http://x').searchParams.get('date') === localDate(new Date(minute)) ? events : [] });
+      return json({});
+    });
+    cameras.set([{ id: 'den', name: 'Den', webUiUrl: null, proxy: true }]);
+    selectedCameraId.set('den');
+    sessionStorage.clear();
+    history.replaceState(null, '', '/app/timeline');
+    saveViewPoint('den', minute);
+    target = document.createElement('div');
+    document.body.appendChild(target);
+    component = mount(Timeline, { target });
+    for (let i = 0; i < 8; i++) await tick();
+    flushSync();
+    const seconds = [...target.querySelectorAll('[data-testid="timeline-second"]')];
+    expect(seconds).toHaveLength(60);
+    const kind = (i: number) => [...seconds[i].classList].find((c) => c.startsWith('ev-')) ?? null;
+    expect([0, 1, 2, 3, 4, 5, 6, 7, 9, 10, 11, 59].map(kind)).toEqual(['ev-person', 'ev-person', 'ev-person', 'ev-motion', 'ev-motion', 'ev-vehicle', 'ev-vehicle', 'ev-vehicle', 'ev-motion', 'ev-motion', null, null]);
+  });
+
   // Review of #109: the refresh no longer re-runs on a day change, so it must
   // not write its old day into the new one.
   it('drops a refresh that finishes after the day changed', async () => {
