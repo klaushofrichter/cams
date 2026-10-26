@@ -9,10 +9,10 @@
   import { cameras, cameraById, me, selectedCameraId } from '../lib/stores';
   import { showsAdminControls } from '../lib/session';
   import CameraLogin from '../components/CameraLogin.svelte';
-  import { getJson, HttpError } from '../lib/api';
+  import { getJson, HttpError, postJson, putJson } from '../lib/api';
   import { cameraKind, streamsText, WAITING_FOR_PROXY, type CameraStatus } from '../lib/liveUi';
   import {
-    diffPatch, FIELD_LABELS, OSD_POSITIONS, postJson, putJson,
+    diffPatch, FIELD_LABELS, OSD_POSITIONS,
     type DetectionSettings, type DeviceInfo, type ImageSettings, type SaveResult,
   } from '../lib/settings';
   import { preferences, preferencesFailed, savePreferences, type Preferences } from '../lib/preferences';

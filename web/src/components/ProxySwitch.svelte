@@ -2,8 +2,7 @@
   import { openProxyClick } from '../lib/proxyLink';
   import { cameras, cameraById, me } from '../lib/stores';
   import { showsAdminControls } from '../lib/session';
-  import { putJson } from '../lib/settings';
-  import { getJson } from '../lib/api';
+  import { getJson, putJson } from '../lib/api';
   import Icon from './Icon.svelte';
 
   // The "use cam-proxy" switch for one camera, for all users (Klaus,

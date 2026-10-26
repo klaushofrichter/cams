@@ -1,4 +1,3 @@
-import { apiFetch } from './api';
 
 export type Schedule = 'on' | 'off' | 'custom';
 export type AiKind = 'person' | 'vehicle' | 'pet';
@@ -57,25 +56,6 @@ export function diffPatch<T extends object>(original: T, edited: T): Partial<T> 
     }
   }
   return out as Partial<T>;
-}
-
-// Through apiFetch like getJson (see api.ts), so an expired session is
-// handled the same way for PUT and POST.
-async function bodyJson<T>(method: 'PUT' | 'POST', url: string, body: unknown): Promise<{ status: number; body: T }> {
-  const res = await apiFetch(url, {
-    method,
-    headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
-  });
-  return { status: res.status, body: (await res.json().catch(() => ({}))) as T };
-}
-
-export function putJson<T>(url: string, body: unknown): Promise<{ status: number; body: T }> {
-  return bodyJson<T>('PUT', url, body);
-}
-
-export function postJson<T>(url: string, body: unknown): Promise<{ status: number; body: T }> {
-  return bodyJson<T>('POST', url, body);
 }
 
 export const FIELD_LABELS: Record<string, string> = {
