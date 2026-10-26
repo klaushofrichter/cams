@@ -79,6 +79,7 @@
   // Real or simulated, and the streams (the camera's status, cached 10 min
   // by the server): the Live panel showed them before the Video page.
   let status: CameraStatus | null = $state(null);
+  let authFailed = $state(false);
   let seq = 0;
 
   $effect(() => {
@@ -86,6 +87,7 @@
     const mine = ++seq;
     detection = detectionEdit = image = imageEdit = device = null;
     status = null;
+    authFailed = false;
     // A switch to another camera must not carry over the previous camera's
     // errors, save states, or an open reboot-confirm step.
     detectionErrors = {};
@@ -111,7 +113,9 @@
       });
     getJson<CameraStatus>(`/api/cameras/${encodeURIComponent(id)}/status`)
       .then((st) => {
-        if (mine === seq && st.online) status = st;
+        if (mine !== seq) return;
+        if (st.online) status = st;
+        else authFailed = st.error === 'camera_auth_failed';
       })
       .catch(() => {});
     getJson<DeviceInfo>(`/api/cameras/${encodeURIComponent(id)}/device`)
@@ -340,7 +344,7 @@
       {/snippet}
     </SettingsCard>
 
-    {#if $selectedCameraId}<CameraLogin cameraId={$selectedCameraId} />{/if}
+    {#if $selectedCameraId}<CameraLogin cameraId={$selectedCameraId} {authFailed} />{/if}
     {#if $selectedCameraId}<CameraNameCard cameraId={$selectedCameraId} />{/if}
 
     <SettingsCard id="detection" title="Detection and recording" description={cameraName ? `What ${cameraName} records.` : ''}>

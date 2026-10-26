@@ -48,3 +48,15 @@ test('one account: straight in, no "Switch account"', async ({ page, context, ba
     await expect(page.getByTestId('switch-account')).toHaveCount(0);
   }
 });
+
+test('Settings: an admin can always change the camera password (the card is collapsed once one is saved)', async ({ page, context, baseURL }) => {
+  await signInAccount(context, baseURL!, ADMIN_USERS.alpha);
+  await page.goto('/app/settings');
+  await expect(page.getByTestId('camera-login')).toBeVisible();
+  const change = page.getByTestId('camera-password-change');
+  if (await change.count()) {
+    await expect(page.getByTestId('camera-password')).toHaveCount(0);
+    await change.click();
+  }
+  await expect(page.getByTestId('camera-password')).toHaveAttribute('autocomplete', 'new-password');
+});
