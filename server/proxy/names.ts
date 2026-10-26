@@ -49,7 +49,7 @@ async function readProxyEntry(id: CamKey, timeoutMs: number, maxAgeMs?: number):
 // The name and, for a "from-proxy" camera, its address (spec
 // 2026-10-04-camera-address-from-proxy-design): read when the stream comes up.
 // `fresh`: not from a list read in the last 2 s (a camera that just moved).
-export async function refreshProxyName(id: CamKey, o: { fresh?: boolean } = {}): Promise<void> {
+async function refreshProxyName(id: CamKey, o: { fresh?: boolean } = {}): Promise<void> {
   const mine = await readProxyEntry(id, 5000, o.fresh ? 0 : undefined);
   // The stream may have gone down (or the proxy been switched off) meanwhile.
   if (!mine || !proxyStates(accountIdOf(id)).some((s) => s.cam === id && s.up)) return;

@@ -44,7 +44,7 @@ export class TimeoutError extends Error {
   }
 }
 
-export function tlsOptions(trust: CameraTrust, timeoutMs: number): https.RequestOptions {
+function tlsOptions(trust: CameraTrust, timeoutMs: number): https.RequestOptions {
   switch (trust.kind) {
     case 'public':
       return { servername: trust.servername, rejectUnauthorized: true, ...(trust.ca && { ca: trust.ca }) };

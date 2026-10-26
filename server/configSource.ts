@@ -118,7 +118,7 @@ function proxyToken(accountId: string, proxy: SnapProxy | undefined, camsId: str
   return { token, ...(adminToken && { adminToken }) };
 }
 
-export function applyContext(): ApplyContext {
+function applyContext(): ApplyContext {
   return {
     credentials: credentialsFor,
     proxyToken,

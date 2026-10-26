@@ -88,7 +88,7 @@ export function affectedDays(cam: string, ts: number | null, cached: ReadonlyMap
 
 // Makes those days stale (cached or on their way) and tells the pages
 // showing them.
-export function invalidateDays(cam: string, ts: number | null): string[] {
+function invalidateDays(cam: string, ts: number | null): string[] {
   const days = affectedDays(cam, ts);
   for (const d of days) {
     const k = `${cam}|${d}`;
@@ -107,7 +107,7 @@ export function onDayInvalidated(fn: (cam: string, day: string) => void): () => 
 }
 
 // Wired to the app's event stream when it opens (eventStream()).
-export const DAY_CHANGES = ['analysis', 'still-check'];
+const DAY_CHANGES = ['analysis', 'still-check'];
 export function followDayChanges(stream: { onChange(fn: (c: Change) => void): () => void }): () => void {
   return stream.onChange((c) => {
     if (DAY_CHANGES.includes(c.type)) invalidateDays(c.cam, typeof c.ts === 'number' ? c.ts : null);

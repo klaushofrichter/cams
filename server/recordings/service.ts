@@ -135,7 +135,7 @@ export function pickStream(
 
 // A clip still being written is listed with end time 000000. Only a clip
 // that starts in the last minutes before midnight can really end at 000000.
-export function isStillRecording(p: ParsedClip): boolean {
+function isStillRecording(p: ParsedClip): boolean {
   return p.end === '000000' && p.start < '235500';
 }
 

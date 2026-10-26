@@ -68,7 +68,7 @@ function firstEndingAfter(runs: Run[], t: number): number {
   }
   return lo;
 }
-export function inMerged(runs: Run[], t: number): Run | null {
+function inMerged(runs: Run[], t: number): Run | null {
   const r = runs[firstEndingAfter(runs, t)];
   return r && t >= r.start ? r : null;
 }

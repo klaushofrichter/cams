@@ -21,7 +21,7 @@ const HINT_PATTERN = /^[^\s@,;"\\]{1,64}@[^\s@,;"\\]{1,190}$/;
 // callback with ?error=login_required (or similar), which lands on the start page.
 export type LoginAttempt = 'first' | 'reselect' | 'silent';
 
-export function buildGoogleAuthUrl(state: string, loginHint?: string): string {
+function buildGoogleAuthUrl(state: string, loginHint?: string): string {
   const params = new URLSearchParams({
     client_id: process.env.GOOGLE_CLIENT_ID ?? '',
     redirect_uri: process.env.GOOGLE_REDIRECT_URI ?? '',

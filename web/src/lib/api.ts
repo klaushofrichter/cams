@@ -25,7 +25,7 @@ export class HttpError extends Error {
 // if that was already tried in the last few minutes, or Google wants the
 // user, the start page, whose sign-in also comes back here.
 
-export const SESSION_EXPIRED_CODE = 'unauthorized';
+const SESSION_EXPIRED_CODE = 'unauthorized';
 export const SILENT_KEY = 'cams.silentRenewalAt';
 export const SILENT_GAP_MS = 5 * 60 * 1000;
 const PROBE_GAP_MS = 30 * 1000;
@@ -72,7 +72,7 @@ function sessionStore(): Storage | null {
 let leaving = false;
 
 // One page load leaves once, however many requests failed at the same time.
-export function sessionExpired(): void {
+function sessionExpired(): void {
   if (leaving) return;
   leaving = true;
   location.assign(renewalUrl(location.pathname + location.search + location.hash, sessionStore()));
@@ -81,7 +81,7 @@ export function sessionExpired(): void {
 // Several accounts and none chosen (migration P4, R4-13): the server answers
 // 409 choose_account to everything but the picker's calls; the app opens
 // the picker, once per page.
-export const CHOOSE_ACCOUNT_CODE = 'choose_account';
+const CHOOSE_ACCOUNT_CODE = 'choose_account';
 async function mustChoose(res: Response): Promise<boolean> {
   if (res.status !== 409) return false;
   const body = (await res.clone().json().catch(() => null)) as { error?: unknown } | null;

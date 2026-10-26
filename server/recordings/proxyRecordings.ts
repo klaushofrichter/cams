@@ -112,7 +112,7 @@ export async function listProxyDays(cameraId: CamKey, month: string): Promise<st
 // The headers can wait a long while: the proxy fetches one file at a time per
 // camera, so a request queued behind a 4K download holds its headers until that
 // finishes. The body's idle watchdog (30 s) only starts after the headers.
-export const RECORDING_HEADER_TIMEOUT_MS = 120_000;
+const RECORDING_HEADER_TIMEOUT_MS = 120_000;
 
 export async function openProxyRecording(
   cameraId: CamKey,
