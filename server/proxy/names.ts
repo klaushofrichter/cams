@@ -1,7 +1,7 @@
 import { cameraHost, getCamera, setReportedAddress, setReportedName } from '../cameraRegistry';
 import { logger } from '../logger';
 import { applyProxyTls } from '../tls/cameraTrust';
-import { ensureGroupCa } from '../tls/groupCa';
+import { verifyGroupCa } from '../tls/groupCa';
 import { verifiedCas } from '../tls/store';
 import { groupOf } from './groups';
 import { getProxyClient } from './client';
@@ -60,7 +60,7 @@ export async function refreshProxyName(id: CamKey, o: { fresh?: boolean } = {}):
   // anyway; a loopback http one only here.
   const g = groupOf(id);
   if (g?.pins && !verifiedCas(g.pins).length) {
-    await ensureGroupCa(g).catch((err: unknown) => logger.warn({ proxy: new URL(g.url).host, message: (err as Error).message }, 'proxy_site_ca_unverified'));
+    await verifyGroupCa(g);
   }
   await applyProxyTls(id, mine.tls);
 }
