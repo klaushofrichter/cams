@@ -1,8 +1,9 @@
-import { Readable } from 'stream';
+import type { Readable } from 'stream';
 import { logger } from '../logger';
 import { errorBody, proxyPath, ProxyError, requireProxyClient } from '../proxy/client';
 import { RecordingError } from './errors';
 import type { CamKey } from '../fleet';
+import { contentLength, nodeBody } from '../httpBody';
 
 // A camera's SD-card recordings through its cam-proxy's recordings API
 // (cam-proxy spec 2026-10-02-baichuan-recordings-design, section 2): the proxy
@@ -126,8 +127,7 @@ export async function openProxyRecording(
     if (res.status === 404 && upstream === 'unknown_recording') throw new RecordingError('unknown_clip', 'the recording is gone from the SD card');
     throw new ProxyError('proxy_error', `cam-proxy ${client.host()} answered ${res.status} for a recording`, res.status, upstream, reason);
   }
-  const cl = res.headers.get('content-length');
-  return { stream: Readable.fromWeb(res.body as import('stream/web').ReadableStream), size: cl && /^\d+$/.test(cl) ? Number(cl) : null };
+  return { stream: nodeBody(res), size: contentLength(res.headers.get('content-length')) };
 }
 
 // Whether cams tries its next route after this failure: everything but a

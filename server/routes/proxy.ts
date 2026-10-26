@@ -1,5 +1,4 @@
 import { Router, Request, Response } from 'express';
-import { Readable } from 'stream';
 import { pipeline } from 'stream/promises';
 import { getCamera, proxyActive, setReportedName, type CameraConfig } from '../cameraRegistry';
 import { forgetProxyName, plausibleName } from '../proxy/names';
@@ -11,6 +10,7 @@ import { groupTrustOptions, ProxyClient, ProxyError, proxyPath } from '../proxy/
 import { entryOf, readProxyList, type ProxyCameraEntry } from '../proxy/cameraList';
 import { badRequest, knownCamera, outId, proxyFailed, proxyTarget } from './common';
 import { accountIdOf, type CamKey } from '../fleet';
+import { nodeBody } from '../httpBody';
 
 // Stills and preview sprites from a camera's cam-proxy, for the Timeline
 // page (Plan 6). cams signs the browser in; the proxy's token is added here.
@@ -195,7 +195,7 @@ export async function relayImage(res: Response, client: ProxyClient, path: strin
   }
   if (res.destroyed) return void (await up.body.cancel()); // the browser left while we waited
   res.status(200).set({ 'Content-Type': 'image/jpeg', ...headers(up) });
-  await pipeline(Readable.fromWeb(up.body as import('stream/web').ReadableStream), res);
+  await pipeline(nodeBody(up), res);
 }
 
 // One image, streamed with the proxy's type and caching.

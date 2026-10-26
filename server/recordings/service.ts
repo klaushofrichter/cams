@@ -20,6 +20,7 @@ import { abortError, RecordingError } from './errors';
 import { fallsBack, headProxyRecording, listProxyDays, listProxyDay, logProxyFailure, openProxyRecording, type ProxyRecording } from './proxyRecordings';
 import { ProxyError } from '../proxy/client';
 import { camsIdOf, fileSafe, type CamKey } from '../fleet';
+import { contentLength } from '../httpBody';
 
 // A clip-cache name for one camera: flat (DiskCache refuses "/"), prefixed by
 // the account and camera (ruling R4-15), so no two accounts share a name.
@@ -828,8 +829,7 @@ export class RecordingsService {
       };
       try {
         const res = await this.downloadWithRetry(cameraId, path, signal);
-        const cl = res.headers['content-length'];
-        return this.handOver({ stream: res, size: typeof cl === 'string' && /^\d+$/.test(cl) ? Number(cl) : null }, filename, done, signal);
+        return this.handOver({ stream: res, size: contentLength(res.headers['content-length']) }, filename, done, signal);
       } catch (err) {
         done();
         throw err;

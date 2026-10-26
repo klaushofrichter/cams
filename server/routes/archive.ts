@@ -1,5 +1,4 @@
 import { Router, type Request, type Response } from 'express';
-import { Readable } from 'stream';
 import { pipeline } from 'stream/promises';
 import { normalizeLabels, nameProblem, QUALITIES, retentionProblem, SORT_KEYS, sortItems, type SortKey, type SortOrder } from '../archiveRules';
 import { resolveCamera } from '../cameraRegistry';
@@ -15,6 +14,7 @@ import { getRecordings } from '../recordings/service';
 import { startedComposition } from './compose';
 import { badRequest, knownCamera, proxyFailed, readJson, sessionAccount } from './common';
 import { relayImage } from './proxy';
+import { nodeBody } from '../httpBody';
 
 // The Archive (cam-proxy's archive contract, docs/archive.md there; cams spec
 // 2026-10-05-archive-design): every call relayed to the camera's cam-proxy
@@ -378,7 +378,7 @@ function viewerGone(res: Response): AbortSignal {
 // cancels the upstream request.
 async function stream(up: globalThis.Response, req: Request, res: Response): Promise<void> {
   try {
-    await pipeline(Readable.fromWeb(up.body as import('stream/web').ReadableStream), res);
+    await pipeline(nodeBody(up), res);
   } catch (err) {
     if (req.destroyed || res.destroyed) return; // the viewer left, or the proxy cut it: the response is cut
     throw err;
