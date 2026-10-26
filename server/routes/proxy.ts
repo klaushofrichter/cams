@@ -7,7 +7,7 @@ import { logger } from '../logger';
 import { setProxyEnabled } from '../proxyState';
 import { proxyHub, startProxyStream, stopProxyStream } from '../proxy/stream';
 import { parseObjects, parseSummary } from '../proxy/analyses';
-import { groupTrustOptions, ProxyClient, ProxyError, proxyCameraId } from '../proxy/client';
+import { groupTrustOptions, ProxyClient, ProxyError, proxyPath } from '../proxy/client';
 import { entryOf, readProxyList, type ProxyCameraEntry } from '../proxy/cameraList';
 import { knownCamera, outId, proxyTarget } from './common';
 import { accountIdOf, type CamKey } from '../fleet';
@@ -21,9 +21,9 @@ const bad = (res: Response, detail: string) => void res.status(400).json({ error
 
 // A camera with a cam-proxy in use: its client, the proxy's id for it
 // (encoded) and cams's own URL base for it.
-function proxied(req: Request, res: Response): { id: CamKey; client: ProxyClient; cam: string; base: string } | undefined {
+function proxied(req: Request, res: Response): { id: CamKey; client: ProxyClient; base: string } | undefined {
   const t = proxyTarget(req, res);
-  return t && { id: t.id, client: t.client, cam: encodeURIComponent(proxyCameraId(t.id)), base: `/api/cameras/${encodeURIComponent(outId(t.id))}` };
+  return t && { id: t.id, client: t.client, base: `/api/cameras/${encodeURIComponent(outId(t.id))}` };
 }
 
 // A camera with a cam-proxy configured, switched on or not.
@@ -146,7 +146,7 @@ proxyRouter.get('/api/cameras/:id/previews', async (req: Request, res: Response)
   const r = p && range(req, res);
   if (!p || !r) return;
   try {
-    const list = await p.client.json<{ minute: unknown; url: string; present?: unknown }[]>(`/api/cameras/${p.cam}/previews`, { from: r[0], to: r[1] });
+    const list = await p.client.json<{ minute: unknown; url: string; present?: unknown }[]>(proxyPath(p.id, '/previews'), { from: r[0], to: r[1] });
     // Only whole minutes: the value goes into URLs and CSS (issue #38).
     const ok = (Array.isArray(list) ? list : []).filter((m): m is { minute: number; url: string; present?: unknown } => Number.isSafeInteger(m?.minute) && (m.minute as number) % 60_000 === 0);
     res.json(ok.map((m) => ({ ...m, url: `${p.base}/previews/${m.minute}.jpg${spriteVersion(m.present)}` })));
@@ -160,7 +160,7 @@ proxyRouter.get('/api/cameras/:id/stills', async (req: Request, res: Response) =
   const r = p && range(req, res);
   if (!p || !r) return;
   try {
-    res.json(await p.client.json<number[]>(`/api/cameras/${p.cam}/stills`, { from: r[0], to: r[1] }));
+    res.json(await p.client.json<number[]>(proxyPath(p.id, '/stills'), { from: r[0], to: r[1] }));
   } catch (err) {
     proxyFailed(err, p.id, res);
   }
@@ -174,7 +174,7 @@ proxyRouter.get('/api/cameras/:id/analyses/:eventId', async (req: Request, res: 
   if (!p) return;
   const eventId = Number(req.params.eventId);
   try {
-    const a = await p.client.json<{ status?: unknown; stillTs?: unknown; summary?: unknown; objects?: unknown }>(`/api/cameras/${p.cam}/events/${eventId}/analysis`);
+    const a = await p.client.json<{ status?: unknown; stillTs?: unknown; summary?: unknown; objects?: unknown }>(proxyPath(p.id, `/events/${eventId}/analysis`));
     res.json({
       eventId,
       status: typeof a.status === 'string' ? a.status : 'unknown',
@@ -212,7 +212,7 @@ for (const kind of ['previews', 'stills'] as const) {
     // The proxy path is built from the parsed number, never the raw parameter.
     const ts = Number(m[1]);
     try {
-      await relayImage(res, p.client, `/api/cameras/${p.cam}/${kind}/${ts}.jpg`, (up) => ({ 'Cache-Control': up.headers.get('cache-control') ?? 'no-store' }));
+      await relayImage(res, p.client, proxyPath(p.id, `/${kind}/${ts}.jpg`), (up) => ({ 'Cache-Control': up.headers.get('cache-control') ?? 'no-store' }));
     } catch (err) {
       proxyFailed(err, p.id, res);
     }
@@ -226,10 +226,10 @@ proxyRouter.get('/api/cameras/:id/still/latest.jpg', async (req: Request, res: R
   if (!p) return;
   try {
     const now = Date.now();
-    const stills = await p.client.json<number[]>(`/api/cameras/${p.cam}/stills`, { from: now - 120_000, to: now });
+    const stills = await p.client.json<number[]>(proxyPath(p.id, '/stills'), { from: now - 120_000, to: now });
     const ts = stills.filter((t) => Number.isSafeInteger(t)).at(-1);
     if (ts === undefined) return void res.status(404).json({ error: 'not_found' });
-    await relayImage(res, p.client, `/api/cameras/${p.cam}/stills/${ts}.jpg`, () => ({ 'Cache-Control': 'no-store', 'X-Still-Time': String(ts) }));
+    await relayImage(res, p.client, proxyPath(p.id, `/stills/${ts}.jpg`), () => ({ 'Cache-Control': 'no-store', 'X-Still-Time': String(ts) }));
   } catch (err) {
     proxyFailed(err, p.id, res);
   }
