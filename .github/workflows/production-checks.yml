@@ -18,15 +18,8 @@ jobs:
           node-version: 26
       - name: npm ci (retried on a network error)
         run: for i in 1 2 3; do npm ci && exit 0; echo "try $i failed"; sleep 10; done; exit 1
-      # apt (and Playwright's --with-deps) give up on a stalled mirror after 20 s and retry, instead of hanging.
-      - run: |
-          sudo rm -f /etc/apt/sources.list.d/google-chrome.list
-          printf 'Acquire::Retries "3";\nAcquire::http::Timeout "20";\nAcquire::https::Timeout "20";\n' | sudo tee /etc/apt/apt.conf.d/99ci-timeouts
-      - name: Ensure ffmpeg (thumbnail tests)
-        timeout-minutes: 16
-        run: |
-          command -v ffmpeg && exit 0
-          for i in 1 2 3; do timeout 300 sh -c 'sudo apt-get update && sudo apt-get install -y --no-install-recommends ffmpeg' && exit 0; echo "try $i failed"; done; exit 1
+      # ffmpeg (thumbnail tests) from a GitHub release, not apt.
+      - uses: ./.github/actions/ffmpeg
       # Type-check the server, test/ and e2e/ (tsconfig.check.json); the
       # build only covers server/ and `check` only web/.
       - run: npm run lint:types
@@ -53,20 +46,8 @@ jobs:
           node-version: 26
       - name: npm ci (retried on a network error)
         run: for i in 1 2 3; do npm ci && exit 0; echo "try $i failed"; sleep 10; done; exit 1
-      # apt (and Playwright's --with-deps) give up on a stalled mirror after 20 s and retry, instead of hanging.
-      - run: |
-          sudo rm -f /etc/apt/sources.list.d/google-chrome.list
-          printf 'Acquire::Retries "3";\nAcquire::http::Timeout "20";\nAcquire::https::Timeout "20";\n' | sudo tee /etc/apt/apt.conf.d/99ci-timeouts
-      - name: Ensure ffmpeg (thumbnail tests)
-        timeout-minutes: 16
-        run: |
-          command -v ffmpeg && exit 0
-          for i in 1 2 3; do timeout 300 sh -c 'sudo apt-get update && sudo apt-get install -y --no-install-recommends ffmpeg' && exit 0; echo "try $i failed"; done; exit 1
-      # A stalled apt mirror once hung this step for 40 minutes: each try is cut
-      # after 5 minutes and retried, three times at most.
-      - name: Install Chromium for Playwright
-        timeout-minutes: 16
-        run: for i in 1 2 3; do timeout 300 npx playwright install --with-deps chromium && exit 0; echo "try $i failed"; done; exit 1
+      # ffmpeg (thumbnail tests) from a GitHub release, not apt.
+      - uses: ./.github/actions/ffmpeg
       - run: npm run build
       # playwright.config.ts starts the built server with e2e/env.ts values.
       # Which browser `channel: 'chrome'` actually launches on this runner.
@@ -105,20 +86,8 @@ jobs:
           node-version: 26
       - name: npm ci (retried on a network error)
         run: for i in 1 2 3; do npm ci && exit 0; echo "try $i failed"; sleep 10; done; exit 1
-      # apt (and Playwright's --with-deps) give up on a stalled mirror after 20 s and retry, instead of hanging.
-      - run: |
-          sudo rm -f /etc/apt/sources.list.d/google-chrome.list
-          printf 'Acquire::Retries "3";\nAcquire::http::Timeout "20";\nAcquire::https::Timeout "20";\n' | sudo tee /etc/apt/apt.conf.d/99ci-timeouts
-      - name: Ensure ffmpeg (the fake cam-proxy's media)
-        timeout-minutes: 16
-        run: |
-          command -v ffmpeg && exit 0
-          for i in 1 2 3; do timeout 300 sh -c 'sudo apt-get update && sudo apt-get install -y --no-install-recommends ffmpeg' && exit 0; echo "try $i failed"; done; exit 1
-      # A stalled apt mirror once hung this step for 40 minutes: each try is cut
-      # after 5 minutes and retried, three times at most.
-      - name: Install Chromium for Playwright
-        timeout-minutes: 16
-        run: for i in 1 2 3; do timeout 300 npx playwright install --with-deps chromium && exit 0; echo "try $i failed"; done; exit 1
+      # ffmpeg (the fake cam-proxy's media) from a GitHub release, not apt.
+      - uses: ./.github/actions/ffmpeg
       - run: npm run build
       - run: npm run test:e2e:times
       - uses: actions/upload-artifact@v7
