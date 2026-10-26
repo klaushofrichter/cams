@@ -1,8 +1,7 @@
 <script lang="ts">
   import Icon from './Icon.svelte';
   import { liveUi, saveSnapshot, toggleMute, toggleQuality } from '../lib/liveUi';
-  import { getJson } from '../lib/api';
-  import { putJson } from '../lib/settings';
+  import { getJson, putJson } from '../lib/api';
   import { me } from '../lib/stores';
   import { showsAdminControls } from '../lib/session';
   import { currentPlayer, LIVE_ONLY, saveRecordingSnapshot, type Mode } from '../lib/videoMode';

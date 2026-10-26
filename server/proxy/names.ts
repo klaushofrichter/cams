@@ -1,7 +1,7 @@
 import { cameraHost, getCamera, setReportedAddress, setReportedName } from '../cameraRegistry';
 import { logger } from '../logger';
 import { applyProxyTls } from '../tls/cameraTrust';
-import { ensureGroupCa } from '../tls/groupCa';
+import { verifyGroupCa } from '../tls/groupCa';
 import { verifiedCas } from '../tls/store';
 import { groupOf } from './groups';
 import { getProxyClient } from './client';
@@ -46,16 +46,10 @@ async function readProxyEntry(id: CamKey, timeoutMs: number, maxAgeMs?: number):
   }
 }
 
-// The name in the proxy's camera list, or undefined (no answer, no entry).
-export async function readProxyName(id: CamKey, timeoutMs = 5000): Promise<string | undefined> {
-  const mine = await readProxyEntry(id, timeoutMs);
-  return plausibleName(mine?.name) ? mine.name : undefined;
-}
-
 // The name and, for a "from-proxy" camera, its address (spec
 // 2026-10-04-camera-address-from-proxy-design): read when the stream comes up.
 // `fresh`: not from a list read in the last 2 s (a camera that just moved).
-export async function refreshProxyName(id: CamKey, o: { fresh?: boolean } = {}): Promise<void> {
+async function refreshProxyName(id: CamKey, o: { fresh?: boolean } = {}): Promise<void> {
   const mine = await readProxyEntry(id, 5000, o.fresh ? 0 : undefined);
   // The stream may have gone down (or the proxy been switched off) meanwhile.
   if (!mine || !proxyStates(accountIdOf(id)).some((s) => s.cam === id && s.up)) return;
@@ -66,7 +60,7 @@ export async function refreshProxyName(id: CamKey, o: { fresh?: boolean } = {}):
   // anyway; a loopback http one only here.
   const g = groupOf(id);
   if (g?.pins && !verifiedCas(g.pins).length) {
-    await ensureGroupCa(g).catch((err: unknown) => logger.warn({ proxy: new URL(g.url).host, message: (err as Error).message }, 'proxy_site_ca_unverified'));
+    await verifyGroupCa(g);
   }
   await applyProxyTls(id, mine.tls);
 }

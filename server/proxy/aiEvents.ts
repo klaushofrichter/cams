@@ -18,7 +18,7 @@ const FETCH_TIMEOUT_MS = 3000;
 const FAIL_TTL = 30_000; // after a failed fetch, the proxy is not asked again for this long
 const LIMIT = 1000;
 
-export class AiEventStore {
+class AiEventStore {
   private days = new Map<string, { at: number; list: ProxyEvent[] }>(); // `${cam}|${date}`
   private inflight = new Map<string, Promise<ProxyEvent[] | null>>();
   private failed = new Map<string, number>();

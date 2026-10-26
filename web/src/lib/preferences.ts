@@ -1,6 +1,5 @@
 import { derived, get, writable } from 'svelte/store';
-import { getJson } from './api';
-import { putJson } from './settings';
+import { getJson, putJson } from './api';
 
 export interface Preferences {
   defaultCamera: string | null; // null: the last camera used

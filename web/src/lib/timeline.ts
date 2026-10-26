@@ -224,10 +224,10 @@ export function seenStills(cards: TimelineCard[]): SeenStill[] {
 }
 
 // The hour grid's data for every minute of the day at once (issue #109: not
-// per tile): its cards, their count, the minute's colour and Vision's mark.
-export interface MinuteInfo<T> { cards: T[]; kind: string | null; count: number; analysed: boolean }
+// per tile): its cards, the minute's colour and Vision's mark.
+export interface MinuteInfo<T> { cards: T[]; kind: string | null; analysed: boolean }
 export function minuteIndex<T extends TimelineCard>(minutes: { minute: number }[], cards: T[]): Map<number, MinuteInfo<T>> {
-  const out = new Map<number, MinuteInfo<T>>(minutes.map((m) => [m.minute, { cards: [], kind: null, count: 0, analysed: false }]));
+  const out = new Map<number, MinuteInfo<T>>(minutes.map((m) => [m.minute, { cards: [], kind: null, analysed: false }]));
   const sorted = cards.map((c) => ({ c, span: spanOf(c) })).sort((a, b) => a.span[0] - b.span[0]);
   for (const { c, span: [s, e] } of sorted) {
     if (!Number.isFinite(s) || !Number.isFinite(e)) continue;
@@ -235,7 +235,6 @@ export function minuteIndex<T extends TimelineCard>(minutes: { minute: number }[
       const x = out.get(m);
       if (!x || !inMinute(s, e, m)) continue;
       x.cards.push(c);
-      x.count++;
       const k = cardKind(c);
       if (x.kind === null || rank(k) < rank(x.kind)) x.kind = k;
     }

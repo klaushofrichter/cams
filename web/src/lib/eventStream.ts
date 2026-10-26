@@ -240,7 +240,7 @@ export function prunePending(pending: Pending[], events: { start: string; end: s
 // events) events of one clip were at most 25 s apart, events of consecutive
 // clips at least 22 s: an event at most 20 s after the previous one joins its
 // recording. Newest group first; each kind once, AI kinds first.
-export const PENDING_GROUP_MS = 20_000;
+const PENDING_GROUP_MS = 20_000;
 const KIND_ORDER = ['person', 'vehicle', 'pet', 'motion'];
 export interface PendingGroup {
   start: number; // the first event

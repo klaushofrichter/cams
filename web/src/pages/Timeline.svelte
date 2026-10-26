@@ -76,7 +76,7 @@
   // joins the grid while it is open.
   const shown = $derived(open && !minutes.some((x) => x.minute === open!.minute) ? [...minutes, open].sort((a, b) => a.minute - b.minute) : minutes);
   const hours = $derived(hourGroups(shown));
-  // Per minute of the day: its cards, count, colour and Vision mark, once (issue #109).
+  // Per minute of the day: its cards, colour and Vision mark, once (issue #109).
   const index = $derived(minuteIndex(minutes, cards));
   const firstTile = (m: PreviewMinute) => Math.max(0, m.present.indexOf(true));
   const clock = (ts: number, seconds = false) => localClock(ts, seconds);
@@ -558,7 +558,7 @@
           {#if open && h.minutes.some((x) => x.minute === open!.minute)}
             {@const m = open}
             {@const evs = index.get(m.minute)?.cards ?? cardsInMinute(m, cards)}
-            {@const kinds = secondKinds(m, cards)}
+            {@const kinds = secondKinds(m, evs)}
             {@const seen = analysedSeconds(m, cards)}
             {@const marks = checkSeconds(m, checks)}
             <div class="detail" data-testid="timeline-minute-view">

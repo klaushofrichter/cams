@@ -10,7 +10,7 @@ import { readFileSync } from 'fs';
 // (server/config.ts) checks the same values strictly at startup, through
 // checkLoginEnv(), so a wrong value never gets as far as a request.
 
-export const MIN_TOKEN_LENGTH = 24;
+const MIN_TOKEN_LENGTH = 24;
 const TOKEN_USER_PATTERN = /^[A-Za-z0-9._@-]{1,64}$/;
 const GOOGLE_VARS = ['GOOGLE_CLIENT_ID', 'GOOGLE_CLIENT_SECRET', 'GOOGLE_REDIRECT_URI'] as const;
 

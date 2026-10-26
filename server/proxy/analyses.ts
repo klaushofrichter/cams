@@ -1,5 +1,5 @@
 import { logger } from '../logger';
-import { getProxyClient, proxyCameraId, ProxyError } from './client';
+import { getProxyClient, proxyPath, ProxyError } from './client';
 import { proxyHub } from './stream';
 import type { CamKey } from '../fleet';
 
@@ -138,7 +138,7 @@ export class AnalysisStore {
         // The whole fetch, body included, is bound by one timer: the events
         // page waits for this.
         const ms = this.o.timeoutMs ?? FETCH_TIMEOUT_MS;
-        const body = await client.json<unknown>(`/api/cameras/${encodeURIComponent(proxyCameraId(cam))}/analyses`, { from: win[0], to: win[1] }, { timeoutMs: ms, signal: AbortSignal.timeout(ms) });
+        const body = await client.json<unknown>(proxyPath(cam, '/analyses'), { from: win[0], to: win[1] }, { timeoutMs: ms, signal: AbortSignal.timeout(ms) });
         const list = (Array.isArray(body) ? body : []).map(parseAnalysis).filter((a): a is ProxyAnalysis => a !== null);
         const day = { at: now, list };
         this.days.set(key, day);

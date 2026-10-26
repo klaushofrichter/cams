@@ -8,7 +8,7 @@ import { logger } from '../logger';
 import { adminDir, dataDir, writePrivate, type AdminKeyFile } from './keyfile';
 import { verifySnapshot, type Snapshot } from './snapshot';
 
-export const cacheFile = (dir: string = dataDir()) => join(adminDir(dir), 'config-cache.json');
+const cacheFile = (dir: string = dataDir()) => join(adminDir(dir), 'config-cache.json');
 
 export function readCache(k: Pick<AdminKeyFile, 'serverKeys' | 'instanceId'>, dir: string = dataDir()): Snapshot | null {
   let text: string;

@@ -4,7 +4,7 @@ import { currentUser } from '../middleware/requireAuth';
 import { createCheckRateLimits } from '../middleware/rateLimit';
 import { proxyPath, ProxyError } from '../proxy/client';
 import { parseCheck, parseFullCheck, parseUsage, type StillCheck } from '../proxy/stillChecks';
-import { outId, proxyTarget } from './common';
+import { badRequest, outId, proxyFailed, proxyTarget, readJson } from './common';
 import { relayImage } from './proxy';
 import type { CamKey } from '../fleet';
 
@@ -15,7 +15,6 @@ import type { CamKey } from '../fleet';
 export const stillChecksRouter = Router();
 
 const DAY = 86_400_000;
-const bad = (res: Response, detail: string) => void res.status(400).json({ error: 'invalid', detail });
 const base = (id: CamKey) => `/api/cameras/${encodeURIComponent(outId(id))}/still-checks`;
 
 // A check as the browser gets it: cams's own image URL, from the parsed id.
@@ -45,29 +44,16 @@ function refusal(body: unknown): Record<string, unknown> {
 const PASSED = new Set([400, 404, 409, 429, 500, 502, 503]);
 
 function failed(err: unknown, id: CamKey, res: Response): void {
-  if (res.destroyed) return;
-  if (!(err instanceof ProxyError)) throw err;
-  logger.warn({ cameraId: id, code: err.code, message: err.message }, 'still_check_proxy_failed');
-  if (!res.headersSent) res.status(502).json({ error: 'proxy_unavailable' });
-  else res.destroy();
-}
-
-async function readJson(up: globalThis.Response): Promise<unknown> {
-  const text = await up.text();
-  try {
-    return text ? (JSON.parse(text) as unknown) : null;
-  } catch {
-    return null;
-  }
+  proxyFailed(err, res, 'still_check_proxy_failed', { cameraId: id });
 }
 
 // Check a second. The proxy answers a stored check (200, reused), a new one
 // (201) or why not; cams logs who asked (the proxy knows only its token).
 stillChecksRouter.post('/api/cameras/:id/still-checks', ...createCheckRateLimits(), async (req: Request, res: Response) => {
   const at = (req.body as { at?: unknown } | undefined)?.at;
-  if (typeof at !== 'number' || !Number.isSafeInteger(at) || at < 0) return bad(res, 'at is a whole number (unix ms)');
-  if (at % 1000 !== 0) return bad(res, 'at is a whole second');
-  if (at > Date.now()) return bad(res, 'at is in the future');
+  if (typeof at !== 'number' || !Number.isSafeInteger(at) || at < 0) return badRequest(res, 'at is a whole number (unix ms)');
+  if (at % 1000 !== 0) return badRequest(res, 'at is a whole second');
+  if (at > Date.now()) return badRequest(res, 'at is in the future');
   const t = proxyTarget(req, res);
   if (!t) return;
   try {
@@ -92,8 +78,8 @@ stillChecksRouter.post('/api/cameras/:id/still-checks', ...createCheckRateLimits
 // The checks of a range (the Timeline's day), oldest first. An older proxy: none.
 stillChecksRouter.get('/api/cameras/:id/still-checks', async (req: Request, res: Response) => {
   const from = String(req.query.from ?? ''), to = String(req.query.to ?? '');
-  if (!/^\d{1,15}$/.test(from) || !/^\d{1,15}$/.test(to) || Number(to) < Number(from)) return bad(res, 'from and to (unix ms) are required');
-  if (Number(to) - Number(from) > 31 * DAY) return bad(res, 'at most 31 days per request');
+  if (!/^\d{1,15}$/.test(from) || !/^\d{1,15}$/.test(to) || Number(to) < Number(from)) return badRequest(res, 'from and to (unix ms) are required');
+  if (Number(to) - Number(from) > 31 * DAY) return badRequest(res, 'at most 31 days per request');
   const t = proxyTarget(req, res);
   if (!t) return;
   try {
@@ -108,7 +94,7 @@ stillChecksRouter.get('/api/cameras/:id/still-checks', async (req: Request, res:
 // One check in full (its objects for "Show all objects"), or its image.
 stillChecksRouter.get('/api/cameras/:id/still-checks/:file', async (req: Request, res: Response) => {
   const m = /^(\d{1,12})(\.jpg)?$/.exec(String(req.params.file));
-  if (!m) return bad(res, 'a check is <id>, its image <id>.jpg');
+  if (!m) return badRequest(res, 'a check is <id>, its image <id>.jpg');
   const t = proxyTarget(req, res);
   if (!t) return;
   // The proxy path is built from the parsed number, never the raw parameter.

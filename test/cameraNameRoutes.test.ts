@@ -13,6 +13,7 @@ import { SESSION_COOKIE, signSession } from '../server/session';
 import { FAKE_ADMIN_TOKEN, FAKE_TOKEN, startFakeProxy, type FakeProxy } from './proxy/fakeProxy';
 import { k } from './helpers/fleet';
 import { fileAccount } from '../server/fleet';
+import { until } from './helpers/wait';
 
 // The camera's name (design reolink/camera-name-design.md): shown from the
 // camera (through its cam-proxy, or read directly), the registry name until
@@ -23,14 +24,6 @@ afterEach(async () => {
   for (const f of cleanup.splice(0).reverse()) await f();
   setNameGraceMs();
 });
-
-async function until(cond: () => boolean, ms = 5000): Promise<void> {
-  const t0 = Date.now();
-  while (!cond()) {
-    if (Date.now() - t0 > ms) throw new Error('timed out');
-    await new Promise((r) => setTimeout(r, 20));
-  }
-}
 
 async function fakeProxy(): Promise<FakeProxy> {
   const fake = await startFakeProxy();

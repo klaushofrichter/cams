@@ -16,10 +16,11 @@ import { makeThumbnail } from './thumbnail';
 import { Semaphore } from '../reolink/semaphore';
 import { findProxyClip, findProxyStill, openProxyClip, openProxyStill } from './proxyClips';
 import { cardEvents, proxyCardEvents, thumbPlan } from './detection';
-import { RecordingError } from './errors';
+import { abortError, RecordingError } from './errors';
 import { fallsBack, headProxyRecording, listProxyDays, listProxyDay, logProxyFailure, openProxyRecording, type ProxyRecording } from './proxyRecordings';
 import { ProxyError } from '../proxy/client';
 import { camsIdOf, fileSafe, type CamKey } from '../fleet';
+import { contentLength } from '../httpBody';
 
 // A clip-cache name for one camera: flat (DiskCache refuses "/"), prefixed by
 // the account and camera (ruling R4-15), so no two accounts share a name.
@@ -108,12 +109,6 @@ function perCamera<T>(make: () => T): (cameraId: CamKey) => T {
   };
 }
 
-function abortError(): Error {
-  const err = new Error('aborted');
-  err.name = 'AbortError';
-  return err;
-}
-
 // Real-time order, not string order: on the fall-back night, a clip at
 // 01:30 CDT (-05:00) is chronologically later than one at 01:10 CST
 // (-06:00), even though "01:10" sorts before "01:30" as a plain string.
@@ -140,7 +135,7 @@ export function pickStream(
 
 // A clip still being written is listed with end time 000000. Only a clip
 // that starts in the last minutes before midnight can really end at 000000.
-export function isStillRecording(p: ParsedClip): boolean {
+function isStillRecording(p: ParsedClip): boolean {
   return p.end === '000000' && p.start < '235500';
 }
 
@@ -399,10 +394,6 @@ export class RecordingsService {
     return cacheName(cameraId, `${clipId}.${ext}`);
   }
 
-  // Pins the clip's cached sub-stream file for as long as `use` needs it:
-  // pinned BEFORE fill() starts and unpinned only once `use` is done, so a
-  // concurrent evict() from another key filling at the same time can never
-  // remove this file out from under a reader.
   // The camera occasionally resets a Download before sending anything, and
   // the same request succeeds moments later: retry that case once.
   private async downloadWithRetry(cameraId: CamKey, name: string, signal?: AbortSignal): Promise<IncomingMessage> {
@@ -458,12 +449,16 @@ export class RecordingsService {
     return this.breakerOpen(cameraId) && performance.now() - this.health.get(cameraId)!.lastProbeAt < RECORDINGS_PROBE_MS();
   }
 
+  private assertNotRefusing(cameraId: CamKey): void {
+    if (this.refusing(cameraId)) throw new RecordingError('recordings_unavailable', 'the camera is refusing recording downloads');
+  }
+
   // Runs inside the transfer slot, right before a camera download, so
   // requests queued before the breaker opened are refused too.
   // Returns true when this call is the probe.
   private guard(cameraId: CamKey): boolean {
     if (!this.breakerOpen(cameraId)) return false;
-    if (this.refusing(cameraId)) throw new RecordingError('recordings_unavailable', 'the camera is refusing recording downloads');
+    this.assertNotRefusing(cameraId);
     this.health.get(cameraId)!.lastProbeAt = performance.now(); // this request is the probe
     logger.info({ cameraId }, 'recordings_breaker_probe');
     return true;
@@ -556,6 +551,11 @@ export class RecordingsService {
     return path;
   }
 
+  // Pins the clip's cached sub-stream file for as long as `use` needs it:
+  // pinned BEFORE fill() starts and unpinned only once `use` is done, so a
+  // concurrent evict() from another key filling at the same time can never
+  // remove this file out from under a reader.
+  //
   // `priority` 'high' is for someone waiting to watch the clip; thumbnails
   // pass 'low'. If a low-priority fetch of this clip is already queued, a
   // high-priority caller promotes it rather than waiting behind other clips.
@@ -607,7 +607,7 @@ export class RecordingsService {
         //    here (issue #38: no second lookup); a retry asks the proxy again.
         //    With the breaker open there's no Search either; the file's path
         //    is found before the slot is taken.
-        if (this.refusing(cameraId)) throw new RecordingError('recordings_unavailable', 'the camera is refusing recording downloads');
+        this.assertNotRefusing(cameraId);
         const name = await this.cameraPath(cameraId, clipId, sub, 'sub');
         await this.gate(cameraId).run(
           async () => {
@@ -817,7 +817,7 @@ export class RecordingsService {
     // 3. The camera's own download, behind the breaker (no Search while it's
     //    open), the file's path found before its one transfer slot is taken.
     try {
-      if (this.refusing(cameraId)) throw new RecordingError('recordings_unavailable', 'the camera is refusing recording downloads');
+      this.assertNotRefusing(cameraId);
       const path = await this.cameraPath(cameraId, clipId, name, served);
       // A download someone clicked goes ahead of queued thumbnail fetches. A
       // viewer who leaves frees the slot at once.
@@ -829,8 +829,7 @@ export class RecordingsService {
       };
       try {
         const res = await this.downloadWithRetry(cameraId, path, signal);
-        const cl = res.headers['content-length'];
-        return this.handOver({ stream: res, size: typeof cl === 'string' && /^\d+$/.test(cl) ? Number(cl) : null }, filename, done, signal);
+        return this.handOver({ stream: res, size: contentLength(res.headers['content-length']) }, filename, done, signal);
       } catch (err) {
         done();
         throw err;

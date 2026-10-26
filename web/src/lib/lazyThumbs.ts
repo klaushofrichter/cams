@@ -53,7 +53,7 @@ let queue = createThumbQueue(THUMB_CONCURRENCY);
 // not the window (review of #175).
 const observers = new Map<Element | null, IntersectionObserver>();
 const watchers = new Map<Element, (visible: boolean) => void>();
-export function scrollRoot(node: Element): Element | null {
+function scrollRoot(node: Element): Element | null {
   for (let n = node.parentElement; n && n !== document.body; n = n.parentElement) {
     const o = getComputedStyle(n).overflowY;
     // A box that could scroll and has more than it shows (jsdom has no
