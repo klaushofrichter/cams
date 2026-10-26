@@ -448,12 +448,16 @@ export class RecordingsService {
     return this.breakerOpen(cameraId) && performance.now() - this.health.get(cameraId)!.lastProbeAt < RECORDINGS_PROBE_MS();
   }
 
+  private assertNotRefusing(cameraId: CamKey): void {
+    if (this.refusing(cameraId)) throw new RecordingError('recordings_unavailable', 'the camera is refusing recording downloads');
+  }
+
   // Runs inside the transfer slot, right before a camera download, so
   // requests queued before the breaker opened are refused too.
   // Returns true when this call is the probe.
   private guard(cameraId: CamKey): boolean {
     if (!this.breakerOpen(cameraId)) return false;
-    if (this.refusing(cameraId)) throw new RecordingError('recordings_unavailable', 'the camera is refusing recording downloads');
+    this.assertNotRefusing(cameraId);
     this.health.get(cameraId)!.lastProbeAt = performance.now(); // this request is the probe
     logger.info({ cameraId }, 'recordings_breaker_probe');
     return true;
@@ -602,7 +606,7 @@ export class RecordingsService {
         //    here (issue #38: no second lookup); a retry asks the proxy again.
         //    With the breaker open there's no Search either; the file's path
         //    is found before the slot is taken.
-        if (this.refusing(cameraId)) throw new RecordingError('recordings_unavailable', 'the camera is refusing recording downloads');
+        this.assertNotRefusing(cameraId);
         const name = await this.cameraPath(cameraId, clipId, sub, 'sub');
         await this.gate(cameraId).run(
           async () => {
@@ -812,7 +816,7 @@ export class RecordingsService {
     // 3. The camera's own download, behind the breaker (no Search while it's
     //    open), the file's path found before its one transfer slot is taken.
     try {
-      if (this.refusing(cameraId)) throw new RecordingError('recordings_unavailable', 'the camera is refusing recording downloads');
+      this.assertNotRefusing(cameraId);
       const path = await this.cameraPath(cameraId, clipId, name, served);
       // A download someone clicked goes ahead of queued thumbnail fetches. A
       // viewer who leaves frees the slot at once.
