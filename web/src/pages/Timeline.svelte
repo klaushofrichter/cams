@@ -558,7 +558,7 @@
           {#if open && h.minutes.some((x) => x.minute === open!.minute)}
             {@const m = open}
             {@const evs = index.get(m.minute)?.cards ?? cardsInMinute(m, cards)}
-            {@const kinds = secondKinds(m, cards)}
+            {@const kinds = secondKinds(m, evs)}
             {@const seen = analysedSeconds(m, cards)}
             {@const marks = checkSeconds(m, checks)}
             <div class="detail" data-testid="timeline-minute-view">
