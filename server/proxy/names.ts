@@ -46,12 +46,6 @@ async function readProxyEntry(id: CamKey, timeoutMs: number, maxAgeMs?: number):
   }
 }
 
-// The name in the proxy's camera list, or undefined (no answer, no entry).
-export async function readProxyName(id: CamKey, timeoutMs = 5000): Promise<string | undefined> {
-  const mine = await readProxyEntry(id, timeoutMs);
-  return plausibleName(mine?.name) ? mine.name : undefined;
-}
-
 // The name and, for a "from-proxy" camera, its address (spec
 // 2026-10-04-camera-address-from-proxy-design): read when the stream comes up.
 // `fresh`: not from a list read in the last 2 s (a camera that just moved).

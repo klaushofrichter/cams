@@ -243,7 +243,6 @@ function ensureTokens(): Promise<void> {
   });
   return mine.ensuring;
 }
-export const ensureTokensNow = (): Promise<void> => ensureTokens();
 
 // At most one report per 60 s, at once when urgent (a held change
 // confirmed or kept); one at start.
