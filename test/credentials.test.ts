@@ -135,6 +135,16 @@ describe('PUT /api/cameras/:id/credentials', () => {
     expect(r.text).not.toContain('secret-pw-1');
   });
 
+  it('overwrites an existing entry (a wrong password is replaceable), keeping the others', async () => {
+    applyFleet(fleet());
+    write({ v: 1, [`${ALPHA}/cam1`]: { user: 'cams', password: 'wrong-pw' }, [`${BETA}/camx`]: { user: 'cams', password: 'other-pw' } });
+    loadCredentials();
+    const r = await put('a@example.org', { password: 'right-pw' });
+    expect(r.status).toBe(204);
+    expect(JSON.parse(readFileSync(FILE, 'utf8'))).toEqual({ v: 1, [`${ALPHA}/cam1`]: { user: 'cams', password: 'right-pw' }, [`${BETA}/camx`]: { user: 'cams', password: 'other-pw' } });
+    expect(credentialsFor(ALPHA, 'cam1', 'cams')).toMatchObject({ ok: true, password: 'right-pw' });
+  });
+
   it('read-only → 409 with the Secret key and user, never the password', async () => {
     applyFleet(fleet());
     mkdirSync(join(dir, 'ro'));

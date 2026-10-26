@@ -224,10 +224,52 @@ describe('CameraLogin', () => {
     expect(text).toContain('<password>');
     expect(text).not.toContain('typed-secret');
   });
-  it('nothing for a camera with its password, or for a viewer', () => {
+  it('nothing for a viewer', () => {
     me.set({ ...BASE, role: 'viewer' });
     render(CameraLogin, { cameraId: 'cam1' });
     expect(q('camera-login')).toBeNull();
+  });
+  it('nothing in file mode', () => {
+    me.set({ ...BASE, configSource: 'file' });
+    cameras.set([{ id: 'cam1', name: 'Den', webUiUrl: null }]);
+    render(CameraLogin, { cameraId: 'cam1' });
+    expect(q('camera-login')).toBeNull();
+  });
+  it('a saved password: a collapsed Change button that reveals the form; saving replaces it', async () => {
+    me.set(BASE);
+    cameras.set([{ id: 'cam1', name: 'Den', webUiUrl: null }]);
+    answers['PUT /api/cameras/cam1/credentials'] = { status: 204, body: null };
+    render(CameraLogin, { cameraId: 'cam1' });
+    expect(q('camera-login')).not.toBeNull();
+    expect(q('camera-password')).toBeNull();
+    q('camera-password-change')!.click();
+    flushSync();
+    const input = q('camera-password') as HTMLInputElement;
+    expect(input.getAttribute('autocomplete')).toBe('new-password');
+    input.value = 'right-pw';
+    input.dispatchEvent(new Event('input'));
+    flushSync();
+    q('camera-password-save')!.click();
+    await settle();
+    expect(calls.find((c) => c.init?.method === 'PUT')!.init!.body).toBe(JSON.stringify({ password: 'right-pw' }));
+    expect(q('camera-login-status')!.textContent).toMatch(/saved/i);
+    expect(q('camera-password')).toBeNull();
+    expect(q('camera-password-change')).not.toBeNull();
+  });
+  it('the camera refused the saved password: the form is open with that line', () => {
+    me.set(BASE);
+    cameras.set([{ id: 'cam1', name: 'Den', webUiUrl: null }]);
+    render(CameraLogin, { cameraId: 'cam1', authFailed: true });
+    expect(q('camera-password')).not.toBeNull();
+    expect(q('camera-login')!.textContent).toContain('The camera refused the saved password. Enter the right one.');
+    expect(q('camera-password-change')).toBeNull();
+  });
+  it('missing keeps its text, and no Change button', () => {
+    me.set(BASE);
+    render(CameraLogin, { cameraId: 'cam1' });
+    expect(q('camera-login')!.textContent).toContain('cams has no password for this camera here.');
+    expect(q('camera-password')).not.toBeNull();
+    expect(q('camera-password-change')).toBeNull();
   });
 });
 
