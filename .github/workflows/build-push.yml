@@ -16,15 +16,8 @@ jobs:
       - uses: actions/setup-node@v7
         with:
           node-version: 26
-      # apt (and Playwright's --with-deps) give up on a stalled mirror after 20 s and retry, instead of hanging.
-      - run: |
-          sudo rm -f /etc/apt/sources.list.d/google-chrome.list
-          printf 'Acquire::Retries "3";\nAcquire::http::Timeout "20";\nAcquire::https::Timeout "20";\n' | sudo tee /etc/apt/apt.conf.d/99ci-timeouts
-      - name: Ensure ffmpeg (thumbnail tests)
-        timeout-minutes: 16
-        run: |
-          command -v ffmpeg && exit 0
-          for i in 1 2 3; do timeout 300 sh -c 'sudo apt-get update && sudo apt-get install -y --no-install-recommends ffmpeg' && exit 0; echo "try $i failed"; done; exit 1
+      # ffmpeg (thumbnail tests) from a GitHub release, not apt.
+      - uses: ./.github/actions/ffmpeg
       - run: |
           npm ci
           npm test

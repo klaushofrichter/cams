@@ -1,0 +1,27 @@
+name: ffmpeg
+description: >-
+  A static ffmpeg 8.1 (BtbN/FFmpeg-Builds, a GitHub release) on PATH, cached
+  for the ISO week. No apt: the Ubuntu mirrors stalled CI on 2026-10-26.
+runs:
+  using: composite
+  steps:
+    - id: week
+      shell: bash
+      run: echo "key=$(date -u +%G-%V)" >> "$GITHUB_OUTPUT"
+    - uses: actions/cache@v6
+      with:
+        path: ~/ffmpeg
+        key: ffmpeg-n8.1-linux64-gpl-${{ steps.week.outputs.key }}
+    - shell: bash
+      run: |
+        D="$HOME/ffmpeg"
+        if [ ! -x "$D/bin/ffmpeg" ]; then
+          U=https://github.com/BtbN/FFmpeg-Builds/releases/download/latest
+          F=ffmpeg-n8.1-latest-linux64-gpl-8.1.tar.xz
+          cd "$RUNNER_TEMP"
+          curl -fsSL --retry 5 --retry-all-errors --max-time 300 -O "$U/$F" -O "$U/checksums.sha256"
+          grep " $F\$" checksums.sha256 | sha256sum -c -
+          mkdir -p "$D" && tar -xJf "$F" -C "$D" --strip-components=1
+        fi
+        echo "$D/bin" >> "$GITHUB_PATH"
+        "$D/bin/ffmpeg" -hide_banner -version | head -1

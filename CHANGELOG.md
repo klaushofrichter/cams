@@ -8,4 +8,4 @@ published as [GitHub releases](https://github.com/klaushofrichter/cams/releases)
 
 ## [Unreleased]
 
-- Settings: in cams-admin mode an account admin can always change the camera's password ("Change camera password"), and the form opens by itself when the camera refused the saved one.
+- Archive: a clip's thumbnail and video no longer show another clip's from the browser cache after the camera moved to another cam-proxy (the item ids are numbered anew there); their URLs now carry the item's creation time.

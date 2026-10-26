@@ -78,7 +78,7 @@ describe('create (contract §2)', () => {
     const job = await composition();
     const r = await send('post', '/api/cameras/den/archive', { source: { type: 'composition', id: job }, name: '  Fox at the door ', labels: ['pet', 'Fox', 'fox', 'sd'], retentionDays: null, thumbnailAt: 1000 });
     expect(r.status).toBe(201);
-    expect(r.body).toMatchObject({ state: 'done', via: 'den', archiveId: 1, item: { via: 'den', id: 1, cam: 'cam1', camera: 'den', name: 'Fox at the door', labels: ['Pet', 'Fox', 'SD'], retentionDays: null, expiresAt: null, quality: '720p', urls: { video: '/api/archive/den/items/1/video', thumbnail: '/api/archive/den/items/1/thumbnail', metadata: '/api/archive/den/items/1/metadata', download: '/api/archive/den/items/1/video?download=1' } } });
+    expect(r.body).toMatchObject({ state: 'done', via: 'den', archiveId: 1, item: { via: 'den', id: 1, cam: 'cam1', camera: 'den', name: 'Fox at the door', labels: ['Pet', 'Fox', 'SD'], retentionDays: null, expiresAt: null, quality: '720p', urls: { video: expect.stringMatching(/^\/api\/archive\/den\/items\/1\/video\?v=\d+$/), thumbnail: expect.stringMatching(/^\/api\/archive\/den\/items\/1\/thumbnail\?v=\d+$/), metadata: '/api/archive/den/items/1/metadata', download: '/api/archive/den/items/1/video?download=1' } } });
     expect(a.archive.creates.at(-1)).toEqual({ cam: 'cam1', body: { source: { type: 'composition', id: job }, name: 'Fox at the door', labels: ['Pet', 'Fox', 'SD'], retentionDays: null, thumbnailAt: 1000 }, onBehalfOf: EMAIL });
     expect(a.requests.at(-1)?.auth).toBe(`Bearer ${FAKE_TOKEN}`);
     expect(JSON.stringify(r.body)).not.toContain(a.url);
@@ -388,6 +388,27 @@ describe('ZIP (contract §5)', () => {
     expect((await get(`/api/archive/den/zip?ids=${Array.from({ length: 201 }, (_, i) => i + 1).join(',')}`)).status).toBe(400);
     expect((await get(`/api/archive/den/zip?ids=${x.id}`)).status).toBe(200);
     expect((await get(`/api/archive/den/zip?ids=${x.id}`)).status).toBe(429); // the fifth this minute
+  });
+});
+
+describe('parseItem media URLs', () => {
+  const raw = { id: 3, cam: 'cam1', createdAt: 1791376468161, expiresAt: null, recordedFrom: 1, recordedTo: 2, bytes: 1, durationS: 1, retentionDays: null, name: 'x', thumbnail: { from: 'still', at: 1 } };
+  const proxy = { via: 'cam1', toCams: new Map<string, string>() };
+  // The video and thumbnail are cached as immutable; an id names another item
+  // after a camera move (the target numbers anew) or a reused id, so the URL
+  // carries the item's creation time and a different item gets a different URL.
+  it('carries the creation time on the cached video and thumbnail URLs', () => {
+    const it = parseItem(raw, proxy)!;
+    expect(it.urls.video).toBe('/api/archive/cam1/items/3/video?v=1791376468161');
+    expect(it.urls.thumbnail).toBe('/api/archive/cam1/items/3/thumbnail?v=1791376468161');
+    expect(it.urls.download).toBe('/api/archive/cam1/items/3/video?download=1');
+    expect(it.urls.metadata).toBe('/api/archive/cam1/items/3/metadata');
+  });
+  it('gives another item with the same id other URLs', () => {
+    const a = parseItem(raw, proxy)!;
+    const b = parseItem({ ...raw, createdAt: 1791290622452 }, proxy)!;
+    expect(b.urls.thumbnail).not.toBe(a.urls.thumbnail);
+    expect(b.urls.video).not.toBe(a.urls.video);
   });
 });
 
