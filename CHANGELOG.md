@@ -8,3 +8,4 @@ published as [GitHub releases](https://github.com/klaushofrichter/cams/releases)
 
 ## [Unreleased]
 
+- Settings: in cams-admin mode an account admin can always change the camera's password ("Change camera password"), and the form opens by itself when the camera refused the saved one.
