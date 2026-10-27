@@ -64,11 +64,13 @@ export function pagesRouter(dir: string): Router {
   // Public files at the web root, by exact name. An allow-list rather than
   // express.static on the root, so the HTML entries can't be fetched past the
   // auth decision through encoded or differently-cased names (/%61pp.html, /APP.html).
-  const PUBLIC_ROOT_FILES = new Set(['favicon.svg', 'favicon-32.png', 'apple-touch-icon.png', 'icon-512.png', 'site.webmanifest']);
+  const PUBLIC_ROOT_FILES = new Set(['favicon.svg', 'favicon-32.png', 'apple-touch-icon.png', 'icon-512.png', 'site.webmanifest', 'llms.txt']);
 
   router.get('/:file', (req: Request, res: Response, next) => {
     const file = req.params.file;
     if (typeof file === 'string' && PUBLIC_ROOT_FILES.has(file)) {
+      // llms.txt (llmstxt.org): the camera system's APIs and docs, for LLMs.
+      if (file === 'llms.txt') res.type('text/plain; charset=utf-8');
       res.sendFile(join(dir, file));
       return;
     }

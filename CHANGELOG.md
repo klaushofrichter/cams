@@ -8,5 +8,5 @@ published as [GitHub releases](https://github.com/klaushofrichter/cams/releases)
 
 ## [Unreleased]
 
-- Save clip around: the "Made of" line keeps its text while a slider moves (until the next answer replaces it) and keeps its place, so the dialog no longer jumps by a line.
+- `/llms.txt`: a public guide for LLMs (llmstxt.org) to the camera system's APIs and their documentation in the cams, cam-proxy, cam-sim, cams-admin and cam-proxy-pi-display repos, served as plain text without sign-in.
 
