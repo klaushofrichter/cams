@@ -88,6 +88,36 @@ test.describe('landing page', () => {
     await expect(target.getByRole('heading', { level: 2 })).toBeInViewport();
   });
 
+  test('the ticker names link to their repositories, once for the keyboard, and pause on hover', async ({ page }) => {
+    await page.goto('/');
+    const names = ['cams', 'cam-proxy', 'cam-sim', 'cams-admin', 'cam-proxy-pi-display'];
+    const links = page.getByTestId('ticker-link');
+    await expect(links).toHaveCount(5);
+    expect(await links.evaluateAll((as) => as.map((a) => a.getAttribute('href')))).toEqual(names.map((n) => `https://github.com/klaushofrichter/${n}`));
+    expect(await links.allTextContents()).toEqual(names);
+    // The loop's second copy: hidden from screen readers and the Tab key.
+    const copies = page.getByTestId('ticker-copy');
+    await expect(copies).toHaveCount(5);
+    for (const c of await copies.all()) await expect(c).toHaveAttribute('tabindex', '-1');
+    expect(await copies.first().evaluate((e) => e.closest('[aria-hidden="true"]') !== null)).toBe(true);
+    expect(await links.first().evaluate((e) => e.closest('[aria-hidden="true"]') === null)).toBe(true);
+    // Paused on hover and on focus.
+    const track = page.getByTestId('ticker-track');
+    await page.getByTestId('ticker').hover();
+    await expect.poll(() => track.evaluate((e) => getComputedStyle(e).animationPlayState)).toBe('paused');
+    await page.mouse.move(0, 0);
+    await links.first().focus();
+    await expect.poll(() => track.evaluate((e) => getComputedStyle(e).animationPlayState)).toBe('paused');
+  });
+
+  test('Find explains the secondary AI analytics and its budget', async ({ page }) => {
+    await page.goto('/');
+    const find = page.locator('#find');
+    await expect(find.getByRole('heading', { level: 3, name: 'Secondary AI analytics' })).toHaveCount(1);
+    await expect(find).toContainText('monthly limit');
+    await expect(page.getByTestId('highlight').filter({ hasText: 'Works with Reolink' })).toHaveAttribute('href', '#cameras');
+  });
+
   test('links the five open-source repositories', async ({ page }) => {
     await page.goto('/');
     const repos = page.getByTestId('repo-link');

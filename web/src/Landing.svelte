@@ -120,13 +120,18 @@
       <a class="cue" href="#highlights" aria-label="Scroll to the highlights"></a>
     </section>
 
-    <div class="marquee" aria-hidden="true">
-      <div class="track">
-        {#each [0, 1] as copy (copy)}
-          {#each REPOS as r (r.name)}<span>{r.name}</span><i>✦</i>{/each}
-        {/each}
+    <!-- The five repositories, drifting by; each name opens its repository.
+         The loop's second copy is for the eye only. -->
+    <nav class="marquee" aria-label="The repositories" data-testid="ticker">
+      <div class="track" data-testid="ticker-track">
+        <div class="group">
+          {#each REPOS as r (r.name)}<a href={r.url} data-testid="ticker-link">{r.name}</a><i aria-hidden="true">✦</i>{/each}
+        </div>
+        <div class="group" aria-hidden="true">
+          {#each REPOS as r (r.name)}<a href={r.url} tabindex="-1" data-testid="ticker-copy">{r.name}</a><i>✦</i>{/each}
+        </div>
       </div>
-    </div>
+    </nav>
 
     <section class="numbers" aria-label="In numbers">
       {#each NUMBERS as n, i (n.label)}
@@ -381,9 +386,11 @@
 
   /* The marquee: the five parts' names, outlined, drifting by. */
   .marquee { overflow: hidden; padding: 24px 0; border-block: 1px solid var(--border); background: linear-gradient(90deg, transparent, color-mix(in srgb, var(--surface) 60%, transparent), transparent); }
-  .track { display: flex; align-items: center; gap: 36px; width: max-content; animation: marquee 40s linear infinite; }
-  .track span { font: 600 clamp(30px, 4.2vw, 58px)/1 var(--display); color: transparent; -webkit-text-stroke: 1px color-mix(in srgb, var(--text) 45%, transparent); white-space: nowrap; transition: color 0.3s; }
-  .track span:hover { color: var(--text); }
+  .track { display: flex; width: max-content; animation: marquee 40s linear infinite; }
+  .marquee:hover .track, .marquee:focus-within .track { animation-play-state: paused; }
+  .group { display: flex; align-items: center; gap: 36px; padding-right: 36px; }
+  .group a { font: 600 clamp(30px, 4.2vw, 58px)/1 var(--display); color: transparent; -webkit-text-stroke: 1px color-mix(in srgb, var(--text) 45%, transparent); white-space: nowrap; text-decoration: none; transition: color 0.3s; }
+  .group a:hover, .group a:focus-visible { color: var(--text); }
   .track i { font-style: normal; color: var(--accent); font-size: 20px; }
 
   /* Numbers */

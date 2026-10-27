@@ -62,9 +62,9 @@ export const SHOWCASE = {
 // One card per section: a short summary that links down to the details.
 export const HIGHLIGHTS: Highlight[] = [
   { section: 'watch', icon: 'live', kicker: 'Watch', title: 'Live and recorded, one player', text: 'Slide from now into the past without switching screens.' },
-  { section: 'find', icon: 'person', kicker: 'Find', title: 'The right moment, fast', text: 'AI labels, thumbnails and a still for every second.' },
+  { section: 'find', icon: 'person', kicker: 'Find', title: 'The right moment, fast', text: 'AI labels, a second AI opinion and a still for every second.' },
   { section: 'keep', icon: 'archive', kicker: 'Keep', title: 'Clips worth keeping', text: 'Download, compose and archive what matters.' },
-  { section: 'cameras', icon: 'camera', kicker: 'Cameras', title: 'Reolink, as it really behaves', text: 'Every camera feature measured on the RLC-1224A.' },
+  { section: 'cameras', icon: 'camera', kicker: 'Cameras', title: 'Works with Reolink', text: 'Every camera feature measured on the RLC-1224A.' },
   { section: 'proxy', icon: 'server', kicker: 'Proxy', title: 'Smart where the cameras are', text: 'A local proxy keeps the footage on your own network.' },
   { section: 'hardware', icon: 'layers', kicker: 'Hardware', title: 'Small to start, ready to grow', text: 'From one Raspberry Pi to a proxy with many cameras.' },
   { section: 'fleet', icon: 'users', kicker: 'Fleet', title: 'Every site in one console', text: 'Accounts, proxies and cameras, managed centrally.' },
@@ -116,8 +116,8 @@ export const SECTIONS: Section[] = [
       },
       {
         icon: 'sparkle',
-        title: 'A second opinion from Google Vision',
-        text: 'Optionally, the proxy asks Google Vision about each event and shows its confidence, with boxes around what it found. Any single still can be checked by hand, within a monthly budget.',
+        title: 'Secondary AI analytics',
+        text: 'Optionally, the proxy sends the still of a person, vehicle or pet event to Google Vision for a second opinion: its confidence and boxes show next to the camera’s label, and any still can be checked by hand. The budget is built in: a monthly limit, a daily cap and a number of checks per camera and day, with the usage on screen; at a limit the calls stop until the day or month turns. Google Vision today, through a provider interface made for other AI models.',
       },
       {
         icon: 'timeline',

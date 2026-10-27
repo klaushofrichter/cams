@@ -64,6 +64,21 @@ describe('landing content', () => {
     expect(ADMIN_CONSOLE_URL).toBe('https://cams-admin.skylar.technology');
   });
 
+  it('the cameras highlight says “Works with Reolink” and points to #cameras', () => {
+    const h = HIGHLIGHTS.find((x) => x.section === 'cameras')!;
+    expect(h.title).toBe('Works with Reolink');
+  });
+
+  it('Find has a card on the secondary AI analytics and its budget, and its highlight mentions it', () => {
+    const find = SECTIONS.find((s) => s.id === 'find')!;
+    const card = find.features.find((f) => f.title === 'Secondary AI analytics')!;
+    expect(card).toBeDefined();
+    expect(card.text).toContain('Google Vision');
+    expect(card.text).toMatch(/monthly limit/);
+    expect(card.text).toMatch(/daily cap/);
+    expect(HIGHLIGHTS.find((x) => x.section === 'find')!.text).toMatch(/second AI opinion/);
+  });
+
   it('every screenshot is a WebP under /landing/ with alt text and a size', () => {
     const shots = [SHOWCASE.desktop, SHOWCASE.phone, ...SECTIONS.flatMap((s) => s.shots ?? [])];
     for (const x of shots) {
