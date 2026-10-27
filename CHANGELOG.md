@@ -8,3 +8,4 @@ published as [GitHub releases](https://github.com/klaushofrichter/cams/releases)
 
 ## [Unreleased]
 
+- MCP server at `/mcp`: an AI assistant (Claude Code, Claude Desktop) can read one account's cameras with a personal token made on Settings → "Assistant access (MCP)": cameras, current pictures, events with AI labels, recordings, the archive, short clips as 15-minute links, and the Vision budget. Every member makes their own tokens; admins see and revoke all of the account's. Off unless `MCP_ENABLED=true`.
