@@ -8,5 +8,3 @@ published as [GitHub releases](https://github.com/klaushofrichter/cams/releases)
 
 ## [Unreleased]
 
-- Save clip around: the "Made of" line keeps its text while a slider moves (until the next answer replaces it) and keeps its place, so the dialog no longer jumps by a line.
-
