@@ -313,6 +313,10 @@ export const SECTIONS: Section[] = [
   },
 ];
 
+// cams serves /llms.txt: every API and its documentation, for LLMs. Relative,
+// so a local viewer (the Pi, a mini PC) links its own.
+export const LLMS_TXT = { href: '/llms.txt', text: 'Point your AI at llms.txt: every API and its documentation in one list.' };
+
 export const REPOS: Repo[] = [
   { name: 'cams', url: 'https://github.com/klaushofrichter/cams', text: 'The app' },
   { name: 'cam-proxy', url: 'https://github.com/klaushofrichter/cam-proxy', text: 'The proxy' },

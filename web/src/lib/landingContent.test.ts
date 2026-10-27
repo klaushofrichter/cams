@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { ICONS } from './icons';
-import { ADMIN_CONSOLE_URL, EPAPER_PAGES, HIGHLIGHTS, NUMBERS, REPOS, SECTIONS, SHOWCASE } from './landingContent';
+import { ADMIN_CONSOLE_URL, EPAPER_PAGES, LLMS_TXT, HIGHLIGHTS, NUMBERS, REPOS, SECTIONS, SHOWCASE } from './landingContent';
 
 // The landing page is public and pre-login: its copy must not carry
 // addresses, host names, ids or tokens. Links live in their own fields.
@@ -9,6 +9,7 @@ const allText = (): string[] => [
   ...NUMBERS.flatMap((n) => [n.label]),
   ...SECTIONS.flatMap((s) => [s.kicker, s.title, s.lead, ...s.features.flatMap((f) => [f.title, f.text]), ...(s.shots ?? []).map((x) => x.alt)]),
   ...REPOS.map((r) => r.text),
+  LLMS_TXT.text,
   SHOWCASE.desktop.alt,
   SHOWCASE.phone.alt,
   ...EPAPER_PAGES.flatMap((e) => [e.name, e.alt]),
@@ -104,6 +105,11 @@ describe('landing content', () => {
   it('the e-paper display has its four pages, in the display’s order', () => {
     expect(EPAPER_PAGES.map((e) => e.name)).toEqual(['Overview', 'Camera', 'Proxy', 'Pi']);
     for (const e of EPAPER_PAGES) expect(e.src).toBe(`/landing/epaper-${e.name.toLowerCase()}.webp`);
+  });
+
+  it('points your AI at llms.txt, relative so a local viewer serves its own', () => {
+    expect(LLMS_TXT.href).toBe('/llms.txt');
+    expect(LLMS_TXT.text).toBe('Point your AI at llms.txt: every API and its documentation in one list.');
   });
 
   it('every screenshot is a WebP under /landing/ with alt text and a size', () => {

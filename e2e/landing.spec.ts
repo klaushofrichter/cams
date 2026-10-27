@@ -154,6 +154,14 @@ test.describe('landing page', () => {
     await expect(page.getByTestId('demo-sash')).toHaveCount(0);
   });
 
+  test('the Open section points your AI at /llms.txt', async ({ page }) => {
+    await page.goto('/');
+    const link = page.locator('#open').getByTestId('llms-link');
+    await expect(link).toHaveAttribute('href', '/llms.txt');
+    await expect(link).toContainText('llms.txt');
+    await expect(page.locator('#open')).toContainText('every API and its documentation in one list');
+  });
+
   test('links the five open-source repositories', async ({ page }) => {
     await page.goto('/');
     const repos = page.getByTestId('repo-link');

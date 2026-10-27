@@ -7,7 +7,7 @@
   import LandingShot from './components/LandingShot.svelte';
   import EpaperCycle from './components/EpaperCycle.svelte';
   import { loginMethods, noConfiguration } from './lib/login';
-  import { ADMIN_CONSOLE_URL, EPAPER_PAGES, HIGHLIGHTS, NUMBERS, REPOS, SECTIONS, SHOWCASE } from './lib/landingContent';
+  import { ADMIN_CONSOLE_URL, EPAPER_PAGES, HIGHLIGHTS, LLMS_TXT, NUMBERS, REPOS, SECTIONS, SHOWCASE } from './lib/landingContent';
   import { countUp, reducedMotion, reveal, spotlight } from './lib/landingMotion';
   import { currentTheme } from './lib/theme';
   import { theme } from './lib/stores';
@@ -172,6 +172,9 @@
           <p class="eyebrow">{s.kicker}</p>
           <h2 id="{s.id}-title">{s.title}</h2>
           <p class="lead">{s.lead}</p>
+          {#if s.id === 'open'}
+            <a class="llms" href={LLMS_TXT.href} data-testid="llms-link"><Icon name="bot" size={18} /><span>{LLMS_TXT.text}</span></a>
+          {/if}
           {#if s.id === 'find'}
             <!-- An abstract strip: no footage, just the kinds' colours. -->
             <div class="strip" aria-hidden="true">
@@ -520,6 +523,21 @@
   }
   .narrow { max-width: 360px; justify-self: center; width: 100%; }
 
+  .llms {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    margin-top: 20px;
+    padding: 12px 14px;
+    border-radius: 14px;
+    border: 1px dashed color-mix(in srgb, var(--accent) 50%, var(--border));
+    color: var(--text);
+    font-size: 14px;
+    text-decoration: none;
+    transition: border-color 0.2s, background-color 0.2s;
+  }
+  .llms:hover { border-style: solid; border-color: var(--accent); background: color-mix(in srgb, var(--accent) 8%, transparent); }
+  .llms :global(svg) { flex: none; color: var(--accent); margin-top: 1px; }
   .repos { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; grid-template-columns: repeat(auto-fill, minmax(min(100%, 250px), 1fr)); }
   .repos a {
     display: grid;
