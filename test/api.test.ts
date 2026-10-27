@@ -19,7 +19,7 @@ describe('/api', () => {
     process.env.APP_VERSION = '2026.09.26.1';
     const res = await request(createApp()).get('/api/me').set('Cookie', auth);
     expect(res.status).toBe(200);
-    expect(res.body).toEqual({ email: 'klaus@klaushofrichter.net', version: '2026.09.26.1', buildDate: null, account: { id: fileAccount().id, name: 'home', displayName: 'Home' }, role: 'admin', accounts: 1, configSource: 'file', staleSince: null, configProblem: null, held: 0, mcp: { enabled: false, plainHttp: false } });
+    expect(res.body).toEqual({ email: 'klaus@klaushofrichter.net', version: '2026.09.26.1', buildDate: null, account: { id: fileAccount().id, name: 'home', displayName: 'Home' }, role: 'admin', accounts: 1, configSource: 'file', staleSince: null, configProblem: null, held: 0, mcp: { enabled: true, plainHttp: false } });
     expect(res.headers['cache-control']).toBe('no-store');
   });
 

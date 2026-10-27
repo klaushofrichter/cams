@@ -85,7 +85,7 @@ describe('GET /mcp/media/:link', () => {
 
   it('is 404 while MCP is off', async () => {
     const { id } = issue();
-    delete process.env.MCP_ENABLED;
+    process.env.MCP_ENABLED = 'false';
     expect((await fetch(link(id))).status).toBe(404);
   });
 });
