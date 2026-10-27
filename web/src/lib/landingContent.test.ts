@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { ICONS } from './icons';
-import { ADMIN_CONSOLE_URL, HIGHLIGHTS, NUMBERS, REPOS, SECTIONS, SHOWCASE } from './landingContent';
+import { ADMIN_CONSOLE_URL, EPAPER_PAGES, HIGHLIGHTS, NUMBERS, REPOS, SECTIONS, SHOWCASE } from './landingContent';
 
 // The landing page is public and pre-login: its copy must not carry
 // addresses, host names, ids or tokens. Links live in their own fields.
@@ -11,6 +11,7 @@ const allText = (): string[] => [
   ...REPOS.map((r) => r.text),
   SHOWCASE.desktop.alt,
   SHOWCASE.phone.alt,
+  ...EPAPER_PAGES.flatMap((e) => [e.name, e.alt]),
 ];
 
 describe('landing content', () => {
@@ -79,8 +80,34 @@ describe('landing content', () => {
     expect(HIGHLIGHTS.find((x) => x.section === 'find')!.text).toMatch(/second AI opinion/);
   });
 
+  it('round 4 copy: 10+ cameras with its estimate, the hardware headline, Save clip around, the AI line', () => {
+    expect(NUMBERS.find((n) => n.suffix === '+')).toMatchObject({ value: 10, suffix: '+' });
+    expect(NUMBERS.some((n) => n.value === 64)).toBe(false);
+    const hw = SECTIONS.find((x) => x.id === 'hardware')!;
+    expect(hw.title).toBe('Scales to the requirements');
+    expect(hw.lead).toContain('Raspberry Pi');
+    expect(hw.lead).not.toContain('tiny board');
+    const larger = hw.features.find((f) => f.title === 'Larger proxies, many cameras')!;
+    expect(larger.text).toContain('10 or more cameras');
+    expect(larger.text).toContain('Estimated for a mini PC class machine (Ryzen 5 mobile CPU, 8 GB RAM, 512 GB NVMe SSD); not yet load-tested.');
+    expect(larger.text).toContain('Celeron J1900');
+    const around = SECTIONS.find((x) => x.id === 'keep')!.features.find((f) => f.title === 'Save clip around')!;
+    expect(around.text.startsWith('Pick a moment in time and save a video. ')).toBe(true);
+    expect(SECTIONS.find((x) => x.id === 'open')!.lead).toBe('Your AI can read the code, build new features on the APIs, and manage the system for you from plain-text prompts.');
+  });
+
+  it('the fleet section shows the cams-admin dashboard', () => {
+    const fleet = SECTIONS.find((x) => x.id === 'fleet')!;
+    expect(fleet.shots?.map((x) => x.src)).toEqual(['/landing/admin-dashboard.webp']);
+  });
+
+  it('the e-paper display has its four pages, in the display’s order', () => {
+    expect(EPAPER_PAGES.map((e) => e.name)).toEqual(['Overview', 'Camera', 'Proxy', 'Pi']);
+    for (const e of EPAPER_PAGES) expect(e.src).toBe(`/landing/epaper-${e.name.toLowerCase()}.webp`);
+  });
+
   it('every screenshot is a WebP under /landing/ with alt text and a size', () => {
-    const shots = [SHOWCASE.desktop, SHOWCASE.phone, ...SECTIONS.flatMap((s) => s.shots ?? [])];
+    const shots = [SHOWCASE.desktop, SHOWCASE.phone, ...EPAPER_PAGES, ...SECTIONS.flatMap((s) => s.shots ?? [])];
     for (const x of shots) {
       expect(x.src).toMatch(/^\/landing\/[a-z-]+\.webp$/);
       expect(x.alt.length).toBeGreaterThan(20);

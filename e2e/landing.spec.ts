@@ -256,12 +256,46 @@ test.describe('landing page', () => {
     }
   });
 
+  test('the e-paper display cycles its four pages every 2 s, like a refresh', async ({ page }) => {
+    await page.route('**/landing/*.webp', (r) => r.fulfill({ status: 200, contentType: 'image/webp', body: WEBP_1PX }));
+    await page.emulateMedia({ reducedMotion: 'no-preference' });
+    await page.goto('/');
+    const cycle = page.locator('#hardware').getByTestId('epaper-cycle');
+    await cycle.scrollIntoViewIfNeeded();
+    const pages = cycle.getByTestId('epaper-page');
+    await expect(pages).toHaveCount(4);
+    expect(await pages.evaluateAll((ims) => ims.map((i) => i.getAttribute('alt')!.split(':')[0]))).toEqual([
+      'The e-paper display’s Overview page',
+      'The e-paper display’s Camera page',
+      'The e-paper display’s Proxy page',
+      'The e-paper display’s Pi page',
+    ]);
+    const anim = await pages.evaluateAll((ims) => ims.map((i) => { const cs = getComputedStyle(i); return [cs.animationDuration, cs.animationDelay, cs.animationIterationCount]; }));
+    expect(anim).toEqual([['8s', '0s', 'infinite'], ['8s', '2s', 'infinite'], ['8s', '4s', 'infinite'], ['8s', '6s', 'infinite']]);
+    // The refresh flash between pages.
+    expect(await cycle.getByTestId('epaper-flash').evaluate((e) => getComputedStyle(e).animationDuration)).toBe('2s');
+  });
+
+  test('under reduced motion the four e-paper pages stand side by side, still', async ({ page }) => {
+    await page.route('**/landing/*.webp', (r) => r.fulfill({ status: 200, contentType: 'image/webp', body: WEBP_1PX }));
+    await page.emulateMedia({ reducedMotion: 'reduce' });
+    await page.goto('/');
+    const pages = page.getByTestId('epaper-page');
+    await expect(pages).toHaveCount(4);
+    for (const p of await pages.all()) {
+      await expect(p).toBeVisible();
+      expect(await p.evaluate((e) => [getComputedStyle(e).animationName, getComputedStyle(e).opacity])).toEqual(['none', '1']);
+    }
+    await expect(page.getByTestId('epaper-flash')).toBeHidden();
+  });
+
   test('a missing screenshot leaves no empty frame or broken image', async ({ page }) => {
     await page.route('**/landing/*.webp', (r) => r.fulfill({ status: 404, body: '' }));
     await page.goto('/');
     await scrollThrough(page);
     await expect(page.getByTestId('shot')).toHaveCount(0);
     await expect(page.getByTestId('showcase')).toBeHidden();
+    await expect(page.getByTestId('epaper-cycle')).toHaveCount(0);
     // The rest of the page is unchanged.
     await expect(page.getByTestId('highlights')).toBeVisible();
     await expect(page.getByTestId('maker')).toBeVisible();

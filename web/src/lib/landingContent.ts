@@ -59,6 +59,17 @@ export const SHOWCASE = {
   phone: shot('phone-live', 'The Video page on a phone: the live picture, the playback controls and the day strip', 540, 1169),
 };
 
+// The Pi's e-paper display (264×176, black and white, drawn 3× by
+// cam-proxy-pi-display's fake panel): its four pages, in the order its keys
+// select them. The Hardware section cycles them like the display.
+const epaper = (name: string, alt: string): Shot => ({ ...shot(`epaper-${name.toLowerCase()}`, `The e-paper display’s ${name} page: ${alt}`, 792, 528), frame: 'epaper' });
+export const EPAPER_PAGES: (Shot & { name: string })[] = [
+  { name: 'Overview', ...epaper('Overview', 'camera online, live stream up, events subscribed, storage, disk and archive, and “All OK” at the bottom') },
+  { name: 'Camera', ...epaper('Camera', 'the camera online, its model and firmware, the stream, events, FTP and the last clip') },
+  { name: 'Proxy', ...epaper('Proxy', 'the proxy’s version, up since, clips stored, storage, the recordings cache, viewers and the last retention run') },
+  { name: 'Pi', ...epaper('Pi', 'the Raspberry Pi’s model, disk, free space, CPU temperature, memory, uptime, load and under-voltage') },
+];
+
 // One card per section: a short summary that links down to the details.
 export const HIGHLIGHTS: Highlight[] = [
   { section: 'watch', icon: 'live', kicker: 'Watch', title: 'Live and recorded, one player', text: 'Slide from now into the past without switching screens.' },
@@ -74,7 +85,7 @@ export const HIGHLIGHTS: Highlight[] = [
 export const NUMBERS = [
   { value: 1, suffix: '', label: 'still per second, kept by the proxy' },
   { value: 4, suffix: 'K', label: 'original recordings, straight from the camera' },
-  { value: 64, suffix: '', label: 'cameras on one proxy, at most' },
+  { value: 10, suffix: '+', label: 'cameras on one proxy (estimated)' },
   { value: 5, suffix: '', label: 'public repositories on GitHub' },
 ];
 
@@ -149,7 +160,7 @@ export const SECTIONS: Section[] = [
       {
         icon: 'clip',
         title: 'Save clip around',
-        text: 'Pick a second and choose how much comes before and after. The proxy builds the clip from the neighbouring recordings, or from stills where nothing was recorded, up to 5 minutes.',
+        text: 'Pick a moment in time and save a video. The proxy builds the clip from the neighbouring recordings, or from stills where nothing was recorded, up to 5 minutes.',
       },
       {
         icon: 'archive',
@@ -223,8 +234,8 @@ export const SECTIONS: Section[] = [
   {
     id: 'hardware',
     kicker: 'Hardware',
-    title: 'From a Raspberry Pi to many cameras',
-    lead: 'The same software on a tiny board, a mini PC or a Kubernetes cluster.',
+    title: 'Scales to the requirements',
+    lead: 'The same software on a Raspberry Pi, a mini PC or a Kubernetes cluster.',
     features: [
       {
         icon: 'camera',
@@ -239,17 +250,13 @@ export const SECTIONS: Section[] = [
       {
         icon: 'layers',
         title: 'Larger proxies, many cameras',
-        text: 'A mini PC with its own camera network runs one proxy for several cameras, up to 64 by its profile. An account can have several proxies, and one app serves them all.',
+        text: 'A mini PC with its own camera network runs one proxy for 10 or more cameras, an account can have several proxies, and one app serves them all. Estimated for a mini PC class machine (Ryzen 5 mobile CPU, 8 GB RAM, 512 GB NVMe SSD); not yet load-tested. The basis: a 4-core Celeron J1900 with 4 GB runs 3 cameras at about 95% idle.',
       },
       {
         icon: 'live',
         title: 'Reach it from anywhere',
         text: 'The app also runs in a Kubernetes cluster, so you can watch from anywhere, while the footage stays with the proxies.',
       },
-    ],
-    shots: [
-      { ...shot('epaper-overview', 'The e-paper display’s Overview page: camera online, live stream up, events subscribed, storage, disk and archive, and “All OK” at the bottom', 792, 528), frame: 'epaper' },
-      { ...shot('epaper-camera', 'The e-paper display’s Camera page: the camera online since the morning, its model and firmware, the stream, events, FTP and the last clip', 792, 528), frame: 'epaper' },
     ],
   },
   {
@@ -274,12 +281,13 @@ export const SECTIONS: Section[] = [
         text: 'Every remote change is signed, previewed before it applies and can be rolled back. Each proxy decides what the console may do, and every action is in the audit log.',
       },
     ],
+    shots: [shot('admin-dashboard', 'The cams-admin dashboard: accounts, proxies and cameras online, the cams instances, and each account’s proxies with their cameras')],
   },
   {
     id: 'open',
     kicker: 'Open',
     title: 'Open source, built with AI',
-    lead: 'Read the code, build on the APIs, and see how an AI runs it.',
+    lead: 'Your AI can read the code, build new features on the APIs, and manage the system for you from plain-text prompts.',
     features: [
       {
         icon: 'code',

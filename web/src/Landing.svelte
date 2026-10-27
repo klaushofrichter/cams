@@ -5,8 +5,9 @@
   import ThemeToggle from './components/ThemeToggle.svelte';
   import Icon from './components/Icon.svelte';
   import LandingShot from './components/LandingShot.svelte';
+  import EpaperCycle from './components/EpaperCycle.svelte';
   import { loginMethods, noConfiguration } from './lib/login';
-  import { ADMIN_CONSOLE_URL, HIGHLIGHTS, NUMBERS, REPOS, SECTIONS, SHOWCASE } from './lib/landingContent';
+  import { ADMIN_CONSOLE_URL, EPAPER_PAGES, HIGHLIGHTS, NUMBERS, REPOS, SECTIONS, SHOWCASE } from './lib/landingContent';
   import { countUp, reducedMotion, reveal, spotlight } from './lib/landingMotion';
   import { currentTheme } from './lib/theme';
   import { theme } from './lib/stores';
@@ -205,6 +206,9 @@
                 </li>
               {/each}
             </ul>
+          {/if}
+          {#if s.id === 'hardware'}
+            <div class="epaper-wrap" use:reveal><EpaperCycle pages={EPAPER_PAGES} /></div>
           {/if}
           {#if s.shots}
             <div class="shots" class:pair={s.shots.length > 1}>
