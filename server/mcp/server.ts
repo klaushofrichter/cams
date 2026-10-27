@@ -9,7 +9,9 @@ import { appVersion } from '../version';
 import { callApi, type InternalBase } from './internal';
 import { fail, failureOf, ToolFailure } from './result';
 import type { StoredToken } from './tokens';
+import { registerAnalyticsTool } from './tools/analytics';
 import { registerArchiveTools } from './tools/archive';
+import { registerClipTools } from './tools/clips';
 import { registerCameraTools } from './tools/cameras';
 import { registerEventTools } from './tools/events';
 import { registerSnapshotTool } from './tools/snapshot';
@@ -19,6 +21,7 @@ export interface ApiInit { method?: string; body?: unknown; headers?: Record<str
 export interface ToolCtx {
   principal: Principal;
   token: StoredToken;
+  base: InternalBase;
   origin: string;
   audit: Audit;
   // An /api call as the token (status as it comes).
@@ -37,7 +40,7 @@ export function makeCtx(principal: Principal, token: StoredToken, base: Internal
     }
   };
   return {
-    principal, token, origin, audit: {}, api,
+    principal, token, base, origin, audit: {}, api,
     json: async <T>(path: string, init?: ApiInit) => {
       const r = await api(path, init);
       if (!r.ok) throw await failureOf(r);
@@ -98,5 +101,7 @@ export function buildServer(ctx: ToolCtx): McpServer {
   registerSnapshotTool(server, ctx);
   registerEventTools(server, ctx);
   registerArchiveTools(server, ctx);
+  registerClipTools(server, ctx);
+  registerAnalyticsTool(server, ctx);
   return server;
 }
