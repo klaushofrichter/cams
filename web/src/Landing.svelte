@@ -4,8 +4,9 @@
   import LoginOptions from './components/LoginOptions.svelte';
   import ThemeToggle from './components/ThemeToggle.svelte';
   import Icon from './components/Icon.svelte';
+  import LandingShot from './components/LandingShot.svelte';
   import { loginMethods, noConfiguration, UNAVAILABLE_MESSAGE } from './lib/login';
-  import { HIGHLIGHTS, SECTIONS } from './lib/landingContent';
+  import { HIGHLIGHTS, SECTIONS, SHOWCASE } from './lib/landingContent';
   import { currentTheme } from './lib/theme';
   import { theme } from './lib/stores';
   const methods = loginMethods();
@@ -16,6 +17,8 @@
   const none = noConfiguration();
   const year = new Date().getFullYear();
   theme.set(currentTheme());
+  // The product shot goes when its desktop screenshot is missing.
+  let showcaseFailed = $state(false);
 </script>
 
 <div class="landing">
@@ -52,6 +55,12 @@
 
     <section class="highlights" data-testid="highlights" aria-labelledby="highlights-title">
       <h2 id="highlights-title" class="visually-hidden">Highlights</h2>
+      {#if !showcaseFailed}
+        <div class="showcase" data-testid="showcase">
+          <div class="desk"><LandingShot shot={SHOWCASE.desktop} bind:failed={showcaseFailed} /></div>
+          <div class="phone"><LandingShot shot={SHOWCASE.phone} frame="phone" /></div>
+        </div>
+      {/if}
       <ul>
         {#each HIGHLIGHTS as h (h.title)}
           <li>
@@ -90,6 +99,13 @@
             </li>
           {/each}
         </ul>
+        {#if s.shots}
+          <div class="shots" class:pair={s.shots.length > 1}>
+            {#each s.shots as shot (shot.src)}
+              <div class:narrow={shot.width < shot.height}><LandingShot {shot} /></div>
+            {/each}
+          </div>
+        {/if}
       </section>
     {/each}
 
@@ -204,6 +220,10 @@
   .highlights h3 { margin: 0 0 4px; font-size: 17px; }
   .highlights p { margin: 0; color: var(--muted); font-size: 14px; }
 
+  /* The product shot: the desktop page with the phone in front, bottom right. */
+  .showcase { position: relative; margin: 0 auto 40px; max-width: 1040px; padding-right: 90px; }
+  .showcase .phone { position: absolute; right: 0; bottom: -28px; width: 22%; max-width: 220px; }
+
   /* Feature sections */
   .feature {
     display: grid;
@@ -240,6 +260,17 @@
   }
   .cards h3 { margin: 0 0 4px; font-size: 16px; }
   .cards p { margin: 0; color: var(--muted); font-size: 14px; }
+  .shots { grid-column: 1 / -1; display: grid; gap: 18px; }
+  .shots:empty { display: none; }
+  .shots > div:empty { display: none; }
+  @media (min-width: 960px) {
+    /* One shot sits under the cards; a pair spans the section. */
+    .shots:not(.pair) { grid-column: 2; }
+    .shots.pair { grid-template-columns: 1fr 1fr; align-items: start; }
+    /* A tall shot (the event list) beside a wide one. */
+    .shots.pair:has(.narrow) { grid-template-columns: minmax(0, 1fr) minmax(0, 0.42fr); }
+  }
+  .narrow { max-width: 360px; justify-self: center; width: 100%; }
   .strip {
     position: relative;
     height: 34px;
@@ -289,6 +320,8 @@
     .nav { padding: 14px 16px; }
     .hero { padding: 16px 16px 40px; gap: 28px; }
     .highlights { padding: 0 16px 48px; }
+    .showcase { padding-right: 48px; margin-bottom: 32px; }
+    .showcase .phone { width: 30%; bottom: -16px; }
     .feature { padding: 40px 16px; }
     .maker { margin: 16px 16px 48px; padding: 32px 18px; }
     footer { padding: 14px 16px; }

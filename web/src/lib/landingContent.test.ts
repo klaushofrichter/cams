@@ -1,12 +1,14 @@
 import { describe, expect, it } from 'vitest';
 import { ICONS } from './icons';
-import { HIGHLIGHTS, SECTIONS } from './landingContent';
+import { HIGHLIGHTS, SECTIONS, SHOWCASE } from './landingContent';
 
 // The landing page is public and pre-login: its copy must not carry
 // addresses, host names (other than the company's site), ids or tokens.
 const allText = (): string[] => [
   ...HIGHLIGHTS.flatMap((h) => [h.title, h.text]),
-  ...SECTIONS.flatMap((s) => [s.title, s.lead, ...s.features.flatMap((f) => [f.title, f.text])]),
+  ...SECTIONS.flatMap((s) => [s.title, s.lead, ...s.features.flatMap((f) => [f.title, f.text]), ...(s.shots ?? []).map((x) => x.alt)]),
+  SHOWCASE.desktop.alt,
+  SHOWCASE.phone.alt,
 ];
 
 describe('landing content', () => {
@@ -28,6 +30,16 @@ describe('landing content', () => {
       expect(t, t).not.toMatch(/:\d{2,5}\b/); // a port
       expect(t, t).not.toMatch(/\b[a-z0-9-]+\.(internal|local|lan|svc|com|net|org|io|technology)\b/i); // a host name
       expect(t, t).not.toMatch(/\bcam\d\b|\bcao_|\bCAC1-/i); // camera ids, tokens
+    }
+  });
+
+  it('every screenshot is a WebP under /landing/ with alt text and a size', () => {
+    const shots = [SHOWCASE.desktop, SHOWCASE.phone, ...SECTIONS.flatMap((s) => s.shots ?? [])];
+    for (const x of shots) {
+      expect(x.src).toMatch(/^\/landing\/[a-z-]+\.webp$/);
+      expect(x.alt.length).toBeGreaterThan(20);
+      expect(x.width).toBeGreaterThan(0);
+      expect(x.height).toBeGreaterThan(0);
     }
   });
 

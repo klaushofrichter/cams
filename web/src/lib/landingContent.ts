@@ -16,13 +16,32 @@ export interface Feature {
   text: string;
 }
 
+// A screenshot of the app under /landing/ (web/public/landing/). The files
+// are not in git until Klaus has reviewed them: the page hides a shot whose
+// file is missing.
+export interface Shot {
+  src: string;
+  alt: string;
+  width: number;
+  height: number;
+}
+
 export interface Section {
   id: string;
   kicker: string;
   title: string;
   lead: string;
   features: Feature[];
+  shots?: Shot[];
 }
+
+const shot = (name: string, alt: string, width = 1200, height = 750): Shot => ({ src: `/landing/${name}.webp`, alt, width, height });
+
+// The product shot over the highlights: the desktop Video page, with the phone in front.
+export const SHOWCASE = {
+  desktop: shot('live', 'The Video page in a desktop browser: the live picture with its LIVE badge, the day strip below and the day’s events on the right'),
+  phone: shot('phone-live', 'The Video page on a phone: the live picture, the playback controls and the day strip', 540, 1169),
+};
 
 export const HIGHLIGHTS: Highlight[] = [
   { icon: 'live', title: 'Live in one click', text: 'Every camera live in your browser, in SD or full 4K.' },
@@ -56,6 +75,7 @@ export const SECTIONS: Section[] = [
         text: 'Step by 1 or 10 seconds, jump to the next event, or go back to live. On the phone, swipe and tap. On the desktop, use the keyboard.',
       },
     ],
+    shots: [shot('playback', 'Playing a recorded person event: the REC badge with its time, the playback controls, and the event highlighted in the list')],
   },
   {
     id: 'find',
@@ -84,6 +104,10 @@ export const SECTIONS: Section[] = [
         text: 'A new event appears in the list as it is recorded. No reloading, no waiting.',
       },
     ],
+    shots: [
+      shot('timeline', 'The Timeline page: one tile per minute, an open minute with its sixty stills, and the large still of the chosen second'),
+      shot('events', 'The day’s events grouped by hour, each with a thumbnail, its length and labels such as Person, Vehicle and Motion', 392, 750),
+    ],
   },
   {
     id: 'keep',
@@ -106,6 +130,10 @@ export const SECTIONS: Section[] = [
         title: 'The archive',
         text: 'Archived clips stay after the camera’s normal retention: for 365 days or forever. Label them, sort and filter, and download a selection as a ZIP.',
       },
+    ],
+    shots: [
+      shot('around', 'The “Save clip around” dialog: pre-roll and post-roll sliders, the size, and what the clip is made of'),
+      shot('archive', 'The Archive page: archived clips with thumbnails, recorded time, size, labels and expiry'),
     ],
   },
   {
@@ -135,6 +163,7 @@ export const SECTIONS: Section[] = [
         text: 'Rename a camera, change its settings or restart it without opening the camera’s own web page.',
       },
     ],
+    shots: [shot('settings', 'Camera settings in the browser: recording and detection sensitivity for people, vehicles and pets, image and lights')],
   },
   {
     id: 'manage',

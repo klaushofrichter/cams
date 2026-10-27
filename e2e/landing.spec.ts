@@ -77,6 +77,40 @@ test.describe('landing page', () => {
     await expect.poll(() => page.evaluate(() => document.documentElement.dataset.theme)).toBe('dark');
   });
 
+  // The screenshots (web/public/landing/) stay out of git until Klaus has
+  // reviewed them: without the files the page shows no frames at all.
+  const WEBP_1PX = Buffer.from('UklGRhoAAABXRUJQVlA4TA0AAAAvAAAAEAcQERGIiP4HAA==', 'base64');
+  async function scrollThrough(page: import('@playwright/test').Page) {
+    for (const s of await page.locator('[data-testid="showcase"], [data-testid="feature-section"]').all()) {
+      await s.scrollIntoViewIfNeeded();
+      await page.waitForTimeout(100);
+    }
+  }
+
+  test('screenshots show framed, lazy, with alt text when their files exist', async ({ page }) => {
+    await page.route('**/landing/*.webp', (r) => r.fulfill({ status: 200, contentType: 'image/webp', body: WEBP_1PX }));
+    await page.goto('/');
+    await scrollThrough(page);
+    const shots = page.getByTestId('shot');
+    await expect(shots.first()).toBeVisible();
+    expect(await shots.count()).toBeGreaterThanOrEqual(6);
+    for (const img of await shots.locator('img').all()) {
+      await expect(img).toHaveAttribute('loading', 'lazy');
+      expect((await img.getAttribute('alt'))!.length).toBeGreaterThan(20);
+    }
+  });
+
+  test('a missing screenshot leaves no empty frame or broken image', async ({ page }) => {
+    await page.route('**/landing/*.webp', (r) => r.fulfill({ status: 404, body: '' }));
+    await page.goto('/');
+    await scrollThrough(page);
+    await expect(page.getByTestId('shot')).toHaveCount(0);
+    await expect(page.getByTestId('showcase')).toBeHidden();
+    // The rest of the page is unchanged.
+    await expect(page.getByTestId('highlights')).toBeVisible();
+    await expect(page.getByTestId('maker')).toBeVisible();
+  });
+
   test('login starts the Google flow', async ({ request }) => {
     const res = await request.get('/auth/google/login', { maxRedirects: 0 });
     expect(res.status()).toBe(302);

@@ -1,6 +1,8 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import request from 'supertest';
-import { resolve } from 'path';
+import { cpSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'fs';
+import { tmpdir } from 'os';
+import { join, resolve } from 'path';
 import { createApp } from '../server/app';
 import { SESSION_COOKIE, signSession } from '../server/session';
 
@@ -66,5 +68,37 @@ describe('pages', () => {
   it('answers unknown paths with 404', async () => {
     const res = await request(createApp()).get('/wp-login.php');
     expect(res.status).toBe(404);
+  });
+});
+
+// The landing page's screenshots (web/public/landing/ → <dist>/landing/):
+// public, by a strict name only, and a plain 404 when a file is missing
+// (they are not in git until reviewed). The file is made here, not committed.
+describe('landing screenshots', () => {
+  let dir: string;
+  beforeAll(() => {
+    dir = mkdtempSync(join(tmpdir(), 'cams-landing-'));
+    cpSync(resolve(__dirname, 'fixtures/web'), dir, { recursive: true });
+    mkdirSync(join(dir, 'landing'));
+    writeFileSync(join(dir, 'landing', 'live.webp'), Buffer.from('UklGRhoAAABXRUJQVlA4TA0AAAAvAAAAEAcQERGIiP4HAA==', 'base64'));
+    writeFileSync(join(dir, 'landing', 'notes.txt'), 'not an image');
+    process.env.WEB_DIST = dir;
+  });
+  afterAll(() => {
+    process.env.WEB_DIST = resolve(__dirname, 'fixtures/web');
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it('serves a screenshot to signed-out visitors as WebP', async () => {
+    const res = await request(createApp()).get('/landing/live.webp');
+    expect(res.status).toBe(200);
+    expect(res.headers['content-type']).toBe('image/webp');
+  });
+
+  it('answers 404 for a missing screenshot, another file type or a path trick', async () => {
+    for (const path of ['/landing/archive.webp', '/landing/notes.txt', '/landing/../index.html', '/landing/%2e%2e/app.html', '/landing/LIVE.webp', '/landing/']) {
+      const res = await request(createApp()).get(path);
+      expect(res.status, path).toBe(404);
+    }
   });
 });

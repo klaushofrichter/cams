@@ -66,6 +66,17 @@ export function pagesRouter(dir: string): Router {
   // auth decision through encoded or differently-cased names (/%61pp.html, /APP.html).
   const PUBLIC_ROOT_FILES = new Set(['favicon.svg', 'favicon-32.png', 'apple-touch-icon.png', 'icon-512.png', 'site.webmanifest', 'llms.txt']);
 
+  // The landing page's screenshots (web/public/landing/): public, WebP only,
+  // by a plain lowercase name. They are not in git until reviewed, so a
+  // missing one is an ordinary 404 and the page hides its frame.
+  router.get('/landing/:file', (req: Request, res: Response, next) => {
+    const file = req.params.file;
+    if (typeof file !== 'string' || !/^[a-z0-9-]+\.webp$/.test(file)) return next();
+    res.sendFile(join(dir, 'landing', file), { maxAge: '1h' }, (err) => {
+      if (err && !res.headersSent) next();
+    });
+  });
+
   router.get('/:file', (req: Request, res: Response, next) => {
     const file = req.params.file;
     if (typeof file === 'string' && PUBLIC_ROOT_FILES.has(file)) {
