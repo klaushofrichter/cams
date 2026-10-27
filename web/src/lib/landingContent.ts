@@ -1,11 +1,19 @@
-// The landing page's copy: the highlights strip and the feature sections.
-// Public and pre-login, so no addresses, host names, ids or tokens
+// The landing page's copy: highlights (a summary, each pointing to its
+// section), numbers, the feature sections and the repositories. Public and
+// pre-login, so no addresses, host names, ids or tokens in the text
 // (landingContent.test.ts). Claim only what has shipped in cams, cam-proxy,
-// cams-admin and cam-proxy-pi-display.
+// cam-sim, cams-admin and cam-proxy-pi-display. Terms: the proxy (cam-proxy,
+// never "gateway"), the app (cams), cams-admin (the admin console), account,
+// fleet, camera move, archive, site CA, the proxy's admin UI, the camera
+// abstraction (cam-sim).
 import type { IconName } from './icons';
 
+export const ADMIN_CONSOLE_URL = 'https://cams-admin.skylar.technology';
+
 export interface Highlight {
+  section: string;
   icon: IconName;
+  kicker: string;
   title: string;
   text: string;
 }
@@ -16,14 +24,16 @@ export interface Feature {
   text: string;
 }
 
-// A screenshot of the app under /landing/ (web/public/landing/). The files
-// are not in git until Klaus has reviewed them: the page hides a shot whose
-// file is missing.
+// A screenshot of the app under /landing/ (web/public/landing/). A missing
+// file hides its frame (LandingShot), so the page works without them.
 export interface Shot {
   src: string;
   alt: string;
   width: number;
   height: number;
+  // The frame drawn around it: a browser window (default), a phone, or the
+  // Pi's e-paper display (a 264×176 black-and-white panel, scaled up crisply).
+  frame?: 'browser' | 'phone' | 'epaper';
 }
 
 export interface Section {
@@ -35,6 +45,12 @@ export interface Section {
   shots?: Shot[];
 }
 
+export interface Repo {
+  name: string;
+  url: string;
+  text: string;
+}
+
 const shot = (name: string, alt: string, width = 1200, height = 750): Shot => ({ src: `/landing/${name}.webp`, alt, width, height });
 
 // The product shot over the highlights: the desktop Video page, with the phone in front.
@@ -43,13 +59,23 @@ export const SHOWCASE = {
   phone: shot('phone-live', 'The Video page on a phone: the live picture, the playback controls and the day strip', 540, 1169),
 };
 
+// One card per section: a short summary that links down to the details.
 export const HIGHLIGHTS: Highlight[] = [
-  { icon: 'live', title: 'Live in one click', text: 'Every camera live in your browser, in SD or full 4K.' },
-  { icon: 'person', title: 'Events that explain themselves', text: 'People, vehicles and pets are labelled the moment they show up.' },
-  { icon: 'timeline', title: 'Every second on record', text: 'A still for each second, laid out minute by minute.' },
-  { icon: 'clip', title: 'The clip you need', text: 'Save a recording, or build one around any second.' },
-  { icon: 'archive', title: 'Keep what matters', text: 'An archive that holds clips for a year, or for good.' },
-  { icon: 'shield', title: 'Your hardware, your network', text: 'A small gateway next to your cameras keeps the footage local.' },
+  { section: 'watch', icon: 'live', kicker: 'Watch', title: 'Live and recorded, one player', text: 'Slide from now into the past without switching screens.' },
+  { section: 'find', icon: 'person', kicker: 'Find', title: 'The right moment, fast', text: 'AI labels, thumbnails and a still for every second.' },
+  { section: 'keep', icon: 'archive', kicker: 'Keep', title: 'Clips worth keeping', text: 'Download, compose and archive what matters.' },
+  { section: 'cameras', icon: 'camera', kicker: 'Cameras', title: 'Reolink, as it really behaves', text: 'Every camera feature measured on the RLC-1224A.' },
+  { section: 'proxy', icon: 'server', kicker: 'Proxy', title: 'Smart where the cameras are', text: 'A local proxy keeps the footage on your own network.' },
+  { section: 'hardware', icon: 'layers', kicker: 'Hardware', title: 'Small to start, ready to grow', text: 'From one Raspberry Pi to a proxy with many cameras.' },
+  { section: 'fleet', icon: 'users', kicker: 'Fleet', title: 'Every site in one console', text: 'Accounts, proxies and cameras, managed centrally.' },
+  { section: 'open', icon: 'code', kicker: 'Open', title: 'Open, and built with AI', text: 'Public code, documented APIs, an AI at the controls.' },
+];
+
+export const NUMBERS = [
+  { value: 1, suffix: '', label: 'still per second, kept by the proxy' },
+  { value: 4, suffix: 'K', label: 'original recordings, straight from the camera' },
+  { value: 64, suffix: '', label: 'cameras on one proxy, at most' },
+  { value: 5, suffix: '', label: 'public repositories on GitHub' },
 ];
 
 export const SECTIONS: Section[] = [
@@ -57,22 +83,22 @@ export const SECTIONS: Section[] = [
     id: 'watch',
     kicker: 'Watch',
     title: 'See it as it happens',
-    lead: 'Open the page and the picture is there. Move back in time with one drag.',
+    lead: 'Open the app and the picture is there. Drag back in time and it plays on.',
     features: [
       {
         icon: 'live',
         title: 'Live video',
-        text: 'Watch live in SD or 4K, turn on the sound or the camera’s light, and take a snapshot. If the stream stalls, a fresh still every second fills in.',
+        text: 'Watch in SD or 4K, turn on the sound or the camera’s spotlight, and take a snapshot. If the stream stalls, the proxy’s newest still fills in every second.',
       },
       {
         icon: 'history',
-        title: 'One strip for the whole day',
-        text: 'Drag the strip to go back. Playback runs through clips and stills in real time, and the right end is always live. Zoom from 24 hours down to 30 minutes.',
+        title: 'The strip',
+        text: 'Its right end is live. Drag left and playback runs on in real time through clips and stills, across days. Zoom from 24 hours down to 30 minutes.',
       },
       {
-        icon: 'expand',
-        title: 'Fullscreen, with gestures',
-        text: 'Step by 1 or 10 seconds, jump to the next event, or go back to live. On the phone, swipe and tap. On the desktop, use the keyboard.',
+        icon: 'phone',
+        title: 'Fullscreen, on any screen',
+        text: 'Step 1 or 10 seconds, jump between events, or go back to live: by keyboard on a desktop, by swipe and tap on a phone. Added to the home screen it opens like an app, in light or dark.',
       },
     ],
     shots: [shot('playback', 'Playing a recorded person event: the REC badge with its time, the playback controls, and the event highlighted in the list')],
@@ -86,22 +112,22 @@ export const SECTIONS: Section[] = [
       {
         icon: 'events',
         title: 'Events by hour',
-        text: 'Each event shows a thumbnail from the moment of detection and counts what the camera saw. Filter for people, vehicles, pets or motion.',
+        text: 'Each event shows a thumbnail from the moment of detection and counts the people, vehicles and pets the camera saw. Filter by kind.',
       },
       {
         icon: 'sparkle',
         title: 'A second opinion from Google Vision',
-        text: 'Optionally, Google Vision checks each event and shows its confidence, with boxes around what it found. You can also check any single second by hand, within a monthly budget.',
+        text: 'Optionally, the proxy asks Google Vision about each event and shows its confidence, with boxes around what it found. Any single still can be checked by hand, within a monthly budget.',
       },
       {
         icon: 'timeline',
-        title: 'A timeline of stills',
+        title: 'The Timeline',
         text: 'One tile per minute, sixty stills per minute. Step second by second, then open that moment in the player.',
       },
       {
         icon: 'motion',
-        title: 'News arrives at once',
-        text: 'A new event appears in the list as it is recorded. No reloading, no waiting.',
+        title: 'News at once',
+        text: 'A new event appears in the list as it is recorded. No reloading.',
       },
     ],
     shots: [
@@ -122,13 +148,13 @@ export const SECTIONS: Section[] = [
       },
       {
         icon: 'clip',
-        title: 'Save a clip around any second',
-        text: 'Pick a second and choose how much comes before and after. The clip is built from the neighbouring recordings, or from the stills where there was no recording, up to 5 minutes.',
+        title: 'Save clip around',
+        text: 'Pick a second and choose how much comes before and after. The proxy builds the clip from the neighbouring recordings, or from stills where nothing was recorded, up to 5 minutes.',
       },
       {
         icon: 'archive',
         title: 'The archive',
-        text: 'Archived clips stay after the camera’s normal retention: for 365 days or forever. Label them, sort and filter, and download a selection as a ZIP.',
+        text: 'Archived clips outlast the normal retention: 365 days or forever. Label, sort and filter them, and download a selection as a ZIP.',
       },
     ],
     shots: [
@@ -137,39 +163,100 @@ export const SECTIONS: Section[] = [
     ],
   },
   {
-    id: 'site',
-    kicker: 'Run',
-    title: 'Built for real sites',
-    lead: 'A local gateway does the heavy lifting, so the cameras stay simple and private.',
+    id: 'cameras',
+    kicker: 'Cameras',
+    title: 'Made for Reolink cameras',
+    lead: 'We run the Reolink RLC-1224A, a 12-megapixel turret, and use what it offers.',
     features: [
       {
-        icon: 'server',
-        title: 'One gateway, several cameras',
-        text: 'The gateway is your cameras’ only client. It keeps the stills, receives clips and fetches recordings straight from each camera’s memory card.',
-      },
-      {
-        icon: 'shield',
-        title: 'Its own certificate authority',
-        text: 'A gateway can run its own certificate authority for the cameras of its site, and the viewer checks those certificates before it sends a camera login.',
-      },
-      {
-        icon: 'move',
-        title: 'Move a camera, recordings included',
-        text: 'Move a camera to another gateway and its recordings, stills, events and archive come along. Every file is checked, and the old gateway deletes only what the new one has verified.',
+        icon: 'camera',
+        title: 'What we use of the RLC-1224A',
+        text: 'Its two live streams (SD in H.264, 4K in H.265), the AI detection of people, vehicles and pets, motion and ONVIF events, the recordings on its SD card, clip uploads by FTP, the spotlight and the infrared lights.',
       },
       {
         icon: 'settings',
         title: 'Camera settings from the browser',
-        text: 'Rename a camera, change its settings or restart it without opening the camera’s own web page.',
+        text: 'Rename a camera, choose what it records and how sensitive its detection is, set day and night, lights and on-screen text, or restart it, without the camera’s own web page.',
+      },
+      {
+        icon: 'shield',
+        title: 'Measured, not guessed',
+        text: 'Every camera behaviour comes from the real device. One example: a setting is always written as a whole, because the camera quietly resets what a partial write leaves out.',
+      },
+      {
+        icon: 'layers',
+        title: 'A camera abstraction',
+        text: 'cam-sim answers like the RLC-1224A, quirks and failures included, and also models the CX820. It stands in as a camera in production, and every change to the app and the proxy is tested against it.',
       },
     ],
     shots: [shot('settings', 'Camera settings in the browser: recording and detection sensitivity for people, vehicles and pets, image and lights')],
   },
   {
-    id: 'manage',
-    kicker: 'Manage',
+    id: 'proxy',
+    kicker: 'Proxy',
+    title: 'The proxy does the heavy lifting',
+    lead: 'cam-proxy sits next to the cameras and becomes their only client, so the app never wrestles with a camera’s limits.',
+    features: [
+      {
+        icon: 'server',
+        title: 'The cameras’ only client',
+        text: 'It keeps one connection per camera, stores a still every second, receives the clips by FTP and fetches recordings from the SD card, even where the camera refuses HTTP downloads.',
+      },
+      {
+        icon: 'about',
+        title: 'Its own admin UI',
+        text: 'On the local network, each proxy has an admin UI: a Status page with a health summary, and pages for events, the timeline, clips, the audit log, settings, maintenance and certificates.',
+      },
+      {
+        icon: 'shield',
+        title: 'A site CA',
+        text: 'A proxy can run its own certificate authority for the cameras of its site, and the app checks those certificates before it sends a camera login.',
+      },
+      {
+        icon: 'move',
+        title: 'Camera moves',
+        text: 'Move a camera to another proxy and its recordings, stills, events and archive come along. Every file is checked, and the old proxy deletes only what the new one has verified.',
+      },
+    ],
+    shots: [shot('proxy-status', 'The proxy’s admin UI: the Status page with its health summary and cards for the camera, events, stills, clips, recordings, storage and archive')],
+  },
+  {
+    id: 'hardware',
+    kicker: 'Hardware',
+    title: 'From a Raspberry Pi to many cameras',
+    lead: 'The same software on a tiny board, a mini PC or a Kubernetes cluster.',
+    features: [
+      {
+        icon: 'camera',
+        title: 'One camera, one Raspberry Pi',
+        text: 'A Raspberry Pi next to the camera runs the proxy and the app on one tiny platform. With a sign-in token it needs no internet, which makes it a demo kit you can carry.',
+      },
+      {
+        icon: 'display',
+        title: 'An e-paper status display',
+        text: 'A small e-paper screen on the Pi shows the proxy’s health at a glance, without a computer or a login. Four keys flip through camera, proxy and Pi, and the picture stays even without power.',
+      },
+      {
+        icon: 'layers',
+        title: 'Larger proxies, many cameras',
+        text: 'A mini PC with its own camera network runs one proxy for several cameras, up to 64 by its profile. An account can have several proxies, and one app serves them all.',
+      },
+      {
+        icon: 'live',
+        title: 'Reach it from anywhere',
+        text: 'The app also runs in a Kubernetes cluster with Google sign-in, so you can watch from anywhere, while the footage stays with the proxies.',
+      },
+    ],
+    shots: [
+      { ...shot('epaper-overview', 'The e-paper display’s Overview page: camera online, live stream up, events subscribed, storage, disk and archive, and “All OK” at the bottom', 792, 528), frame: 'epaper' },
+      { ...shot('epaper-camera', 'The e-paper display’s Camera page: the camera online since the morning, its model and firmware, the stream, events, FTP and the last clip', 792, 528), frame: 'epaper' },
+    ],
+  },
+  {
+    id: 'fleet',
+    kicker: 'Fleet',
     title: 'One console for the whole fleet',
-    lead: 'Accounts, people, gateways and cameras in one place, with every change on record.',
+    lead: 'cams-admin manages accounts, people, proxies and cameras, with every change on record.',
     features: [
       {
         icon: 'users',
@@ -179,41 +266,49 @@ export const SECTIONS: Section[] = [
       {
         icon: 'about',
         title: 'A live dashboard',
-        text: 'See every gateway and camera online or offline as it changes. Gateways connect out, so they need no open port.',
+        text: 'See every proxy and camera online or offline as it changes. Proxies connect out to the console, so they need no open port.',
       },
       {
         icon: 'shield',
-        title: 'Changes the gateway agrees to',
-        text: 'Every remote change is signed, previewed before it applies and can be rolled back. Each gateway decides what the console may do, and every action is in the audit log.',
+        title: 'Changes the proxy agrees to',
+        text: 'Every remote change is signed, previewed before it applies and can be rolled back. Each proxy decides what the console may do, and every action is in the audit log.',
       },
     ],
   },
   {
-    id: 'anywhere',
-    kicker: 'Anywhere',
-    title: 'At home, on the road, on the desk',
-    lead: 'The same viewer in the cloud, on a small local box, or on your phone.',
+    id: 'open',
+    kicker: 'Open',
+    title: 'Open source, built with AI',
+    lead: 'Read the code, build on the APIs, and see how an AI runs it.',
     features: [
       {
-        icon: 'phone',
-        title: 'Made for the phone too',
-        text: 'Every page works on a phone, and added to the home screen it opens like an app. Light and dark themes follow your system, or your choice.',
+        icon: 'code',
+        title: 'All public on GitHub',
+        text: 'The app, the proxy, the camera abstraction, the admin console and the e-paper display are open source.',
       },
       {
-        icon: 'logout',
-        title: 'Simple, safe sign-in',
-        text: 'Sign in with Google. Local viewers use a sign-in token instead, so they work without the internet.',
+        icon: 'sparkle',
+        title: 'Made with AI',
+        text: 'Designed, written, tested and reviewed together with an AI coding agent, from the first line to every release.',
       },
       {
-        icon: 'camera',
-        title: 'A demo kit in a bag',
-        text: 'A Raspberry Pi and a camera are the whole system: gateway and viewer on one small board, ready to show anywhere.',
+        icon: 'plug',
+        title: 'Proxy APIs for your own apps',
+        text: 'The proxy’s client API is documented in OpenAPI: cameras, events, stills, clips, SD recordings and the archive, plus a live event stream you can resume.',
       },
       {
-        icon: 'display',
-        title: 'Status at a glance',
-        text: 'An e-paper display on the Pi answers “is everything fine?” without a computer or a login. Four keys flip through camera, gateway and Pi, and the picture stays even without power.',
+        icon: 'bot',
+        title: 'A fleet run by an AI',
+        text: 'An AI agent looks after the fleet through cams-admin’s APIs: a read-only diagnostics token for what it needs to know, and scoped operations tokens for the few things it may change.',
       },
     ],
   },
+];
+
+export const REPOS: Repo[] = [
+  { name: 'cams', url: 'https://github.com/klaushofrichter/cams', text: 'The app' },
+  { name: 'cam-proxy', url: 'https://github.com/klaushofrichter/cam-proxy', text: 'The proxy' },
+  { name: 'cam-sim', url: 'https://github.com/klaushofrichter/cam-sim', text: 'The camera abstraction' },
+  { name: 'cams-admin', url: 'https://github.com/klaushofrichter/cams-admin', text: 'The admin console' },
+  { name: 'cam-proxy-pi-display', url: 'https://github.com/klaushofrichter/cam-proxy-pi-display', text: 'The e-paper display' },
 ];

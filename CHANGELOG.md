@@ -9,5 +9,5 @@ published as [GitHub releases](https://github.com/klaushofrichter/cams/releases)
 ## [Unreleased]
 
 - MCP server: on by default. `MCP_ENABLED=false` turns it off. Plain http viewers (the Pi, the mini PC) still serve it only with `MCP_ALLOW_HTTP=true`.
-- New start page: it now shows what the camera system does. Highlights first (live view, AI-labelled events, a still for every second, clips, the archive, the local gateway), then details on watching, finding, keeping, running a site, the fleet console and the Pi kit, and a closing "Built by Skylar Technology" section. Sign-in works as before, and the page has a light/dark theme switch. It has room for framed screenshots of the app (WebP files under `/landing/`); a missing one is simply left out.
-
+- New start page that shows what the camera system does: highlights first, each linking to the section that explains it (watching, finding, keeping clips, the Reolink cameras, the proxy, hardware from a Raspberry Pi to many cameras, the cams-admin console, and open source), with screenshots of the app, the proxy's admin UI and the Pi's e-paper display, numbers, and a closing "Built by Skylar Technology" section. Subtle scroll reveals and hover effects, all off with reduced motion.
+- The sign-in moved to the upper right of the header (behind a "Sign in" button on phones), next to a link to the admin console. A light/dark switch is on the start page too.

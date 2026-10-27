@@ -60,6 +60,7 @@
           type="password"
           autocomplete="current-password"
           spellcheck="false"
+          placeholder="Login token"
           required
           autofocus={google}
           bind:value={token}

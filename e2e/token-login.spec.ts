@@ -1,5 +1,6 @@
 import { expect, test } from '@playwright/test';
 import { E2E_LOGIN_TOKEN } from './env';
+import { openSignIn } from './landingSignIn';
 
 // The Pi demo kit's sign-in (spec 2026-10-04-pi-deployment-design), against
 // the second server (E2E_TOKEN_ENV: a login token, no Google, cookies
@@ -8,6 +9,7 @@ test.describe('token login', () => {
   test('the start page offers only the token form', async ({ page }) => {
     await page.goto('/');
     await expect(page.getByRole('heading', { level: 1 })).toContainText('Your cameras');
+    await openSignIn(page);
     await expect(page.getByTestId('token-form')).toBeVisible();
     await expect(page.getByTestId('token-input')).toHaveAttribute('type', 'password');
     await expect(page.getByTestId('token-submit')).toHaveText('Sign in with token');
@@ -17,6 +19,7 @@ test.describe('token login', () => {
 
   test('a wrong token shows the error and signs nobody in', async ({ page, context }) => {
     await page.goto('/');
+    await openSignIn(page);
     await page.getByTestId('token-input').fill('not-the-token-at-all-0000000000');
     await page.getByTestId('token-submit').click();
     await expect(page.getByTestId('token-error')).toHaveText('That token is not right.');
@@ -28,6 +31,7 @@ test.describe('token login', () => {
     // A signed-out visit to a page is remembered (#155) and returned to.
     await page.goto('/app/settings');
     await expect(page).toHaveURL('/');
+    await openSignIn(page);
     await page.getByTestId('token-input').fill(E2E_LOGIN_TOKEN);
     await page.getByTestId('token-submit').click();
     await expect(page).toHaveURL('/app/settings');
@@ -48,6 +52,7 @@ test.describe('token login', () => {
     expect((await context.cookies()).map((c) => c.name)).not.toContain('session');
     await page.goto('/app/video');
     await expect(page).toHaveURL('/');
+    await openSignIn(page);
     await expect(page.getByTestId('token-form')).toBeVisible();
   });
 

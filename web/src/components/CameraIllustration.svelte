@@ -36,4 +36,5 @@
   .cam { width: min(320px, 80vw); height: auto; filter: drop-shadow(var(--shadow)); }
   .glow { animation: pulse 4s ease-in-out infinite; transform-origin: 105px 95px; }
   @keyframes pulse { 0%, 100% { opacity: 0.7; transform: scale(1); } 50% { opacity: 1; transform: scale(1.06); } }
+  @media (prefers-reduced-motion: reduce) { .glow { animation: none; } }
 </style>

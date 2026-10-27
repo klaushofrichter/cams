@@ -1,5 +1,6 @@
 import { expect, test } from '@playwright/test';
 import { signIn } from './session';
+import { openSignIn } from './landingSignIn';
 
 test.describe('landing page', () => {
   test('shows branding, the camera illustration and the Google login', async ({ page }) => {
@@ -30,11 +31,100 @@ test.describe('landing page', () => {
     await expect(login).toHaveAttribute('href', '/auth/google/login');
   });
 
+  test('the sign-in and the admin console link sit in the header, upper right', async ({ page }, info) => {
+    await page.goto('/');
+    const header = page.getByRole('banner');
+    const phone = info.project.name === 'phone';
+    if (phone) {
+      // A compact button opens the sign-in options.
+      await expect(header.getByTestId('login')).toBeHidden();
+      await expect(header.getByTestId('signin-toggle')).toBeVisible();
+      await header.getByTestId('signin-toggle').click();
+      await expect(header.getByTestId('signin-toggle')).toHaveAttribute('aria-expanded', 'true');
+    } else {
+      await expect(page.getByTestId('signin-toggle')).toBeHidden();
+    }
+    const login = header.getByTestId('login');
+    await expect(login).toBeVisible();
+    const admin = header.getByTestId('admin-console');
+    await expect(admin).toBeVisible();
+    await expect(admin).toHaveAttribute('href', 'https://cams-admin.skylar.technology');
+    await expect(admin).toHaveText(/Admin console/);
+    // Upper right: the sign-in's right edge near the window's, at the top.
+    const box = (await login.boundingBox())!;
+    const width = page.viewportSize()!.width;
+    expect(box.x + box.width).toBeGreaterThan(width * 0.6);
+    expect(box.x + box.width).toBeLessThanOrEqual(width);
+    expect(box.y).toBeLessThan(phone ? 400 : 80);
+    if (phone) {
+      // Escape closes the menu again.
+      await page.keyboard.press('Escape');
+      await expect(login).toBeHidden();
+    }
+    // The hero no longer holds a sign-in of its own.
+    await expect(page.locator('.hero [data-testid="login-options"]')).toHaveCount(0);
+  });
+
+  test('the hero’s sign-in button leads to the header sign-in', async ({ page }) => {
+    await page.goto('/');
+    await page.getByTestId('hero-signin').click();
+    await expect(page.getByRole('banner').getByTestId('login')).toBeVisible();
+    await expect(page.getByRole('banner').getByTestId('login')).toBeFocused();
+  });
+
+  test('each highlight links to the section that explains it, and scrolls there', async ({ page }) => {
+    await page.goto('/');
+    const cards = page.getByTestId('highlight');
+    const n = await cards.count();
+    expect(n).toBeGreaterThanOrEqual(6);
+    for (let i = 0; i < n; i++) {
+      const href = (await cards.nth(i).getAttribute('href'))!;
+      expect(href).toMatch(/^#[a-z]+$/);
+      await expect(page.locator(href)).toHaveAttribute('data-testid', 'feature-section');
+    }
+    const last = cards.nth(n - 1);
+    const target = page.locator((await last.getAttribute('href'))!);
+    await last.click();
+    await expect(target.getByRole('heading', { level: 2 })).toBeInViewport();
+  });
+
+  test('links the five open-source repositories', async ({ page }) => {
+    await page.goto('/');
+    const repos = page.getByTestId('repo-link');
+    await expect(repos).toHaveCount(5);
+    const hrefs = await repos.evaluateAll((as) => as.map((a) => a.getAttribute('href')));
+    expect(hrefs).toEqual(['cams', 'cam-proxy', 'cam-sim', 'cams-admin', 'cam-proxy-pi-display'].map((r) => `https://github.com/klaushofrichter/${r}`));
+  });
+
+  test('with reduced motion everything is shown at once and nothing moves', async ({ page }) => {
+    await page.emulateMedia({ reducedMotion: 'reduce' });
+    await page.goto('/');
+    // A section far down is fully shown without scrolling to it.
+    const maker = page.getByTestId('maker');
+    await expect.poll(() => maker.evaluate((e) => getComputedStyle(e).opacity)).toBe('1');
+    const anims = await page.evaluate(() =>
+      [...document.querySelectorAll('.landing *')].filter((e) => {
+        const cs = getComputedStyle(e);
+        return cs.animationName !== 'none' && cs.animationIterationCount === 'infinite';
+      }).length,
+    );
+    expect(anims).toBe(0);
+  });
+
+  test('without reduced motion, sections reveal as they scroll into view', async ({ page }) => {
+    await page.emulateMedia({ reducedMotion: 'no-preference' });
+    await page.goto('/');
+    const maker = page.getByTestId('maker');
+    expect(Number(await maker.evaluate((e) => getComputedStyle(e).opacity))).toBeLessThan(1);
+    await maker.scrollIntoViewIfNeeded();
+    await expect.poll(() => maker.evaluate((e) => getComputedStyle(e).opacity)).toBe('1');
+  });
+
   test('shows the highlights, the feature sections and the maker, in that order', async ({ page }) => {
     await page.goto('/');
-    const highlights = page.getByTestId('highlights').getByRole('listitem');
+    const highlights = page.getByTestId('highlight');
     expect(await highlights.count()).toBeGreaterThanOrEqual(3);
-    expect(await highlights.count()).toBeLessThanOrEqual(6);
+    expect(await highlights.count()).toBeLessThanOrEqual(8);
     await expect(page.getByTestId('highlights')).toContainText('Live');
     const sections = page.getByTestId('feature-section');
     expect(await sections.count()).toBeGreaterThanOrEqual(3);

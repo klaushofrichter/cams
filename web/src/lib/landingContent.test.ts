@@ -1,22 +1,38 @@
 import { describe, expect, it } from 'vitest';
 import { ICONS } from './icons';
-import { HIGHLIGHTS, SECTIONS, SHOWCASE } from './landingContent';
+import { ADMIN_CONSOLE_URL, HIGHLIGHTS, NUMBERS, REPOS, SECTIONS, SHOWCASE } from './landingContent';
 
 // The landing page is public and pre-login: its copy must not carry
-// addresses, host names (other than the company's site), ids or tokens.
+// addresses, host names, ids or tokens. Links live in their own fields.
 const allText = (): string[] => [
-  ...HIGHLIGHTS.flatMap((h) => [h.title, h.text]),
-  ...SECTIONS.flatMap((s) => [s.title, s.lead, ...s.features.flatMap((f) => [f.title, f.text]), ...(s.shots ?? []).map((x) => x.alt)]),
+  ...HIGHLIGHTS.flatMap((h) => [h.kicker, h.title, h.text]),
+  ...NUMBERS.flatMap((n) => [n.label]),
+  ...SECTIONS.flatMap((s) => [s.kicker, s.title, s.lead, ...s.features.flatMap((f) => [f.title, f.text]), ...(s.shots ?? []).map((x) => x.alt)]),
+  ...REPOS.map((r) => r.text),
   SHOWCASE.desktop.alt,
   SHOWCASE.phone.alt,
 ];
 
 describe('landing content', () => {
-  it('has 3 to 6 highlights and at least 3 sections, each with features', () => {
+  it('has highlights that each point to a section further down', () => {
     expect(HIGHLIGHTS.length).toBeGreaterThanOrEqual(3);
-    expect(HIGHLIGHTS.length).toBeLessThanOrEqual(6);
-    expect(SECTIONS.length).toBeGreaterThanOrEqual(3);
-    for (const s of SECTIONS) expect(s.features.length).toBeGreaterThan(0);
+    expect(HIGHLIGHTS.length).toBeLessThanOrEqual(8);
+    const ids = new Set(SECTIONS.map((s) => s.id));
+    for (const h of HIGHLIGHTS) expect(ids.has(h.section), h.section).toBe(true);
+    // Every section is summarised once at the top.
+    expect(new Set(HIGHLIGHTS.map((h) => h.section)).size).toBe(HIGHLIGHTS.length);
+  });
+
+  it('does not repeat a highlight in its section', () => {
+    // A highlight summarises; its words are not a feature card's title or text.
+    const norm = (t: string) => t.toLowerCase().replace(/[^a-z0-9 ]/g, '');
+    for (const h of HIGHLIGHTS) {
+      const section = SECTIONS.find((s) => s.id === h.section)!;
+      for (const t of [section.title, section.lead, ...section.features.flatMap((f) => [f.title, f.text])]) {
+        expect(norm(t).includes(norm(h.title)), `${h.title} / ${t}`).toBe(false);
+        expect(norm(t).includes(norm(h.text)), `${h.text} / ${t}`).toBe(false);
+      }
+    }
   });
 
   it('uses only icons that exist', () => {
@@ -33,6 +49,21 @@ describe('landing content', () => {
     }
   });
 
+  it('says proxy, never gateway', () => {
+    for (const t of allText()) expect(t.toLowerCase(), t).not.toContain('gateway');
+  });
+
+  it('links the five public repositories on GitHub, and the admin console', () => {
+    expect(REPOS.map((r) => r.url)).toEqual([
+      'https://github.com/klaushofrichter/cams',
+      'https://github.com/klaushofrichter/cam-proxy',
+      'https://github.com/klaushofrichter/cam-sim',
+      'https://github.com/klaushofrichter/cams-admin',
+      'https://github.com/klaushofrichter/cam-proxy-pi-display',
+    ]);
+    expect(ADMIN_CONSOLE_URL).toBe('https://cams-admin.skylar.technology');
+  });
+
   it('every screenshot is a WebP under /landing/ with alt text and a size', () => {
     const shots = [SHOWCASE.desktop, SHOWCASE.phone, ...SECTIONS.flatMap((s) => s.shots ?? [])];
     for (const x of shots) {
@@ -44,11 +75,10 @@ describe('landing content', () => {
   });
 
   it('uses sentence-case titles', () => {
-    for (const t of [...HIGHLIGHTS.map((h) => h.title), ...SECTIONS.map((s) => s.title)]) {
+    const names = /^(Google|Vision|Raspberry|Pi|SD|4K|ZIP|AI|APIs?|UI|CA|Reolink|RLC-1224A|GitHub|Kubernetes|Timeline|Video|Archive|Status)$/; // names and the app’s page names
+    for (const t of [...HIGHLIGHTS.map((h) => h.title), ...SECTIONS.map((s) => s.title), ...SECTIONS.flatMap((s) => s.features.map((f) => f.title))]) {
       const words = t.split(' ').slice(1);
-      // Words after the first stay lower case, apart from names.
-      const names = /^(Google|Vision|Raspberry|Pi|SD|4K|Wi-Fi|ZIP|AI)$/;
-      expect(words.filter((w) => /^[A-Z]/.test(w) && !names.test(w.replace(/[,.]/g, ''))), t).toEqual([]);
+      expect(words.filter((w) => /^[A-Z]/.test(w) && !names.test(w.replace(/[,.:]/g, ''))), t).toEqual([]);
     }
   });
 });
