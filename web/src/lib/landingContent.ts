@@ -322,6 +322,7 @@ export const SECTIONS: Section[] = [
 export const MCP = {
   command: 'claude mcp add --transport http cams https://cams.skylar.technology/mcp --header "Authorization: Bearer cmcp_<your token>"',
   docs: 'https://github.com/klaushofrichter/cams#mcp-server',
+  available: 'Available now at cams.skylar.technology/mcp. Create your token under Settings → Assistant access (MCP).',
   // A few of the README's sample prompts, with what comes back (no tool names here).
   prompts: [
     { prompt: 'Was anyone at the garage last night?', hint: 'It goes through the events and looks at their pictures.' },

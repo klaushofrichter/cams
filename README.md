@@ -123,6 +123,14 @@ Production has two cameras:
 - **Errors:** 401 with `WWW-Authenticate: Bearer error="invalid_token"` for any bad token; a tool's failure is a result with `isError` and `{error, message, retryable}`.
 - **Plain http** (the Pi, the mini PC, `COOKIE_SECURE=false`): `/mcp` needs `MCP_ALLOW_HTTP=true` as well, and the Settings card warns that tokens and links travel unencrypted on the network.
 
+### Turn it on or off
+
+- **On by default:** every cams serves `/mcp` unless told otherwise. The cluster sets `MCP_ENABLED=true` explicitly (kube-setup, `manifests/cams/`).
+- **Off:** set `MCP_ENABLED=false` in the deployment's environment, then restart or redeploy.
+- **Plain-http viewers** (the Pi, the mini PC; `COOKIE_SECURE=false`): `/mcp` stays off there until `MCP_ALLOW_HTTP=true` is set too, because tokens and video links travel unencrypted on the network. On the Pi, put `MCP_ALLOW_HTTP=true` in `/srv/cam-proxy/config/.env` (the compose file passes it on, [docs/pi-demo.md](docs/pi-demo.md)) and run `docker compose up -d --force-recreate`.
+- **Check:** `curl -s -o /dev/null -w '%{http_code}\n' -X POST https://<cams>/mcp` answers `401` when it is on (no token) and `404` when it is off.
+- **In the app:** the Settings card "Assistant access (MCP)" appears only while it is on.
+
 ## Accounts, roles and cams-admin
 
 `CONFIG_SOURCE` says where cams takes its accounts, users and cameras from:

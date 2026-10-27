@@ -117,7 +117,7 @@ describe('landing content', () => {
     const card = open.features.find((f) => f.title === 'Connect your AI assistant')!;
     expect(card.text).toContain('MCP server');
     expect(card.text).toMatch(/revoke/);
-    expect(card.text).not.toMatch(/available now|live now/i);
+    expect(MCP.available).toBe('Available now at cams.skylar.technology/mcp. Create your token under Settings → Assistant access (MCP).');
     expect(MCP.command).toBe('claude mcp add --transport http cams https://cams.skylar.technology/mcp --header "Authorization: Bearer cmcp_<your token>"');
     expect(MCP.docs).toBe('https://github.com/klaushofrichter/cams#mcp-server');
     expect(HIGHLIGHTS.find((h) => h.section === 'open')!.text).toMatch(/MCP/);

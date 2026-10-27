@@ -169,6 +169,7 @@ test.describe('landing page', () => {
     const cmd = open.getByTestId('mcp-command');
     await expect(cmd).toHaveText('claude mcp add --transport http cams https://cams.skylar.technology/mcp --header "Authorization: Bearer cmcp_<your token>"');
     await expect(open.getByTestId('mcp-docs')).toHaveAttribute('href', 'https://github.com/klaushofrichter/cams#mcp-server');
+    await expect(open.getByTestId('mcp-available')).toHaveText('Available now at cams.skylar.technology/mcp. Create your token under Settings → Assistant access (MCP).');
     if (info.project.name === 'desktop') {
       await context.grantPermissions(['clipboard-read', 'clipboard-write']);
       await open.getByTestId('mcp-copy').click();

@@ -42,3 +42,18 @@ describe('README MCP sample prompts', () => {
     expect(samplePrompts().join('\n')).toMatch(/read-only/);
   });
 });
+
+describe('README MCP: turn it on or off', () => {
+  const readme = readFileSync(join(root, 'README.md'), 'utf8');
+  const section = readme.slice(readme.indexOf('## MCP server'), readme.indexOf('\n## ', readme.indexOf('## MCP server') + 3));
+  it('explains how to enable, disable and check it', () => {
+    const part = section.slice(section.indexOf('### Turn it on or off'));
+    expect(section).toContain('### Turn it on or off');
+    for (const s of ['On by default', '`MCP_ENABLED=false`', '`MCP_ALLOW_HTTP=true`', 'docs/pi-demo.md', '401', '404', 'Assistant access (MCP)', '`MCP_ENABLED=true`', 'kube-setup']) expect(part, s).toContain(s);
+  });
+  it('the Pi guide lists the MCP variables', () => {
+    const pi = readFileSync(join(root, 'docs/pi-demo.md'), 'utf8');
+    expect(pi).toContain('MCP_ALLOW_HTTP');
+    expect(pi).toContain('MCP_ENABLED');
+  });
+});
