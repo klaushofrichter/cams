@@ -214,6 +214,17 @@
             {/each}
           </ul>
           {#if s.id === 'open'}
+            <div class="ask">
+              <h3>Ask your assistant</h3>
+              <ul>
+                {#each MCP.prompts as p, i (p.prompt)}
+                  <li data-testid="mcp-prompt" use:reveal={i * 80}>
+                    <p class="q">{p.prompt}</p>
+                    <p class="a">{p.hint}</p>
+                  </li>
+                {/each}
+              </ul>
+            </div>
             <div class="mcp" use:reveal>
               <div class="mcp-line">
                 <code data-testid="mcp-command">{MCP.command}</code>
@@ -562,6 +573,30 @@
   }
   .llms:hover { border-style: solid; border-color: var(--accent); background: color-mix(in srgb, var(--accent) 8%, transparent); }
   .llms :global(svg) { flex: none; color: var(--accent); margin-top: 1px; }
+  /* "Ask your assistant": the prompts as chat bubbles, each with what comes back. */
+  .ask h3 { margin: 0 0 12px; font-size: 16px; }
+  .ask ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 12px; grid-template-columns: repeat(auto-fill, minmax(min(100%, 280px), 1fr)); }
+  .ask li { display: grid; gap: 6px; align-content: start; }
+  .ask .q {
+    justify-self: end;
+    margin: 0;
+    padding: 10px 14px;
+    border-radius: 16px 16px 4px 16px;
+    background: var(--grad);
+    color: var(--on-grad);
+    font-size: 14px;
+    font-weight: 600;
+  }
+  .ask .a {
+    justify-self: start;
+    margin: 0;
+    padding: 8px 12px;
+    border-radius: 16px 16px 16px 4px;
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    color: var(--muted);
+    font-size: 13px;
+  }
   .mcp { display: grid; gap: 10px; }
   .mcp-line { display: flex; align-items: stretch; border: 1px solid var(--border); border-radius: 12px; overflow: hidden; background: var(--surface-2); }
   .mcp-line code { flex: 1; min-width: 0; padding: 12px 14px; font-family: var(--mono); font-size: 12.5px; line-height: 1.6; overflow-wrap: anywhere; }

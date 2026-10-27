@@ -201,6 +201,17 @@ test.describe('landing page', () => {
     });
   }
 
+  test('the MCP card shows sample prompts as “Ask your assistant”, without tool names', async ({ page }) => {
+    await page.goto('/');
+    const open = page.locator('#open');
+    await expect(open.getByRole('heading', { name: 'Ask your assistant' })).toBeVisible();
+    const prompts = open.getByTestId('mcp-prompt');
+    expect(await prompts.count()).toBeGreaterThanOrEqual(3);
+    await expect(prompts.first()).toContainText('?');
+    await expect(open).toContainText('Show me the backyard right now.');
+    expect(await open.textContent()).not.toMatch(/list_cameras|get_snapshot|generate_clip|analytics_usage/);
+  });
+
   test('links the five open-source repositories', async ({ page }) => {
     await page.goto('/');
     const repos = page.getByTestId('repo-link');

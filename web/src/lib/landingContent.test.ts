@@ -123,6 +123,16 @@ describe('landing content', () => {
     expect(HIGHLIGHTS.find((h) => h.section === 'open')!.text).toMatch(/MCP/);
   });
 
+  it('the MCP card shows 3 or 4 sample prompts with short hints, no tool names', () => {
+    expect(MCP.prompts.length).toBeGreaterThanOrEqual(3);
+    expect(MCP.prompts.length).toBeLessThanOrEqual(4);
+    for (const p of MCP.prompts) {
+      expect(p.prompt).not.toMatch(/_/);
+      expect(p.hint).not.toMatch(/_/);
+      expect(p.hint.length).toBeLessThan(80);
+    }
+  });
+
   it('every screenshot is a WebP under /landing/ with alt text and a size', () => {
     const shots = [SHOWCASE.desktop, SHOWCASE.phone, ...EPAPER_PAGES, ...SECTIONS.flatMap((s) => s.shots ?? [])];
     for (const x of shots) {

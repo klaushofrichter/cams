@@ -109,6 +109,15 @@ Production has two cameras:
   ```
 
 - **Tools:** `list_cameras`, `get_snapshot` (the current picture, scaled), `list_events` (a camera's events between two times, at most 7 days, with AI labels and Vision's word), `get_event` (one event, its stills' objects, pictures and a video link), `search_recordings` (across cameras, at most 31 days), `list_archive`, `get_archive_clip`, `generate_clip` (a time range or an event with rolls, at most 5 minutes, 2 at 1080p; one per account at a time, 10 an hour; never archived), `get_clip_job`, `analytics_usage` (the Vision budget). Pictures are JPEGs scaled to at most 1568 px wide (400 KB each, 4 per answer); videos are links to `/mcp/media/…`, signed and valid for 15 minutes, dead once their token is revoked.
+- **Sample prompts** (and the tools the assistant uses for them):
+  - "How many cameras do we have, and are they all online?" → `list_cameras`
+  - "Show me the backyard right now." → `get_snapshot` (the picture comes back for the assistant to look at)
+  - "Was anyone at the garage last night?" → `list_events`, `get_event` (it looks at the event's pictures)
+  - "Find vehicles in the driveway this week that Google Vision confirmed." → `search_recordings`
+  - "Make a clip of the garage from 14:10 to 14:12 today." → `generate_clip`, `get_clip_job` (a download link)
+  - "What's in the archive from October?" → `list_archive`, `get_archive_clip`
+  - "How much of the AI check budget is left this month?" → `analytics_usage`
+  - Requests to change something ("turn on night vision") are declined: the tools are read-only.
 - **How it works:** a tool calls cams's own `/api` in-process (loopback, a per-process secret plus the token id) as the token's person, so the role table, the account isolation and every route's checks apply unchanged. Cookies are ignored on `/mcp`.
 - **Limits:** per token 60 calls a minute and 2000 a day, per account 300 a minute, video links 30 a minute per token, failed tokens 10 per 15 minutes per address. Each call is logged as `mcp_call` (token id, tool, camera, outcome, duration), never the token.
 - **Errors:** 401 with `WWW-Authenticate: Bearer error="invalid_token"` for any bad token; a tool's failure is a result with `isError` and `{error, message, retryable}`.

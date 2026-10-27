@@ -322,6 +322,13 @@ export const SECTIONS: Section[] = [
 export const MCP = {
   command: 'claude mcp add --transport http cams https://cams.skylar.technology/mcp --header "Authorization: Bearer cmcp_<your token>"',
   docs: 'https://github.com/klaushofrichter/cams#mcp-server',
+  // A few of the README's sample prompts, with what comes back (no tool names here).
+  prompts: [
+    { prompt: 'Was anyone at the garage last night?', hint: 'It goes through the events and looks at their pictures.' },
+    { prompt: 'Show me the backyard right now.', hint: 'The current picture, for your assistant to see.' },
+    { prompt: 'Make a clip of the garage from 14:10 to 14:12 today.', hint: 'A download link to the clip, valid for 15 minutes.' },
+    { prompt: 'How much of the AI check budget is left this month?', hint: 'The Google Vision calls used and left.' },
+  ],
 };
 
 // cams serves /llms.txt: every API and its documentation, for LLMs. Relative,
