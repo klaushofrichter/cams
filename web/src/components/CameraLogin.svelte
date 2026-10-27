@@ -13,7 +13,7 @@
   const camera = $derived($cameraById(cameraId));
   let password = $state('');
   let status = $state('');
-  let secret: { secretKey: string; user: string } | null = $state(null);
+  let secret: { secretKey: string; user: string; unset: boolean } | null = $state(null);
   let saving = $state(false);
   let open = $state(false);
   let replaced = $state(false);
@@ -35,9 +35,9 @@
         cameras.update((l) => l.map((c) => (c.id === cameraId ? { ...c, credentials: undefined } : c)));
         return;
       }
-      const body = (await res.json().catch(() => null)) as { error?: string; secretKey?: string; user?: string } | null;
+      const body = (await res.json().catch(() => null)) as { error?: string; reason?: string; secretKey?: string; user?: string } | null;
       if (res.status === 409 && body?.error === 'credentials_read_only' && body.secretKey) {
-        secret = { secretKey: body.secretKey, user: body.user ?? '' };
+        secret = { secretKey: body.secretKey, user: body.user ?? '', unset: body.reason === 'unset' };
         password = '';
         status = '';
       } else status = 'Could not save the password.';
@@ -74,8 +74,13 @@
     {#if status}<p class="muted" role="status" data-testid="camera-login-status">{status}</p>{/if}
     {#if secret}
       <div data-testid="camera-login-secret" class="secret">
-        <p>The credentials file here is read-only. Add the password to the <code>cams-camera-credentials</code> Secret:</p>
-        <pre>{`"${secret.secretKey}": { "user": "${secret.user}", "password": "<password>" }`}</pre>
+        {#if secret.unset}
+          <p>This cams has no credentials file, so a password can’t be saved here. Add this line to its <code>.env</code>, restart cams (<code>docker compose up -d</code>), then save again:</p>
+          <pre>CAMERA_CREDENTIALS_FILE=/data/camera-credentials.json</pre>
+        {:else}
+          <p>The credentials file here is read-only. Add the password to the <code>cams-camera-credentials</code> Secret:</p>
+          <pre>{`"${secret.secretKey}": { "user": "${secret.user}", "password": "<password>" }`}</pre>
+        {/if}
       </div>
     {/if}
   </div>

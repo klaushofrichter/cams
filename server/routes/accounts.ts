@@ -8,7 +8,7 @@ import { getCamera } from '../cameraRegistry';
 import { configMode, configStatus, reapplyConfig, reportSoon, trustStore } from '../configSource';
 import type { HeldProxy, ProxyTrust, TrustField, TrustValues } from '../admin/trust';
 import { sessionAccount } from './common';
-import { credentialsWritable, setCameraPassword } from '../credentials';
+import { credentialsFileSet, credentialsWritable, setCameraPassword } from '../credentials';
 import { resetClients } from '../reolink/clients';
 import { knownCamera } from './common';
 
@@ -61,7 +61,7 @@ accountsRouter.put('/api/cameras/:id/credentials', async (req: Request, res: Res
   if (typeof password !== 'string' || password.length < 1 || password.length > 128 || CONTROL.test(password)) return void res.status(400).json({ error: 'invalid', detail: 'a password of 1 to 128 characters' });
   const cam = getCamera(key)!;
   const user = cam.user;
-  if (!credentialsWritable()) return void res.status(409).json({ error: 'credentials_read_only', secretKey: `${cam.accountId}/${cam.camsId}`, user });
+  if (!credentialsWritable()) return void res.status(409).json({ error: 'credentials_read_only', reason: credentialsFileSet() ? 'read_only' : 'unset', secretKey: `${cam.accountId}/${cam.camsId}`, user });
   await setCameraPassword(cam.accountId, cam.camsId, user, password);
   resetClients();
   reapplyConfig();
