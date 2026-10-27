@@ -60,6 +60,7 @@ export const ICONS = {
   code: 'M8 7l-5 5 5 5M16 7l5 5-5 5M14 4l-4 16',
   bot: 'M5 9h14a1 1 0 0 1 1 1v8a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1v-8a1 1 0 0 1 1-1zM12 9V5M12 5h.01M9 14h.01M15 14h.01M2 13v3M22 13v3',
   plug: 'M9 3v5M15 3v5M6 8h12v3a6 6 0 0 1-12 0V8zM12 17v4',
+  chat: 'M4 5h16v11H9l-5 4V5zM8 9.5h8M8 12.5h5',
   layers: 'M12 3 2 8l10 5 10-5-10-5zM2 13l10 5 10-5M2 17.5l10 5 10-5',
 } as const;
 

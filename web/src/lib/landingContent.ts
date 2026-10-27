@@ -79,7 +79,7 @@ export const HIGHLIGHTS: Highlight[] = [
   { section: 'proxy', icon: 'server', kicker: 'Proxy', title: 'Smart where the cameras are', text: 'A local proxy keeps the footage on your own network.' },
   { section: 'hardware', icon: 'layers', kicker: 'Hardware', title: 'Small to start, ready to grow', text: 'From one Raspberry Pi to a proxy with many cameras.' },
   { section: 'fleet', icon: 'users', kicker: 'Fleet', title: 'Every site in one console', text: 'Accounts, proxies and cameras, managed centrally.' },
-  { section: 'open', icon: 'code', kicker: 'Open', title: 'Open, and built with AI', text: 'Public code, documented APIs, an AI at the controls.' },
+  { section: 'open', icon: 'code', kicker: 'Open', title: 'Open, and built with AI', text: 'Public code, documented APIs, MCP for your assistant.' },
 ];
 
 export const NUMBERS = [
@@ -305,6 +305,11 @@ export const SECTIONS: Section[] = [
         text: 'The proxy’s client API is documented in OpenAPI: cameras, events, stills, clips, SD recordings and the archive, plus a live event stream you can resume.',
       },
       {
+        icon: 'chat',
+        title: 'Connect your AI assistant',
+        text: 'An MCP server gives Claude or any MCP client read access to your cameras, events with their AI labels, recordings, the archive and short clips made on request: pictures it can look at, videos as short-lived links. Each member makes a personal token in Settings, shown once, and you can revoke it at any time; every call is rate-limited and audited.',
+      },
+      {
         icon: 'bot',
         title: 'A fleet run by an AI',
         text: 'An AI agent looks after the fleet through cams-admin’s APIs: a read-only diagnostics token for what it needs to know, and scoped operations tokens for the few things it may change.',
@@ -312,6 +317,12 @@ export const SECTIONS: Section[] = [
     ],
   },
 ];
+
+// The MCP server (cams /mcp): the line that adds it to Claude Code, and its docs.
+export const MCP = {
+  command: 'claude mcp add --transport http cams https://cams.skylar.technology/mcp --header "Authorization: Bearer cmcp_<your token>"',
+  docs: 'https://github.com/klaushofrichter/cams#mcp-server',
+};
 
 // cams serves /llms.txt: every API and its documentation, for LLMs. Relative,
 // so a local viewer (the Pi, a mini PC) links its own.

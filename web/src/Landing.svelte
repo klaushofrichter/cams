@@ -7,7 +7,7 @@
   import LandingShot from './components/LandingShot.svelte';
   import EpaperCycle from './components/EpaperCycle.svelte';
   import { loginMethods, noConfiguration } from './lib/login';
-  import { ADMIN_CONSOLE_URL, EPAPER_PAGES, HIGHLIGHTS, LLMS_TXT, NUMBERS, REPOS, SECTIONS, SHOWCASE } from './lib/landingContent';
+  import { ADMIN_CONSOLE_URL, EPAPER_PAGES, HIGHLIGHTS, LLMS_TXT, MCP, NUMBERS, REPOS, SECTIONS, SHOWCASE } from './lib/landingContent';
   import { countUp, reducedMotion, reveal, spotlight } from './lib/landingMotion';
   import { currentTheme } from './lib/theme';
   import { theme } from './lib/stores';
@@ -29,6 +29,20 @@
   // The product shot goes when its desktop screenshot is missing.
   let showcaseFailed = $state(false);
   let hero: HTMLElement;
+
+  // The MCP line's copy button.
+  let copied = $state(false);
+  async function copyMcp() {
+    try {
+      await navigator.clipboard.writeText(MCP.command);
+      copied = true;
+      setTimeout(() => (copied = false), 2000);
+    } catch {
+      // No clipboard (plain http, an old browser): select the line instead.
+      const code = document.querySelector('[data-testid="mcp-command"]');
+      if (code) window.getSelection()?.selectAllChildren(code);
+    }
+  }
 
   onMount(() => {
     const onScroll = () => (scrolled = window.scrollY > 8);
@@ -198,6 +212,13 @@
             {/each}
           </ul>
           {#if s.id === 'open'}
+            <div class="mcp" use:reveal>
+              <div class="mcp-line">
+                <code data-testid="mcp-command">{MCP.command}</code>
+                <button type="button" class="copy" data-testid="mcp-copy" onclick={copyMcp} aria-live="polite">{copied ? 'Copied' : 'Copy'}</button>
+              </div>
+              <a class="mcp-docs" href={MCP.docs} data-testid="mcp-docs">Set up the MCP server: the README <span aria-hidden="true">→</span></a>
+            </div>
             <ul class="repos" use:reveal>
               {#each REPOS as r (r.name)}
                 <li>
@@ -538,6 +559,13 @@
   }
   .llms:hover { border-style: solid; border-color: var(--accent); background: color-mix(in srgb, var(--accent) 8%, transparent); }
   .llms :global(svg) { flex: none; color: var(--accent); margin-top: 1px; }
+  .mcp { display: grid; gap: 10px; }
+  .mcp-line { display: flex; align-items: stretch; border: 1px solid var(--border); border-radius: 12px; overflow: hidden; background: var(--surface-2); }
+  .mcp-line code { flex: 1; min-width: 0; padding: 12px 14px; font-family: var(--mono); font-size: 12.5px; line-height: 1.5; overflow-x: auto; white-space: nowrap; }
+  .copy { flex: none; padding: 0 16px; border: 0; border-left: 1px solid var(--border); background: var(--surface); color: var(--text); font-weight: 600; cursor: pointer; }
+  .copy:hover { color: var(--accent); }
+  .mcp-docs { font-size: 14px; font-weight: 600; color: var(--accent); text-decoration: none; }
+  .mcp-docs:hover { text-decoration: underline; }
   .repos { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; grid-template-columns: repeat(auto-fill, minmax(min(100%, 250px), 1fr)); }
   .repos a {
     display: grid;

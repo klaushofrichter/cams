@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { ICONS } from './icons';
-import { ADMIN_CONSOLE_URL, EPAPER_PAGES, LLMS_TXT, HIGHLIGHTS, NUMBERS, REPOS, SECTIONS, SHOWCASE } from './landingContent';
+import { ADMIN_CONSOLE_URL, EPAPER_PAGES, LLMS_TXT, MCP, HIGHLIGHTS, NUMBERS, REPOS, SECTIONS, SHOWCASE } from './landingContent';
 
 // The landing page is public and pre-login: its copy must not carry
 // addresses, host names, ids or tokens. Links live in their own fields.
@@ -110,6 +110,17 @@ describe('landing content', () => {
   it('points your AI at llms.txt, relative so a local viewer serves its own', () => {
     expect(LLMS_TXT.href).toBe('/llms.txt');
     expect(LLMS_TXT.text).toBe('Point your AI at llms.txt: every API and its documentation in one list.');
+  });
+
+  it('Open has an MCP card, its one-line command and the README link; the highlight mentions MCP', () => {
+    const open = SECTIONS.find((x) => x.id === 'open')!;
+    const card = open.features.find((f) => f.title === 'Connect your AI assistant')!;
+    expect(card.text).toContain('MCP server');
+    expect(card.text).toMatch(/revoke/);
+    expect(card.text).not.toMatch(/available now|live now/i);
+    expect(MCP.command).toBe('claude mcp add --transport http cams https://cams.skylar.technology/mcp --header "Authorization: Bearer cmcp_<your token>"');
+    expect(MCP.docs).toBe('https://github.com/klaushofrichter/cams#mcp-server');
+    expect(HIGHLIGHTS.find((h) => h.section === 'open')!.text).toMatch(/MCP/);
   });
 
   it('every screenshot is a WebP under /landing/ with alt text and a size', () => {

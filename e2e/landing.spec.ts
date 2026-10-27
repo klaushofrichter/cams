@@ -162,6 +162,21 @@ test.describe('landing page', () => {
     await expect(page.locator('#open')).toContainText('every API and its documentation in one list');
   });
 
+  test('the Open section shows the MCP card with its command, a copy button and the README link', async ({ page, context }, info) => {
+    await page.goto('/');
+    const open = page.locator('#open');
+    await expect(open.getByRole('heading', { level: 3, name: 'Connect your AI assistant' })).toHaveCount(1);
+    const cmd = open.getByTestId('mcp-command');
+    await expect(cmd).toHaveText('claude mcp add --transport http cams https://cams.skylar.technology/mcp --header "Authorization: Bearer cmcp_<your token>"');
+    await expect(open.getByTestId('mcp-docs')).toHaveAttribute('href', 'https://github.com/klaushofrichter/cams#mcp-server');
+    if (info.project.name === 'desktop') {
+      await context.grantPermissions(['clipboard-read', 'clipboard-write']);
+      await open.getByTestId('mcp-copy').click();
+      await expect(open.getByTestId('mcp-copy')).toHaveText('Copied');
+      expect(await page.evaluate(() => navigator.clipboard.readText())).toContain('claude mcp add');
+    }
+  });
+
   test('links the five open-source repositories', async ({ page }) => {
     await page.goto('/');
     const repos = page.getByTestId('repo-link');
