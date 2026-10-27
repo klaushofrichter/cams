@@ -82,11 +82,13 @@ test.describe('landing page', () => {
     await expect(page).toHaveURL('/');
   });
 
-  test('the hero’s sign-in button leads to the header sign-in', async ({ page }) => {
+  test('the hero has one call to action and no sign-in of its own', async ({ page }) => {
     await page.goto('/');
-    await page.getByTestId('hero-signin').click();
-    await expect(page.getByRole('banner').getByTestId('login')).toBeVisible();
-    await expect(page.getByRole('banner').getByTestId('login')).toBeFocused();
+    const hero = page.locator('section.hero');
+    await expect(page.getByTestId('hero-signin')).toHaveCount(0);
+    await expect(hero.getByRole('button')).toHaveCount(0);
+    await expect(hero.getByRole('link', { name: /See what it does/ })).toHaveAttribute('href', '#highlights');
+    await expect(hero.getByText('Sign in', { exact: true })).toHaveCount(0);
   });
 
   test('each highlight links to the section that explains it, and scrolls there', async ({ page }) => {

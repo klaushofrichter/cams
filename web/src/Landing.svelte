@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount, tick } from 'svelte';
+  import { onMount } from 'svelte';
   import Logo from './components/Logo.svelte';
   import CameraIllustration from './components/CameraIllustration.svelte';
   import ThemeToggle from './components/ThemeToggle.svelte';
@@ -20,23 +20,14 @@
   const year = new Date().getFullYear();
   theme.set(currentTheme());
 
-  // The two sign-ins sit in the header. Up to this width they are behind a
-  // compact "Sign in" button.
-  const COMPACT = '(max-width: 899px)';
-  const compact = () => typeof matchMedia === 'function' && matchMedia(COMPACT).matches;
+  // The two sign-ins sit in the header; on narrow screens (899 px and less,
+  // the CSS below) they are behind a compact "Sign in" button.
   let menuOpen = $state(false);
   let header: HTMLElement;
-  let panel: HTMLElement;
   let scrolled = $state(false);
   // The product shot goes when its desktop screenshot is missing.
   let showcaseFailed = $state(false);
   let hero: HTMLElement;
-
-  async function heroSignIn() {
-    if (compact()) menuOpen = true;
-    await tick();
-    panel.querySelector<HTMLElement>('.cams')?.focus();
-  }
 
   onMount(() => {
     const onScroll = () => (scrolled = window.scrollY > 8);
@@ -91,12 +82,12 @@
       >
         Sign in
       </button>
-      <div class="signin" class:open={menuOpen} id="signin-panel" bind:this={panel}>
+      <div class="signin" class:open={menuOpen} id="signin-panel">
         <a class="pill" href={ADMIN_CONSOLE_URL} data-testid="admin-console"><Icon name="users" size={16} /> Admin console</a>
         {#if googleOnly}
-          <a class="pill cams" href="/auth/google/login" data-testid="login"><Icon name="live" size={16} /> Cams app</a>
+          <a class="pill" href="/auth/google/login" data-testid="login"><Icon name="live" size={16} /> Cams app</a>
         {:else}
-          <a class="pill cams" href="/signin" data-testid="cams-signin"><Icon name="live" size={16} /> Cams app</a>
+          <a class="pill" href="/signin" data-testid="cams-signin"><Icon name="live" size={16} /> Cams app</a>
         {/if}
       </div>
     </div>
@@ -114,7 +105,6 @@
         </p>
         <div class="ctas">
           <a class="btn primary" href="#highlights">See what it does <span aria-hidden="true">→</span></a>
-          <button type="button" class="btn" data-testid="hero-signin" onclick={heroSignIn}>Sign in</button>
         </div>
       </div>
       <div class="visual">
