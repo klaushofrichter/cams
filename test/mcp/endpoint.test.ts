@@ -56,7 +56,7 @@ describe('/mcp', () => {
 
   it('is 404 when off, and on plain http without the opt-in', async () => {
     const { token } = issue();
-    delete process.env.MCP_ENABLED;
+    process.env.MCP_ENABLED = 'false';
     expect((await rpc(token)).status).toBe(404);
     process.env.MCP_ENABLED = 'true';
     process.env.COOKIE_SECURE = 'false';
