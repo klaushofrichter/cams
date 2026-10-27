@@ -1,5 +1,6 @@
 import { expect, test, type Page } from '@playwright/test';
 import { expireSession, fakeGoogle, rememberAccount, signIn } from './session';
+import { openSignIn } from './landingSignIn';
 
 // Issue #153, R2 (Klaus): when the session expires, renew it silently if
 // Google can (prompt=none), back on the same page; else the sign-in page,
@@ -46,6 +47,7 @@ test.describe('expired session', () => {
 
     // Silent renewal refused: the start page, no loop.
     await expect(page).toHaveURL(/\/$/);
+    await openSignIn(page);
     await expect(page.getByTestId('login')).toBeVisible();
     expect(calls.map((c) => c.prompt)).toEqual(['none']);
 
@@ -66,6 +68,7 @@ test.describe('expired session', () => {
     await openSettings(page, testInfo.project.name === 'phone');
 
     await expect(page).toHaveURL(/\/$/);
+    await openSignIn(page);
     await expect(page.getByTestId('login')).toBeVisible();
     expect(calls).toEqual([]);
     await page.getByTestId('login').click();

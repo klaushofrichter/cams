@@ -46,6 +46,11 @@ services:
       # Camera passwords for cams-admin mode (mode 600, e.g. /data/camera-credentials.json);
       # unset: the passwords in cameras.json (the home account).
       CAMERA_CREDENTIALS_FILE: ${CAMERA_CREDENTIALS_FILE:-}
+      # MCP server (README "MCP server"): on by default, but on this plain-http
+      # viewer only with MCP_ALLOW_HTTP=true in config/.env (tokens travel
+      # unencrypted on the LAN). MCP_ENABLED=false turns it off.
+      MCP_ENABLED: ${MCP_ENABLED:-}
+      MCP_ALLOW_HTTP: ${MCP_ALLOW_HTTP:-false}
     volumes:
       - ./cameras.json:/config/cameras.json:ro
       - ./data:/data

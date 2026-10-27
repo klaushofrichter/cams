@@ -21,6 +21,8 @@ sets these instead:
 | `COOKIE_SECURE` | `false` | the session cookie works over plain http; logged as `cookie_secure_off` at startup |
 | `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `GOOGLE_REDIRECT_URI`, `ALLOWED_EMAILS` | unset | without them only the token form shows |
 | `CAMERAS_FILE`, `PREFS_FILE`, `PROXY_STATE_FILE`, `CACHE_DIR`, `CACHE_MAX_BYTES` | see the compose file | |
+| `MCP_ALLOW_HTTP` | `false` (default) | `true` in `config/.env` turns the [MCP server](../README.md#mcp-server) on here; tokens and video links then travel unencrypted on the LAN. Then `docker compose up -d --force-recreate` |
+| `MCP_ENABLED` | unset | `false` keeps the MCP server off even with `MCP_ALLOW_HTTP=true` |
 
 **One file for the Pi:** cams' secrets live in the Pi's one settings file,
 cam-proxy's `/srv/cam-proxy/config/.env`, which also holds the camera's

@@ -13,7 +13,7 @@ describe('deploy/pi/compose.cams.yaml', () => {
   });
   it('substitutes only cams variables', () => {
     const vars = [...new Set([...code.matchAll(/\$\{([A-Z_]+)/g)].map((m) => m[1]))].sort();
-    expect(vars).toEqual(['CAMERA_CREDENTIALS_FILE', 'CAMS_ADMIN_URL', 'CAMS_LOGIN_TOKEN', 'CAMS_TAG', 'CAMS_TOKEN_ACCOUNT', 'CAMS_TOKEN_USER', 'CONFIG_SOURCE', 'COOKIE_SECRET']);
+    expect(vars).toEqual(['CAMERA_CREDENTIALS_FILE', 'CAMS_ADMIN_URL', 'CAMS_LOGIN_TOKEN', 'CAMS_TAG', 'CAMS_TOKEN_ACCOUNT', 'CAMS_TOKEN_USER', 'CONFIG_SOURCE', 'COOKIE_SECRET', 'MCP_ALLOW_HTTP', 'MCP_ENABLED']);
   });
   it('requires the token and the cookie secret', () => {
     expect(code).toMatch(/CAMS_LOGIN_TOKEN: \$\{CAMS_LOGIN_TOKEN:\?/);
@@ -25,6 +25,10 @@ describe('deploy/pi/compose.cams.yaml', () => {
     expect(code).toMatch(/\bCAMS_TOKEN_ACCOUNT: \$\{CAMS_TOKEN_ACCOUNT:-\}/);
     expect(code).toMatch(/\bCAMS_DATA_DIR: \/data\n/);
     expect(code).toMatch(/\bCAMERA_CREDENTIALS_FILE: \$\{CAMERA_CREDENTIALS_FILE:-\}/);
+  });
+  it('MCP: on by default like everywhere, but on this plain-http viewer only with MCP_ALLOW_HTTP=true from config/.env', () => {
+    expect(code).toMatch(/\bMCP_ENABLED: \$\{MCP_ENABLED:-\}/);
+    expect(code).toMatch(/\bMCP_ALLOW_HTTP: \$\{MCP_ALLOW_HTTP:-false\}/);
   });
   it('no cam-proxy secret is passed; ./data stays the only writable mount (the key, cache, trust and token files land in /data/admin/)', () => {
     expect(code).not.toMatch(/PROXY_TOKEN|ADMIN_TOKEN|CAMERA_PASSWORD|SWITCH_PASSWORD|GOOGLE_/);

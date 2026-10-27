@@ -27,6 +27,10 @@
   --ok: #22C55E; /* a camera online (the Video page's status dot) */
   --warning: #F59E0B;
   --warning-ink: #1F1300;
+  /* The start page's demo sash: dark ink on the amber stripes, in both themes. */
+  --sash-ink: #1F1300;
+  /* The e-paper display's paper behind its pages (the panel's white), in both themes. */
+  --epaper-paper: #FFFFFF;
   /* Vision badges by confidence (Klaus, 2026-09-30): ≥ 80 %, 50–79 %, < 50 %. */
   --vision-high: #4ADE80;
   --vision-mid: #C084FC;
