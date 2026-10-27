@@ -46,6 +46,9 @@ mcpRouter.all('/mcp', mcpGate, async (req: Request, res: Response) => {
     return void res.set('WWW-Authenticate', 'Bearer error="invalid_token"').status(401).json({ error: 'unauthorized' });
   }
   if (Number(req.get('content-length') ?? 0) > MAX_BODY) return void res.status(413).json({ error: 'too_large' });
+  // A JSON-RPC batch would run many calls for one count of the limits (and
+  // one audit line); MCP dropped batches in 2025-06-18, so it is refused.
+  if (Array.isArray(req.body)) return void res.status(400).json({ error: 'batch_not_supported' });
   const { token, principal } = who;
   const w = limits.tokenMinute.take(token.id) || limits.tokenDay.take(token.id) || limits.accountMinute.take(token.accountId);
   if (w) return tooMany(res, w);

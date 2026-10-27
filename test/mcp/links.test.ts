@@ -89,3 +89,32 @@ describe('GET /mcp/media/:link', () => {
     expect((await fetch(link(id))).status).toBe(404);
   });
 });
+
+describe('the request log', () => {
+  it('never carries a signed link', async () => {
+    const { createHttpLogger } = await import('../../server/logger.js');
+    const { Writable } = await import('stream');
+    const express = (await import('express')).default;
+    const lines: string[] = [];
+    const sink = new Writable({ write(c, _e, cb) { lines.push(String(c)); cb(); } });
+    const a = express();
+    const prev = process.env.LOG_LEVEL;
+    process.env.LOG_LEVEL = 'info';
+    try {
+      a.use(createHttpLogger(sink));
+    } finally {
+      process.env.LOG_LEVEL = prev;
+    }
+    a.get('/mcp/media/:link', (_req, res) => void res.status(200).end());
+    const http = await import('http');
+    const s = http.createServer(a);
+    await new Promise<void>((r) => s.listen(0, () => r()));
+    const port = (s.address() as { port: number }).port;
+    const secret = signLink({ tok: 'mtk_X', acc: 'acc_A', cam: 'cam1', kind: 'clip', ref: '20260101-000000-000010', exp: Date.now() + 60_000 });
+    await fetch(`http://127.0.0.1:${port}/mcp/media/${secret}`);
+    await new Promise<void>((r) => s.close(() => r()));
+    const text = lines.join('');
+    expect(text).toContain('/mcp/media/:link');
+    expect(text).not.toContain(secret.split('.')[1]);
+  });
+});

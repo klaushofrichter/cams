@@ -30,6 +30,12 @@ export class Budget {
     return Math.max(1, Math.ceil((h.start + this.windowMs - now) / 1000));
   }
 
+  // Gives back one call counted by take() (the work was refused after all).
+  refund(key: string): void {
+    const h = this.hits.get(key);
+    if (h && h.n > 0) h.n--;
+  }
+
   private prune(now: number): void {
     for (const [k, h] of this.hits) if (now - h.start >= this.windowMs) this.hits.delete(k);
   }

@@ -35,6 +35,9 @@ export const pollMs = () => intEnv('MCP_JOB_POLL_MS', 10_000);
 export const waitMs = () => intEnv('MCP_JOB_WAIT_MS', 25_000);
 
 const jobs = new Map<string, McpJob>();
+// Accounts whose clip is being asked for right now (between the check and the
+// proxy's answer): parallel calls must not both get through.
+const reserved = new Set<string>();
 const terminal = (s: JobState) => s === 'done' || s === 'failed' || s === 'cancelled';
 
 function prune(now = Date.now()): void {
@@ -44,7 +47,19 @@ function prune(now = Date.now()): void {
 // The account's job still queued or running, if any.
 export function activeJob(accountId: string): McpJob | undefined {
   prune();
+  if (reserved.has(accountId)) return { accountId, state: 'queued' } as McpJob;
   return [...jobs.values()].find((j) => j.accountId === accountId && !terminal(j.state));
+}
+
+// Takes the account's one slot synchronously; false when it is taken. The
+// caller releases it once the job is tracked, or the request failed.
+export function reserve(accountId: string): boolean {
+  if (activeJob(accountId)) return false;
+  reserved.add(accountId);
+  return true;
+}
+export function release(accountId: string): void {
+  reserved.delete(accountId);
 }
 
 export function jobOf(tokenId: string, job: string): McpJob | undefined {
@@ -60,6 +75,11 @@ export async function refresh(j: McpJob): Promise<McpJob> {
     if (r.status === 404) {
       j.state = 'failed';
       j.error = 'The clip is no longer kept.';
+    } else if (r.status === 401 || r.status === 403) {
+      // The token was revoked, or its person left the account: the job is theirs no more.
+      await r.body?.cancel();
+      j.state = 'failed';
+      j.error = 'The token that started the clip no longer works.';
     } else if (r.ok) {
       const b = (await r.json()) as { state?: unknown; progress?: unknown; durationS?: unknown; error?: unknown };
       if (typeof b.state === 'string' && (STATES as string[]).includes(b.state)) j.state = b.state as JobState;
@@ -109,4 +129,5 @@ export const resultExpiry = (j: McpJob): number | null => (j.state === 'done' &&
 export function resetMcpJobs(): void {
   for (const j of jobs.values()) if (j.timer) clearInterval(j.timer);
   jobs.clear();
+  reserved.clear();
 }

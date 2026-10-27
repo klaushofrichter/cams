@@ -126,3 +126,33 @@ describe('the tool list', () => {
     expect(names).toEqual(['analytics_usage', 'generate_clip', 'get_archive_clip', 'get_clip_job', 'get_event', 'get_snapshot', 'list_archive', 'list_cameras', 'list_events', 'search_recordings']);
   });
 });
+
+describe('generate_clip under pressure', () => {
+  it('lets only one of two parallel calls start a clip', async () => {
+    proxy.composeDelayMs = 2000;
+    process.env.MCP_JOB_WAIT_MS = '100';
+    const { start, end } = window();
+    const [a, b] = await Promise.all([call('generate_clip', { camera: 'cam1', start, end }), call('generate_clip', { camera: 'cam1', start, end })]);
+    expect([a.structuredContent.error, b.structuredContent.error].filter((e) => e === 'busy')).toHaveLength(1);
+    expect(proxy.composeRequests).toHaveLength(1);
+  });
+
+  it('frees the account once the token that started the clip is revoked', async () => {
+    proxy.composeDelayMs = 60_000;
+    process.env.MCP_JOB_WAIT_MS = '100';
+    const { start, end } = window();
+    const { getMcpTokens } = await import('../../server/mcp/tokens.js');
+    const { fileAccount } = await import('../../server/fleet.js');
+    const { activeJob } = await import('../../server/mcp/jobs.js');
+    const first = await mcpClient(app.url, issue(undefined, 'klaus@klaushofrichter.net', 'short-lived').token);
+    try {
+      expect((await call('generate_clip', { camera: 'cam1', start, end }, first)).structuredContent.state).toBe('running');
+    } finally {
+      await first.close();
+    }
+    const id = getMcpTokens().list(fileAccount().id).find((t) => t.name === 'short-lived')!.id;
+    getMcpTokens().revoke(fileAccount().id, id, 'x');
+    await waitFor(() => activeJob(fileAccount().id) === undefined, 3000);
+    expect((await call('generate_clip', { camera: 'cam1', start, end })).structuredContent.error).not.toBe('busy');
+  });
+});

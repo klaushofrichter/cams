@@ -4,7 +4,7 @@
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import { formatSeconds, generateMaxS } from '../../clipLimits';
-import { activeJob, jobOf, refresh, resultExpiry, settle, track, type McpJob } from '../jobs';
+import { jobOf, refresh, release, reserve, resultExpiry, settle, track, type McpJob } from '../jobs';
 import { limits } from '../limits';
 import { linkFor } from '../links';
 import { failureOf, ok, parseTime, ToolFailure } from '../result';
@@ -63,28 +63,21 @@ export function registerClipTools(server: McpServer, ctx: ToolCtx): void {
         if (e - s > generateMaxS(sz) * 1000) throw new ToolFailure('too_long', `At most ${formatSeconds(generateMaxS(sz))} at ${sz}.`);
         body = aroundBody(s, e, sz, badge ?? true);
       }
-      if (activeJob(c.token.accountId)) throw new ToolFailure('busy');
-      if (limits.clipsHour.peek(c.token.accountId)) throw new ToolFailure('rate_limited', 'At most 10 clips an hour for this account.');
-      const r = await c.api(`/api/cameras/${encodeURIComponent(camera)}/compositions`, { method: 'POST', body });
-      if (r.status === 409) {
-        await r.body?.cancel();
-        throw new ToolFailure('nothing_kept', 'Nothing is kept for that time: no recording and no stills.');
+      const acc = c.token.accountId;
+      if (!reserve(acc)) throw new ToolFailure('busy');
+      if (limits.clipsHour.take(acc)) {
+        release(acc);
+        throw new ToolFailure('rate_limited', 'At most 10 clips an hour for this account.');
       }
-      if (r.status === 400) {
-        const b = (await r.json().catch(() => null)) as { detail?: unknown } | null;
-        const detail = typeof b?.detail === 'string' ? b.detail.slice(0, 160) : undefined;
-        throw new ToolFailure(detail && /at most/i.test(detail) ? 'too_long' : 'invalid', detail);
+      let job: McpJob;
+      try {
+        job = await startJob(c, camera, body);
+      } catch (e) {
+        limits.clipsHour.refund(acc);
+        throw e;
+      } finally {
+        release(acc);
       }
-      if (r.status !== 201) throw await failureOf(r);
-      const created = (await r.json()) as { id?: unknown; state?: unknown; progress?: unknown; durationS?: unknown };
-      if (typeof created.id !== 'string' || !/^[A-Za-z0-9_-]{22}$/.test(created.id)) throw new ToolFailure('proxy_unavailable');
-      limits.clipsHour.take(c.token.accountId);
-      const job = track({
-        job: created.id, accountId: c.token.accountId, tokenId: c.token.id, camera, base: c.base,
-        state: created.state === 'done' ? 'done' : created.state === 'queued' ? 'queued' : 'running',
-        progress: typeof created.progress === 'number' ? created.progress : 0,
-        durationS: Number.isFinite(created.durationS) ? (created.durationS as number) : null,
-      });
       return ok(view(c, await settle(job)));
     },
   });
@@ -100,5 +93,28 @@ export function registerClipTools(server: McpServer, ctx: ToolCtx): void {
       if (!j) throw new ToolFailure('not_found', 'There is no clip job with that id for this token.');
       return ok(view(c, await refresh(j)));
     },
+  });
+}
+
+// Asks the proxy (through /api) for the clip and tracks it.
+async function startJob(c: ToolCtx, camera: string, body: Record<string, unknown>): Promise<McpJob> {
+  const r = await c.api(`/api/cameras/${encodeURIComponent(camera)}/compositions`, { method: 'POST', body });
+  if (r.status === 409) {
+    await r.body?.cancel();
+    throw new ToolFailure('nothing_kept', 'Nothing is kept for that time: no recording and no stills.');
+  }
+  if (r.status === 400) {
+    const b = (await r.json().catch(() => null)) as { detail?: unknown } | null;
+    const detail = typeof b?.detail === 'string' ? b.detail.slice(0, 160) : undefined;
+    throw new ToolFailure(detail && /at most/i.test(detail) ? 'too_long' : 'invalid', detail);
+  }
+  if (r.status !== 201) throw await failureOf(r);
+  const created = (await r.json()) as { id?: unknown; state?: unknown; progress?: unknown; durationS?: unknown };
+  if (typeof created.id !== 'string' || !/^[A-Za-z0-9_-]{22}$/.test(created.id)) throw new ToolFailure('proxy_unavailable');
+  return track({
+    job: created.id, accountId: c.token.accountId, tokenId: c.token.id, camera, base: c.base,
+    state: created.state === 'done' ? 'done' : created.state === 'queued' ? 'queued' : 'running',
+    progress: typeof created.progress === 'number' ? created.progress : 0,
+    durationS: Number.isFinite(created.durationS) ? (created.durationS as number) : null,
   });
 }

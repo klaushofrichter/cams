@@ -102,3 +102,16 @@ describe('/mcp', () => {
     }
   });
 });
+
+describe('/mcp batches', () => {
+  it('refuses a JSON-RPC batch (it would slip past the per-call limits)', async () => {
+    const { token } = issue();
+    const r = await fetch(`${app.url}/mcp`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', accept: 'application/json, text/event-stream', authorization: `Bearer ${token}` },
+      body: JSON.stringify([{ jsonrpc: '2.0', id: 1, method: 'tools/list', params: {} }, { jsonrpc: '2.0', id: 2, method: 'tools/list', params: {} }]),
+    });
+    expect(r.status).toBe(400);
+    expect(await r.json()).toEqual({ error: 'batch_not_supported' });
+  });
+});
