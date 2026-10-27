@@ -6,6 +6,7 @@ import { TRUST_PROXY } from './trustProxy';
 import { healthRouter } from './routes/health';
 import { authRouter } from './routes/auth';
 import { apiRouter } from './routes/api';
+import { mcpRouter } from './mcp/router';
 import { pagesRouter, webDir } from './routes/pages';
 
 interface HttpError extends Error {
@@ -54,6 +55,8 @@ export function createApp(): Express {
   app.use(cookieParser());
   app.use(healthRouter);
   app.use(authRouter);
+  // /mcp (spec 2026-10-27-mcp-server-design): bearer tokens, never the cookie.
+  app.use(mcpRouter);
   app.use(apiRouter);
   app.use(pagesRouter(webDir()));
   app.use(errorHandler);

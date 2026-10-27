@@ -87,3 +87,10 @@ describe('llms.txt content', () => {
     expect(FILE).not.toMatch(/\b(cao|cad)_[A-Za-z0-9]{8,}/);
   });
 });
+
+describe('llms.txt and MCP', () => {
+  it('names the MCP endpoint and links its README section', () => {
+    expect(FILE).toContain('https://cams.skylar.technology/mcp');
+    expect(FILE).toContain('https://github.com/klaushofrichter/cams/blob/main/README.md#mcp-server');
+  });
+});

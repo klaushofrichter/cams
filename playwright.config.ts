@@ -104,7 +104,7 @@ export default defineConfig({
     // Each start begins with an empty cache (E2E_ENV.CACHE_DIR): cached thumbnails
     // and clips never carry over from an earlier run. Not in globalSetup, which
     // runs after the web servers have started.
-    { command: `node -e "require('fs').rmSync(process.env.CACHE_DIR, { recursive: true, force: true })" && npm start`, port: E2E_PORT, reuseExistingServer: !process.env.CI, env: E2E_ENV },
+    { command: `node -e "const fs = require('fs'); fs.rmSync(process.env.CACHE_DIR, { recursive: true, force: true }); fs.rmSync(require('path').dirname(process.env.MCP_TOKENS_FILE), { recursive: true, force: true })" && npm start`, port: E2E_PORT, reuseExistingServer: !process.env.CI, env: E2E_ENV },
     // Migration P4: the fake cams-admin (it writes the instance's key and a
     // signed cache first), then cams in cams-admin mode.
     { command: 'npx tsx e2e/fakeAdmin.ts', port: FAKE_ADMIN_PORT, reuseExistingServer: false },

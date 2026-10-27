@@ -28,6 +28,16 @@ describe('isolation source scan', () => {
     for (const [f, src] of ROUTES) expect(src, f).not.toMatch(/\b(allCameras|listProxied)\(\s*\)|\bproxyStates\(\s*\)|\barchiveProxies\(\s*\)|\bproxyGroups\(\s*\)|\bfleetCameras\(\s*\)|\bgetCamera\(\s*String\(req/);
   });
 
+  it('no MCP tool or route calls an all-accounts registry or store function (spec 2026-10-27-mcp-server-design §7)', () => {
+    const dir = join(SERVER, 'mcp');
+    const files = [...readdirSync(dir).map((f) => join(dir, f)), ...readdirSync(join(dir, 'tools')).map((f) => join(dir, 'tools', f))].filter((f) => f.endsWith('.ts'));
+    expect(files.length).toBeGreaterThan(10);
+    for (const f of files) {
+      const src = readFileSync(f, 'utf8');
+      expect(src, f).not.toMatch(/\b(allCameras|listProxied|proxyStates|archiveProxies|proxyGroups|fleetCameras|fleetAccounts|resolveCamera|getCamera|getProxyClient|getRecordings)\(/);
+    }
+  });
+
   it('every exported registry and store function that takes a camera takes a CamKey', () => {
     // Exported functions whose first parameter names a camera (a CamKey, or a
     // CameraConfig, whose id is one).
