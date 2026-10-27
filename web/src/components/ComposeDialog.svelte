@@ -188,6 +188,9 @@
   // after the last change (ruling 15); "nothing" turns Generate off, a failed
   // dry run shows no line.
   let plan = $state<{ key: string; plan: AroundPlan | 'nothing' } | null>(null);
+  // The line's text stays until the next answer replaces it (a slider move
+  // doesn't empty it), and the line keeps its place: the dialog doesn't jump.
+  let madeOfText = $state<string | null>(null);
   const planKey = $derived(`${roll.pre}|${roll.post}|${size}`);
   $effect(() => {
     if (!around || !length.ok || size === '4k') return;
@@ -197,6 +200,7 @@
       void planAround(camera, q).then((r) => {
         if (key !== planKey) return;
         plan = r.kind === 'plan' ? { key, plan: r.plan } : r.kind === 'nothing' ? { key, plan: 'nothing' } : null;
+        madeOfText = r.kind === 'plan' ? madeOf(r.plan, (t) => localClock(t)) : null;
       });
     }, 300);
     return () => clearTimeout(t);
@@ -370,8 +374,8 @@
   {:else}
     <p class="err" data-testid="compose-error" role="status">{length.error}</p>
   {/if}
-  {#if around && length.ok && shownPlan && shownPlan !== 'nothing'}
-    <p class="muted" data-testid="compose-made-of">Made of: {madeOf(shownPlan, (t) => localClock(t))}</p>
+  {#if around && length.ok && size !== '4k' && !nothing}
+    <p class="muted made-of" data-testid="compose-made-of-line">{#if madeOfText}<span data-testid="compose-made-of">Made of: {madeOfText}</span>{:else}&nbsp;{/if}</p>
   {/if}
   {#if around && length.ok && nothing}
     <p class="err" data-testid="compose-nothing" role="status">Nothing is kept around this second (stills and clips are kept 7 days).</p>
