@@ -99,7 +99,7 @@ Production has two cameras:
 
 ## MCP server
 
-`/mcp` gives an AI assistant (Claude Code, Claude Desktop, any MCP client) read access to one account's cameras and content over the [Model Context Protocol](https://modelcontextprotocol.io) (Streamable HTTP, stateless, JSON answers; design `docs/superpowers/specs/2026-10-27-mcp-server-design.md`). It is off unless `MCP_ENABLED=true`.
+`/mcp` gives an AI assistant (Claude Code, Claude Desktop, any MCP client) read access to one account's cameras and content over the [Model Context Protocol](https://modelcontextprotocol.io) (Streamable HTTP, stateless, JSON answers; design `docs/superpowers/specs/2026-10-27-mcp-server-design.md`). It is on unless `MCP_ENABLED=false`; a plain http viewer also needs `MCP_ALLOW_HTTP=true`.
 
 - **Tokens:** Settings → "Assistant access (MCP)". Every member makes their own (name, 7, 30 or 90 days); it is shown once with the line that adds it to Claude Code, and kept only as a SHA-256 hash in `<data>/mcp/tokens.json` (mode 600). A token acts as the person who made it, in that account, with their role at the time of each call: removed from the account, the token stops working. At most 3 live tokens per person and 20 per account. Members see and revoke their own; account admins see every token of the account (never the secret) and revoke any. A token works on the viewer that made it only.
 - **Use:**
@@ -153,7 +153,7 @@ The Google OAuth client must list the redirect URI: `http://localhost:8080/auth/
 | `RATE_LIMIT_TOKEN_FAILURES` | `10` | failed token sign-ins per address per 15 min |
 | `RATE_LIMIT_WINDOW_MS`, `RATE_LIMIT_MAX`, `RATE_LIMIT_API_MAX`, `RATE_LIMIT_MEDIA_MAX`, `RATE_LIMIT_IMAGE_MAX` | 5 min, `40`, `600`, `3000`, `20000` | per window: sign-in, API, clip media (video, thumbnail, download; archived clips' video and thumbnails too), and the cam-proxy's sprites and stills |
 | `RATE_LIMIT_ARCHIVE_PER_MIN`, `RATE_LIMIT_ARCHIVE_ZIP_PER_MIN` | `10`, `4` | per signed-in user and minute: new archived clips, and Archive ZIPs |
-| `MCP_ENABLED`, `MCP_ALLOW_HTTP` | off, off | `true` serves [`/mcp`](#mcp-server); on a plain http viewer (`COOKIE_SECURE=false`) it also needs `MCP_ALLOW_HTTP=true` |
+| `MCP_ENABLED`, `MCP_ALLOW_HTTP` | on, off | [`/mcp`](#mcp-server) is served unless `MCP_ENABLED=false`; on a plain http viewer (`COOKIE_SECURE=false`) it also needs `MCP_ALLOW_HTTP=true` (without it `/mcp` is off, with a `mcp_http_refused` warning only when `MCP_ENABLED=true` is set) |
 | `MCP_TOKENS_FILE` | `<data>/mcp/tokens.json` | the MCP tokens' hashes (`<data>`: `CAMS_DATA_DIR`, else the preferences' folder) |
 | `RATE_LIMIT_MCP_PER_MIN`, `RATE_LIMIT_MCP_PER_DAY`, `RATE_LIMIT_MCP_ACCOUNT_PER_MIN`, `RATE_LIMIT_MCP_CLIPS_PER_HOUR`, `RATE_LIMIT_MCP_MEDIA_PER_MIN` | `60`, `2000`, `300`, `10`, `30` | the MCP limits |
 | `APP_VERSION`, `BUILD_DATE`, `WEB_DIST` | `dev`, none, the built `web/` | set by the image build (shown on About and by `/api/me`); where the web build is |

@@ -4,16 +4,18 @@ import { assertRequiredEnv } from '../../server/config';
 import { logger } from '../../server/logger';
 
 describe('mcpMode', () => {
-  it('is off unless MCP_ENABLED=true', () => {
-    expect(mcpMode({})).toBe('off');
-    expect(mcpMode({ MCP_ENABLED: 'yes' })).toBe('off');
+  it('is on by default; MCP_ENABLED=false turns it off', () => {
+    expect(mcpMode({})).toBe('on');
     expect(mcpMode({ MCP_ENABLED: 'true' })).toBe('on');
+    expect(mcpMode({ MCP_ENABLED: 'false' })).toBe('off');
   });
 
   it('needs MCP_ALLOW_HTTP=true on a plain http viewer', () => {
+    // Off without a word by default; refused (and logged) when asked for explicitly.
+    expect(mcpMode({ COOKIE_SECURE: 'false' })).toBe('off');
     expect(mcpMode({ MCP_ENABLED: 'true', COOKIE_SECURE: 'false' })).toBe('http-refused');
-    expect(mcpMode({ MCP_ENABLED: 'true', COOKIE_SECURE: 'false', MCP_ALLOW_HTTP: 'true' })).toBe('on');
-    expect(mcpMode({ MCP_ALLOW_HTTP: 'true', COOKIE_SECURE: 'false' })).toBe('off');
+    expect(mcpMode({ COOKIE_SECURE: 'false', MCP_ALLOW_HTTP: 'true' })).toBe('on');
+    expect(mcpMode({ MCP_ENABLED: 'false', COOKIE_SECURE: 'false', MCP_ALLOW_HTTP: 'true' })).toBe('off');
   });
 });
 
