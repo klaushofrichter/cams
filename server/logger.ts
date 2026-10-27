@@ -50,7 +50,7 @@ export function createHttpLogger(destination?: pino.DestinationStream) {
     genReqId: (req: IncomingMessage) => (req.headers['x-request-id'] as string) || randomUUID(),
     // Backstop: the serializers below already drop req/res entirely.
     redact: {
-      paths: ['req.headers.authorization', 'req.headers.cookie', 'res.headers["set-cookie"]'],
+      paths: ['req.headers.authorization', 'req.headers.cookie', 'req.headers["x-cams-internal"]', 'res.headers["set-cookie"]'],
       remove: true,
     },
     customLogLevel: (req: IncomingMessage, res: ServerResponse, err?: Error) =>
