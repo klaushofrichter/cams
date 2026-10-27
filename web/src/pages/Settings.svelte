@@ -5,9 +5,10 @@
   import SaveState from '../components/SaveState.svelte';
   import ProxySwitch from '../components/ProxySwitch.svelte';
   import CameraNameCard from '../components/CameraNameCard.svelte';
+  import McpTokensCard from '../components/McpTokensCard.svelte';
   import Icon from '../components/Icon.svelte';
   import { cameras, cameraById, me, selectedCameraId } from '../lib/stores';
-  import { showsAdminControls } from '../lib/session';
+  import { isAdmin, showsAdminControls } from '../lib/session';
   import CameraLogin from '../components/CameraLogin.svelte';
   import { getJson, HttpError, postJson, putJson } from '../lib/api';
   import { cameraKind, streamsText, WAITING_FOR_PROXY, type CameraStatus } from '../lib/liveUi';
@@ -343,6 +344,8 @@
         <button class="primary" data-testid="save-prefs" disabled={!prefsDirty || prefsState === 'saving'} onclick={savePrefs}>Save</button>
       {/snippet}
     </SettingsCard>
+
+    {#if $me?.mcp?.enabled}<McpTokensCard admin={isAdmin($me)} />{/if}
 
     {#if $selectedCameraId}<CameraLogin cameraId={$selectedCameraId} {authFailed} />{/if}
     {#if $selectedCameraId}<CameraNameCard cameraId={$selectedCameraId} />{/if}

@@ -37,6 +37,10 @@ export const E2E_ENV: Record<string, string> = {
   RATE_LIMIT_CHECKS_PER_DAY: '10000',
   RATE_LIMIT_ARCHIVE_PER_MIN: '1000',
   RATE_LIMIT_ARCHIVE_ZIP_PER_MIN: '1000',
+  // /mcp (spec 2026-10-27-mcp-server-design): on, with the run's own token
+  // file, emptied whenever Playwright starts the server (playwright.config.ts).
+  MCP_ENABLED: 'true',
+  MCP_TOKENS_FILE: join(tmpdir(), 'cams-e2e-mcp', 'tokens.json'),
 };
 
 // A second cams server for the token login (spec 2026-10-04-pi-deployment-
@@ -48,6 +52,7 @@ export const E2E_LOGIN_TOKEN = 'e2e-login-token-not-a-secret-0000000';
 export const E2E_TOKEN_ENV: Record<string, string> = {
   ...Object.fromEntries(Object.entries(E2E_ENV).filter(([k]) => !k.startsWith('GOOGLE_') && k !== 'ALLOWED_EMAILS')),
   PORT: String(E2E_TOKEN_PORT),
+  MCP_ENABLED: 'false',
   CAMS_LOGIN_TOKEN: E2E_LOGIN_TOKEN,
   COOKIE_SECURE: 'false',
   PREFS_FILE: '/tmp/cams-e2e-token-prefs.json',
@@ -104,5 +109,6 @@ export const E2E_ADMIN_ENV: Record<string, string> = {
   PREFS_FILE: join(E2E_ADMIN_DATA, 'prefs.json'),
   PROXY_STATE_FILE: join(E2E_ADMIN_DATA, 'proxy-state.json'),
   CACHE_DIR: join(tmpdir(), 'cams-e2e-admin-cache'),
+  MCP_TOKENS_FILE: join(E2E_ADMIN_DATA, 'mcp', 'tokens.json'),
 };
 export const ADMIN_USERS = { both: 'both@e2e.example', alpha: 'alpha@e2e.example' } as const;
