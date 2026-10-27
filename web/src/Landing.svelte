@@ -2,30 +2,29 @@
   import { onMount, tick } from 'svelte';
   import Logo from './components/Logo.svelte';
   import CameraIllustration from './components/CameraIllustration.svelte';
-  import LoginOptions from './components/LoginOptions.svelte';
   import ThemeToggle from './components/ThemeToggle.svelte';
   import Icon from './components/Icon.svelte';
   import LandingShot from './components/LandingShot.svelte';
-  import { loginMethods, noConfiguration, UNAVAILABLE_MESSAGE } from './lib/login';
+  import { loginMethods, noConfiguration } from './lib/login';
   import { ADMIN_CONSOLE_URL, HIGHLIGHTS, NUMBERS, REPOS, SECTIONS, SHOWCASE } from './lib/landingContent';
   import { countUp, reducedMotion, reveal, spotlight } from './lib/landingMotion';
   import { currentTheme } from './lib/theme';
   import { theme } from './lib/stores';
 
+  // The Cams app button: straight to Google where only Google is configured
+  // (the cloud); otherwise the sign-in page with the token form (the Pi and
+  // mini-PC viewers). The start page itself shows no sign-in form.
   const methods = loginMethods();
-  // A form post with a wrong token comes back as /?login=failed.
-  const failed = new URLSearchParams(location.search).get('login') === 'failed';
-  // A form post when the token has no account (migration P4): /?login=unavailable.
-  const unavailable = new URLSearchParams(location.search).get('login') === 'unavailable';
+  const googleOnly = methods.length === 1 && methods[0] === 'google';
   const none = noConfiguration();
   const year = new Date().getFullYear();
   theme.set(currentTheme());
 
-  // The sign-in sits in the header. Up to this width it is behind a compact
-  // "Sign in" button; it opens by itself when a token sign-in came back failed.
+  // The two sign-ins sit in the header. Up to this width they are behind a
+  // compact "Sign in" button.
   const COMPACT = '(max-width: 899px)';
   const compact = () => typeof matchMedia === 'function' && matchMedia(COMPACT).matches;
-  let menuOpen = $state(failed && compact());
+  let menuOpen = $state(false);
   let header: HTMLElement;
   let panel: HTMLElement;
   let scrolled = $state(false);
@@ -36,7 +35,7 @@
   async function heroSignIn() {
     if (compact()) menuOpen = true;
     await tick();
-    panel.querySelector<HTMLElement>('a.login, input, button')?.focus();
+    panel.querySelector<HTMLElement>('.cams')?.focus();
   }
 
   onMount(() => {
@@ -88,8 +87,12 @@
         Sign in
       </button>
       <div class="signin" class:open={menuOpen} id="signin-panel" bind:this={panel}>
-        <a class="admin" href={ADMIN_CONSOLE_URL} data-testid="admin-console">Admin console <Icon name="external" size={14} /></a>
-        <LoginOptions {methods} {failed} />
+        <a class="pill" href={ADMIN_CONSOLE_URL} data-testid="admin-console"><Icon name="users" size={16} /> Admin console</a>
+        {#if googleOnly}
+          <a class="pill cams" href="/auth/google/login" data-testid="login"><Icon name="live" size={16} /> Cams app</a>
+        {:else}
+          <a class="pill cams" href="/signin" data-testid="cams-signin"><Icon name="live" size={16} /> Cams app</a>
+        {/if}
       </div>
     </div>
   </header>
@@ -98,7 +101,6 @@
     <section class="hero" aria-labelledby="hero-title" bind:this={hero}>
       <div class="copy">
         {#if none}<p class="notice" data-testid="no-configuration">No cameras are configured yet.</p>{/if}
-        {#if unavailable}<p class="notice" role="alert" data-testid="login-unavailable">{UNAVAILABLE_MESSAGE}</p>{/if}
         <p class="eyebrow">Private camera system · Open source</p>
         <h1 id="hero-title">Your cameras,<br /><em class="grad">live and on record.</em></h1>
         <p class="sub">
@@ -270,17 +272,25 @@
   .spacer { flex: 1; }
   .company { color: inherit; text-decoration: none; border-bottom: 1px dotted currentColor; transition: color 0.15s ease; }
   .company:hover { color: var(--accent); border-bottom-style: solid; }
-  .signin { display: flex; align-items: center; gap: 14px; }
-  .admin { display: inline-flex; align-items: center; gap: 5px; font-size: 14px; color: var(--muted); text-decoration: none; white-space: nowrap; transition: color 0.2s; }
-  .admin:hover { color: var(--text); }
-  /* LoginOptions laid out in a row for the header. */
-  .signin :global(.options) { flex-direction: row; align-items: center; gap: 10px; }
-  .signin :global(.login) { padding: 9px 16px; border-radius: 999px; font-size: 14px; }
-  .signin :global(.secondary) { padding: 8px 14px; border-radius: 999px; font-size: 14px; }
-  .signin :global(.token) { flex-direction: row; align-items: center; flex-wrap: wrap; gap: 8px; max-width: 380px; }
-  .signin :global(.token label) { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
-  .signin :global(.token input) { flex-basis: 170px; padding: 8px 12px; border-radius: 999px; }
-  .signin :global(.error) { flex-basis: 100%; }
+  .signin { display: flex; align-items: center; gap: 10px; }
+  /* The two sign-ins: equal weight. */
+  .pill {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 7px;
+    padding: 8px 16px;
+    border-radius: 999px;
+    border: 1px solid var(--border);
+    background: var(--surface);
+    color: var(--text);
+    font-size: 14px;
+    font-weight: 600;
+    white-space: nowrap;
+    text-decoration: none;
+    transition: border-color 0.2s, transform 0.2s, box-shadow 0.2s;
+  }
+  .pill:hover { border-color: var(--accent); transform: translateY(-1px); box-shadow: 0 6px 18px color-mix(in srgb, var(--accent) 22%, transparent); }
   .signin-toggle { display: none; padding: 8px 14px; border-radius: 999px; border: 0; background: var(--accent); color: var(--accent-ink); font-weight: 700; cursor: pointer; }
   @media (max-width: 899px) {
     .by { display: block; font-size: 11px; }
@@ -292,7 +302,7 @@
       top: calc(100% - 4px);
       right: 0;
       width: min(340px, 100%);
-      flex-direction: column-reverse;
+      flex-direction: column;
       align-items: stretch;
       gap: 14px;
       padding: 16px;
@@ -302,12 +312,7 @@
       box-shadow: var(--shadow);
     }
     .signin.open { display: flex; animation: drop 0.25s var(--ease); }
-    .signin :global(.options) { flex-direction: column; align-items: stretch; }
-    .signin :global(.login) { justify-content: center; }
-    .signin :global(.token) { flex-direction: column; align-items: stretch; max-width: none; }
-    .signin :global(.token label) { position: static; width: auto; height: auto; clip-path: none; }
-    .signin :global(.token input) { flex-basis: auto; }
-    .admin { justify-content: center; padding-top: 10px; border-top: 1px solid var(--border); }
+    .pill { padding: 12px 16px; }
   }
 
   /* Hero */

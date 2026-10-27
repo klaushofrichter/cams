@@ -244,7 +244,7 @@ export const SECTIONS: Section[] = [
       {
         icon: 'live',
         title: 'Reach it from anywhere',
-        text: 'The app also runs in a Kubernetes cluster with Google sign-in, so you can watch from anywhere, while the footage stays with the proxies.',
+        text: 'The app also runs in a Kubernetes cluster, so you can watch from anywhere, while the footage stays with the proxies.',
       },
     ],
     shots: [
@@ -260,8 +260,8 @@ export const SECTIONS: Section[] = [
     features: [
       {
         icon: 'users',
-        title: 'Accounts and roles',
-        text: 'Invite people as viewers, who watch and download, or as admins, who change things. One person can belong to several accounts.',
+        title: 'Accounts, roles and Google sign-in',
+        text: 'People sign in to the app and to the admin console with their Google account (Google OAuth), and only invited accounts get in. Each person has a role per account: viewers watch and download, admins change things.',
       },
       {
         icon: 'about',

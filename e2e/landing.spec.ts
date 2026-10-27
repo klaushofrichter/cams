@@ -31,12 +31,12 @@ test.describe('landing page', () => {
     await expect(login).toHaveAttribute('href', '/auth/google/login');
   });
 
-  test('the sign-in and the admin console link sit in the header, upper right', async ({ page }, info) => {
+  test('two equal sign-in buttons sit in the header, upper right: Admin console and Cams app', async ({ page }, info) => {
     await page.goto('/');
     const header = page.getByRole('banner');
     const phone = info.project.name === 'phone';
     if (phone) {
-      // A compact button opens the sign-in options.
+      // One "Sign in" button opens both.
       await expect(header.getByTestId('login')).toBeHidden();
       await expect(header.getByTestId('signin-toggle')).toBeVisible();
       await header.getByTestId('signin-toggle').click();
@@ -44,25 +44,42 @@ test.describe('landing page', () => {
     } else {
       await expect(page.getByTestId('signin-toggle')).toBeHidden();
     }
-    const login = header.getByTestId('login');
-    await expect(login).toBeVisible();
+    // Google is configured here: the Cams app button is the Google sign-in.
+    const cams = header.getByTestId('login');
+    await expect(cams).toBeVisible();
+    await expect(cams).toHaveText(/Cams app/);
+    await expect(cams).toHaveAttribute('href', '/auth/google/login');
     const admin = header.getByTestId('admin-console');
     await expect(admin).toBeVisible();
-    await expect(admin).toHaveAttribute('href', 'https://cams-admin.skylar.technology');
     await expect(admin).toHaveText(/Admin console/);
-    // Upper right: the sign-in's right edge near the window's, at the top.
-    const box = (await login.boundingBox())!;
+    await expect(admin).toHaveAttribute('href', 'https://cams-admin.skylar.technology');
+    // Equal weight: the same size and look.
+    const [a, c] = [(await admin.boundingBox())!, (await cams.boundingBox())!];
+    expect(Math.abs(a.height - c.height)).toBeLessThanOrEqual(1);
+    const look = (el: typeof cams) => el.evaluate((e) => { const cs = getComputedStyle(e); return [cs.backgroundColor, cs.color, cs.fontSize, cs.fontWeight, cs.borderRadius].join(' '); });
+    expect(await look(admin)).toBe(await look(cams));
+    // Upper right.
     const width = page.viewportSize()!.width;
-    expect(box.x + box.width).toBeGreaterThan(width * 0.6);
-    expect(box.x + box.width).toBeLessThanOrEqual(width);
-    expect(box.y).toBeLessThan(phone ? 400 : 80);
+    expect(c.x + c.width).toBeGreaterThan(width * 0.6);
+    expect(c.x + c.width).toBeLessThanOrEqual(width);
+    expect(c.y).toBeLessThan(phone ? 400 : 80);
     if (phone) {
-      // Escape closes the menu again.
       await page.keyboard.press('Escape');
-      await expect(login).toBeHidden();
+      await expect(cams).toBeHidden();
     }
-    // The hero no longer holds a sign-in of its own.
-    await expect(page.locator('.hero [data-testid="login-options"]')).toHaveCount(0);
+    // No sign-in form on the start page: no token field, no token sign-in.
+    await expect(page.getByTestId('login-options')).toHaveCount(0);
+    await expect(page.getByTestId('token-input')).toHaveCount(0);
+    await expect(page.getByText('Sign in with token')).toHaveCount(0);
+  });
+
+  test('the sign-in page offers Google here, and comes back to the start page', async ({ page }) => {
+    await page.goto('/signin');
+    await expect(page.getByRole('heading', { level: 1 })).toContainText('Sign in');
+    await expect(page.getByTestId('login')).toHaveAttribute('href', '/auth/google/login');
+    await expect(page.getByTestId('token-form')).toHaveCount(0);
+    await page.getByTestId('signin-home').click();
+    await expect(page).toHaveURL('/');
   });
 
   test('the hero’s sign-in button leads to the header sign-in', async ({ page }) => {
