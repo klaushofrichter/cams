@@ -95,8 +95,24 @@ describe('landing screenshots', () => {
     expect(res.headers['content-type']).toBe('image/webp');
   });
 
+  it('answers 404 when a known screenshot is gone from disk after the start', async () => {
+    writeFileSync(join(dir, 'landing', 'gone.webp'), Buffer.from('UklGRhoAAABXRUJQVlA4TA0AAAAvAAAAEAcQERGIiP4HAA==', 'base64'));
+    const app = createApp(); // the allowlist is read here, with gone.webp in it
+    rmSync(join(dir, 'landing', 'gone.webp'));
+    const res = await request(app).get('/landing/gone.webp');
+    expect(res.status).toBe(404);
+  });
+
+  it('answers 404 for a screenshot added after the start (names are fixed at startup)', async () => {
+    const app = createApp();
+    writeFileSync(join(dir, 'landing', 'later.webp'), Buffer.from('UklGRhoAAABXRUJQVlA4TA0AAAAvAAAAEAcQERGIiP4HAA==', 'base64'));
+    const res = await request(app).get('/landing/later.webp');
+    expect(res.status).toBe(404);
+    rmSync(join(dir, 'landing', 'later.webp'));
+  });
+
   it('answers 404 for a missing screenshot, another file type or a path trick', async () => {
-    for (const path of ['/landing/archive.webp', '/landing/notes.txt', '/landing/../index.html', '/landing/%2e%2e/app.html', '/landing/LIVE.webp', '/landing/']) {
+    for (const path of ['/landing/archive.webp', '/landing/notes.txt', '/landing/../index.html', '/landing/%2e%2e/app.html', '/landing/LIVE.webp', '/landing/', '/landing/..%2fapp.html', '/landing/%2e%2e%2fapp.html', '/landing/live.webp/x', '/landing/live.webp%00.txt']) {
       const res = await request(createApp()).get(path);
       expect(res.status, path).toBe(404);
     }

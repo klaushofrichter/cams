@@ -1,5 +1,6 @@
 import express, { Router, Request, Response } from 'express';
 import { join, resolve } from 'path';
+import { readdirSync } from 'fs';
 import { readFile } from 'fs/promises';
 import { authState, currentUser, noStore, rememberReturn, requireAuthPage, RETURN_COOKIE, safeReturnPath } from '../middleware/requireAuth';
 import { createApiRateLimit } from '../middleware/rateLimit';
@@ -22,6 +23,20 @@ function sendLanding(file: string, res: Response): void {
       res.type('html').send(html.replace(LOGIN_META, `<meta name="cams-login" content="${methods}" />${none}`));
     })
     .catch(() => res.status(404).type('text/plain').send('Not found'));
+}
+
+// The landing screenshots the build ships: name -> absolute path, WebP files
+// with plain lowercase names only. No folder (a build without them): none.
+function landingAllowlist(folder: string): Map<string, string> {
+  const files = new Map<string, string>();
+  let names: string[] = [];
+  try {
+    names = readdirSync(folder);
+  } catch {
+    return files;
+  }
+  for (const name of names) if (/^[a-z0-9-]+\.webp$/.test(name)) files.set(name, join(folder, name));
+  return files;
 }
 
 // dist/server/routes -> dist/web in the image; tests point WEB_DIST at fixtures.
@@ -66,13 +81,15 @@ export function pagesRouter(dir: string): Router {
   // auth decision through encoded or differently-cased names (/%61pp.html, /APP.html).
   const PUBLIC_ROOT_FILES = new Set(['favicon.svg', 'favicon-32.png', 'apple-touch-icon.png', 'icon-512.png', 'site.webmanifest', 'llms.txt']);
 
-  // The landing page's screenshots (web/public/landing/): public, WebP only,
-  // by a plain lowercase name. They are not in git until reviewed, so a
-  // missing one is an ordinary 404 and the page hides its frame.
+  // The landing page's screenshots (web/public/landing/): public, WebP only.
+  // The names are fixed at startup from the built folder, so a request only
+  // looks a name up and the path never comes from the request. Anything else,
+  // or a file gone since, is an ordinary 404 and the page hides its frame.
+  const landingFiles = landingAllowlist(join(dir, 'landing'));
   router.get('/landing/:file', (req: Request, res: Response, next) => {
-    const file = req.params.file;
-    if (typeof file !== 'string' || !/^[a-z0-9-]+\.webp$/.test(file)) return next();
-    res.sendFile(join(dir, 'landing', file), { maxAge: '1h' }, (err) => {
+    const path = typeof req.params.file === 'string' ? landingFiles.get(req.params.file) : undefined;
+    if (!path) return next();
+    res.sendFile(path, { maxAge: '1h' }, (err) => {
       if (err && !res.headersSent) next();
     });
   });
