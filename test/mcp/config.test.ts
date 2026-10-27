@@ -14,3 +14,23 @@ describe('mcpMode', () => {
     expect(mcpMode({ MCP_ALLOW_HTTP: 'true', COOKIE_SECURE: 'false' })).toBe('off');
   });
 });
+
+describe('startup', () => {
+  it('logs mcp_http_refused once when a plain http viewer lacks the opt-in', async () => {
+    const { assertRequiredEnv } = await import('../../server/config');
+    const { logger } = await import('../../server/logger');
+    const seen: string[] = [];
+    const orig = logger.warn.bind(logger);
+    (logger as unknown as { warn: unknown }).warn = (_o: unknown, msg?: string) => void seen.push(String(msg));
+    process.env.MCP_ENABLED = 'true';
+    process.env.COOKIE_SECURE = 'false';
+    try {
+      assertRequiredEnv();
+      expect(seen).toContain('mcp_http_refused');
+    } finally {
+      (logger as unknown as { warn: unknown }).warn = orig;
+      delete process.env.MCP_ENABLED;
+      delete process.env.COOKIE_SECURE;
+    }
+  });
+});
