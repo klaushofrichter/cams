@@ -67,6 +67,11 @@
 </script>
 
 <div class="landing">
+  <!-- The demo sash, after games.skylar.technology's: a label in the top
+       right corner, not a link, never in the way of a click. -->
+  <div class="sash" role="note" aria-label="Demo: the pictures on this page show simulated cameras" data-testid="demo-sash">
+    <span>DEMO<small>SIMULATED FOOTAGE</small></span>
+  </div>
   <header class="nav" class:scrolled bind:this={header}>
     <div class="inner">
       <a class="brand" href="#top" aria-label="cams, back to the top"><Logo size={30} /></a>
@@ -262,10 +267,31 @@
   .landing :global(.rv) { opacity: 0; transform: translateY(28px); transition: opacity 0.9s var(--ease), transform 0.9s var(--ease); }
   .landing :global(.rv.in) { opacity: 1; transform: none; }
 
+  /* The demo sash: amber stripes across the top right corner. */
+  .sash { position: fixed; top: 0; right: 0; width: 210px; height: 210px; overflow: hidden; z-index: 40; pointer-events: none; transform: scale(0.8); transform-origin: right top; }
+  .sash span {
+    position: absolute;
+    top: 52px;
+    right: -62px;
+    width: 300px;
+    transform: rotate(45deg);
+    text-align: center;
+    padding: 8px 0 7px;
+    background: repeating-linear-gradient(-45deg, var(--warning) 0 10px, color-mix(in srgb, var(--warning) 85%, var(--sash-ink)) 10px 20px);
+    color: var(--sash-ink);
+    font: 800 12px/1.15 var(--font);
+    letter-spacing: 0.2em;
+    box-shadow: 0 6px 18px rgb(0 0 0 / 0.35);
+    border-block: 1px solid color-mix(in srgb, var(--sash-ink) 35%, transparent);
+  }
+  .sash small { display: block; font-weight: 600; font-size: 9.5px; letter-spacing: 0.14em; opacity: 0.85; }
+
   /* Header: transparent at the top, frosted once the page scrolls. */
   .nav { position: sticky; top: 0; z-index: 30; border-bottom: 1px solid transparent; transition: background-color 0.3s, border-color 0.3s, backdrop-filter 0.3s; }
   .nav.scrolled { background: color-mix(in srgb, var(--bg) 82%, transparent); backdrop-filter: blur(14px); border-bottom-color: var(--border); }
-  .inner { position: relative; display: flex; align-items: center; gap: 12px; width: min(1180px, calc(100% - 48px)); margin: 0 auto; padding: 14px 0; }
+  .inner { position: relative; display: flex; align-items: center; gap: 12px; width: min(1180px, calc(100% - 48px)); margin: 0 auto; padding: 14px 0;
+    /* Room for the demo sash at the right end, as on the games site. */
+    padding-right: clamp(0px, calc(150px - (100vw - 1180px) / 2), 126px); }
   .brand { display: inline-flex; }
   .name { display: flex; align-items: baseline; gap: 10px; font-size: 18px; }
   .by { font-size: 13px; color: var(--muted); }
@@ -543,6 +569,10 @@
   @media (max-width: 600px) {
     .inner, .hero, .numbers, .highlights, .feature { width: calc(100% - 32px); }
     .highlights { padding-top: 72px; }
+    .sash { transform: scale(0.42); }
+    .inner { padding-right: 30px; gap: 8px; }
+    .by { white-space: nowrap; font-size: 10.5px; }
+    .signin-toggle { padding: 8px 12px; white-space: nowrap; }
     .feature { padding: 64px 0; }
     .showcase { padding-right: 48px; margin-bottom: 40px; }
     .showcase .phone { width: 30%; bottom: -16px; }

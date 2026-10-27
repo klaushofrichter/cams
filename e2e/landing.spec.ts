@@ -135,6 +135,23 @@ test.describe('landing page', () => {
     await expect(page.getByTestId('highlight').filter({ hasText: 'Works with Reolink' })).toHaveAttribute('href', '#cameras');
   });
 
+  test('a demo sash sits in the top right corner: a label, not a link, never in the way', async ({ page }) => {
+    await page.goto('/');
+    const sash = page.getByRole('note', { name: /demo/i });
+    await expect(sash).toBeVisible();
+    await expect(sash).toHaveAttribute('data-testid', 'demo-sash');
+    await expect(sash).toContainText('DEMO');
+    await expect(sash.locator('a')).toHaveCount(0);
+    const style = await sash.evaluate((e) => { const cs = getComputedStyle(e); return { position: cs.position, top: cs.top, right: cs.right, pointerEvents: cs.pointerEvents }; });
+    expect(style).toEqual({ position: 'fixed', top: '0px', right: '0px', pointerEvents: 'none' });
+    // It stays in the corner while the page scrolls.
+    await page.getByTestId('maker').scrollIntoViewIfNeeded();
+    await expect(sash).toBeInViewport();
+    // Only on the start page: not on the sign-in page.
+    await page.goto('/signin');
+    await expect(page.getByTestId('demo-sash')).toHaveCount(0);
+  });
+
   test('links the five open-source repositories', async ({ page }) => {
     await page.goto('/');
     const repos = page.getByTestId('repo-link');
