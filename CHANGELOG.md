@@ -8,3 +8,5 @@ published as [GitHub releases](https://github.com/klaushofrichter/cams/releases)
 
 ## [Unreleased]
 
+- Settings → Camera login: when this cams has no `CAMERA_CREDENTIALS_FILE` set (the Pi until 2026-10-26), saving says to set it, instead of pointing to the cluster's Secret.
+

@@ -224,6 +224,21 @@ describe('CameraLogin', () => {
     expect(text).toContain('<password>');
     expect(text).not.toContain('typed-secret');
   });
+  it('no credentials file set: says to set CAMERA_CREDENTIALS_FILE, not the Secret', async () => {
+    me.set(BASE);
+    answers['PUT /api/cameras/cam1/credentials'] = { status: 409, body: { error: 'credentials_read_only', reason: 'unset', secretKey: 'home/cam1', user: 'cams' } };
+    render(CameraLogin, { cameraId: 'cam1' });
+    const input = q('camera-password') as HTMLInputElement;
+    input.value = 'typed-secret';
+    input.dispatchEvent(new Event('input'));
+    flushSync();
+    q('camera-password-save')!.click();
+    await settle();
+    const text = q('camera-login-secret')!.textContent!;
+    expect(text).toContain('CAMERA_CREDENTIALS_FILE=/data/camera-credentials.json');
+    expect(text).not.toContain('Secret');
+    expect(text).not.toContain('typed-secret');
+  });
   it('nothing for a viewer', () => {
     me.set({ ...BASE, role: 'viewer' });
     render(CameraLogin, { cameraId: 'cam1' });

@@ -155,10 +155,19 @@ describe('PUT /api/cameras/:id/credentials', () => {
       loadCredentials();
       expect(credentialsWritable()).toBe(false);
       const r = await put('a@example.org', { password: 'secret-pw-2' });
-      expect([r.status, r.body]).toEqual([409, { error: 'credentials_read_only', secretKey: `${ALPHA}/cam1`, user: 'cams' }]);
+      expect([r.status, r.body]).toEqual([409, { error: 'credentials_read_only', reason: 'read_only', secretKey: `${ALPHA}/cam1`, user: 'cams' }]);
     } finally {
       chmodSync(join(dir, 'ro'), 0o700);
     }
+  });
+
+  // The Pi on 2026-10-26: no CAMERA_CREDENTIALS_FILE at all, and the page sent Klaus to the cluster's Secret.
+  it('no CAMERA_CREDENTIALS_FILE → 409 that says so (reason unset)', async () => {
+    applyFleet(fleet());
+    delete process.env.CAMERA_CREDENTIALS_FILE;
+    loadCredentials();
+    const r = await put('a@example.org', { password: 'secret-pw-3' });
+    expect([r.status, r.body]).toEqual([409, { error: 'credentials_read_only', reason: 'unset', secretKey: `${ALPHA}/cam1`, user: 'cams' }]);
   });
 
   it('refuses an empty, too long or control-character password', async () => {

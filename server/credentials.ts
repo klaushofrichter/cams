@@ -66,6 +66,10 @@ export function credentialsFor(accountId: string, camsId: string, cameraUser: st
   return { ok: true, user: e.user, password: e.password };
 }
 
+// Whether CAMERA_CREDENTIALS_FILE is set at all (unset: nothing can be saved,
+// and the fix is the setting, not the cluster's Secret).
+export const credentialsFileSet = (): boolean => file() !== '';
+
 // Whether a password typed in cams can be saved (the Pi); a mounted Secret
 // in the cluster is read-only.
 export function credentialsWritable(): boolean {
