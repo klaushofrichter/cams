@@ -1,0 +1,62 @@
+# cams
+
+> cams is the web viewer for a small fleet of Reolink security cameras (live video, recorded events, clips, stills and camera settings). It is one part of an open-source camera system: cam-proxy (the proxy next to each camera), cam-sim (a simulated Reolink camera that stands in for the real one in tests and in the cluster), cams-admin (accounts, the fleet registry and remote configuration) and cam-proxy-pi-display (an e-paper status display for a proxy on a Raspberry Pi).
+
+All five repositories are public on GitHub. Each has a README with an overview and its API sections; where an OpenAPI 3.1 file exists it is the full schema, and the raw link is the one to fetch. The cams instance at https://cams.skylar.technology is private (Google sign-in); its API needs a session and is described for reference. The proxy's APIs need a bearer token, cam-sim's control API needs its control token, and cams-admin's diagnostics and operations APIs need tokens issued in cams-admin. No credentials are published anywhere.
+
+## cam-proxy (the proxy)
+
+- [cam-proxy README](https://github.com/klaushofrichter/cam-proxy/blob/main/README.md): overview, configuration, several cameras per proxy, deployment.
+- [Client API](https://github.com/klaushofrichter/cam-proxy/blob/main/README.md#client-api): the bearer-token API that cams uses: cameras, events, stills, previews, FTP clips, SD recordings, composed clips, archive.
+- [OpenAPI schema (raw)](https://raw.githubusercontent.com/klaushofrichter/cam-proxy/main/openapi.yaml): the full machine-readable schema of the client API, the control API, camera moves, `/health`, `/metrics` and `/api/local/health`.
+- [OpenAPI schema on GitHub](https://github.com/klaushofrichter/cam-proxy/blob/main/openapi.yaml): the same file in the GitHub viewer.
+- [Event stream (SSE)](https://github.com/klaushofrichter/cam-proxy/blob/main/README.md#event-stream-sse): `GET /api/stream`, camera events and clip notices as server-sent events with resume.
+- [Control API and admin UI](https://github.com/klaushofrichter/cam-proxy/blob/main/README.md#control-api-and-admin-ui): `/control/*` with the admin token or the admin UI's session: status, settings (`/control/config`), proxy and camera actions, inventory, audit, sign-in links, and the local health endpoint `GET /api/local/health` (loopback only, no token; read by the e-paper display).
+- [Metrics](https://github.com/klaushofrichter/cam-proxy/blob/main/README.md#metrics): the Prometheus `/metrics` endpoint.
+- [TLS: the site CA](https://github.com/klaushofrichter/cam-proxy/blob/main/README.md#tls-the-site-ca): the proxy's site CA, `/tls/ca.pem`, and how clients pin it.
+- [Archive](https://github.com/klaushofrichter/cam-proxy/blob/main/docs/archive.md): clips kept apart from retention, `/api/archive/*` (list, video, thumbnail, metadata, zip, delete).
+- [Analytics](https://github.com/klaushofrichter/cam-proxy/blob/main/docs/analytics.md): Google Vision second opinions on events, still checks, and their API routes.
+- [Audit log](https://github.com/klaushofrichter/cam-proxy/blob/main/docs/audit-log.md): what the proxy records and `GET /control/audit`.
+- [Reporting to cams-admin](https://github.com/klaushofrichter/cam-proxy/blob/main/docs/cams-admin.md): the proxy's side of the cams-admin channel: enrollment, heartbeat, the commands it allows.
+- [Moving a camera](https://github.com/klaushofrichter/cam-proxy/blob/main/docs/camera-move.md): handing a camera to another proxy of the same account and the proxy profile (`/control/profile`); the move routes (`/api/moves/*`) are in the OpenAPI schema.
+- [Camera power-cycle through the PoE switch](https://github.com/klaushofrichter/cam-proxy/blob/main/docs/poe-switch.md): the PoE control actions under `/control/actions/*`.
+
+## cam-sim (the simulated camera)
+
+- [cam-sim README](https://github.com/klaushofrichter/cam-sim/blob/main/README.md): a simulated Reolink RLC-1224A or CX820 with two faces, the camera's own API and a control API.
+- [Simulated camera API](https://github.com/klaushofrichter/cam-sim/blob/main/README.md#simulated-camera-api): the Reolink HTTP API (`/cgi-bin/api.cgi`) as the real camera answers it: login and tokens, commands, settings, snapshots, live video, recordings search and download.
+- [Baichuan (port 9000)](https://github.com/klaushofrichter/cam-sim/blob/main/README.md#baichuan-port-9000): the camera's binary protocol for recording downloads.
+- [RTSP](https://github.com/klaushofrichter/cam-sim/blob/main/README.md#rtsp), [ONVIF](https://github.com/klaushofrichter/cam-sim/blob/main/README.md#onvif) and [FTP upload](https://github.com/klaushofrichter/cam-sim/blob/main/README.md#ftp-upload): the camera's other services as simulated.
+- [What differs from the real camera](https://github.com/klaushofrichter/cam-sim/blob/main/README.md#what-differs-from-the-real-camera): the known gaps of the simulation.
+- [Control API](https://github.com/klaushofrichter/cam-sim/blob/main/README.md#control-api): `/sim/api/*` with the control token: state, power, events, recordings, faults, videos, SD pipeline, reset and request log.
+- [Control API OpenAPI schema (raw)](https://raw.githubusercontent.com/klaushofrichter/cam-sim/main/openapi.yaml): the full schema of the control API and the web UI's routes (the simulated camera API itself is documented in the README, not in OpenAPI).
+- [Control API OpenAPI schema on GitHub](https://github.com/klaushofrichter/cam-sim/blob/main/openapi.yaml): the same file in the GitHub viewer.
+
+## cams-admin (accounts, registry, configuration)
+
+- [cams-admin README](https://github.com/klaushofrichter/cams-admin/blob/main/README.md): the registry, proxy enrollment, signed commands, managed tokens, remote configuration and cams instances.
+- [The service API for cams instances](https://github.com/klaushofrichter/cams-admin/blob/main/README.md#cams-instances-and-the-service-api-migration-phase-4): `/cams/v1/*`, signed requests and answers, the configuration snapshot, routes and tokens.
+- [cams service API contract](https://github.com/klaushofrichter/cams-admin/blob/main/contract/cams-v1/README.md): the wire format of `/cams/v1/*` (enroll, config, report, tokens, retire) with JSON Schemas, fixtures and signing vectors.
+- [Proxy protocol contract](https://github.com/klaushofrichter/cams-admin/blob/main/contract/README.md): the proxy channel (`/proxy/v1/connect` WebSocket): enrollment, challenge and hello, heartbeat, signed commands and results, as JSON Schema.
+- [Remote-settable settings](https://github.com/klaushofrichter/cams-admin/blob/main/contract/v1/remote-settable.json): which proxy settings cams-admin may ever set, and which never.
+- [Diagnostics API](https://github.com/klaushofrichter/cams-admin/blob/main/docs/diagnostics.md): read-only `GET /api/v1/diag/*` with a revocable diagnostics token: proxies, cams instances, cameras, moves, the move precheck, audit.
+- [Operations tokens](https://github.com/klaushofrichter/cams-admin/blob/main/docs/diagnostics.md#operations-tokens): scoped write tokens (`tokens`, `routes`, `moves`, `registry`) and the exact routes each scope opens.
+- [Start a move](https://github.com/klaushofrichter/cams-admin/blob/main/docs/diagnostics.md#start-a-move): `POST /api/v1/moves`, its precheck and refusals.
+
+## cams (the viewer)
+
+- [cams README](https://github.com/klaushofrichter/cams/blob/main/README.md): what the viewer does and how it uses cam-proxy and cams-admin.
+- [Pages and API](https://github.com/klaushofrichter/cams/blob/main/README.md#pages-and-api): the app's pages and its session-cookie JSON API (`/api/me`, `/api/cameras/*`, clips, events stream, cam-proxy pass-throughs).
+- [Accounts, roles and cams-admin](https://github.com/klaushofrichter/cams/blob/main/README.md#accounts-roles-and-cams-admin): where cams takes accounts, users and cameras from (file or cams-admin).
+- [Reolink camera API, as measured](https://github.com/klaushofrichter/cams/blob/main/docs/reolink-api.md): the real camera's HTTP API behaviour, measured on an RLC-1224A; the authority cam-sim follows.
+
+## Optional
+
+- [cam-proxy-pi-display](https://github.com/klaushofrichter/cam-proxy-pi-display/blob/main/README.md): the e-paper status display on the proxy's Raspberry Pi; no API of its own, it reads cam-proxy's `GET /api/local/health` over loopback.
+- [cam-proxy on a Raspberry Pi](https://github.com/klaushofrichter/cam-proxy/blob/main/docs/raspberry-pi.md): installing a proxy next to a real camera.
+- [cam-proxy on the multi-camera host](https://github.com/klaushofrichter/cam-proxy/blob/main/docs/multi-camera-host.md): one proxy for several cameras on their own network.
+- [Analytics classes](https://github.com/klaushofrichter/cam-proxy/blob/main/docs/analytics-classes.md): how Google Vision objects map to the summary's classes.
+- [Real camera captures](https://github.com/klaushofrichter/cam-sim/blob/main/reference/rlc-1224a/onvif/README.md): an ONVIF session against the real camera; also [Baichuan](https://github.com/klaushofrichter/cam-sim/blob/main/reference/rlc-1224a/baichuan/README.md) and [CX820](https://github.com/klaushofrichter/cam-sim/blob/main/reference/cx820/README.md) captures.
+- [cams demo kit on the Pi](https://github.com/klaushofrichter/cams/blob/main/docs/pi-demo.md): cams with a token sign-in next to its proxy.
+- [Local test stack (cams)](https://github.com/klaushofrichter/cams/blob/main/docs/livestack.md): cams, cam-proxy and cam-sim end to end on one machine.
+- [Local test stack (cams-admin)](https://github.com/klaushofrichter/cams-admin/blob/main/docs/localstack.md): cams-admin with several proxies and simulated cameras.
