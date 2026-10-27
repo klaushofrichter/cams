@@ -1,6 +1,8 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import request from 'supertest';
-import { resolve } from 'path';
+import { cpSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'fs';
+import { tmpdir } from 'os';
+import { join, resolve } from 'path';
 import { createApp } from '../server/app';
 import { SESSION_COOKIE, signSession } from '../server/session';
 
@@ -18,6 +20,21 @@ describe('pages', () => {
     const res = await request(createApp()).get('/');
     expect(res.status).toBe(200);
     expect(res.text).toContain('LANDING');
+  });
+
+  it('serves the sign-in page (the start page’s bundle) to signed-out visitors', async () => {
+    const res = await request(createApp()).get('/signin');
+    expect(res.status).toBe(200);
+    expect(res.text).toContain('LANDING');
+    expect(res.text).not.toContain('APP');
+  });
+
+  it('sends signed-in visitors from /signin to /app/video, and remembers ?returnTo= for signed-out ones', async () => {
+    const signedIn = await request(createApp()).get('/signin').set('Cookie', auth);
+    expect(signedIn.status).toBe(302);
+    expect(signedIn.headers.location).toBe('/app/video');
+    const out = await request(createApp()).get('/signin?returnTo=/app/settings');
+    expect((out.get('Set-Cookie') ?? []).join(';')).toContain('return_to=%2Fapp%2Fsettings');
   });
 
   it('sends signed-in visitors from / to /app/video', async () => {
@@ -66,5 +83,53 @@ describe('pages', () => {
   it('answers unknown paths with 404', async () => {
     const res = await request(createApp()).get('/wp-login.php');
     expect(res.status).toBe(404);
+  });
+});
+
+// The landing page's screenshots (web/public/landing/ → <dist>/landing/):
+// public, by a strict name only, and a plain 404 when a file is missing
+// (they are not in git until reviewed). The file is made here, not committed.
+describe('landing screenshots', () => {
+  let dir: string;
+  beforeAll(() => {
+    dir = mkdtempSync(join(tmpdir(), 'cams-landing-'));
+    cpSync(resolve(__dirname, 'fixtures/web'), dir, { recursive: true });
+    mkdirSync(join(dir, 'landing'));
+    writeFileSync(join(dir, 'landing', 'live.webp'), Buffer.from('UklGRhoAAABXRUJQVlA4TA0AAAAvAAAAEAcQERGIiP4HAA==', 'base64'));
+    writeFileSync(join(dir, 'landing', 'notes.txt'), 'not an image');
+    process.env.WEB_DIST = dir;
+  });
+  afterAll(() => {
+    process.env.WEB_DIST = resolve(__dirname, 'fixtures/web');
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it('serves a screenshot to signed-out visitors as WebP', async () => {
+    const res = await request(createApp()).get('/landing/live.webp');
+    expect(res.status).toBe(200);
+    expect(res.headers['content-type']).toBe('image/webp');
+  });
+
+  it('answers 404 when a known screenshot is gone from disk after the start', async () => {
+    writeFileSync(join(dir, 'landing', 'gone.webp'), Buffer.from('UklGRhoAAABXRUJQVlA4TA0AAAAvAAAAEAcQERGIiP4HAA==', 'base64'));
+    const app = createApp(); // the allowlist is read here, with gone.webp in it
+    rmSync(join(dir, 'landing', 'gone.webp'));
+    const res = await request(app).get('/landing/gone.webp');
+    expect(res.status).toBe(404);
+  });
+
+  it('answers 404 for a screenshot added after the start (names are fixed at startup)', async () => {
+    const app = createApp();
+    writeFileSync(join(dir, 'landing', 'later.webp'), Buffer.from('UklGRhoAAABXRUJQVlA4TA0AAAAvAAAAEAcQERGIiP4HAA==', 'base64'));
+    const res = await request(app).get('/landing/later.webp');
+    expect(res.status).toBe(404);
+    rmSync(join(dir, 'landing', 'later.webp'));
+  });
+
+  it('answers 404 for a missing screenshot, another file type or a path trick', async () => {
+    for (const path of ['/landing/archive.webp', '/landing/notes.txt', '/landing/../index.html', '/landing/%2e%2e/app.html', '/landing/LIVE.webp', '/landing/', '/landing/..%2fapp.html', '/landing/%2e%2e%2fapp.html', '/landing/live.webp/x', '/landing/live.webp%00.txt']) {
+      const res = await request(createApp()).get(path);
+      expect(res.status, path).toBe(404);
+    }
   });
 });

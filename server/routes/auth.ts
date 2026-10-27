@@ -174,7 +174,7 @@ authRouter.post(
     }
     if (!tokenMatches((req.body as { token?: unknown } | undefined)?.token, expected)) {
       logger.warn({ kind: 'auth' }, 'token_login_failed');
-      if (form) res.redirect(303, '/?login=failed');
+      if (form) res.redirect(303, '/signin?login=failed');
       else res.status(401).json({ error: 'invalid_token' });
       return;
     }
@@ -186,7 +186,7 @@ authRouter.post(
         lastUnresolvedLog = now;
         logger.error({ kind: 'auth', reason: t.reason }, 'token_account_unresolved');
       }
-      if (form) res.redirect(303, '/?login=unavailable');
+      if (form) res.redirect(303, '/signin?login=unavailable');
       else res.status(503).json({ error: 'token_account_ambiguous' });
       return;
     }

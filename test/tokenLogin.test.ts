@@ -95,11 +95,11 @@ describe('POST /auth/token', () => {
     expect(sessionCookie(res)).toBeDefined();
   });
 
-  it('a wrong form post goes back to the start page with login=failed', async () => {
+  it('a wrong form post goes back to the sign-in page with login=failed', async () => {
     tokenOnly();
     const res = await request(createApp()).post('/auth/token').type('form').send({ token: 'wrong' });
     expect(res.status).toBe(303);
-    expect(res.headers.location).toBe('/?login=failed');
+    expect(res.headers.location).toBe('/signin?login=failed');
     expect(sessionCookie(res)).toBeUndefined();
   });
 
