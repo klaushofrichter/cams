@@ -16,10 +16,10 @@ const SECRET = randomBytes(32).toString('hex');
 export interface InternalBase { host: string; port: number }
 
 // The request names itself internal (it must then prove it; never a cookie).
-export const isInternal = (req: Request): boolean => req.headers[INTERNAL_HEADER] !== undefined;
+export const isInternal = (req: Request): boolean => req.headers?.[INTERNAL_HEADER] !== undefined;
 
 function secretOk(req: Request): boolean {
-  const v = req.headers[INTERNAL_HEADER];
+  const v = req.headers?.[INTERNAL_HEADER];
   if (typeof v !== 'string' || v.length !== SECRET.length) return false;
   return timingSafeEqual(Buffer.from(v), Buffer.from(SECRET));
 }
