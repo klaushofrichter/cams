@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { mcpMode } from '../../server/mcp/config';
+import { assertRequiredEnv } from '../../server/config';
+import { logger } from '../../server/logger';
 
 describe('mcpMode', () => {
   it('is off unless MCP_ENABLED=true', () => {
@@ -16,9 +18,7 @@ describe('mcpMode', () => {
 });
 
 describe('startup', () => {
-  it('logs mcp_http_refused once when a plain http viewer lacks the opt-in', async () => {
-    const { assertRequiredEnv } = await import('../../server/config');
-    const { logger } = await import('../../server/logger');
+  it('logs mcp_http_refused once when a plain http viewer lacks the opt-in', () => {
     const seen: string[] = [];
     const orig = logger.warn.bind(logger);
     (logger as unknown as { warn: unknown }).warn = (_o: unknown, msg?: string) => void seen.push(String(msg));
