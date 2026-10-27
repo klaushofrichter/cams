@@ -1,6 +1,6 @@
 # cams
 
-> cams is the web viewer for a small fleet of Reolink security cameras (live video, recorded events, clips, stills and camera settings). It is one part of an open-source camera system: cam-proxy (the proxy next to each camera), cam-sim (a simulated Reolink camera that stands in for the real one in tests and in the cluster), cams-admin (accounts, the fleet registry and remote configuration) and cam-proxy-pi-display (an e-paper status display for a proxy on a Raspberry Pi).
+> cams is the web viewer for a small fleet of Reolink security cameras (live video, recorded events, clips, stills and camera settings). It is one part of an open-source camera system: cam-proxy (the proxy next to each camera), cam-sim (the camera abstraction: a simulated Reolink camera that stands in for the real one in tests and in the cluster), cams-admin (accounts, the fleet registry and remote configuration) and cam-proxy-pi-display (an e-paper status display for a proxy on a Raspberry Pi).
 
 All five repositories are public on GitHub. Each has a README with an overview and its API sections; where an OpenAPI 3.1 file exists it is the full schema, and the raw link is the one to fetch. The cams instance at https://cams.skylar.technology is private (Google sign-in); its API needs a session and is described for reference. The proxy's APIs need a bearer token, cam-sim's control API needs its control token, and cams-admin's diagnostics and operations APIs need tokens issued in cams-admin. No credentials are published anywhere.
 
@@ -21,7 +21,7 @@ All five repositories are public on GitHub. Each has a README with an overview a
 - [Moving a camera](https://github.com/klaushofrichter/cam-proxy/blob/main/docs/camera-move.md): handing a camera to another proxy of the same account and the proxy profile (`/control/profile`); the move routes (`/api/moves/*`) are in the OpenAPI schema.
 - [Camera power-cycle through the PoE switch](https://github.com/klaushofrichter/cam-proxy/blob/main/docs/poe-switch.md): the PoE control actions under `/control/actions/*`.
 
-## cam-sim (the simulated camera)
+## cam-sim (the camera abstraction)
 
 - [cam-sim README](https://github.com/klaushofrichter/cam-sim/blob/main/README.md): a simulated Reolink RLC-1224A or CX820 with two faces, the camera's own API and a control API.
 - [Simulated camera API](https://github.com/klaushofrichter/cam-sim/blob/main/README.md#simulated-camera-api): the Reolink HTTP API (`/cgi-bin/api.cgi`) as the real camera answers it: login and tokens, commands, settings, snapshots, live video, recordings search and download.
