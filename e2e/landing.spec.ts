@@ -6,15 +6,75 @@ test.describe('landing page', () => {
     await page.goto('/');
     await expect(page.getByRole('heading', { level: 1 })).toContainText('Your cameras');
     await expect(page.getByText('Skylar Technology LLC').first()).toBeVisible();
-    // Every mention of the company (header byline and footer) links to its site.
+    // Every mention of the company (header byline, the closing section and
+    // the footer) links to its site.
     const company = page.getByRole('link', { name: 'Skylar Technology LLC' });
-    await expect(company).toHaveCount(2);
+    await expect(company).toHaveCount(3);
     for (const link of await company.all()) {
       await expect(link).toHaveAttribute('href', 'https://skylar.technology');
     }
+    // And no "Skylar Technology LLC" text sits outside such a link.
+    const unlinked = await page.evaluate(() => {
+      const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+      let n = 0;
+      for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+        if (!node.textContent?.includes('Skylar Technology LLC')) continue;
+        const a = node.parentElement?.closest('a');
+        if (a?.getAttribute('href') !== 'https://skylar.technology') n += 1;
+      }
+      return n;
+    });
+    expect(unlinked).toBe(0);
     await expect(page.getByRole('img', { name: /RLC-1224A/ })).toBeVisible();
     const login = page.getByTestId('login');
     await expect(login).toHaveAttribute('href', '/auth/google/login');
+  });
+
+  test('shows the highlights, the feature sections and the maker, in that order', async ({ page }) => {
+    await page.goto('/');
+    const highlights = page.getByTestId('highlights').getByRole('listitem');
+    expect(await highlights.count()).toBeGreaterThanOrEqual(3);
+    expect(await highlights.count()).toBeLessThanOrEqual(6);
+    await expect(page.getByTestId('highlights')).toContainText('Live');
+    const sections = page.getByTestId('feature-section');
+    expect(await sections.count()).toBeGreaterThanOrEqual(3);
+    for (const s of await sections.all()) {
+      await expect(s.getByRole('heading', { level: 2 })).toHaveCount(1);
+    }
+    const maker = page.getByTestId('maker');
+    await expect(maker.getByRole('heading', { level: 2 })).toHaveText('Built by Skylar Technology');
+    await expect(maker.getByRole('link', { name: /skylar\.technology/ })).toHaveAttribute('href', 'https://skylar.technology');
+    // Hero first, then highlights, sections and the maker, then the footer.
+    const tops = await page.evaluate(() =>
+      ['main h1', '[data-testid="highlights"]', '[data-testid="feature-section"]', '[data-testid="maker"]', 'footer'].map(
+        (s) => document.querySelector(s)!.getBoundingClientRect().top,
+      ),
+    );
+    expect([...tops].sort((a, b) => a - b)).toEqual(tops);
+  });
+
+  test('fits the window without a sideways scroll and loads nothing from elsewhere', async ({ page, baseURL }) => {
+    const foreign: string[] = [];
+    page.on('request', (r) => {
+      const u = new URL(r.url());
+      if (!['data:', 'blob:'].includes(u.protocol) && u.origin !== new URL(baseURL!).origin) foreign.push(r.url());
+    });
+    await page.goto('/');
+    await page.getByTestId('maker').scrollIntoViewIfNeeded();
+    await page.waitForLoadState('networkidle');
+    const overflow = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
+    expect(overflow).toBeLessThanOrEqual(0);
+    expect(foreign).toEqual([]);
+  });
+
+  test('the theme toggle switches the landing page between light and dark', async ({ page }) => {
+    await page.goto('/');
+    const before = await page.evaluate(() => getComputedStyle(document.body).backgroundColor);
+    await page.getByTestId('theme-toggle').click();
+    await expect.poll(() => page.evaluate(() => document.documentElement.dataset.theme)).toBe('dark');
+    await expect.poll(() => page.evaluate(() => getComputedStyle(document.body).backgroundColor)).not.toBe(before);
+    await page.reload();
+    await expect.poll(() => page.evaluate(() => document.documentElement.dataset.theme)).toBe('dark');
   });
 
   test('login starts the Google flow', async ({ request }) => {
