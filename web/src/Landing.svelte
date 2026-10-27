@@ -70,9 +70,11 @@
       hero.removeEventListener('pointermove', onMove);
     };
   });
+  import { externalLinks } from './lib/externalLinks';
 </script>
 
-<div class="landing">
+<div class="landing" use:externalLinks={'landing-new-tab'}>
+  <span id="landing-new-tab" class="nt-hint">opens in a new tab</span>
   <!-- The demo sash, after games.skylar.technology's: a label in the top
        right corner, not a link, never in the way of a click. -->
   <div class="sash" role="note" aria-label="Demo: the pictures on this page show simulated cameras" data-testid="demo-sash">
@@ -260,6 +262,7 @@
 </div>
 
 <style>
+  .nt-hint { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
   :global(html) { scroll-padding-top: 76px; }
   @media (prefers-reduced-motion: no-preference) {
     :global(html) { scroll-behavior: smooth; }

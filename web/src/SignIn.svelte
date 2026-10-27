@@ -16,9 +16,11 @@
   const none = noConfiguration();
   theme.set(currentTheme());
   document.title = 'Sign in · cams';
+  import { externalLinks } from './lib/externalLinks';
 </script>
 
-<div class="page">
+<div class="page" use:externalLinks={'signin-new-tab'}>
+  <span id="signin-new-tab" class="nt-hint">opens in a new tab</span>
   <header>
     <a class="home" href="/" data-testid="signin-home"><span aria-hidden="true">←</span> cams</a>
     <ThemeToggle />
@@ -37,6 +39,7 @@
 </div>
 
 <style>
+  .nt-hint { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
   .page {
     min-height: 100vh;
     display: flex;

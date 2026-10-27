@@ -177,6 +177,30 @@ test.describe('landing page', () => {
     }
   });
 
+  for (const path of ['/', '/signin']) {
+    test(`links on ${path} that leave the site open in a new tab, same-site links do not`, async ({ page, baseURL }) => {
+      await page.goto(path);
+      await page.waitForLoadState('networkidle');
+      const links = await page.locator('a[href]').evaluateAll((as) =>
+        as.map((a) => ({ href: (a as HTMLAnchorElement).href, target: a.getAttribute('target'), rel: a.getAttribute('rel') ?? '', hint: a.getAttribute('aria-describedby') })),
+      );
+      const origin = new URL(baseURL!).origin;
+      const external = links.filter((l) => /^https?:/.test(l.href) && new URL(l.href).origin !== origin);
+      const internal = links.filter((l) => !external.includes(l));
+      expect(external.length).toBeGreaterThan(path === '/' ? 10 : 0);
+      for (const l of external) {
+        expect(l.target, l.href).toBe('_blank');
+        expect(l.rel, l.href).toContain('noopener');
+        expect(l.rel, l.href).toContain('noreferrer');
+        // The accessible hint: "opens in a new tab".
+        expect(l.hint, l.href).toBeTruthy();
+        expect(await page.locator(`#${l.hint}`).textContent()).toMatch(/opens in a new tab/i);
+      }
+      for (const l of internal) expect(l.target, l.href).not.toBe('_blank');
+      if (path === '/') expect(internal.map((l) => new URL(l.href).pathname)).toEqual(expect.arrayContaining(['/llms.txt', '/auth/google/login']));
+    });
+  }
+
   test('links the five open-source repositories', async ({ page }) => {
     await page.goto('/');
     const repos = page.getByTestId('repo-link');
@@ -279,7 +303,7 @@ test.describe('landing page', () => {
     }
   });
 
-  test('the e-paper display cycles its four pages every 2 s, like a refresh', async ({ page }) => {
+  test('the e-paper display softly crossfades its four pages, on a white paper, never a dark flash', async ({ page }) => {
     await page.route('**/landing/*.webp', (r) => r.fulfill({ status: 200, contentType: 'image/webp', body: WEBP_1PX }));
     await page.emulateMedia({ reducedMotion: 'no-preference' });
     await page.goto('/');
@@ -293,10 +317,16 @@ test.describe('landing page', () => {
       'The e-paper display’s Proxy page',
       'The e-paper display’s Pi page',
     ]);
-    const anim = await pages.evaluateAll((ims) => ims.map((i) => { const cs = getComputedStyle(i); return [cs.animationDuration, cs.animationDelay, cs.animationIterationCount]; }));
-    expect(anim).toEqual([['8s', '0s', 'infinite'], ['8s', '2s', 'infinite'], ['8s', '4s', 'infinite'], ['8s', '6s', 'infinite']]);
-    // The refresh flash between pages.
-    expect(await cycle.getByTestId('epaper-flash').evaluate((e) => getComputedStyle(e).animationDuration)).toBe('2s');
+    const anim = await pages.evaluateAll((ims) => ims.map((i) => { const cs = getComputedStyle(i); return [cs.animationDuration, cs.animationDelay, cs.animationIterationCount, cs.animationTimingFunction]; }));
+    // A soft fade: 0.7 s ease-in-out, each page held 2 s (2.7 s a page, 10.8 s a cycle).
+    expect(anim).toEqual(['0s', '2.7s', '5.4s', '8.1s'].map((d) => ['10.8s', d, 'infinite', 'ease-in-out']));
+    // No flash: no flash layer, no flash keyframes, and white paper behind the stack.
+    await expect(cycle.getByTestId('epaper-flash')).toHaveCount(0);
+    const keyframes = await page.evaluate(() =>
+      [...document.styleSheets].flatMap((sh) => [...sh.cssRules]).filter((r) => r instanceof CSSKeyframesRule).map((r) => (r as CSSKeyframesRule).name),
+    );
+    expect(keyframes.some((n) => /flash/i.test(n))).toBe(false);
+    expect(await cycle.getByTestId('epaper-screen').evaluate((e) => getComputedStyle(e).backgroundColor)).toBe('rgb(255, 255, 255)');
   });
 
   test('under reduced motion the four e-paper pages stand side by side, still', async ({ page }) => {
@@ -309,7 +339,6 @@ test.describe('landing page', () => {
       await expect(p).toBeVisible();
       expect(await p.evaluate((e) => [getComputedStyle(e).animationName, getComputedStyle(e).opacity])).toEqual(['none', '1']);
     }
-    await expect(page.getByTestId('epaper-flash')).toBeHidden();
   });
 
   test('a missing screenshot leaves no empty frame or broken image', async ({ page }) => {
