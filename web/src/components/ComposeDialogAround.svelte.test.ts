@@ -153,6 +153,25 @@ describe('ComposeDialog around a second', () => {
     expect(q('compose-made-of')!.textContent).toBe(`Made of: FTP clip ${localClock(at - 3000)}–${localClock(at + 40_000)} and stills (1 per second)`);
   });
 
+  // Klaus 2026-10-26: the line vanished while a slider moved and the dialog jumped a line.
+  it('keeps the previous "Made of" text while the next dry run is pending, in a line that keeps its place', async () => {
+    vi.useFakeTimers();
+    const at = Math.floor(Date.now() / 1000) * 1000 - AGO;
+    server({ start: at - 10_000, end: at + 11_000, durationS: 21, seconds: { clip: 14, still: 7, card: 0 }, clips: [{ start: at - 3000, end: at + 40_000 }] });
+    render(at);
+    expect(q('compose-made-of-line')).not.toBeNull(); // the line's place, before any answer
+    await vi.advanceTimersByTimeAsync(400);
+    flushSync();
+    const first = q('compose-made-of')!.textContent;
+    expect(first).toMatch(/^Made of: FTP clip /);
+    set('compose-post', '12');
+    flushSync();
+    expect(q('compose-made-of')!.textContent).toBe(first); // not removed while the next dry run waits
+    await vi.advanceTimersByTimeAsync(400);
+    flushSync();
+    expect(q('compose-made-of')!.textContent).toMatch(/^Made of: FTP clip /);
+  });
+
   it('turns Generate off when nothing is kept around the second', async () => {
     vi.useFakeTimers();
     server('nothing');
