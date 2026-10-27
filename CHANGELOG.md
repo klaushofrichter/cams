@@ -8,5 +8,3 @@ published as [GitHub releases](https://github.com/klaushofrichter/cams/releases)
 
 ## [Unreleased]
 
-- `/llms.txt`: a public guide for LLMs (llmstxt.org) to the camera system's APIs and their documentation in the cams, cam-proxy, cam-sim, cams-admin and cam-proxy-pi-display repos, served as plain text without sign-in.
-
