@@ -109,7 +109,8 @@ describe('cams-admin mode', () => {
     const gets = fake.configGets;
     await pullNow();
     expect(fake.configGets).toBe(gets + 1);
-    expect(fake.requests.at(-1)!.status).toBe(304);
+    // The last config GET, not the last request: a report (201) may land in between (#300).
+    expect(fake.requests.filter((r) => r.path.startsWith('/cams/v1/config')).at(-1)!.status).toBe(304);
     fake.setSnapshot(twoAccountsSnapshot({ revision: 'r:00000000000000c3', alphaCameras: [] }));
     await pullNow();
     expect(cams(ALPHA)).toEqual([]);
