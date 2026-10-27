@@ -22,6 +22,21 @@ describe('pages', () => {
     expect(res.text).toContain('LANDING');
   });
 
+  it('serves the sign-in page (the start page’s bundle) to signed-out visitors', async () => {
+    const res = await request(createApp()).get('/signin');
+    expect(res.status).toBe(200);
+    expect(res.text).toContain('LANDING');
+    expect(res.text).not.toContain('APP');
+  });
+
+  it('sends signed-in visitors from /signin to /app/video, and remembers ?returnTo= for signed-out ones', async () => {
+    const signedIn = await request(createApp()).get('/signin').set('Cookie', auth);
+    expect(signedIn.status).toBe(302);
+    expect(signedIn.headers.location).toBe('/app/video');
+    const out = await request(createApp()).get('/signin?returnTo=/app/settings');
+    expect((out.get('Set-Cookie') ?? []).join(';')).toContain('return_to=%2Fapp%2Fsettings');
+  });
+
   it('sends signed-in visitors from / to /app/video', async () => {
     const res = await request(createApp()).get('/').set('Cookie', auth);
     expect(res.status).toBe(302);

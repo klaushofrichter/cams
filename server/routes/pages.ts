@@ -55,7 +55,9 @@ export function pagesRouter(dir: string): Router {
   // sign-in from here comes back to that page. A signed-in visitor (another
   // tab signed in again) goes to the remembered page or Live; ?returnTo= is
   // ignored then, so a third-party link can't open a chosen /app page.
-  router.get('/', (req: Request, res: Response) => {
+  // /signin is the same bundle: the sign-in page (the token form on the Pi;
+  // a token form post comes back there with ?login=failed or unavailable).
+  router.get(['/', '/signin'], (req: Request, res: Response) => {
     // Signed in but several accounts and none chosen: the picker.
     if (authState(req).kind === 'choose') return void res.redirect(302, '/app/accounts');
     if (currentUser(req)) {
