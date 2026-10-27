@@ -10,6 +10,8 @@ import { callApi, type InternalBase } from './internal';
 import { fail, failureOf, ToolFailure } from './result';
 import type { StoredToken } from './tokens';
 import { registerCameraTools } from './tools/cameras';
+import { registerEventTools } from './tools/events';
+import { registerSnapshotTool } from './tools/snapshot';
 
 export interface Audit { tool?: string; camera?: string; outcome?: string; imageBytes?: number }
 export interface ApiInit { method?: string; body?: unknown; headers?: Record<string, string>; signal?: AbortSignal }
@@ -92,5 +94,7 @@ export function addTool<I extends z.ZodTypeAny>(server: McpServer, ctx: ToolCtx,
 export function buildServer(ctx: ToolCtx): McpServer {
   const server = new McpServer({ name: 'cams', version: appVersion() }, { capabilities: { tools: {} }, instructions: 'Read-only access to the cameras of one cams account: events with AI labels, stills, recordings, the archive, and short clips. Times are ISO 8601 with an offset, or unix ms. Videos come back as links valid for 15 minutes.' });
   registerCameraTools(server, ctx);
+  registerSnapshotTool(server, ctx);
+  registerEventTools(server, ctx);
   return server;
 }
