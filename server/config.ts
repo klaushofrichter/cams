@@ -1,6 +1,7 @@
 import { checkLoginEnv, LoginSummary } from './loginConfig';
 import { logger } from './logger';
 import { configMode } from './configSource';
+import { mcpMode } from './mcp/config';
 
 // Startup check: throws (naming variables, never values) when the server
 // can't run as configured. Google's three variables and ALLOWED_EMAILS are
@@ -18,6 +19,10 @@ export function assertRequiredEnv(): LoginSummary {
   }
   if (!summary.cookieSecure) {
     logger.warn({ kind: 'config' }, 'cookie_secure_off');
+  }
+  // MCP on a plain http viewer needs Klaus's LAN opt-in (MCP_ALLOW_HTTP=true).
+  if (mcpMode() === 'http-refused') {
+    logger.warn({ kind: 'config' }, 'mcp_http_refused');
   }
   return summary;
 }

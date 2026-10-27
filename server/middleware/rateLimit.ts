@@ -1,6 +1,7 @@
 import rateLimit, { MemoryStore, RateLimitRequestHandler } from 'express-rate-limit';
 import { Request } from 'express';
 import { currentUser } from './requireAuth';
+import { isVerifiedInternal } from '../mcp/internal';
 
 function fromEnv(name: string, fallback: number): number {
   const parsed = Number(process.env[name]);
@@ -61,20 +62,22 @@ export function createTokenFailureLimit(): RateLimitRequestHandler {
   });
 }
 
+// MCP tools' internal calls skip the per-address limits below: they all come
+// from loopback, and the MCP layer has its own per-token and per-account ones.
 // Skips clip media requests: they get their own, much higher budget below,
 // so a page full of thumbnail requests doesn't eat into the general API's.
 export function createApiRateLimit(): RateLimitRequestHandler {
-  return build(API_MAX, { skip: (req) => MEDIA_PATH.test(req.path) });
+  return build(API_MAX, { skip: (req) => isVerifiedInternal(req) || MEDIA_PATH.test(req.path) });
 }
 
 // Clip video/thumbnail/download requests only, and archived clips' video and thumbnails.
 export function createMediaRateLimit(): RateLimitRequestHandler {
-  return build(MEDIA_MAX, { skip: (req) => !CLIP_PATH.test(req.path) && !ARCHIVE_MEDIA_PATH.test(req.path) });
+  return build(MEDIA_MAX, { skip: (req) => isVerifiedInternal(req) || (!CLIP_PATH.test(req.path) && !ARCHIVE_MEDIA_PATH.test(req.path)) });
 }
 
 // cam-proxy stills and sprites only.
 export function createImageRateLimit(): RateLimitRequestHandler {
-  return build(IMAGE_MAX, { skip: (req) => !IMAGE_PATH.test(req.path) });
+  return build(IMAGE_MAX, { skip: (req) => isVerifiedInternal(req) || !IMAGE_PATH.test(req.path) });
 }
 
 // Still checks (cams #179): each may cost a Vision call. Per signed-in user,

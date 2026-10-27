@@ -3,6 +3,7 @@ import { SESSION_COOKIE, verifySession } from '../session';
 import { configMode } from '../configSource';
 import type { AccountRef, Role } from '../fleet';
 import { membershipsOf, tokenAccount, type Membership } from '../membership';
+import { internalPrincipal, isInternal } from '../mcp/internal';
 import { cookieOptions, loginToken, tokenFingerprint, tokenLoginEnabled, tokenUser } from '../loginConfig';
 
 export const RETURN_COOKIE = 'return_to';
@@ -10,7 +11,9 @@ const RETURN_MAX_AGE_MS = 10 * 60 * 1000;
 
 // Who is signed in, in which account, with which role. The role is looked
 // up on every request (migration P4, M §9.5): never from the cookie.
-export interface Principal { email: string; via: 'google' | 'token'; account: AccountRef; role: Role }
+// `mcp`: an MCP token's internal /api call (spec 2026-10-27-mcp-server-design
+// §6), acting as its issuer (`email`) with the issuer's current role.
+export interface Principal { email: string; via: 'google' | 'token' | 'mcp'; account: AccountRef; role: Role; mcpTokenId?: string }
 export type AuthState = { kind: 'none' } | { kind: 'choose'; email: string; memberships: Membership[] } | { kind: 'ok'; principal: Principal };
 
 // The single definition of "signed in". Memberships (the allow-list in file
@@ -21,6 +24,11 @@ export type AuthState = { kind: 'none' } | { kind: 'choose'; email: string; memb
 // turning the token login off or changing the token ends it at once; its
 // account is the token account (R4-14), always admin.
 export function authState(req: Request): AuthState {
+  // An MCP tool's internal call: the token's principal or nothing, never the cookie.
+  if (isInternal(req)) {
+    const p = internalPrincipal(req);
+    return p ? { kind: 'ok', principal: p } : { kind: 'none' };
+  }
   const token = req.cookies?.[SESSION_COOKIE];
   if (typeof token !== 'string') return { kind: 'none' };
   const session = verifySession(token);
@@ -41,6 +49,22 @@ export function authState(req: Request): AuthState {
   if (chosen) return { kind: 'ok', principal: { email: session.email, via: 'google', account: chosen.account, role: chosen.role } };
   if (multi && session.acc !== undefined) return { kind: 'none' }; // no (longer a) member there
   return { kind: 'choose', email: session.email, memberships };
+}
+
+// Who this person is in one account right now (an MCP token's check, spec
+// §6): a member's role there, or the token login's admin while that login is
+// configured with the same user and token, as authState decides for sessions.
+export function principalIn(id: { email: string; via: 'google' | 'token'; tf?: string }, accountId: string): Principal | null {
+  if (id.via === 'token') {
+    const configured = loginToken();
+    if (!configured || !tokenLoginEnabled()) return null;
+    if (id.email !== tokenUser() || id.tf !== tokenFingerprint(configured)) return null;
+    const t = tokenAccount();
+    if (!t.ok || t.account.id !== accountId) return null;
+    return { email: id.email, via: 'token', account: t.account, role: 'admin' };
+  }
+  const m = membershipsOf(id.email).find((x) => x.account.id === accountId);
+  return m ? { email: id.email, via: 'google', account: m.account, role: m.role } : null;
 }
 
 export function currentUser(req: Request): Principal | null {
@@ -89,6 +113,11 @@ export function requireAuthPage(req: Request, res: Response, next: NextFunction)
 // choose_account, except on the picker's routes and GET /api/me.
 const CHOOSE_OK = new Set(['GET /api/me', 'GET /api/accounts', 'POST /api/session/account']);
 export function requireAuthApi(req: Request, res: Response, next: NextFunction): void {
+  // The token API is for people signed in, never for a token's own calls.
+  if (isInternal(req) && /^\/api\/mcp-tokens(\/|$)/i.test(`${req.baseUrl}${req.path}`)) {
+    res.status(403).json({ error: 'forbidden' });
+    return;
+  }
   const state = authState(req);
   res.locals.auth = state;
   if (state.kind === 'none') {

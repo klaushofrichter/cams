@@ -2,7 +2,7 @@
 
 > cams is the web viewer for a small fleet of Reolink security cameras (live video, recorded events, clips, stills and camera settings). It is one part of an open-source camera system: cam-proxy (the proxy next to each camera), cam-sim (the camera abstraction: a simulated Reolink camera that stands in for the real one in tests and in the cluster), cams-admin (accounts, the fleet registry and remote configuration) and cam-proxy-pi-display (an e-paper status display for a proxy on a Raspberry Pi).
 
-All five repositories are public on GitHub. Each has a README with an overview and its API sections; where an OpenAPI 3.1 file exists it is the full schema, and the raw link is the one to fetch. The cams instance at https://cams.skylar.technology is private (Google sign-in); its API needs a session and is described for reference. The proxy's APIs need a bearer token, cam-sim's control API needs its control token, and cams-admin's diagnostics and operations APIs need tokens issued in cams-admin. No credentials are published anywhere.
+All five repositories are public on GitHub. Each has a README with an overview and its API sections; where an OpenAPI 3.1 file exists it is the full schema, and the raw link is the one to fetch. The cams instance at https://cams.skylar.technology is private (Google sign-in); its API needs a session and is described for reference, and its MCP endpoint a token made on its Settings page. The proxy's APIs need a bearer token, cam-sim's control API needs its control token, and cams-admin's diagnostics and operations APIs need tokens issued in cams-admin. No credentials are published anywhere.
 
 ## cam-proxy (the proxy)
 
@@ -47,6 +47,7 @@ All five repositories are public on GitHub. Each has a README with an overview a
 
 - [cams README](https://github.com/klaushofrichter/cams/blob/main/README.md): what the viewer does and how it uses cam-proxy and cams-admin.
 - [Pages and API](https://github.com/klaushofrichter/cams/blob/main/README.md#pages-and-api): the app's pages and its session-cookie JSON API (`/api/me`, `/api/cameras/*`, clips, events stream, cam-proxy pass-throughs).
+- [MCP server](https://github.com/klaushofrichter/cams/blob/main/README.md#mcp-server): `https://cams.skylar.technology/mcp`, a Model Context Protocol endpoint (Streamable HTTP) with read tools over one account's cameras: events with AI labels, stills, recordings, the archive, short clips as 15-minute links. It needs a personal token made on the viewer's Settings page.
 - [Accounts, roles and cams-admin](https://github.com/klaushofrichter/cams/blob/main/README.md#accounts-roles-and-cams-admin): where cams takes accounts, users and cameras from (file or cams-admin).
 - [Reolink camera API, as measured](https://github.com/klaushofrichter/cams/blob/main/docs/reolink-api.md): the real camera's HTTP API behaviour, measured on an RLC-1224A; the authority cam-sim follows.
 

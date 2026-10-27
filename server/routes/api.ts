@@ -19,6 +19,8 @@ import { nameRouter } from './name';
 import { stillChecksRouter } from './stillChecks';
 import { archiveRouter } from './archive';
 import { sessionAccount } from './common';
+import { mcpTokensRouter } from './mcpTokens';
+import { mcpEnabled, mcpPlainHttp } from '../mcp/config';
 
 export const apiRouter = Router();
 
@@ -41,6 +43,8 @@ apiRouter.get('/api/me', (_req: Request, res: Response) => {
     // cams-admin refuses this instance (blocked, or its key revoked): admins re-enroll
     configProblem: p?.role === 'admin' ? configStatus().configProblem : null,
     // held trust changes waiting for this account's admins (not kept), and held proxies
+    // The Settings card's MCP section (spec 2026-10-27-mcp-server-design §6).
+    mcp: { enabled: mcpEnabled(), plainHttp: mcpPlainHttp() },
     held: p?.role === 'admin' ? (trustStore()?.held(p.account.id) ?? []).filter((h) => !h.keptOld).length + (trustStore()?.heldProxies(p.account.id).length ?? 0) : 0,
   });
 });
@@ -61,6 +65,7 @@ apiRouter.use(composeRouter);
 apiRouter.use(nameRouter);
 apiRouter.use(stillChecksRouter);
 apiRouter.use(archiveRouter);
+apiRouter.use(mcpTokensRouter);
 
 // Last on /api: an unknown API path is JSON, never the SPA's HTML.
 apiRouter.use('/api', (_req: Request, res: Response) => {
