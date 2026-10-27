@@ -8,5 +8,5 @@ published as [GitHub releases](https://github.com/klaushofrichter/cams/releases)
 
 ## [Unreleased]
 
-- Settings → Camera login: when this cams has no `CAMERA_CREDENTIALS_FILE` set (the Pi until 2026-10-26), saving says to set it, instead of pointing to the cluster's Secret.
+- Save clip around: the "Made of" line keeps its text while a slider moves (until the next answer replaces it) and keeps its place, so the dialog no longer jumps by a line.
 
