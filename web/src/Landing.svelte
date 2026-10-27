@@ -561,7 +561,7 @@
   .llms :global(svg) { flex: none; color: var(--accent); margin-top: 1px; }
   .mcp { display: grid; gap: 10px; }
   .mcp-line { display: flex; align-items: stretch; border: 1px solid var(--border); border-radius: 12px; overflow: hidden; background: var(--surface-2); }
-  .mcp-line code { flex: 1; min-width: 0; padding: 12px 14px; font-family: var(--mono); font-size: 12.5px; line-height: 1.5; overflow-x: auto; white-space: nowrap; }
+  .mcp-line code { flex: 1; min-width: 0; padding: 12px 14px; font-family: var(--mono); font-size: 12.5px; line-height: 1.6; overflow-wrap: anywhere; }
   .copy { flex: none; padding: 0 16px; border: 0; border-left: 1px solid var(--border); background: var(--surface); color: var(--text); font-weight: 600; cursor: pointer; }
   .copy:hover { color: var(--accent); }
   .mcp-docs { font-size: 14px; font-weight: 600; color: var(--accent); text-decoration: none; }
