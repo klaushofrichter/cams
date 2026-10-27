@@ -9,6 +9,7 @@ import { appVersion } from '../version';
 import { callApi, type InternalBase } from './internal';
 import { fail, failureOf, ToolFailure } from './result';
 import type { StoredToken } from './tokens';
+import { registerArchiveTools } from './tools/archive';
 import { registerCameraTools } from './tools/cameras';
 import { registerEventTools } from './tools/events';
 import { registerSnapshotTool } from './tools/snapshot';
@@ -96,5 +97,6 @@ export function buildServer(ctx: ToolCtx): McpServer {
   registerCameraTools(server, ctx);
   registerSnapshotTool(server, ctx);
   registerEventTools(server, ctx);
+  registerArchiveTools(server, ctx);
   return server;
 }

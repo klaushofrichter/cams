@@ -3,11 +3,15 @@
 // a stateless Streamable HTTP transport with JSON answers. One audit line per
 // request; never the token.
 import { Router, type NextFunction, type Request, type Response } from 'express';
+import { Readable } from 'stream';
+import { pipeline } from 'stream/promises';
+import type { ReadableStream as WebReadableStream } from 'stream/web';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import { logger } from '../logger';
-import { bearerPrincipal } from './auth';
+import { bearerPrincipal, mcpPrincipal } from './auth';
 import { mcpEnabled } from './config';
-import { internalBaseOf } from './internal';
+import { callApi, internalBaseOf } from './internal';
+import { mediaPath, verifyLink } from './links';
 import { limits } from './limits';
 import { buildServer, makeCtx } from './server';
 import { getMcpTokens } from './tokens';
@@ -68,5 +72,36 @@ mcpRouter.all('/mcp', mcpGate, async (req: Request, res: Response) => {
   } catch (err) {
     logger.warn({ message: (err as Error).message }, 'mcp_request_failed');
     if (!res.headersSent) res.status(500).json({ error: 'internal server error' });
+  }
+});
+
+// A video link (spec §5): checked, then fetched through /api as its token.
+const PASS = ['content-type', 'content-length', 'content-range', 'accept-ranges', 'content-disposition'];
+mcpRouter.get('/mcp/media/:link', mcpGate, async (req: Request, res: Response) => {
+  res.set('Referrer-Policy', 'no-referrer');
+  const p = verifyLink(String(req.params.link));
+  if (p === 'expired') return void res.status(410).json({ error: 'link_expired' });
+  const token = p === 'invalid' ? null : getMcpTokens().byId(p.tok);
+  const path = p === 'invalid' ? null : mediaPath(p);
+  if (p === 'invalid' || !token || token.accountId !== p.acc || !mcpPrincipal(token) || !path) return void res.status(403).json({ error: 'link_invalid' });
+  const wait = limits.mediaMinute.take(token.id);
+  if (wait) return tooMany(res, wait);
+  const gone = new AbortController();
+  res.on('close', () => gone.abort());
+  const range = req.get('range');
+  try {
+    const up = await callApi(internalBaseOf(req), token.id, path, { headers: range && /^bytes=\d{0,15}-\d{0,15}$/.test(range) ? { range } : {}, signal: gone.signal });
+    res.status(up.status);
+    for (const h of PASS) {
+      const v = up.headers.get(h);
+      if (v) res.setHeader(h, v);
+    }
+    if (!up.body) return void res.end();
+    await pipeline(Readable.fromWeb(up.body as unknown as WebReadableStream), res);
+  } catch (err) {
+    if (gone.signal.aborted) return;
+    logger.warn({ message: (err as Error).message }, 'mcp_media_failed');
+    if (!res.headersSent) res.status(502).json({ error: 'proxy_unavailable' });
+    else res.destroy();
   }
 });
