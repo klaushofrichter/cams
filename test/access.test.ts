@@ -52,7 +52,7 @@ describe('the access table', () => {
 
   it('every non-GET route needs admin, except the listed viewer writes', () => {
     for (const [k, need] of Object.entries(ACCESS)) if (!k.startsWith('GET ') && !VIEWER_WRITES.includes(k)) expect([k, need]).toEqual([k, 'admin']);
-    expect([...VIEWER_WRITES].sort()).toEqual(['DELETE /api/cameras/:id/compositions/:job', 'POST /api/cameras/:id/compositions', 'POST /api/session/account', 'PUT /api/preferences']);
+    expect([...VIEWER_WRITES].sort()).toEqual(['DELETE /api/cameras/:id/compositions/:job', 'POST /api/cameras/:id/compositions', 'POST /api/mcp-tokens', 'POST /api/mcp-tokens/:tokenId/revoke', 'POST /api/session/account', 'PUT /api/preferences']);
     for (const k of VIEWER_WRITES) expect(ACCESS[k]).not.toBe('admin');
   });
 

@@ -16,6 +16,9 @@ export const VIEWER_WRITES: readonly string[] = [
   'POST /api/session/account',
   'POST /api/cameras/:id/compositions',
   'DELETE /api/cameras/:id/compositions/:job',
+  // MCP tokens: each member their own (spec 2026-10-27-mcp-server-design §6)
+  'POST /api/mcp-tokens',
+  'POST /api/mcp-tokens/:tokenId/revoke',
 ];
 
 export const ACCESS: Readonly<Record<string, Need>> = {
@@ -61,10 +64,13 @@ export const ACCESS: Readonly<Record<string, Need>> = {
   'GET /api/archive/:via/items/:id/metadata': 'viewer',
   'GET /api/archive/:via/zip': 'viewer',
   'GET /api/archive/:via/jobs/:job': 'viewer',
+  'GET /api/mcp-tokens': 'viewer',
   // viewer writes
   'PUT /api/preferences': 'viewer',
   'POST /api/cameras/:id/compositions': 'viewer',
   'DELETE /api/cameras/:id/compositions/:job': 'viewer',
+  'POST /api/mcp-tokens': 'viewer',
+  'POST /api/mcp-tokens/:tokenId/revoke': 'viewer',
   // change
   'PUT /api/cameras/:id/name': 'admin',
   'PUT /api/cameras/:id/settings/:section': 'admin',
