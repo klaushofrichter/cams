@@ -8,4 +8,5 @@ published as [GitHub releases](https://github.com/klaushofrichter/cams/releases)
 
 ## [Unreleased]
 
-- Archive: a clip's thumbnail and video no longer show another clip's from the browser cache after the camera moved to another cam-proxy (the item ids are numbered anew there); their URLs now carry the item's creation time.
+- Settings → Camera login: when this cams has no `CAMERA_CREDENTIALS_FILE` set (the Pi until 2026-10-26), saving says to set it, instead of pointing to the cluster's Secret.
+
