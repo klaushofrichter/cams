@@ -8,4 +8,3 @@ published as [GitHub releases](https://github.com/klaushofrichter/cams/releases)
 
 ## [Unreleased]
 
-- MCP server: on by default. `MCP_ENABLED=false` turns it off. Plain http viewers (the Pi, the mini PC) still serve it only with `MCP_ALLOW_HTTP=true`.
