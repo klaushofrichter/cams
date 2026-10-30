@@ -120,6 +120,8 @@ export interface FakeProxy {
   caPemEndless: boolean; // tests: /tls/ca.pem streams without end (no Content-Length)
   openSockets(): number; // connections open now
   camFilter: boolean; // tests: false = ignore ?cam= and send every camera's messages
+  ptzCalls: { cam: string; op: string; body: unknown }[]; // PTZ calls the fake accepted (moves, zoom, focus, stop; position changes too)
+  ptzOverride: { status: number; body: unknown } | null; // tests: every PTZ control call answers this (after the capability gate)
   capabilities: Map<string, unknown>; // proxy camera id → its `capabilities` in /api/cameras (absent: null, a camera never read)
   features: string[] | null; // `features` on every /api/cameras item; null: a cam-proxy from before multi-camera P1 (no field, ?cam= is one whole id)
   streamConnections(): number;
@@ -198,6 +200,8 @@ export async function startFakeProxy(opts: { port?: number; token?: string; tls?
     caPemEndless: false,
     openSockets: () => sockets.size,
     camFilter: true,
+    ptzCalls: [],
+    ptzOverride: null,
     capabilities: new Map(),
     features: ['sse-cam-list'],
     streamConnections: () => streams.size,
@@ -299,6 +303,52 @@ export async function startFakeProxy(opts: { port?: number; token?: string; tls?
     res.json(fake.camerasBody !== undefined ? fake.camerasBody : [...fake.cameraNames].map(([id, name]) => ({ id, name, online: true, lastEventTs: null, stream: null, publicUrl: fake.publicUrl, address: fake.cameraAddresses.get(id) ?? null, ...(fake.features && { features: fake.features }), ...(fake.cameraTls.has(id) && { tls: fake.cameraTls.get(id) }), capabilities: fake.capabilities.get(id) ?? null, error: null })));
   });
   // Like the real one: the oldest clip, still and preview it holds.
+  // PTZ (cam-proxy's src/api/ptz-api.ts, spec 2026-10-30-ptz-capabilities-design
+  // §5): the capability gate, then the body's checks, with its words and codes.
+  type PtzNeed = 'move' | 'zoom' | 'focus' | 'positions';
+  const ptzGate = (cam: string, res: Response, need: PtzNeed): boolean => {
+    const caps = fake.capabilities.get(cam) as { ptz?: { zoom?: boolean; focus?: boolean; positions?: unknown } | null } | null | undefined;
+    if (!caps) return void res.status(503).json({ error: 'camera_offline' }), false;
+    const ptz = caps.ptz;
+    if (!ptz || (need === 'zoom' && !ptz.zoom) || (need === 'focus' && !ptz.focus) || (need === 'positions' && !ptz.positions)) return void res.status(404).json({ error: 'not_supported' }), false;
+    return true;
+  };
+  const ptzBad = (res: Response, detail: string) => void res.status(400).json({ error: 'invalid', detail });
+  const ptzInt = (res: Response, v: unknown, name: string, min: number, max: number): boolean => {
+    if (v === undefined || (typeof v === 'number' && Number.isInteger(v) && v >= min && v <= max)) return true;
+    ptzBad(res, `${name} must be a whole number from ${min} to ${max}`);
+    return false;
+  };
+  const ptzDone = (res: Response, cam: string, op: string, body: unknown) => {
+    fake.ptzCalls.push({ cam, op, body });
+    if (fake.ptzOverride) return void res.status(fake.ptzOverride.status).json(fake.ptzOverride.body);
+    res.status(204).end();
+  };
+  const PTZ_DIRECTIONS = ['left', 'right', 'up', 'down', 'left-up', 'left-down', 'right-up', 'right-down'];
+  app.post('/api/cameras/:cam/ptz/move', express.json(), (req, res) => {
+    const cam = String(req.params.cam);
+    if (!ptzGate(cam, res, 'move')) return;
+    const b = (req.body ?? {}) as Record<string, unknown>;
+    if (!PTZ_DIRECTIONS.includes(b.direction as string)) return ptzBad(res, `direction must be one of ${PTZ_DIRECTIONS.join(', ')}`);
+    if (!ptzInt(res, b.speed, 'speed', 1, 10) || !ptzInt(res, b.durationMs, 'durationMs', 100, 2000)) return;
+    ptzDone(res, cam, 'move', b);
+  });
+  for (const [op, dirs] of [['zoom', ['in', 'out']], ['focus', ['near', 'far']]] as const) {
+    app.post(`/api/cameras/:cam/ptz/${op}`, express.json(), (req, res) => {
+      const cam = String(req.params.cam);
+      if (!ptzGate(cam, res, op)) return;
+      const b = (req.body ?? {}) as Record<string, unknown>;
+      if (!(dirs as readonly string[]).includes(b.direction as string)) return ptzBad(res, `direction must be one of ${dirs.join(', ')}`);
+      if (!ptzInt(res, b.durationMs, 'durationMs', 100, 2000)) return;
+      ptzDone(res, cam, op, b);
+    });
+  }
+  app.post('/api/cameras/:cam/ptz/stop', express.json(), (req, res) => {
+    const cam = String(req.params.cam);
+    if (!ptzGate(cam, res, 'move')) return;
+    ptzDone(res, cam, 'stop', req.body ?? {});
+  });
+
   app.get('/api/cameras/:cam/extent', (req, res) => {
     const cam = req.params.cam;
     const min = (xs: number[]) => (xs.length ? Math.min(...xs) : null);

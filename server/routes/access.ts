@@ -19,6 +19,11 @@ export const VIEWER_WRITES: readonly string[] = [
   // MCP tokens: each member their own (spec 2026-10-27-mcp-server-design §6)
   'POST /api/mcp-tokens',
   'POST /api/mcp-tokens/:tokenId/revoke',
+  // PTZ: every member (spec 2026-10-30-ptz-capabilities-design §8.2)
+  'POST /api/cameras/:id/ptz/move',
+  'POST /api/cameras/:id/ptz/zoom',
+  'POST /api/cameras/:id/ptz/focus',
+  'POST /api/cameras/:id/ptz/stop',
 ];
 
 export const ACCESS: Readonly<Record<string, Need>> = {
@@ -71,6 +76,11 @@ export const ACCESS: Readonly<Record<string, Need>> = {
   'DELETE /api/cameras/:id/compositions/:job': 'viewer',
   'POST /api/mcp-tokens': 'viewer',
   'POST /api/mcp-tokens/:tokenId/revoke': 'viewer',
+  // PTZ: every member (spec 2026-10-30-ptz-capabilities-design §8.2)
+  'POST /api/cameras/:id/ptz/move': 'viewer',
+  'POST /api/cameras/:id/ptz/zoom': 'viewer',
+  'POST /api/cameras/:id/ptz/focus': 'viewer',
+  'POST /api/cameras/:id/ptz/stop': 'viewer',
   // change
   'PUT /api/cameras/:id/name': 'admin',
   'PUT /api/cameras/:id/settings/:section': 'admin',
