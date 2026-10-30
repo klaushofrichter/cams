@@ -24,6 +24,12 @@ export const VIEWER_WRITES: readonly string[] = [
   'POST /api/cameras/:id/ptz/zoom',
   'POST /api/cameras/:id/ptz/focus',
   'POST /api/cameras/:id/ptz/stop',
+  'POST /api/cameras/:id/ptz/positions',
+  'PATCH /api/cameras/:id/ptz/positions/:posId',
+  'PUT /api/cameras/:id/ptz/positions/order',
+  'POST /api/cameras/:id/ptz/positions/:posId/save',
+  'POST /api/cameras/:id/ptz/positions/:posId/go',
+  'DELETE /api/cameras/:id/ptz/positions/:posId',
 ];
 
 export const ACCESS: Readonly<Record<string, Need>> = {
@@ -70,6 +76,7 @@ export const ACCESS: Readonly<Record<string, Need>> = {
   'GET /api/archive/:via/zip': 'viewer',
   'GET /api/archive/:via/jobs/:job': 'viewer',
   'GET /api/mcp-tokens': 'viewer',
+  'GET /api/cameras/:id/ptz/positions': 'viewer',
   // viewer writes
   'PUT /api/preferences': 'viewer',
   'POST /api/cameras/:id/compositions': 'viewer',
@@ -81,6 +88,12 @@ export const ACCESS: Readonly<Record<string, Need>> = {
   'POST /api/cameras/:id/ptz/zoom': 'viewer',
   'POST /api/cameras/:id/ptz/focus': 'viewer',
   'POST /api/cameras/:id/ptz/stop': 'viewer',
+  'POST /api/cameras/:id/ptz/positions': 'viewer',
+  'PATCH /api/cameras/:id/ptz/positions/:posId': 'viewer',
+  'PUT /api/cameras/:id/ptz/positions/order': 'viewer',
+  'POST /api/cameras/:id/ptz/positions/:posId/save': 'viewer',
+  'POST /api/cameras/:id/ptz/positions/:posId/go': 'viewer',
+  'DELETE /api/cameras/:id/ptz/positions/:posId': 'viewer',
   // change
   'PUT /api/cameras/:id/name': 'admin',
   'PUT /api/cameras/:id/settings/:section': 'admin',

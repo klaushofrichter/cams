@@ -27,9 +27,11 @@ export interface StreamOptions {
 // next reconnect, which tries it again). The same for `camera` (the camera's
 // name, {cam, name}; design camera-name-design.md), newer still, and for
 // `still-check` (Vision on a second picked by hand, cams #179), and for
-// `archive` (the Archive changed, cam-proxy's archive contract §7).
-const TYPES = ['camera-event', 'camera-status', 'clip', 'analysis', 'camera', 'still-check', 'archive'];
-const OPTIONAL = ['analysis', 'camera', 'still-check', 'archive'];
+// `archive` (the Archive changed, cam-proxy's archive contract §7), and for
+// `ptz-positions` (a camera's saved positions changed, cam-proxy spec
+// 2026-10-30-ptz-capabilities-design §5.2).
+const TYPES = ['camera-event', 'camera-status', 'clip', 'analysis', 'camera', 'still-check', 'archive', 'ptz-positions'];
+const OPTIONAL = ['analysis', 'camera', 'still-check', 'archive', 'ptz-positions'];
 
 export class ProxyStream extends EventEmitter {
   private lastId: string | undefined;

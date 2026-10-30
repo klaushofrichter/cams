@@ -81,6 +81,9 @@ eventsRouter.get('/api/events/stream', (req: Request, res: Response) => {
       if (typeof action !== 'string' || !['add', 'update', 'delete', 'clear', 'expire'].includes(action)) return;
       const ids = Array.isArray(m.data.ids) ? m.data.ids.filter((x): x is number => Number.isSafeInteger(x)).slice(0, 1000) : [];
       send('archive', { cam: camsIdOf(m.cam), action, ids });
+    } else if (m.type === 'ptz-positions') {
+      // A camera's saved PTZ positions changed: an open PTZ panel reloads them.
+      send('ptz-positions', { cam: camsIdOf(m.cam) });
     }
   };
   // A camera's proxy was switched on or off (Settings): re-read /api/cameras.

@@ -54,14 +54,20 @@ describe('the access table', () => {
     for (const [k, need] of Object.entries(ACCESS)) if (!k.startsWith('GET ') && !VIEWER_WRITES.includes(k)) expect([k, need]).toEqual([k, 'admin']);
     expect([...VIEWER_WRITES].sort()).toEqual([
       'DELETE /api/cameras/:id/compositions/:job',
+      'DELETE /api/cameras/:id/ptz/positions/:posId',
+      'PATCH /api/cameras/:id/ptz/positions/:posId',
       'POST /api/cameras/:id/compositions',
       'POST /api/cameras/:id/ptz/focus',
       'POST /api/cameras/:id/ptz/move',
+      'POST /api/cameras/:id/ptz/positions',
+      'POST /api/cameras/:id/ptz/positions/:posId/go',
+      'POST /api/cameras/:id/ptz/positions/:posId/save',
       'POST /api/cameras/:id/ptz/stop',
       'POST /api/cameras/:id/ptz/zoom',
       'POST /api/mcp-tokens',
       'POST /api/mcp-tokens/:tokenId/revoke',
       'POST /api/session/account',
+      'PUT /api/cameras/:id/ptz/positions/order',
       'PUT /api/preferences',
     ]);
     for (const k of VIEWER_WRITES) expect(ACCESS[k]).not.toBe('admin');
