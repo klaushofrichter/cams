@@ -62,6 +62,10 @@ export const ICONS = {
   plug: 'M9 3v5M15 3v5M6 8h12v3a6 6 0 0 1-12 0V8zM12 17v4',
   chat: 'M4 5h16v11H9l-5 4V5zM8 9.5h8M8 12.5h5',
   layers: 'M12 3 2 8l10 5 10-5-10-5zM2 13l10 5 10-5M2 17.5l10 5 10-5',
+  // PTZ panel: the pad's arrow (points right; the pad rotates it), Home's star, a drag handle.
+  arrow: 'M5 12h14m0 0-6-6m6 6-6 6',
+  star: 'M12 3.5l2.6 5.3 5.9.9-4.3 4.1 1 5.8-5.2-2.7-5.2 2.7 1-5.8-4.3-4.1 5.9-.9z',
+  grip: 'M9 6h.01M15 6h.01M9 12h.01M15 12h.01M9 18h.01M15 18h.01',
 } as const;
 
 export type IconName = keyof typeof ICONS;
