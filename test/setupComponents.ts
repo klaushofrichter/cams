@@ -35,3 +35,7 @@ if (typeof Element.prototype.animate !== 'function') {
     return a as unknown as Animation;
   };
 }
+// animate:flip asks for the running animations first.
+if (typeof Element.prototype.getAnimations !== 'function') {
+  Element.prototype.getAnimations = () => [];
+}

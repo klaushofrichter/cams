@@ -8,3 +8,4 @@ published as [GitHub releases](https://github.com/klaushofrichter/cams/releases)
 
 ## [Unreleased]
 
+- PTZ cameras: a pan/tilt/zoom panel on the Video page in live mode, with saved positions and Home (needs a cam-proxy with PTZ support).
