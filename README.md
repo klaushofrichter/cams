@@ -168,7 +168,7 @@ The Google OAuth client must list the redirect URI: `http://localhost:8080/auth/
 | `FFMPEG_PATH` | `ffmpeg` | for thumbnails |
 | `RECORDINGS_PROBE_MS`, `DOWNLOAD_RETRY_DELAY_MS` | `60000`, `1000` | how often a camera whose downloads fail is retried; the pause before a download's one retry |
 | `RATE_LIMIT_TOKEN_FAILURES` | `10` | failed token sign-ins per address per 15 min |
-| `RATE_LIMIT_WINDOW_MS`, `RATE_LIMIT_MAX`, `RATE_LIMIT_API_MAX`, `RATE_LIMIT_MEDIA_MAX`, `RATE_LIMIT_IMAGE_MAX` | 5 min, `40`, `600`, `3000`, `20000` | per window: sign-in, API, clip media (video, thumbnail, download; archived clips' video and thumbnails too), and the cam-proxy's sprites and stills |
+| `RATE_LIMIT_WINDOW_MS`, `RATE_LIMIT_MAX`, `RATE_LIMIT_API_MAX`, `RATE_LIMIT_MEDIA_MAX`, `RATE_LIMIT_IMAGE_MAX`, `RATE_LIMIT_PTZ_MAX` | 5 min, `40`, `600`, `3000`, `20000`, `1500` | per window: sign-in, API, clip media (video, thumbnail, download; archived clips' video and thumbnails too), the cam-proxy's sprites and stills, and PTZ moves, zoom, focus and stop |
 | `RATE_LIMIT_ARCHIVE_PER_MIN`, `RATE_LIMIT_ARCHIVE_ZIP_PER_MIN` | `10`, `4` | per signed-in user and minute: new archived clips, and Archive ZIPs |
 | `MCP_ENABLED`, `MCP_ALLOW_HTTP` | on, off | [`/mcp`](#mcp-server) is served unless `MCP_ENABLED=false`; on a plain http viewer (`COOKIE_SECURE=false`) it also needs `MCP_ALLOW_HTTP=true` (without it `/mcp` is off, with a `mcp_http_refused` warning only when `MCP_ENABLED=true` is set) |
 | `MCP_TOKENS_FILE` | `<data>/mcp/tokens.json` | the MCP tokens' hashes (`<data>`: `CAMS_DATA_DIR`, else the preferences' folder) |

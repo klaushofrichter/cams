@@ -986,6 +986,24 @@ if (require.main === module) {
       for (const t of [...(stills?.keys() ?? [])]) if (t >= (b.from as number) && t < (b.to as number)) stills!.delete(t);
       res.json({ ok: true });
     });
+    // e2e only (e2e/ptz.spec.ts): POST /ptz-reset {cam} forgets the camera's
+    // positions and PTZ calls; GET /ptz-calls?cam= lists them; POST
+    // /ptz-missing {cam, id} makes a position missing from the camera.
+    hooks.post('/ptz-reset', (req, res) => {
+      const cam = (req.body as { cam?: unknown }).cam;
+      if (typeof cam !== 'string') return void res.status(400).json({ error: 'cam' });
+      fake.ptzPositions.delete(cam);
+      fake.ptzCalls = fake.ptzCalls.filter((c) => c.cam !== cam);
+      res.json({ ok: true });
+    });
+    hooks.get('/ptz-calls', (req, res) => void res.json(fake.ptzCalls.filter((c) => c.cam === req.query.cam)));
+    hooks.post('/ptz-missing', (req, res) => {
+      const b = req.body as { cam?: unknown; id?: unknown };
+      const p = typeof b.cam === 'string' ? fake.ptzPositions.get(b.cam)?.find((x) => x.id === b.id) : undefined;
+      if (!p) return void res.status(404).json({ error: 'not_found' });
+      p.state = 'missing';
+      res.json({ ok: true });
+    });
     hooks.listen(FAKE_PROXY_PORT - 2, '127.0.0.1');
     process.stdout.write(`fake cam-proxy on ${fake.url} (test hooks on ${FAKE_PROXY_PORT - 2})\n`);
   })();
