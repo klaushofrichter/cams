@@ -30,6 +30,7 @@ describe('rate limits', () => {
     delete process.env.RATE_LIMIT_API_MAX;
     delete process.env.RATE_LIMIT_MEDIA_MAX;
     delete process.env.RATE_LIMIT_IMAGE_MAX;
+    delete process.env.RATE_LIMIT_PTZ_MAX;
     delete process.env.RATE_LIMIT_WINDOW_MS;
     vi.resetModules();
   });
@@ -93,5 +94,40 @@ describe('rate limits', () => {
     await request(app).get('/cameras/cam1/clips/x/thumb.jpg');
     await request(app).get('/cameras/cam1/clips/x/thumb.jpg');
     expect((await request(app).get('/cameras/cam1/clips/x/thumb.jpg')).status).toBe(429);
+  });
+
+  // Holding the PTZ pad sends 4 moves a second (plan 2026-10-30-ptz-panel,
+  // Review Focus 1): they get their own budget, so a long hold can't lock the
+  // page out of everything else.
+  function ptzApp(m: { createApiRateLimit: () => express.RequestHandler; createPtzRateLimit: () => express.RequestHandler }) {
+    const app = express();
+    app.use(m.createApiRateLimit(), m.createPtzRateLimit());
+    app.get('/me', (_req, res) => res.json({ ok: true }));
+    for (const op of ['move', 'zoom', 'focus', 'stop']) app.post(`/cameras/:id/ptz/${op}`, (_req, res) => res.status(204).end());
+    app.get('/cameras/:id/ptz/positions', (_req, res) => res.json({ ok: true }));
+    return app;
+  }
+
+  it('PTZ control calls pass beyond the API budget and leave it untouched', async () => {
+    const m = await freshLimiters({ RATE_LIMIT_API_MAX: '3', RATE_LIMIT_PTZ_MAX: '50', RATE_LIMIT_WINDOW_MS: '60000' });
+    const app = ptzApp(m);
+    for (let i = 0; i < 10; i++) for (const op of ['move', 'zoom', 'focus', 'stop']) expect((await request(app).post(`/cameras/cam1/ptz/${op}`)).status).toBe(204);
+    expect((await request(app).get('/me')).status).toBe(200);
+    expect((await request(app).get('/cameras/cam1/ptz/positions')).status).toBe(200); // positions count as API calls
+  });
+
+  it('answers a PTZ control call 429 once its own budget is spent, without touching the API budget', async () => {
+    const m = await freshLimiters({ RATE_LIMIT_API_MAX: '1000', RATE_LIMIT_PTZ_MAX: '3', RATE_LIMIT_WINDOW_MS: '60000' });
+    const app = ptzApp(m);
+    for (let i = 0; i < 3; i++) expect((await request(app).post('/cameras/cam1/ptz/move')).status).toBe(204);
+    expect((await request(app).post('/cameras/cam1/ptz/move')).status).toBe(429);
+    expect((await request(app).get('/me')).status).toBe(200);
+  });
+
+  it('defaults to 1500 PTZ control calls per window', async () => {
+    const m = await freshLimiters({});
+    expect(m.PTZ_MAX).toBe(1500);
+    expect(m.PTZ_CONTROL_PATH.test('/cameras/den/ptz/move')).toBe(true);
+    expect(m.PTZ_CONTROL_PATH.test('/cameras/den/ptz/positions')).toBe(false);
   });
 });

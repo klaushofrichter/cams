@@ -1,7 +1,7 @@
 import { Router, Request, Response } from 'express';
 import { getRecordings } from '../recordings/service';
 import { proxyHub, proxyStates } from '../proxy/stream';
-import { nameEvents } from '../cameraRegistry';
+import { capabilityEvents, nameEvents } from '../cameraRegistry';
 import { accountIdOf, camsIdOf, fleetEvents, type CamKey } from '../fleet';
 import { sessionAccount } from './common';
 import '../proxy/names'; // keeps the cameras' names from their cam-proxies
@@ -81,6 +81,9 @@ eventsRouter.get('/api/events/stream', (req: Request, res: Response) => {
       if (typeof action !== 'string' || !['add', 'update', 'delete', 'clear', 'expire'].includes(action)) return;
       const ids = Array.isArray(m.data.ids) ? m.data.ids.filter((x): x is number => Number.isSafeInteger(x)).slice(0, 1000) : [];
       send('archive', { cam: camsIdOf(m.cam), action, ids });
+    } else if (m.type === 'ptz-positions') {
+      // A camera's saved PTZ positions changed: an open PTZ panel reloads them.
+      send('ptz-positions', { cam: camsIdOf(m.cam) });
     }
   };
   // A camera's proxy was switched on or off (Settings): re-read /api/cameras.
@@ -96,7 +99,12 @@ eventsRouter.get('/api/events/stream', (req: Request, res: Response) => {
   const onName = (n: { cam: CamKey; name: string }) => {
     if (mine(n.cam)) send('camera', { cam: camsIdOf(n.cam), name: n.name });
   };
+  // A camera's capabilities changed (cam-proxy's `camera` message): re-read /api/cameras.
+  const onCapabilities = (c: { cam: CamKey }) => {
+    if (mine(c.cam)) send('cameras', {});
+  };
   nameEvents.on('name', onName);
+  capabilityEvents.on('capabilities', onCapabilities);
   fleetEvents.on('applied', onApplied);
   proxyHub.on('state', onState);
   proxyHub.on('message', onMessage);
@@ -113,6 +121,7 @@ eventsRouter.get('/api/events/stream', (req: Request, res: Response) => {
     proxyHub.off('message', onMessage);
     proxyHub.off('cameras', onCameras);
     nameEvents.off('name', onName);
+    capabilityEvents.off('capabilities', onCapabilities);
     fleetEvents.off('applied', onApplied);
   };
   req.on('close', finish);

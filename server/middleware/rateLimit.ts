@@ -16,6 +16,9 @@ const MEDIA_MAX = fromEnv('RATE_LIMIT_MEDIA_MAX', 3000);
 // cam-proxy stills and sprites: small, served from the proxy's disk, and
 // asked for in bursts (a day of Timeline sprites, stills while scrubbing).
 const IMAGE_MAX = fromEnv('RATE_LIMIT_IMAGE_MAX', 20000);
+// PTZ moves, zoom, focus and stop: holding the pad sends 4 a second, which
+// would spend the general budget in 2.5 minutes. 5 a second over the window.
+export const PTZ_MAX = fromEnv('RATE_LIMIT_PTZ_MAX', 1500);
 
 // Matched against req.path once mounted under /api (the prefix is already
 // stripped there). Clip media: a clip's video, thumbnail and download.
@@ -26,6 +29,8 @@ const IMAGE_PATH = /^\/cameras\/[^/]+\/((previews|stills)\/\d{1,15}\.jpg|still\/
 // An archived clip's video and thumbnail (cam-proxy's archive): a player sends
 // many ranges, and the Archive page a thumbnail per clip.
 const ARCHIVE_MEDIA_PATH = /^\/archive\/[^/]+\/items\/\d{1,12}\/(video|thumbnail)$/;
+// PTZ control calls (not positions, which are ordinary API calls).
+export const PTZ_CONTROL_PATH = /^\/cameras\/[^/]+\/ptz\/(move|zoom|focus|stop)$/;
 const MEDIA_PATH = { test: (p: string) => CLIP_PATH.test(p) || IMAGE_PATH.test(p) || ARCHIVE_MEDIA_PATH.test(p) };
 
 // In-memory stores are correct only because the ksvc is pinned to one
@@ -67,7 +72,12 @@ export function createTokenFailureLimit(): RateLimitRequestHandler {
 // Skips clip media requests: they get their own, much higher budget below,
 // so a page full of thumbnail requests doesn't eat into the general API's.
 export function createApiRateLimit(): RateLimitRequestHandler {
-  return build(API_MAX, { skip: (req) => isVerifiedInternal(req) || MEDIA_PATH.test(req.path) });
+  return build(API_MAX, { skip: (req) => isVerifiedInternal(req) || MEDIA_PATH.test(req.path) || PTZ_CONTROL_PATH.test(req.path) });
+}
+
+// PTZ control calls only (plan 2026-10-30-ptz-panel): their own budget.
+export function createPtzRateLimit(): RateLimitRequestHandler {
+  return build(PTZ_MAX, { skip: (req) => isVerifiedInternal(req) || !PTZ_CONTROL_PATH.test(req.path) });
 }
 
 // Clip video/thumbnail/download requests only, and archived clips' video and thumbnails.

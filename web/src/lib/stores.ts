@@ -1,5 +1,6 @@
 import { derived, writable, type Writable } from 'svelte/store';
 import type { Theme } from './theme';
+import type { Capabilities } from './ptz';
 
 export interface Me {
   email: string;
@@ -24,6 +25,7 @@ export interface CameraSummary {
   proxy?: boolean; // cams uses the camera's cam-proxy now (Plan 6); absent in old test fixtures
   proxyConfigured?: boolean; // the camera has a cam-proxy at all (the switch on Settings)
   credentials?: 'missing' | 'mismatch' | 'unconfirmed'; // cams-admin mode: no usable camera password here, or held as new
+  capabilities?: Capabilities | null; // what the camera can do, from its cam-proxy (null: unknown or nothing extra)
 }
 
 // A boolean kept in localStorage. Storage failures (private mode) degrade to
