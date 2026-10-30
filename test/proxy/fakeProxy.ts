@@ -120,6 +120,7 @@ export interface FakeProxy {
   caPemEndless: boolean; // tests: /tls/ca.pem streams without end (no Content-Length)
   openSockets(): number; // connections open now
   camFilter: boolean; // tests: false = ignore ?cam= and send every camera's messages
+  capabilities: Map<string, unknown>; // proxy camera id → its `capabilities` in /api/cameras (absent: null, a camera never read)
   features: string[] | null; // `features` on every /api/cameras item; null: a cam-proxy from before multi-camera P1 (no field, ?cam= is one whole id)
   streamConnections(): number;
   push(m: Omit<FakeMessage, 'id' | 'ts'> & { ts?: number }): FakeMessage;
@@ -197,6 +198,7 @@ export async function startFakeProxy(opts: { port?: number; token?: string; tls?
     caPemEndless: false,
     openSockets: () => sockets.size,
     camFilter: true,
+    capabilities: new Map(),
     features: ['sse-cam-list'],
     streamConnections: () => streams.size,
     push(m) {
@@ -294,7 +296,7 @@ export async function startFakeProxy(opts: { port?: number; token?: string; tls?
   };
   // The camera list, as the real one reports it (only what cams reads).
   app.get('/api/cameras', (_req, res) => {
-    res.json(fake.camerasBody !== undefined ? fake.camerasBody : [...fake.cameraNames].map(([id, name]) => ({ id, name, online: true, lastEventTs: null, stream: null, publicUrl: fake.publicUrl, address: fake.cameraAddresses.get(id) ?? null, ...(fake.features && { features: fake.features }), ...(fake.cameraTls.has(id) && { tls: fake.cameraTls.get(id) }), error: null })));
+    res.json(fake.camerasBody !== undefined ? fake.camerasBody : [...fake.cameraNames].map(([id, name]) => ({ id, name, online: true, lastEventTs: null, stream: null, publicUrl: fake.publicUrl, address: fake.cameraAddresses.get(id) ?? null, ...(fake.features && { features: fake.features }), ...(fake.cameraTls.has(id) && { tls: fake.cameraTls.get(id) }), capabilities: fake.capabilities.get(id) ?? null, error: null })));
   });
   // Like the real one: the oldest clip, still and preview it holds.
   app.get('/api/cameras/:cam/extent', (req, res) => {

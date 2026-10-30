@@ -1,4 +1,5 @@
-import { cameraHost, getCamera, setReportedAddress, setReportedName } from '../cameraRegistry';
+import { cameraHost, getCamera, setReportedAddress, setReportedCapabilities, setReportedName } from '../cameraRegistry';
+import { parseCapabilities } from './capabilities';
 import { logger } from '../logger';
 import { applyProxyTls } from '../tls/cameraTrust';
 import { verifyGroupCa } from '../tls/groupCa';
@@ -54,6 +55,7 @@ async function refreshProxyName(id: CamKey, o: { fresh?: boolean } = {}): Promis
   // The stream may have gone down (or the proxy been switched off) meanwhile.
   if (!mine || !proxyStates(accountIdOf(id)).some((s) => s.cam === id && s.up)) return;
   if (plausibleName(mine.name)) setReportedName(id, mine.name);
+  setReportedCapabilities(id, parseCapabilities(mine));
   setReportedAddress(id, mine.address);
   // A pinned proxy whose CA isn't verified yet (it didn't answer when cams
   // started): asked again now. An https one is asked on every request
@@ -95,9 +97,18 @@ proxyHub.on('state', (s: { cam: CamKey; up: boolean }) => {
   downTimers.set(s.cam, timer);
 });
 
+// A capability change arrives as a `camera` message (cam-proxy spec
+// 2026-10-30-ptz-capabilities-design §4): the list entry is read again.
+async function refreshCapabilities(id: CamKey): Promise<void> {
+  const mine = await readProxyEntry(id, 5000, 0);
+  if (!mine || !proxyStates(accountIdOf(id)).some((s) => s.cam === id && s.up)) return;
+  setReportedCapabilities(id, parseCapabilities(mine));
+}
+
 proxyHub.on('message', (m: { cam: CamKey; type: string; data: Record<string, unknown> }) => {
   if (m.type !== 'camera') return;
   if (plausibleName(m.data.name)) setReportedName(m.cam, m.data.name);
+  void refreshCapabilities(m.cam);
   // cam-proxy's `camera` message carries the address too (it may carry only that).
   if (m.data.address !== undefined) {
     const before = cameraHost(m.cam);
