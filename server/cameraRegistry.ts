@@ -6,6 +6,7 @@ import { proxyEnabled } from './proxyState';
 import { proxyGroupKey } from './proxy/groupKey';
 import { fingerprintList } from './tls/fingerprint';
 import { pinTransportOk } from './tls/loopback';
+import type { Capabilities } from './proxy/capabilities';
 import { camKey, fileAccount, fleetAccount, fleetCamera, fleetCameras, fleetEvents, parseKey, setFleet, type CamKey } from './fleet';
 
 // A camera as cameras.json has it (id = the camsId).
@@ -63,6 +64,7 @@ export interface CameraSummary {
   proxy: boolean; // whether cams uses this camera's cam-proxy now (never its URL or token)
   proxyConfigured: boolean; // whether the camera has a cam-proxy at all (the switch on Settings)
   credentials?: 'missing' | 'mismatch' | 'unconfirmed'; // cams-admin mode: no usable password here (the camera login), or held as new
+  capabilities: Capabilities | null; // what the camera can do, from its cam-proxy (null: unknown, or no proxy in use)
 }
 
 const ID_PATTERN = /^[a-z0-9][a-z0-9-]{0,31}$/;
@@ -230,11 +232,12 @@ export function setCameras(list: FileCameraConfig[]): void {
   setFleet([{ ...account, users: null, cameras: keyed(account.id, list) }]);
   reported.clear();
   reportedAddress.clear();
+  reportedCapabilities.clear();
 }
 
 // A new fleet: forget what was reported for cameras that are gone.
 fleetEvents.on('applied', () => {
-  for (const m of [reported, reportedAddress]) for (const key of m.keys()) if (!fleetCamera(key)) m.delete(key);
+  for (const m of [reported, reportedAddress, reportedCapabilities]) for (const key of m.keys()) if (!fleetCamera(key)) m.delete(key);
 });
 
 // The ONLY way from a URL's camera id to a key: within the given account.
@@ -315,9 +318,36 @@ export function setReportedName(id: CamKey, name: string | null): void {
   if (now !== before) nameEvents.emit('name', { cam: id, name: now });
 }
 
+// What the camera can do, from its cam-proxy's camera list (cam-proxy spec
+// 2026-10-30-ptz-capabilities-design §4). null: unknown.
+const reportedCapabilities = new Map<CamKey, Capabilities | null>();
+// 'capabilities' {cam}: a camera's capabilities changed (browsers re-read the list).
+export const capabilityEvents = new EventEmitter();
+capabilityEvents.setMaxListeners(0);
+
+export function cameraCapabilities(id: CamKey): Capabilities | null {
+  return reportedCapabilities.get(id) ?? null;
+}
+
+// Announced only on a change (compared as JSON).
+export function setReportedCapabilities(id: CamKey, caps: Capabilities | null): void {
+  if (!getCamera(id)) return;
+  if (JSON.stringify(cameraCapabilities(id)) === JSON.stringify(caps)) return;
+  reportedCapabilities.set(id, caps);
+  capabilityEvents.emit('capabilities', { cam: id });
+}
+
 // The account's cameras for the browser: ids are camsIds.
 export function listCameras(accountId: string): CameraSummary[] {
-  return accountCameras(accountId).map((c) => ({ id: c.camsId, name: cameraName(c.id), ...webUiOf(c), proxy: proxyActive(c.id), proxyConfigured: !!c.proxy, ...(c.credentials !== 'ok' && { credentials: c.credentials }) }));
+  return accountCameras(accountId).map((c) => ({
+    id: c.camsId,
+    name: cameraName(c.id),
+    ...webUiOf(c),
+    proxy: proxyActive(c.id),
+    proxyConfigured: !!c.proxy,
+    ...(c.credentials !== 'ok' && { credentials: c.credentials }),
+    capabilities: proxyActive(c.id) ? cameraCapabilities(c.id) : null,
+  }));
 }
 
 // Every configured camera of every account, config order (the same array

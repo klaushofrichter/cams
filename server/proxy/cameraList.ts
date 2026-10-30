@@ -7,7 +7,7 @@ import { ProxyError, proxyCameraId, proxyClientFor, type ProxyClient } from './c
 // request per proxy at a time: requests within FRESH_MS share one answer, so
 // four cameras coming up together ask once (cam-proxy spec 2026-10-05 §12.2).
 
-export interface ProxyCameraEntry { id?: unknown; name?: unknown; address?: unknown; publicUrl?: unknown; tls?: unknown; error?: unknown; features?: unknown }
+export interface ProxyCameraEntry { id?: unknown; name?: unknown; address?: unknown; publicUrl?: unknown; tls?: unknown; error?: unknown; features?: unknown; capabilities?: unknown }
 
 const FRESH_MS = 2000;
 // Per client: resetProxyClients() starts every proxy afresh.

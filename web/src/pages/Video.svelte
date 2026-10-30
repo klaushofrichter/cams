@@ -7,6 +7,8 @@
   import LiveBox from '../components/LiveBox.svelte';
   import CameraCard from '../components/CameraCard.svelte';
   import VideoControls from '../components/VideoControls.svelte';
+  import PtzPanel from '../components/PtzPanel.svelte';
+  import { reveal } from '../lib/motion';
   import { cameras, cameraById, selectedCameraId } from '../lib/stores';
   import { VIDEO_PATH, navigate, replaceRoute, route } from '../lib/router';
   import { getJson } from '../lib/api';
@@ -573,11 +575,15 @@
         {/if}
       </div>
 
-      <!-- The sidebar (spec 2026-10-04): the camera, the controls, the filter
-           and the day's events. -->
+      <!-- The sidebar (spec 2026-10-04): the camera, the controls, the PTZ
+           panel (live, PTZ cameras), the filter and the day's events. -->
       <aside class="side">
         <CameraCard cameraId={cam} {proxyInfo} />
         <VideoControls cameraId={cam} {mode} paused={!pageVisible || !tabVisible} />
+        <!-- Pan/tilt/zoom (cam-proxy spec 2026-10-30-ptz-capabilities-design §8.2): live only, for a camera whose proxy reports ptz. -->
+        {#if mode === 'live' && camera?.capabilities?.ptz}
+          <div transition:reveal><PtzPanel cameraId={cam} ptz={camera.capabilities.ptz} /></div>
+        {/if}
         <EventList bind:this={eventList} cameraId={cam} events={visible} {filter} date={cursor.date} selectedId={playheadClip} pending={pendingToday}
           onreveal={revealPlayer} onhours={(o) => (hoursOpen = o)}
           onfilter={setFilter}

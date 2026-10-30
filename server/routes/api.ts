@@ -5,7 +5,7 @@ import { configMode, configStatus, trustStore } from '../configSource';
 import { accountsRouter } from './accounts';
 import { accessMiddleware } from './access';
 import { requireSameOrigin } from '../middleware/requireSameOrigin';
-import { createApiRateLimit, createImageRateLimit, createMediaRateLimit } from '../middleware/rateLimit';
+import { createApiRateLimit, createImageRateLimit, createMediaRateLimit, createPtzRateLimit } from '../middleware/rateLimit';
 import { listCameras } from '../cameraRegistry';
 import { appVersion, buildDate } from '../version';
 import { camerasRouter } from './cameras';
@@ -15,6 +15,7 @@ import { preferencesRouter } from './preferences';
 import { eventsRouter } from './events';
 import { proxyRouter } from './proxy';
 import { composeRouter } from './compose';
+import { ptzRouter } from './ptz';
 import { nameRouter } from './name';
 import { stillChecksRouter } from './stillChecks';
 import { archiveRouter } from './archive';
@@ -24,7 +25,7 @@ import { mcpEnabled, mcpPlainHttp } from '../mcp/config';
 
 export const apiRouter = Router();
 
-apiRouter.use('/api', createApiRateLimit(), createMediaRateLimit(), createImageRateLimit(), noStore, requireSameOrigin, requireAuthApi, accessMiddleware());
+apiRouter.use('/api', createApiRateLimit(), createMediaRateLimit(), createImageRateLimit(), createPtzRateLimit(), noStore, requireSameOrigin, requireAuthApi, accessMiddleware());
 
 apiRouter.get('/api/me', (_req: Request, res: Response) => {
   const s = res.locals.auth as AuthState;
@@ -62,6 +63,7 @@ apiRouter.use(preferencesRouter);
 apiRouter.use(eventsRouter);
 apiRouter.use(proxyRouter);
 apiRouter.use(composeRouter);
+apiRouter.use(ptzRouter);
 apiRouter.use(nameRouter);
 apiRouter.use(stillChecksRouter);
 apiRouter.use(archiveRouter);

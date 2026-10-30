@@ -53,12 +53,29 @@ describe('ProxyStream (upstream)', () => {
     expect(got[0].type).toBe('camera-event');
     const asks = fake.requests.filter((r) => r.path === '/api/stream').map((r) => String(r.query.types).split(','));
     // Asked with analysis, camera (the camera's name, newer still),
-    // still-check (cams #179) and archive (the Archive), then without each
-    // refused type, no loop.
-    expect(asks).toHaveLength(5);
-    expect(asks[0]).toEqual(expect.arrayContaining(['analysis', 'camera', 'still-check', 'archive']));
+    // still-check (cams #179), archive (the Archive) and ptz-positions, then
+    // without each refused type, no loop.
+    expect(asks).toHaveLength(6);
+    expect(asks[0]).toEqual(expect.arrayContaining(['analysis', 'camera', 'still-check', 'archive', 'ptz-positions']));
     expect(asks[1]).not.toContain('analysis');
-    expect(asks[4]).toEqual(['camera-event', 'camera-status', 'clip']);
+    expect(asks[5]).toEqual(['camera-event', 'camera-status', 'clip']);
+  });
+
+  // cam-proxy spec 2026-10-30-ptz-capabilities-design §5.2: other viewers reload the positions.
+  it('asks for ptz-positions and drops it for a proxy that refuses the type', async () => {
+    const fake = await fakeProxy();
+    fake.knownTypes = ['camera-event', 'camera-status', 'clip', 'analysis', 'camera', 'still-check', 'archive'];
+    const { s, got } = stream(fake);
+    await until(() => s.up());
+    const asks = fake.requests.filter((r) => r.path === '/api/stream').map((r) => String(r.query.types).split(','));
+    expect(asks).toHaveLength(2);
+    expect(asks[0]).toContain('ptz-positions');
+    expect(asks[1]).not.toContain('ptz-positions');
+    fake.knownTypes = null;
+    fake.dropStreams();
+    await until(() => fake.requests.filter((r) => r.path === '/api/stream').length === 3 && s.up());
+    fake.push({ cam: 'den', type: 'ptz-positions', data: {} });
+    await until(() => got.some((m) => m.type === 'ptz-positions'));
   });
 
   it('asks for still checks, and without them from a proxy that has only analyses (cams #179)', async () => {
@@ -67,9 +84,9 @@ describe('ProxyStream (upstream)', () => {
     const { s, got } = stream(fake);
     await until(() => s.up());
     const asks = fake.requests.filter((r) => r.path === '/api/stream').map((r) => String(r.query.types).split(','));
-    expect(asks).toHaveLength(3);
+    expect(asks).toHaveLength(4); // without still-check, archive, ptz-positions
     expect(asks[0]).toContain('still-check');
-    expect(asks[2]).toEqual(['camera-event', 'camera-status', 'clip', 'analysis', 'camera']);
+    expect(asks[3]).toEqual(['camera-event', 'camera-status', 'clip', 'analysis', 'camera']);
     fake.knownTypes = null;
     fake.push({ cam: 'den', type: 'analysis', data: { eventId: 5, kind: 'person', start: 1000, summary: [] } });
     await until(() => got.length === 1);

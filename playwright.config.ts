@@ -18,12 +18,12 @@ export default defineConfig({
   projects: [
     {
       name: 'desktop',
-      testIgnore: /live-teardown\.spec\.ts|camera-name\.spec\.ts|token-login\.spec\.ts|accounts\.spec\.ts|viewer\.spec\.ts|held\.spec\.ts|offline-start\.spec\.ts/,
+      testIgnore: /live-teardown\.spec\.ts|camera-name\.spec\.ts|token-login\.spec\.ts|accounts\.spec\.ts|viewer\.spec\.ts|held\.spec\.ts|offline-start\.spec\.ts|ptz\.spec\.ts/,
       use: { ...devices['Desktop Chrome'], channel: 'chrome', viewport: { width: 1440, height: 900 } },
     },
     {
       name: 'phone',
-      testIgnore: /live-teardown\.spec\.ts|camera-name\.spec\.ts|token-login\.spec\.ts|accounts\.spec\.ts|viewer\.spec\.ts|held\.spec\.ts|offline-start\.spec\.ts/,
+      testIgnore: /live-teardown\.spec\.ts|camera-name\.spec\.ts|token-login\.spec\.ts|accounts\.spec\.ts|viewer\.spec\.ts|held\.spec\.ts|offline-start\.spec\.ts|ptz\.spec\.ts/,
       use: { ...devices['Desktop Chrome'], channel: 'chrome', viewport: { width: 390, height: 844 }, hasTouch: true },
     },
     // e2e/token-login.spec.ts: the second server (E2E_TOKEN_ENV, the Pi's
@@ -69,6 +69,22 @@ export default defineConfig({
       dependencies: ['camera-name-desktop'],
       use: { ...devices['Desktop Chrome'], channel: 'chrome', viewport: { width: 390, height: 844 }, hasTouch: true },
     },
+    // e2e/ptz.spec.ts: Barn's saved positions live in the one shared fake
+    // cam-proxy, so its tests run one at a time, one size after the other.
+    {
+      name: 'ptz-desktop',
+      testMatch: /ptz\.spec\.ts/,
+      fullyParallel: false,
+      dependencies: ['desktop', 'phone'],
+      use: { ...devices['Desktop Chrome'], channel: 'chrome', viewport: { width: 1440, height: 900 } },
+    },
+    {
+      name: 'ptz-phone',
+      testMatch: /ptz\.spec\.ts/,
+      fullyParallel: false,
+      dependencies: ['ptz-desktop'],
+      use: { ...devices['Desktop Chrome'], channel: 'chrome', viewport: { width: 390, height: 844 }, hasTouch: true },
+    },
     // e2e/live-teardown.spec.ts reads the simulators' shared counters, so it
     // can only run once no other spec file is mid-stream against a simulator.
     // `dependencies` makes Playwright finish every test in `desktop`, `phone`
@@ -79,7 +95,7 @@ export default defineConfig({
       name: 'live-teardown',
       testMatch: /live-teardown\.spec\.ts/,
       fullyParallel: false,
-      dependencies: ['desktop', 'phone', 'camera-name-phone', 'token-desktop', 'token-phone', 'admin-phone'],
+      dependencies: ['desktop', 'phone', 'camera-name-phone', 'token-desktop', 'token-phone', 'admin-phone', 'ptz-phone'],
       use: { ...devices['Desktop Chrome'], channel: 'chrome', viewport: { width: 1440, height: 900 } },
     },
   ],

@@ -17,3 +17,25 @@ if (!('ResizeObserver' in globalThis)) {
     disconnect() {}
   };
 }
+
+// Svelte's transitions run through the Web Animations API (element.animate),
+// which jsdom lacks: an animation that finishes at once (on the next
+// microtask), so a transition's element comes and goes as without one.
+if (typeof Element.prototype.animate !== 'function') {
+  Element.prototype.animate = function animate() {
+    const a = {
+      onfinish: null as null | (() => void),
+      currentTime: 0,
+      cancel() {},
+      finish() {},
+      play() {},
+      pause() {},
+    };
+    void Promise.resolve().then(() => a.onfinish?.());
+    return a as unknown as Animation;
+  };
+}
+// animate:flip asks for the running animations first.
+if (typeof Element.prototype.getAnimations !== 'function') {
+  Element.prototype.getAnimations = () => [];
+}

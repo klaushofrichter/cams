@@ -113,5 +113,10 @@ export function seed(fake: FakeProxy): { jpeg: Buffer; sprite: Buffer } {
   // midnight on a UTC runner missed Chicago's day between 00:00 and 05:00 UTC.
   const start = Date.now() - 36 * 3_600_000;
   fake.clips.push({ id: 1, cam: 'barn', start, end: Date.now() + 12 * 3_600_000, stream: 'main', events: [], body: mp4, snapshot: jpeg });
+  // Barn is the PTZ camera (cam-proxy spec 2026-10-30-ptz-capabilities-design
+  // §4): listed with its own name and capabilities; Den is a fixed camera.
+  fake.features = ['sse-cam-list', 'ptz'];
+  fake.cameraNames.set('barn', 'Barn');
+  fake.capabilities.set('barn', { schema: 1, ptz: { move: true, zoom: true, focus: true, speed: true, positions: { max: 20 } } });
   return { jpeg, sprite };
 }
