@@ -77,6 +77,25 @@ describe('createEventStream', () => {
     s.close();
   });
 
+  // cam-proxy spec 2026-10-30-ptz-capabilities-design §5.2: an open PTZ panel reloads.
+  it('calls onPtzPositions listeners with the camera', () => {
+    const s = make();
+    FakeSource.last.open();
+    const got = vi.fn();
+    const stop = s.onPtzPositions(got);
+    FakeSource.last.emit('ptz-positions', { cam: 'den' });
+    FakeSource.last.emit('ptz-positions', { cam: 7 });
+    FakeSource.last.emit('ptz-positions', 'x');
+    expect(got.mock.calls).toEqual([['den']]);
+    stop();
+    FakeSource.last.emit('ptz-positions', { cam: 'den' });
+    expect(got).toHaveBeenCalledTimes(1);
+    s.onPtzPositions(got);
+    s.close();
+    FakeSource.last.emit('ptz-positions', { cam: 'den' });
+    expect(got).toHaveBeenCalledTimes(1);
+  });
+
   it('tells watchers about changes for their camera, debounced', () => {
     vi.useFakeTimers();
     const s = make();

@@ -156,12 +156,12 @@ export async function getJson<T>(url: string): Promise<T> {
 }
 
 // Through apiFetch like getJson, so an expired session is handled the
-// same way for PUT and POST.
-async function bodyJson<T>(method: 'PUT' | 'POST', url: string, body: unknown): Promise<{ status: number; body: T }> {
+// same way for PUT, POST, PATCH and DELETE. No body (undefined): none sent.
+async function bodyJson<T>(method: 'PUT' | 'POST' | 'PATCH' | 'DELETE', url: string, body: unknown): Promise<{ status: number; body: T }> {
   const res = await apiFetch(url, {
     method,
-    headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
+    headers: body === undefined ? { Accept: 'application/json' } : { Accept: 'application/json', 'Content-Type': 'application/json' },
+    ...(body !== undefined && { body: JSON.stringify(body) }),
   });
   return { status: res.status, body: (await res.json().catch(() => ({}))) as T };
 }
@@ -172,4 +172,12 @@ export function putJson<T>(url: string, body: unknown): Promise<{ status: number
 
 export function postJson<T>(url: string, body: unknown): Promise<{ status: number; body: T }> {
   return bodyJson<T>('POST', url, body);
+}
+
+export function patchJson<T>(url: string, body: unknown): Promise<{ status: number; body: T }> {
+  return bodyJson<T>('PATCH', url, body);
+}
+
+export function deleteJson<T>(url: string): Promise<{ status: number; body: T }> {
+  return bodyJson<T>('DELETE', url, undefined);
 }
