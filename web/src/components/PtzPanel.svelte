@@ -56,6 +56,10 @@
   const cancelAll = () => {
     for (const h of holds.values()) h.cancel();
   };
+  // Collapsing removes the buttons mid-hold (no pointerup reaches them): stop.
+  $effect(() => {
+    if (!$open) cancelAll();
+  });
   $effect(() => {
     const onVisibility = () => {
       if (document.visibilityState === 'hidden') cancelAll();
@@ -100,14 +104,20 @@
     }
     void load();
     let timer: ReturnType<typeof setTimeout> | undefined;
-    const off = eventStream()?.onPtzPositions((c) => {
-      if (c !== cam) return;
+    const later = () => {
       clearTimeout(timer);
       timer = setTimeout(() => void load(), 300);
+    };
+    const es = eventStream();
+    const off = es?.onPtzPositions((c) => {
+      if (c === cam) later();
     });
+    // Back after a gap: a ptz-positions message may have been missed.
+    const offReconnect = es?.onReconnect(later);
     return () => {
       clearTimeout(timer);
       off?.();
+      offReconnect?.();
     };
   });
 
@@ -144,6 +154,7 @@
   let dragging = $state<string | null>(null);
   let dropOn = $state<string | null>(null);
   function drop(onId: string) {
+    if (busy) return void (dragging = dropOn = null); // as ↑↓ are off meanwhile
     const list = positions ?? [];
     const from = list.findIndex((p) => p.id === dragging);
     const to = list.findIndex((p) => p.id === onId);

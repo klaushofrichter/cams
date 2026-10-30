@@ -122,6 +122,9 @@ export function checkPositionName(name: string, list: PtzPosition[], exceptId?: 
   const t = name.trim();
   if (!t) return 'Give the position a name.';
   if ([...t].length > NAME_MAX) return `Names are at most ${NAME_MAX} characters.`;
+  // cam-proxy's class: C0, DEL and C1 (an emoji's zero-width joiner is fine).
+  // eslint-disable-next-line no-control-regex
+  if (/[\u0000-\u001f\u007f-\u009f]/.test(t)) return "Names can't contain control characters.";
   if (list.some((p) => p.id !== exceptId && key(p.name) === key(t))) return 'Another position already has that name.';
   return null;
 }

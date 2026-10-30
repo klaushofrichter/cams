@@ -53,6 +53,8 @@ export interface EventStream {
   onArchive(fn: (a: ArchiveChange) => void): () => void;
   // A camera's saved PTZ positions changed (cam-proxy spec 2026-10-30-ptz-capabilities-design §5.2).
   onPtzPositions(fn: (cam: string) => void): () => void;
+  // The stream is back after a gap: messages may have been missed.
+  onReconnect(fn: () => void): () => void;
   close(): void;
 }
 
@@ -84,6 +86,7 @@ export function createEventStream(opts: { url?: string; factory?: (url: string) 
   const changeListeners = new Set<(c: Change) => void>();
   const archiveListeners = new Set<(a: ArchiveChange) => void>();
   const ptzListeners = new Set<(cam: string) => void>();
+  const reconnectListeners = new Set<() => void>();
   let source: EventSourceLike;
   let missed = false; // disconnected since the last open: pages reload once back
   let reopenMs = REOPEN_MIN_MS;
@@ -97,6 +100,7 @@ export function createEventStream(opts: { url?: string; factory?: (url: string) 
       reopenMs = REOPEN_MIN_MS;
       if (missed) {
         for (const w of watchers) w.fire();
+        for (const fn of reconnectListeners) fn();
         // A camera renamed meanwhile: its name comes with the list.
         (opts.onCameras ?? reloadCameras)();
       }
@@ -198,6 +202,10 @@ export function createEventStream(opts: { url?: string; factory?: (url: string) 
       ptzListeners.add(fn);
       return () => ptzListeners.delete(fn);
     },
+    onReconnect(fn) {
+      reconnectListeners.add(fn);
+      return () => reconnectListeners.delete(fn);
+    },
     close() {
       closed = true;
       clearTimeout(reopenTimer);
@@ -208,6 +216,7 @@ export function createEventStream(opts: { url?: string; factory?: (url: string) 
       changeListeners.clear();
       archiveListeners.clear();
       ptzListeners.clear();
+      reconnectListeners.clear();
     },
   };
 }

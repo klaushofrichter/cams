@@ -9,11 +9,16 @@ import PtzPanel from './PtzPanel.svelte';
 import type { PtzCapabilities, PtzPosition } from '../lib/ptz';
 
 const ptzListeners = new Set<(cam: string) => void>();
+const reconnectListeners = new Set<() => void>();
 vi.mock('../lib/eventStream', () => ({
   eventStream: () => ({
     onPtzPositions: (fn: (cam: string) => void) => {
       ptzListeners.add(fn);
       return () => ptzListeners.delete(fn);
+    },
+    onReconnect: (fn: () => void) => {
+      reconnectListeners.add(fn);
+      return () => reconnectListeners.delete(fn);
     },
   }),
 }));
@@ -75,6 +80,7 @@ beforeEach(() => {
   localStorage.clear();
   localStorage.setItem('cams-ptz-open', '1');
   ptzListeners.clear();
+  reconnectListeners.clear();
   calls = [];
   max = 20;
   hold = null;
@@ -338,6 +344,40 @@ describe('PtzPanel positions', () => {
     for (const fn of ptzListeners) fn('den');
     await vi.advanceTimersByTimeAsync(400);
     expect(gets()).toBe(2);
+  });
+
+  it('reloads after the event stream reconnects (messages may have been missed)', async () => {
+    await render();
+    list.push(pos(4, 'Shed', { order: 3, home: false }));
+    expect(reconnectListeners.size).toBe(1);
+    for (const fn of reconnectListeners) fn();
+    await vi.advanceTimersByTimeAsync(400);
+    await settle();
+    expect(calls.filter((c) => c.method === 'GET')).toHaveLength(2);
+    expect(names()).toEqual(['Gate', 'Door', 'Drive', 'Shed']);
+  });
+
+  it('ignores a drop while another change is under way', async () => {
+    await render();
+    let release!: () => void;
+    const gate = new Promise<void>((r) => (release = r));
+    vi.stubGlobal('fetch', vi.fn(async (url: string, init: RequestInit = {}) => (init.method === 'POST' ? (await gate, backend(url, init)) : backend(url, init))));
+    q('ptz-go', row('pos_2'))!.click(); // busy until the go answers
+    flushSync();
+    const dt = { setData: vi.fn(), getData: vi.fn(), effectAllowed: '', dropEffect: '' };
+    const drag = (el: Element, t: string) => {
+      const e = new Event(t, { bubbles: true, cancelable: true });
+      Object.assign(e, { dataTransfer: dt });
+      el.dispatchEvent(e);
+    };
+    drag(q('ptz-grip', row('pos_3'))!, 'dragstart');
+    drag(row('pos_1'), 'dragover');
+    drag(row('pos_1'), 'drop');
+    flushSync();
+    expect(names()).toEqual(['Gate', 'Door', 'Drive']);
+    release();
+    await settle();
+    expect(writes().map((c) => c.method)).toEqual(['POST']);
   });
 
   it('keeps the rows on screen while reloading (no flicker)', async () => {

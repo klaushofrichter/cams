@@ -75,7 +75,10 @@ function nameOf(v: unknown): string | null {
   if (typeof v !== 'string') return null;
   const name = v.trim();
   const n = [...name].length;
-  return n >= 1 && n <= NAME_MAX && !/\p{C}/u.test(name) ? name : null;
+  // cam-proxy's class (src/ptz/positions.ts): C0, DEL and C1 only, so format
+  // characters such as an emoji's zero-width joiner stay allowed.
+  // eslint-disable-next-line no-control-regex
+  return n >= 1 && n <= NAME_MAX && !/[\u0000-\u001f\u007f-\u009f]/.test(name) ? name : null;
 }
 const NAME_RULE = `name must be 1 to ${NAME_MAX} characters, without control characters`;
 

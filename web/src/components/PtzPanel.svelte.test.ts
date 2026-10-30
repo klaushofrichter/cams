@@ -195,6 +195,18 @@ describe('PtzPanel', () => {
     expect(moves()).toHaveLength(2);
   });
 
+  it('collapsing the panel mid-hold stops the camera and the repeats', async () => {
+    render();
+    open();
+    down(q('ptz-dir-left')!);
+    await vi.advanceTimersByTimeAsync(300);
+    q('ptz-toggle')!.click();
+    flushSync();
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(stops()).toHaveLength(1);
+    expect(moves()).toHaveLength(2);
+  });
+
   it('zoom + held sends zoom in, then stop', async () => {
     render();
     open();

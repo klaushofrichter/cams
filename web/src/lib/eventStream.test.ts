@@ -96,6 +96,18 @@ describe('createEventStream', () => {
     expect(got).toHaveBeenCalledTimes(1);
   });
 
+  it('calls onReconnect listeners when the stream is back after a gap, not on the first open', () => {
+    const s = make();
+    const got = vi.fn();
+    s.onReconnect(got);
+    FakeSource.last.open();
+    expect(got).not.toHaveBeenCalled();
+    FakeSource.last.onerror?.();
+    FakeSource.last.open();
+    expect(got).toHaveBeenCalledTimes(1);
+    s.close();
+  });
+
   it('tells watchers about changes for their camera, debounced', () => {
     vi.useFakeTimers();
     const s = make();

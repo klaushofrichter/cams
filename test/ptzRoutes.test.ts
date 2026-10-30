@@ -145,6 +145,11 @@ describe('saved positions pass-through', () => {
     expect((await req('get', 'den', '/ptz/positions')).body).toEqual({ max: 20, positions: [] });
   });
 
+  it('accepts a name with an emoji sequence (format characters such as U+200D are not control characters)', async () => {
+    const r = await req('post', 'den', '/ptz/positions', { name: '\u{1F469}\u200D\u{1F4BB} Desk' });
+    expect([r.status, r.body.name]).toEqual([201, '\u{1F469}\u200D\u{1F4BB} Desk']);
+  });
+
   it.each([
     ['post', '/ptz/positions', { name: '   ' }],
     ['post', '/ptz/positions', { name: 'x'.repeat(41) }],

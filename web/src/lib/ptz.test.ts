@@ -16,6 +16,8 @@ describe('position names', () => {
     expect(checkPositionName(' gate ', [pos('a', 'Gate')])).toBe('Another position already has that name.');
     expect(checkPositionName('Gate', [pos('a', 'Gate')], 'a')).toBeNull();
     expect(checkPositionName('x'.repeat(40), [])).toBeNull();
+    expect(checkPositionName('\u{1F469}\u200D\u{1F4BB} Desk', [])).toBeNull();
+    expect(checkPositionName('a\u0007b', [])).toBe("Names can't contain control characters.");
   });
 });
 

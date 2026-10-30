@@ -27,6 +27,7 @@ export function createHold(o: { start(durationMs: number): Promise<void>; stop()
     clearInterval(repeat);
     first = repeat = undefined;
   };
+  // A stop that overtakes the last move on the way is bounded by that move's 600 ms lease.
   const stop = () => void o.stop().catch((e: unknown) => o.onError(e));
   // Ends the press; stops the camera when asked to.
   const end = (sendStop: boolean) => {
