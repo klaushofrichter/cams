@@ -1,6 +1,7 @@
 import { type Page } from '@playwright/test';
 import { expect, test } from './clock';
 import { signIn } from './session';
+import { chicagoMs } from './fakeProxyData';
 
 // Video page stage 2 (spec docs/superpowers/specs/2026-10-04-video-page-design.md):
 // hours more than 6 h from the viewed time collapse when the viewer lands on
@@ -56,7 +57,10 @@ test('a landing collapses far hours; dragging does not; a day pick does; hand to
 
   // A day pick is a landing at its first event (00:00), and forgets the toggles.
   await page.getByTestId('day-next').click(); // today, a day with recordings
-  await expect.poll(() => openHours(page)).toEqual(range(0, 6));
+  // 6 h after 00:00 is 06:00, or 05:00/07:00 on a DST change day.
+  const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Chicago' }).format(new Date());
+  const sixHoursOn = Number(new Intl.DateTimeFormat('en-US', { timeZone: 'America/Chicago', hour: 'numeric', hourCycle: 'h23' }).format(chicagoMs(today, '00:00:00') + 6 * 3_600_000));
+  await expect.poll(() => openHours(page)).toEqual(range(0, sixHoursOn));
 });
 
 test('thumbnails load near the screen only, more as the list scrolls', async ({ page }, testInfo) => {
