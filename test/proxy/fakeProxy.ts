@@ -14,6 +14,7 @@ import { tmpdir } from 'os';
 import { join } from 'path';
 import { cameraNameProblem } from '../../server/cameraName';
 import { generateMaxS } from '../../server/clipLimits';
+import { validateDetectionPatch, validateImagePatch } from '../../server/reolink/settings';
 import { installFakeArchive, type FakeArchive } from './fakeArchive';
 
 // cam-proxy's own wording of a length (src/compose/plan.ts there), not cams's.
@@ -127,6 +128,11 @@ export interface FakeProxy {
   features: string[] | null; // `features` on every /api/cameras item; null: a cam-proxy from before multi-camera P1 (no field, ?cam= is one whole id)
   cameraSettings: Map<string, { detection: Record<string, unknown>; image: Record<string, unknown> }>; // proxy camera id → its settings (absent: fakeSettings())
   cameraLight: Map<string, boolean>; // proxy camera id → its light (absent: off)
+  settingsAnswer: { status: number; body: unknown } | null; // tests: PUT /settings/:section answers this (after its checks)
+  lightIgnore: boolean; // tests: PUT /light answers 502 not_applied (the camera ignored it)
+  reboots: string[]; // proxy camera ids rebooted (POST /api/cameras/:cam/reboot)
+  rebootConfirmed: boolean; // the reboot's 202 {confirmed}
+  rebootCooldown: boolean; // a second reboot within the fake's life answers 429 too_soon
   cameraStatus: Map<string, unknown>; // proxy camera id → its GET /api/cameras/:cam/status answer (absent: fakeStatus(); camera-calls)
   streamConnections(): number;
   push(m: Omit<FakeMessage, 'id' | 'ts'> & { ts?: number }): FakeMessage;
@@ -229,6 +235,11 @@ export async function startFakeProxy(opts: { port?: number; token?: string; tls?
     cameraStatus: new Map(),
     cameraSettings: new Map(),
     cameraLight: new Map(),
+    settingsAnswer: null,
+    lightIgnore: false,
+    reboots: [],
+    rebootConfirmed: true,
+    rebootCooldown: true,
     checkDelayMs: 0,
     checkCalls: 0,
     caPem: null,
@@ -272,9 +283,16 @@ export async function startFakeProxy(opts: { port?: number; token?: string; tls?
       if (req.get('authorization') !== `Bearer ${FAKE_ADMIN_TOKEN}`) return void res.status(req.get('authorization') ? 403 : 401).json({ error: 'unauthorized' });
       return next();
     }
-    if (req.get('authorization') !== `Bearer ${fake.token}`) return void res.status(401).json({ error: 'unauthorized' });
+    // An admin-kind token (cams's managed admin) reads as a client does; camera-changing routes take only it (adminOnly).
+    if (req.get('authorization') !== `Bearer ${fake.token}` && req.get('authorization') !== `Bearer ${FAKE_ADMIN_TOKEN}`) return void res.status(401).json({ error: 'unauthorized' });
     next();
   });
+  // cam-proxy's camera-changing routes for clients (camera-calls): a client token answers 403 admin_only.
+  const adminOnly = (req: express.Request, res: Response): boolean => {
+    if (req.get('authorization') === `Bearer ${FAKE_ADMIN_TOKEN}`) return false;
+    res.status(403).json({ error: 'admin_only' });
+    return true;
+  };
   app.get('/health', (_req, res) => void res.json({ ok: true, version: 'fake' }));
   app.get('/tls/ca.pem', (_req, res) => {
     if (fake.caPemEndless) {
@@ -293,8 +311,7 @@ export async function startFakeProxy(opts: { port?: number; token?: string; tls?
   // The camera's name (cam-proxy, design camera-name-design.md "API
   // contract"): checked with the camera's rules, written, read back; a change
   // is one `camera` stream message {cam, name}.
-  app.put('/control/camera/name', express.json(), (req, res) => {
-    const cam = 'cam1'; // a real cam-proxy serves one camera
+  const putName = (cam: string, req: express.Request, res: Response) => {
     const name = (req.body as { name?: unknown } | undefined)?.name;
     fake.nameRequests.push({ cam, name });
     const problem = cameraNameProblem(name);
@@ -305,6 +322,12 @@ export async function startFakeProxy(opts: { port?: number; token?: string; tls?
       fake.push({ cam, type: 'camera', data: { name } });
     }
     res.json({ name: fake.cameraNames.get(cam) });
+  };
+  app.put('/control/camera/name', express.json(), (req, res) => putName('cam1', req, res)); // the legacy route: a one-camera proxy's camera
+  app.put('/control/cameras/:cam/name', express.json(), (req, res) => {
+    const cam = String(req.params.cam);
+    if (!fake.cameraNames.has(cam)) return void res.status(404).json({ error: 'not_found' });
+    putName(cam, req, res);
   });
 
   // Camera status for clients (camera-calls): what fake.cameraStatus holds, else fakeStatus().
@@ -331,6 +354,44 @@ export async function startFakeProxy(opts: { port?: number; token?: string; tls?
     const cam = String(req.params.cam);
     if (cameraDown(cam, res)) return;
     res.json(fake.cameraSettings.get(cam) ?? fakeSettings());
+  });
+  const merge = (a: Record<string, unknown>, b: Record<string, unknown>): Record<string, unknown> => {
+    const out = { ...a };
+    for (const [k, v] of Object.entries(b)) out[k] = v && typeof v === 'object' && !Array.isArray(v) && a[k] && typeof a[k] === 'object' ? merge(a[k] as Record<string, unknown>, v as Record<string, unknown>) : v;
+    return out;
+  };
+  app.put('/api/cameras/:cam/settings/:section', express.json(), (req, res) => {
+    if (adminOnly(req, res)) return;
+    const cam = String(req.params.cam), section = String(req.params.section);
+    if (section !== 'detection' && section !== 'image') return void res.status(404).json({ error: 'not_found' });
+    const v = section === 'detection' ? validateDetectionPatch(req.body) : validateImagePatch(req.body);
+    if (!v.ok) return void res.status(400).json({ error: 'invalid', details: v.details });
+    if (cameraDown(cam, res)) return;
+    if (fake.settingsAnswer) return void res.status(fake.settingsAnswer.status).json(fake.settingsAnswer.body);
+    const all = fake.cameraSettings.get(cam) ?? fakeSettings();
+    all[section] = merge(all[section], v.patch as Record<string, unknown>);
+    fake.cameraSettings.set(cam, all);
+    res.json({ fields: Object.fromEntries(Object.keys(v.patch).map((f) => [f, { ok: true }])), settings: all[section] });
+  });
+  app.put('/api/cameras/:cam/light', express.json(), (req, res) => {
+    if (adminOnly(req, res)) return;
+    const cam = String(req.params.cam);
+    const b = req.body as Record<string, unknown> | undefined;
+    if (!b || typeof b !== 'object' || Object.keys(b).length !== 1 || typeof b.on !== 'boolean') return void res.status(400).json({ error: 'invalid', detail: 'body: {on: boolean}' });
+    if (cameraDown(cam, res)) return;
+    if (fake.lightIgnore) return void res.status(502).json({ error: 'not_applied', on: fake.cameraLight.get(cam) ?? false });
+    fake.cameraLight.set(cam, b.on);
+    res.json({ on: b.on });
+  });
+  app.post('/api/cameras/:cam/reboot', express.json(), (req, res) => {
+    if (adminOnly(req, res)) return;
+    const cam = String(req.params.cam);
+    const b = req.body as Record<string, unknown> | undefined;
+    if (!b || Object.keys(b).length !== 1 || b.confirm !== 'reboot') return void res.status(400).json({ error: 'invalid', detail: "body: {confirm: 'reboot'}" });
+    if (cameraDown(cam, res)) return;
+    if (fake.rebootCooldown && fake.reboots.includes(cam)) return void res.status(429).set('Retry-After', '100').json({ error: 'too_soon', detail: 'the camera was rebooted or power-cycled less than 2 minutes ago; try again in 100 s' });
+    fake.reboots.push(cam);
+    res.status(202).json({ confirmed: fake.rebootConfirmed });
   });
   app.get('/api/cameras/:cam/light', (req, res) => {
     const cam = String(req.params.cam);
