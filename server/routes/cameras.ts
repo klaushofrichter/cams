@@ -258,6 +258,18 @@ camerasRouter.post('/api/cameras/:id/trust', async (req: Request, res: Response,
       done('fingerprint_changed');
       return void res.status(409).json({ error: 'fingerprint_changed', fingerprint: typeof body.served === 'string' && PROXY_FINGERPRINT.test(body.served) ? body.served : null });
     }
+    if (up.status === 429) {
+      done('rate_limited');
+      const ra = up.headers.get('retry-after');
+      const s = ra && /^\d{1,6}$/.test(ra) ? Number(ra) : null;
+      if (s !== null) res.setHeader('Retry-After', String(s));
+      const code = typeof body?.error === 'string' && /^[a-z_]{1,64}$/.test(body.error) ? body.error : 'rate_limited';
+      return void res.status(429).json({ error: code, ...(s !== null && { retryAfterS: s }) });
+    }
+    if (up.status === 400) {
+      done('invalid');
+      return void res.status(400).json({ error: 'invalid' });
+    }
     if (up.status === 503) {
       done('camera_offline');
       return void res.status(503).json({ error: 'camera_offline' });

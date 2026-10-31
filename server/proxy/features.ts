@@ -1,7 +1,6 @@
 import { EventEmitter } from 'events';
 import { createHash } from 'crypto';
 import { readFileSync, promises as fs } from 'fs';
-import { tmpdir } from 'os';
 import { dirname, join } from 'path';
 import { logger } from '../logger';
 import { fleetCamera, fleetCameras, type CamKey } from '../fleet';
@@ -17,9 +16,16 @@ import { credentialsWritable, hasCameraPassword, loadCredentials, removeCameraPa
 
 export const CAMERA_CALLS = 'camera-calls';
 
-export const proxyFeaturesFile = (): string =>
-  process.env.PROXY_FEATURES_FILE ||
-  (process.env.PREFS_FILE ? join(dirname(process.env.PREFS_FILE), 'proxy-features.json') : join(tmpdir(), 'cams-proxy-features.json'));
+// null: neither is set (kept in memory only; a start with proxied cameras refuses, checkProxyFeaturesStore).
+export const proxyFeaturesFile = (): string | null =>
+  process.env.PROXY_FEATURES_FILE || (process.env.PREFS_FILE ? join(dirname(process.env.PREFS_FILE), 'proxy-features.json') : null);
+
+// No temp-folder fallback: a lost switch would send cams back to direct
+// calls without passwords. Cameras with a proxy need a place for it.
+export function checkProxyFeaturesStore(): void {
+  if (proxyFeaturesFile() !== null) return;
+  if (fleetCameras().some((c) => c.proxy)) throw new Error('cameras with a cam-proxy need PROXY_FEATURES_FILE or PREFS_FILE (where cams keeps which proxies take camera calls)');
+}
 
 interface Entry { features: string[]; at: number }
 interface FileShape { v: 1; proxies: Record<string, Entry> }
@@ -43,9 +49,11 @@ const validEntry = (v: unknown): v is Entry =>
 // until its proxy's list is read).
 export function loadProxyFeatures(): void {
   state = { v: 1, proxies: {} };
+  const f = proxyFeaturesFile();
+  if (!f) return;
   let text: string;
   try {
-    text = readFileSync(proxyFeaturesFile(), 'utf8');
+    text = readFileSync(f, 'utf8');
   } catch (err) {
     if ((err as NodeJS.ErrnoException).code !== 'ENOENT') logger.warn({ message: (err as Error).message }, 'proxy_features_unreadable');
     return;
@@ -73,6 +81,7 @@ function featuresOf(list: unknown): string[] {
 
 async function write(next: FileShape): Promise<void> {
   const target = proxyFeaturesFile();
+  if (!target) return; // in memory only
   await fs.mkdir(dirname(target), { recursive: true });
   const tmp = `${target}.${process.pid}.tmp`;
   await fs.writeFile(tmp, JSON.stringify(next));

@@ -156,6 +156,8 @@ export class ReolinkClient {
   }
 
   private async login(): Promise<string> {
+    // Never an empty password at a camera (a lockout risk, and never right).
+    if (!this.cam.password) throw new CameraError('camera_credentials_missing', 'no password for the camera here');
     const reply = await this.post('Login', {
       User: { Version: '0', userName: this.cam.user, password: this.cam.password },
     });

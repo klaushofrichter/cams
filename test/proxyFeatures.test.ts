@@ -102,7 +102,7 @@ describe('per-proxy switch', () => {
     fake.features = [CAMERA_CALLS];
     await readProxyList(k('den'), 3000, { maxAgeMs: 0 });
     await expect.poll(() => throughProxy(k('den'))).toBe(true);
-    const text = await fs.readFile(proxyFeaturesFile(), 'utf8');
+    const text = await fs.readFile(proxyFeaturesFile()!, 'utf8');
     expect(text).not.toContain(FAKE_TOKEN);
     expect(text).not.toContain('127.0.0.1');
     expect(JSON.parse(text)).toMatchObject({ v: 1 });

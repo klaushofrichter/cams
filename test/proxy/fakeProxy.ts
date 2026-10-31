@@ -137,7 +137,7 @@ export interface FakeProxy {
   rebootCooldown: boolean; // a second reboot within the fake's life answers 429 too_soon
   passwordAnswer: { status: number; body: unknown; retryAfter?: string } | null; // tests: PUT /control/cameras/:cam/password answers this (default 200, saved)
   passwordRequests: { cam: string; auth: string | undefined; hasPassword: boolean }[]; // never the value
-  trustAnswer: { status: number; body: unknown } | null; // tests: camera-trust-pin answers this (default: pins when the fingerprint is the served one)
+  trustAnswer: { status: number; body: unknown; retryAfter?: string } | null; // tests: camera-trust-pin answers this (default: pins when the fingerprint is the served one)
   trustRequests: { cam: string; auth: string | undefined; fingerprint: unknown }[];
   liveRefusal: string | null; // tests: the live socket answers {"type":"error","value":<this>} and closes 1013 instead of the stream
   liveRequests: { cam: string; auth: string | undefined; query: Record<string, string> }[]; // live WebSocket upgrades asked for
@@ -374,7 +374,10 @@ export async function startFakeProxy(opts: { port?: number; token?: string; tls?
     const fingerprint = (req.body as { fingerprint?: unknown } | undefined)?.fingerprint;
     fake.trustRequests.push({ cam, auth: req.get('authorization'), fingerprint });
     if (typeof fingerprint !== 'string' || !/^SHA256:[0-9A-F]{64}$/.test(fingerprint)) return void res.status(400).json({ error: 'invalid' });
-    if (fake.trustAnswer) return void res.status(fake.trustAnswer.status).json(fake.trustAnswer.body);
+    if (fake.trustAnswer) {
+      if (fake.trustAnswer.retryAfter) res.set('Retry-After', fake.trustAnswer.retryAfter);
+      return void res.status(fake.trustAnswer.status).json(fake.trustAnswer.body);
+    }
     const served = ((fake.cameraStatus.get(cam) as { tls?: { served?: unknown } } | undefined)?.tls?.served ?? null) as string | null;
     if (served !== fingerprint) return void res.status(409).json({ error: 'fingerprint_mismatch', detail: 'the camera serves another certificate than the one confirmed', served });
     fixed(cam);

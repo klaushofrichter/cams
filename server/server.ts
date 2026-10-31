@@ -6,7 +6,7 @@ import { startConfig, stopConfig } from './configSource';
 import { fleetEvents } from './fleet';
 import { onFleetApplied } from './fleetApply';
 import { startProxyStreams, stopProxyStreams } from './proxy/stream';
-import { cleanupProxiedPasswords, featureEvents, loadProxyFeatures } from './proxy/features';
+import { checkProxyFeaturesStore, cleanupProxiedPasswords, featureEvents, loadProxyFeatures } from './proxy/features';
 import { reapplyConfig } from './configSource';
 import { resetClients } from './reolink/clients';
 
@@ -16,6 +16,7 @@ async function main(): Promise<void> {
   // Which proxies take camera calls (the per-proxy switch), before the fleet is built.
   loadProxyFeatures();
   await startConfig();
+  checkProxyFeaturesStore();
   // A proxy started or stopped announcing camera calls: the fleet again
   // (passwords, camera trust) and no direct client kept.
   featureEvents.on('through', () => {

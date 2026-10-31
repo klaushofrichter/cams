@@ -94,6 +94,9 @@ export async function readProxyStatus(id: CamKey, o: { signal?: AbortSignal; tim
   const raw = await requireProxyClient(id).json<unknown>(proxyPath(id, '/status'), undefined, { ...(o.timeoutMs !== undefined && { timeoutMs: o.timeoutMs }), ...(o.signal && { signal: o.signal }) });
   const s = parseProxyStatus(raw);
   if (!s) throw new ProxyError('proxy_error', 'cam-proxy sent a status cams cannot read');
+  // Another zone or DST rule than the cached one: the new one at once.
+  const hit = times.get(id);
+  if (s.time && hit && JSON.stringify(hit.value) !== JSON.stringify(s.time)) times.set(id, { at: Date.now(), value: s.time });
   return s;
 }
 
@@ -104,8 +107,9 @@ export function proxyAdminClient(id: CamKey): ProxyClient {
   return new ProxyClient({ url: proxy.url, token: proxy.adminToken }, { timeoutMs: 20_000, ...groupTrustOptions(id) });
 }
 
-// The camera's time and zone from its proxy, cached an hour; callers at once share one read.
-const TIME_MS = 3_600_000;
+// The camera's time and zone from its proxy, cached 10 minutes (and replaced
+// whenever a status read shows another); callers at once share one read.
+const TIME_MS = 600_000;
 const times = new Map<CamKey, { at: number; value: TimeInfo }>();
 const pending = new Map<CamKey, Promise<TimeInfo>>();
 export function proxyTimeInfo(id: CamKey): Promise<TimeInfo> {
