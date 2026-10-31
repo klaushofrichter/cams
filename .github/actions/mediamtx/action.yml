@@ -1,0 +1,31 @@
+name: mediamtx
+description: >-
+  MediaMTX on PATH (a GitHub release, checksum-verified, cached): cam-sim
+  serves RTSP only with it ("rtsp_unavailable_no_mediamtx" otherwise), and the
+  real cam-proxy's go2rtc (stills, live video for cams) reads the sims' RTSP.
+  The version cam-sim's scripts/install-mediamtx.sh pins.
+inputs:
+  version:
+    default: v1.21.1
+runs:
+  using: composite
+  steps:
+    - uses: actions/cache@v6
+      with:
+        path: ~/mediamtx
+        key: mediamtx-${{ inputs.version }}-linux-amd64
+    - shell: bash
+      env:
+        V: ${{ inputs.version }}
+      run: |
+        D="$HOME/mediamtx"
+        if [ ! -x "$D/mediamtx" ]; then
+          U="https://github.com/bluenviron/mediamtx/releases/download/$V"
+          F="mediamtx_${V}_linux_amd64.tar.gz"
+          cd "$RUNNER_TEMP"
+          curl -fsSL --retry 5 --retry-all-errors --max-time 300 -O "$U/$F" -O "$U/checksums.sha256"
+          grep "[ *]$F\$" checksums.sha256 | sha256sum -c -
+          mkdir -p "$D" && tar -xzf "$F" -C "$D" mediamtx
+        fi
+        echo "$D" >> "$GITHUB_PATH"
+        "$D/mediamtx" --version
