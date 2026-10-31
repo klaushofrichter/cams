@@ -1,5 +1,6 @@
 <script lang="ts">
   import Icon from './Icon.svelte';
+  import OfflineFix from './OfflineFix.svelte';
   import { openProxyClick } from '../lib/proxyLink';
   import { showsAdminControls } from '../lib/session';
   import { cameraById, me } from '../lib/stores';
@@ -59,6 +60,7 @@
       <strong>{name} is offline.</strong>
       <span data-testid="offline-reason">{offlineReason(status.error)}</span>
       {#if status.offlineSince}<span class="meta" data-testid="live-offline-since">Offline since {formatClock(new Date(status.offlineSince).toISOString())} · {timeAgo(status.offlineSince, nowMs)}</span>{/if}
+      {#if status.fix}<OfflineFix {cameraId} fix={status.fix} />{/if}
       <button data-testid="retry" disabled={$liveUi.checking} onclick={() => checkLiveStatus(cameraId)}>
         <Icon name="refresh" size={16} /> {$liveUi.checking ? 'Checking…' : 'Retry'}
       </button>

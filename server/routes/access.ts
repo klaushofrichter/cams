@@ -108,6 +108,7 @@ export const ACCESS: Readonly<Record<string, Need>> = {
   'DELETE /api/archive/:via/items/:id': 'admin',
   'POST /api/archive/:via/delete': 'admin',
   'PUT /api/cameras/:id/credentials': 'admin',
+  'POST /api/cameras/:id/trust': 'admin',
   'GET /api/admin/held': 'admin',
   'POST /api/admin/held/confirm': 'admin',
   'POST /api/admin/held/keep': 'admin',

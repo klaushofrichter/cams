@@ -8,7 +8,10 @@ import { plausibleName } from '../proxy/names';
 import { badRequest, knownCamera, outId, sendCameraError, viaProxyFailed } from './common';
 import { LIVE_CODECS, openProxyLive, type ProxyLive } from '../proxy/live';
 import { throughProxy } from '../proxy/features';
-import { readProxyStatus, type ProxyCameraStatus } from '../proxy/cameraCalls';
+import { PROXY_FINGERPRINT, proxyAdminClient, readProxyStatus, type ProxyCameraStatus } from '../proxy/cameraCalls';
+import { currentUser } from '../middleware/requireAuth';
+import { readJson } from './common';
+import { proxyCameraId } from '../proxy/client';
 import { getCamera } from '../cameraRegistry';
 import { ProxyError, proxyPath, requireProxyClient } from '../proxy/client';
 import { nodeBody } from '../httpBody';
@@ -223,5 +226,51 @@ camerasRouter.get('/api/cameras/:id/live', async (req: Request, res: Response, n
     sendCameraError(err, id, res, next);
   } finally {
     release();
+  }
+});
+
+// "Trust this camera's certificate" (spec §6.2, §10.2): the fingerprint the
+// proxy measured, shown in the dialog, pinned by the proxy with the
+// proxy-admin token. cams reads the proxy's status again first; the proxy
+// checks once more against what the camera serves (the last word).
+camerasRouter.post('/api/cameras/:id/trust', async (req: Request, res: Response, next: NextFunction) => {
+  const id = knownCamera(req, res);
+  if (!id) return;
+  if (!throughProxy(id)) return void res.status(404).json({ error: 'not_through_proxy' });
+  const fingerprint = (req.body as { fingerprint?: unknown } | undefined)?.fingerprint;
+  if (typeof fingerprint !== 'string' || !PROXY_FINGERPRINT.test(fingerprint)) return badRequest(res, 'fingerprint: SHA256: and 64 upper-case hex digits, as the proxy reported it');
+  const by = currentUser(req)?.email;
+  const done = (outcome: string) => logger.info({ cameraId: id, outcome, by }, 'camera_trust_relayed');
+  try {
+    const admin = proxyAdminClient(id);
+    const served = (await readProxyStatus(id, { timeoutMs: 10_000 })).tls.served;
+    if (served !== fingerprint) {
+      done('fingerprint_changed');
+      return void res.status(409).json({ error: 'fingerprint_changed', fingerprint: served });
+    }
+    const up = await admin.open(`/control/cameras/${encodeURIComponent(proxyCameraId(id))}/actions/camera-trust-pin`, undefined, { method: 'POST', body: JSON.stringify({ fingerprint }), timeoutMs: 20_000 });
+    const body = (await readJson(up)) as { error?: unknown; served?: unknown } | null;
+    if (up.ok) {
+      done('pinned');
+      return void res.json({ mode: 'pinned' });
+    }
+    if (up.status === 409 && body?.error === 'fingerprint_mismatch') {
+      done('fingerprint_changed');
+      return void res.status(409).json({ error: 'fingerprint_changed', fingerprint: typeof body.served === 'string' && PROXY_FINGERPRINT.test(body.served) ? body.served : null });
+    }
+    if (up.status === 503) {
+      done('camera_offline');
+      return void res.status(503).json({ error: 'camera_offline' });
+    }
+    if (up.status === 409 && body?.error === 'not_available') {
+      done('not_available');
+      return void res.status(409).json({ error: 'not_available' });
+    }
+    done('proxy_error');
+    logger.warn({ cameraId: id, status: up.status }, 'camera_trust_relay_failed');
+    res.status(502).json({ error: 'proxy_unavailable' });
+  } catch (err) {
+    done('proxy_unavailable');
+    viaProxyFailed(err, id, res, next);
   }
 });

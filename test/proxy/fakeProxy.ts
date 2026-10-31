@@ -135,6 +135,10 @@ export interface FakeProxy {
   reboots: string[]; // proxy camera ids rebooted (POST /api/cameras/:cam/reboot)
   rebootConfirmed: boolean; // the reboot's 202 {confirmed}
   rebootCooldown: boolean; // a second reboot within the fake's life answers 429 too_soon
+  passwordAnswer: { status: number; body: unknown; retryAfter?: string } | null; // tests: PUT /control/cameras/:cam/password answers this (default 200, saved)
+  passwordRequests: { cam: string; auth: string | undefined; hasPassword: boolean }[]; // never the value
+  trustAnswer: { status: number; body: unknown } | null; // tests: camera-trust-pin answers this (default: pins when the fingerprint is the served one)
+  trustRequests: { cam: string; auth: string | undefined; fingerprint: unknown }[];
   liveRefusal: string | null; // tests: the live socket answers {"type":"error","value":<this>} and closes 1013 instead of the stream
   liveRequests: { cam: string; auth: string | undefined; query: Record<string, string> }[]; // live WebSocket upgrades asked for
   liveOpen(): number; // live sockets open now
@@ -241,6 +245,10 @@ export async function startFakeProxy(opts: { port?: number; token?: string; tls?
     checkAnswers: new Map(),
     checkFailure: null,
     cameraStatus: new Map(),
+    passwordAnswer: null,
+    passwordRequests: [],
+    trustAnswer: null,
+    trustRequests: [],
     liveRefusal: null,
     liveRequests: [],
     liveOpen: () => [...liveSockets].filter((w) => w.readyState === w.OPEN).length,
@@ -341,7 +349,37 @@ export async function startFakeProxy(opts: { port?: number; token?: string; tls?
     }
     res.json({ name: fake.cameraNames.get(cam) });
   };
-  app.put('/control/camera/name', express.json(), (req, res) => putName('cam1', req, res)); // the legacy route: a one-camera proxy's camera
+  app.put('/control/camera/name', express.json(), (req, res) => putName('cam1', req, res));
+  // Part A's camera password and trust pin for managed admins (cam-proxy spec
+  // 2026-10-30-camera-onboarding-design §4.1, §4.4). A camera saved or pinned
+  // here is online again in its status.
+  const fixed = (cam: string) => {
+    if ((fake.cameraStatus.get(cam) as { online?: unknown } | undefined)?.online === false) fake.cameraStatus.delete(cam);
+  };
+  app.put('/control/cameras/:cam/password', express.json(), (req, res) => {
+    const cam = String(req.params.cam);
+    const password = (req.body as { password?: unknown } | undefined)?.password;
+    fake.passwordRequests.push({ cam, auth: req.get('authorization'), hasPassword: typeof password === 'string' && password.length > 0 });
+    if (!fake.cameraNames.has(cam)) return void res.status(404).json({ error: 'not_found' });
+    if (typeof password !== 'string' || !password) return void res.status(400).json({ error: 'invalid' });
+    if (fake.passwordAnswer) {
+      if (fake.passwordAnswer.retryAfter) res.set('Retry-After', fake.passwordAnswer.retryAfter);
+      return void res.status(fake.passwordAnswer.status).json(fake.passwordAnswer.body);
+    }
+    fixed(cam);
+    res.json({ credentials: { source: 'store', authOk: true, checkedAt: Date.now() } });
+  });
+  app.post('/control/cameras/:cam/actions/camera-trust-pin', express.json(), (req, res) => {
+    const cam = String(req.params.cam);
+    const fingerprint = (req.body as { fingerprint?: unknown } | undefined)?.fingerprint;
+    fake.trustRequests.push({ cam, auth: req.get('authorization'), fingerprint });
+    if (typeof fingerprint !== 'string' || !/^SHA256:[0-9A-F]{64}$/.test(fingerprint)) return void res.status(400).json({ error: 'invalid' });
+    if (fake.trustAnswer) return void res.status(fake.trustAnswer.status).json(fake.trustAnswer.body);
+    const served = ((fake.cameraStatus.get(cam) as { tls?: { served?: unknown } } | undefined)?.tls?.served ?? null) as string | null;
+    if (served !== fingerprint) return void res.status(409).json({ error: 'fingerprint_mismatch', detail: 'the camera serves another certificate than the one confirmed', served });
+    fixed(cam);
+    res.json({ mode: 'pinned', fingerprint, servername: null, notAfter: null, lastPush: null });
+  }); // the legacy route: a one-camera proxy's camera
   app.put('/control/cameras/:cam/name', express.json(), (req, res) => {
     const cam = String(req.params.cam);
     if (!fake.cameraNames.has(cam)) return void res.status(404).json({ error: 'not_found' });

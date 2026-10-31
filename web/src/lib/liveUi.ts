@@ -25,7 +25,11 @@ export interface CameraStatus {
   simulator?: string | null;
   streams?: { main: StreamInfo | null; sub: StreamInfo | null };
   offlineSince?: number; // when it was first found offline
+  via?: 'proxy'; // reached through its cam-proxy only
+  fix?: OfflineFixInfo; // a through-proxy camera that is offline: what an admin can do about it
 }
+// What cams can fix of a through-proxy camera that is offline (spec 2026-10-30 §6.2).
+export interface OfflineFixInfo { login: 'missing' | 'refused' | null; trust: { fingerprint: string } | null; canFix: boolean }
 export interface LiveUi {
   quality: Quality;
   muted: boolean;
