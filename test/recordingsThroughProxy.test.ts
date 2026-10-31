@@ -7,12 +7,10 @@ import { mkdtempSync, rmSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
 import { createApp } from '../server/app';
-import { ReolinkClient } from '../server/reolink/client';
-import { clipTimes, parseClipName } from '../server/recordings/clipNames';
 import { getRecordings, resetRecordings } from '../server/recordings/service';
 import { SESSION_COOKIE, signSession } from '../server/session';
-import { fakeStatus, type FakeRecording } from './proxy/fakeProxy';
-import { startThroughProxy, type ThroughProxy } from './helpers/throughProxy';
+import { fakeStatus } from './proxy/fakeProxy';
+import { seedThroughRecordings, startThroughProxy, type ThroughProxy } from './helpers/throughProxy';
 import { k } from './helpers/fleet';
 
 const auth = `${SESSION_COOKIE}=${signSession('klaus@klaushofrichter.net')}`;
@@ -22,31 +20,12 @@ let cacheDir: string;
 const workerCacheDir = process.env.CACHE_DIR;
 let base: { searches: number; downloads: number; logins: number };
 
-// The SD recordings the fake lists: what cam-sim holds for `date`, read with
-// a client of its own before any counting starts.
-async function seed(date: string): Promise<FakeRecording[]> {
-  const c = new ReolinkClient({ id: 'seed', name: 'seed', host: t.simHost, protocol: 'http', user: 'u', password: 'p' });
-  const time = await c.timeInfo();
-  const list: FakeRecording[] = [];
-  for (const stream of ['sub', 'main'] as const) {
-    for (const f of await c.searchDay(date, stream)) {
-      const p = parseClipName(f.name);
-      if (!p) continue;
-      const tt = clipTimes(p, time);
-      const id = f.name.slice(f.name.lastIndexOf('/') + 1);
-      list.push({ id, start: Date.parse(tt.start), end: Date.parse(tt.end), stream, body: Buffer.from(`sd ${stream} ${id} `.repeat(10)) });
-    }
-  }
-  t.fake.recordings.set('cam1', list);
-  return list;
-}
-
 beforeEach(async () => {
   cacheDir = mkdtempSync(join(tmpdir(), 'cams-through-rec-'));
   process.env.CACHE_DIR = cacheDir;
   t = await startThroughProxy();
   resetRecordings();
-  await seed(chicago(Date.now()));
+  await seedThroughRecordings(t, chicago(Date.now()));
   base = { searches: t.sim.searches, downloads: t.sim.downloads, logins: t.sim.loginAttempts };
 });
 afterEach(async () => {

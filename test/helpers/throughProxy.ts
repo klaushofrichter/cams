@@ -14,6 +14,9 @@ import { resetClients } from '../../server/reolink/clients';
 import { fileAccount } from '../../server/fleet';
 import { FAKE_ADMIN_TOKEN, FAKE_TOKEN, startFakeProxy, type FakeProxy } from '../proxy/fakeProxy';
 import { createSimCamera, type SimCameraOptions, type SimState } from '../camera/sim';
+import { ReolinkClient } from '../../server/reolink/client';
+import { clipTimes, parseClipName } from '../../server/recordings/clipNames';
+import type { FakeRecording } from '../proxy/fakeProxy';
 
 export interface ThroughProxy {
   fake: FakeProxy;
@@ -55,4 +58,24 @@ export async function startThroughProxy(o: { adminToken?: boolean; cameras?: [st
       loadProxyFeatures();
     },
   };
+}
+
+// The SD recordings the fake lists for `date`: what cam-sim holds, read with
+// a client of its own (not the fleet's: a through-proxy camera has none), so
+// read the sim's counters after this.
+export async function seedThroughRecordings(t: ThroughProxy, date: string, remote = 'cam1'): Promise<FakeRecording[]> {
+  const c = new ReolinkClient({ id: 'seed', name: 'seed', host: t.simHost, protocol: 'http', user: 'u', password: 'p' });
+  const time = await c.timeInfo();
+  const list: FakeRecording[] = [];
+  for (const stream of ['sub', 'main'] as const) {
+    for (const f of await c.searchDay(date, stream)) {
+      const p = parseClipName(f.name);
+      if (!p) continue;
+      const tt = clipTimes(p, time);
+      const id = f.name.slice(f.name.lastIndexOf('/') + 1);
+      list.push({ id, start: Date.parse(tt.start), end: Date.parse(tt.end), stream, body: Buffer.from(`sd ${stream} ${id} `.repeat(10)) });
+    }
+  }
+  t.fake.recordings.set(remote, list);
+  return list;
 }
