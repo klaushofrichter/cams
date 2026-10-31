@@ -125,6 +125,7 @@ export interface FakeProxy {
   ptzPositions: Map<string, FakePosition[]>; // proxy camera id → its saved positions (by order)
   capabilities: Map<string, unknown>; // proxy camera id → its `capabilities` in /api/cameras (absent: null, a camera never read)
   features: string[] | null; // `features` on every /api/cameras item; null: a cam-proxy from before multi-camera P1 (no field, ?cam= is one whole id)
+  cameraStatus: Map<string, unknown>; // proxy camera id → its GET /api/cameras/:cam/status answer (absent: fakeStatus(); camera-calls)
   streamConnections(): number;
   push(m: Omit<FakeMessage, 'id' | 'ts'> & { ts?: number }): FakeMessage;
   dropStreams(): void; // ends every open stream (a proxy restart)
@@ -138,6 +139,24 @@ export interface FakeComposition { state: 'queued' | 'running' | 'done'; progres
 
 export const FAKE_TOKEN = 'fake-proxy-client-token-'.padEnd(48, 'z');
 export const FAKE_ADMIN_TOKEN = 'fake-proxy-admin-token-'.padEnd(48, 'a');
+
+// cam-proxy's status of a camera (its plan 2026-10-31-camera-calls-for-cams
+// Task 1; every key always present): sim-like streams, an SD card, the US
+// DST rule at UTC-6, the password stored and working, plain http.
+export function fakeStatus(over: Record<string, unknown> = {}): Record<string, unknown> {
+  const now = Date.now();
+  return {
+    id: 'cam1', online: true, since: now - 60_000, checkedAt: now, error: null,
+    model: 'RLC-1224A', firmware: 'v3.1.0.4054_2408163232', hardware: 'IPC_NT1NA48MP', name: 'Den', simulator: 'cam-sim',
+    streams: { main: { codec: 'h265', width: 3840, height: 2160, fps: 20 }, sub: { codec: 'h264', width: 640, height: 360, fps: 15 } },
+    sd: { present: true, mounted: true, capacityMB: 120000, freeMB: 60000, checkedAt: now },
+    time: { clockOffsetMs: 0, stdOffsetMinutes: -360, dstOffsetMinutes: 60, dstRule: { startMon: 3, startWeek: 2, startWeekday: 0, startHour: 2, startMin: 0, endMon: 11, endWeek: 1, endWeekday: 0, endHour: 2, endMin: 0 } },
+    certificate: null,
+    credentials: { source: 'store', authOk: true, checkedAt: now },
+    tls: { mode: 'none', servername: null, fingerprint: null, notAfter: null, lastPush: null, served: null, problem: null },
+    ...over,
+  };
+}
 
 export const JPEG = Buffer.from([0xff, 0xd8, 0xff, 0xe0, 0, 0x10, 0x4a, 0x46, 0x49, 0x46, 0, 1, 0xff, 0xd9]);
 
@@ -197,6 +216,7 @@ export async function startFakeProxy(opts: { port?: number; token?: string; tls?
     analyticsStatus: null,
     checkAnswers: new Map(),
     checkFailure: null,
+    cameraStatus: new Map(),
     checkDelayMs: 0,
     checkCalls: 0,
     caPem: null,
@@ -273,6 +293,13 @@ export async function startFakeProxy(opts: { port?: number; token?: string; tls?
       fake.push({ cam, type: 'camera', data: { name } });
     }
     res.json({ name: fake.cameraNames.get(cam) });
+  });
+
+  // Camera status for clients (camera-calls): what fake.cameraStatus holds, else fakeStatus().
+  app.get('/api/cameras/:cam/status', (req, res) => {
+    const cam = String(req.params.cam);
+    if (!fake.cameraNames.has(cam) && !fake.cameraStatus.has(cam)) return void res.status(404).json({ error: 'not_found' });
+    res.json(fake.cameraStatus.get(cam) ?? fakeStatus({ id: cam, name: fake.cameraNames.get(cam) ?? cam }));
   });
 
   app.get('/api/stream', (req, res) => {

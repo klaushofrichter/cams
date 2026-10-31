@@ -105,6 +105,26 @@ export function timeInfoFromGetTime(value: unknown): TimeInfo {
   };
 }
 
+// cam-proxy's time block (its status `time`: {stdOffsetMinutes,
+// dstOffsetMinutes, dstRule: {startMon, startWeek, startWeekday, startHour,
+// startMin, endMon, …} | null}) as cams's TimeInfo. null for anything odd.
+export function timeInfoFromProxy(v: unknown): TimeInfo | null {
+  const t = v as { stdOffsetMinutes?: unknown; dstOffsetMinutes?: unknown; dstRule?: unknown } | null;
+  const minutes = (x: unknown): x is number => Number.isInteger(x) && Math.abs(x as number) <= 24 * 60;
+  if (!t || typeof t !== 'object' || !minutes(t.stdOffsetMinutes) || !minutes(t.dstOffsetMinutes)) return null;
+  const r = (t.dstRule ?? null) as Record<string, unknown> | null;
+  const edge = (k: 'start' | 'end'): DstEdge | null => {
+    const n = (f: string) => r?.[`${k}${f}`];
+    const e = { mon: n('Mon'), week: n('Week'), weekday: n('Weekday'), hour: n('Hour'), min: n('Min') ?? 0 };
+    const int = (x: unknown, lo: number, hi: number) => Number.isInteger(x) && (x as number) >= lo && (x as number) <= hi;
+    if (!int(e.mon, 1, 12) || !int(e.week, 1, 5) || !int(e.weekday, 0, 6) || !int(e.hour, 0, 23) || !int(e.min, 0, 59)) return null;
+    return { mon: e.mon as number, week: e.week as number, weekday: e.weekday as number, minutes: (e.hour as number) * 60 + (e.min as number) };
+  };
+  const start = r && typeof r === 'object' ? edge('start') : null;
+  const end = r && typeof r === 'object' ? edge('end') : null;
+  return { stdOffsetMinutes: t.stdOffsetMinutes, dstOffsetMinutes: t.dstOffsetMinutes, ...(t.dstOffsetMinutes && start && end ? { dstRule: { start, end } } : {}) };
+}
+
 // The day of month of a rule's edge in `year`: the week-th weekday of the
 // month, week 5 the last one.
 function edgeDay(year: number, e: DstEdge): number {

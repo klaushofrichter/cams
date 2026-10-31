@@ -11,7 +11,7 @@ import { groupOf, type ProxyGroup } from './groups';
 // Talks to a camera's cam-proxy with its client token (Bearer). The token
 // never leaves the server: errors and logs name the proxy's host only.
 
-export type ProxyErrorCode = 'proxy_unreachable' | 'proxy_unauthorized' | 'proxy_error' | 'proxy_unconfirmed';
+export type ProxyErrorCode = 'proxy_unreachable' | 'proxy_unauthorized' | 'proxy_error' | 'proxy_unconfirmed' | 'proxy_admin_missing';
 
 export class ProxyError extends Error {
   constructor(
