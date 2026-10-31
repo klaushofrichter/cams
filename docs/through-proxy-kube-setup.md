@@ -10,12 +10,15 @@ From the release with "cams through the proxy" (cams plan
 `docs/superpowers/specs/2026-10-30-camera-onboarding-design.md` §6, §8), a
 camera whose cam-proxy lists `camera-calls` is reached only through that
 proxy. cams holds no password for it and never calls it directly. The
-cluster's cams reads camera passwords from the `cams-camera-credentials`
-Secret (mounted read-only as `CAMERA_CREDENTIALS_FILE`); cams can't remove
+cluster's cams reads camera passwords from the `cams-cameras`
+Secret `cams-cameras` (key `cameras.json`, mounted read-only at `/etc/cams`; checked with the Cluster session 2026-10-31 — there is no separate credentials Secret); cams can't remove
 entries there, so it logs `camera_password_left {cameraId, reason:
 "read_only"}` once per such camera instead.
 
 ## Before the release: where cams keeps the per-proxy switch
+
+Checked 2026-10-31 (Cluster session): the cams ksvc sets `PREFS_FILE=/var/lib/cams/preferences.json` on the PVC `cams-data` (writable, Retain), so `proxy-features.json` lands at `/var/lib/cams/proxy-features.json`. Nothing to change.
+
 
 cams keeps which proxies take camera calls in `proxy-features.json` (no
 URLs, no tokens). It lives next to `PREFS_FILE` (the cams-data volume), or
@@ -33,8 +36,8 @@ release with `camera-calls`:
    for each camera, and Live plays for each (the live request answers
    `video/mp4`). cams's log has `camera_password_left` for exactly these
    cameras (`kubectl logs` of the cams pod, `msg` = `camera_password_left`).
-2. Remove those cameras' keys (`<account id>/<camsId>`) from the
-   `cams-camera-credentials` Secret. List the key names only, never the
+2. Remove those cameras' passwords from the `cams-cameras` Secret's
+   `cameras.json` (Klaus approves any change to a cams Secret). List the key names only, never the
    values (go-template over `.data`).
 3. Restart cams (or let the next deploy do it); `camera_password_left` no
    longer appears.
@@ -43,7 +46,7 @@ release with `camera-calls`:
 
 Once no camera of the cluster's cams is reached directly (every camera has a
 proxy with `camera-calls`, `GET /api/cameras` shows `throughProxy: true` for
-all), retire the `cams-camera-credentials` Secret and the
+all), retire the `cams-cameras` Secret and the
 `CAMERA_CREDENTIALS_FILE` env and mount from `manifests/cams/`.
 
 A camera without a proxy (or with an older one) still needs its password
