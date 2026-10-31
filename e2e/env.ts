@@ -67,8 +67,8 @@ export const E2E_TOKEN_ENV: Record<string, string> = {
 // `sse-cam-list` stream filter), or later. Bump both with cam-proxy releases: the
 // digest is the image index's (`docker buildx imagetools inspect <image>:<tag>`),
 // so a moved or replaced tag can't change what the e2e runs.
-export const CAM_PROXY_TAG = 'v2026.10.05.7';
-export const CAM_PROXY_DIGEST = 'sha256:54b2fddc82e899716b328bdb536906235261a544a50eff905a7cc655baa67c7e';
+export const CAM_PROXY_TAG = 'v2026.10.30.4';
+export const CAM_PROXY_DIGEST = 'sha256:292463bf98f407961975ac9402ca063b752165e022dfb225012c7c636cdf1c1c';
 export const CAM_PROXY_IMAGE = `ghcr.io/klaushofrichter/cam-proxy:${CAM_PROXY_TAG}@${CAM_PROXY_DIGEST}`;
 
 // The real cam-proxy for Silo and Loft (e2e/realProxy.ts). Test-only tokens. It runs
