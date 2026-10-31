@@ -8,5 +8,3 @@ published as [GitHub releases](https://github.com/klaushofrichter/cams/releases)
 
 ## [Unreleased]
 
-- Camera login: saving a password for a camera with no user name in cams-admin is refused with a message saying to set the camera user there. Before, cams saved an entry without a user, and its next start refused the whole credentials file (the Pi's cams on 2026-10-31).
-
