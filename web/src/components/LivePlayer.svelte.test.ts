@@ -94,3 +94,17 @@ describe('LivePlayer player choice', () => {
     }
   });
 });
+
+describe('LivePlayer without a playable format', () => {
+  it('says so instead of failing quietly', () => {
+    vi.stubGlobal('MediaSource', { isTypeSupported: () => false });
+    try {
+      cameras.set([{ id: 'den', name: 'Den', webUiUrl: null, throughProxy: true }]);
+      render();
+      expect(urls.fmp4).toEqual([]);
+      expect(document.querySelector('[data-testid="live-unsupported"]')!.textContent).toBe("This browser can't play this camera's video format.");
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+});

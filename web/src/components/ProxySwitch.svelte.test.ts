@@ -138,3 +138,14 @@ describe('ProxySwitch for a viewer (migration P4, M §9.5)', () => {
     }
   });
 });
+
+describe('a camera reached through its proxy only', () => {
+  it('shows the switch locked on, with the reason', () => {
+    cameras.set([{ id: 'den', name: 'Den', webUiUrl: null, proxy: true, proxyConfigured: true, throughProxy: true }]);
+    const el = render('den');
+    const box = el.querySelector<HTMLInputElement>('[data-testid="proxy-toggle"]')!;
+    expect(box.checked).toBe(true);
+    expect(box.disabled).toBe(true);
+    expect(el.querySelector('[data-testid="proxy-locked"]')!.textContent).toContain('This camera goes through its proxy');
+  });
+});

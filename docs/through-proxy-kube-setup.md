@@ -15,6 +15,15 @@ Secret (mounted read-only as `CAMERA_CREDENTIALS_FILE`); cams can't remove
 entries there, so it logs `camera_password_left {cameraId, reason:
 "read_only"}` once per such camera instead.
 
+## Before the release: where cams keeps the per-proxy switch
+
+cams keeps which proxies take camera calls in `proxy-features.json` (no
+URLs, no tokens). It lives next to `PREFS_FILE` (the cams-data volume), or
+at `PROXY_FEATURES_FILE`. There is no temp-folder fallback: a cams with
+cameras that have a cam-proxy refuses to start when neither is set. Check that
+`manifests/cams/` sets `PREFS_FILE` on the persistent volume (or add
+`PROXY_FEATURES_FILE` there).
+
 ## Step 1: remove the proxied cameras' entries
 
 After the cams release is deployed **and** the cluster's cam-proxies run the

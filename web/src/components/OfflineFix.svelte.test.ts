@@ -162,3 +162,31 @@ describe('CameraTrust', () => {
     expect(saved).toHaveBeenCalledOnce();
   });
 });
+
+describe('OfflineFix while the proxy has not measured the certificate yet', () => {
+  it('asks for the status every 5 s, at most a minute, until the Trust button can show', async () => {
+    vi.useFakeTimers();
+    try {
+      render(OfflineFix, { cameraId: 'den', fix: { login: null, trust: null, canFix: true }, error: 'camera_untrusted' });
+      const asks = () => calls.filter((c) => c.url === '/api/cameras/den/status').length;
+      expect(asks()).toBe(0);
+      await vi.advanceTimersByTimeAsync(5000);
+      expect(asks()).toBe(1);
+      await vi.advanceTimersByTimeAsync(120_000);
+      expect(asks()).toBe(12);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('does not ask for a viewer or another problem', async () => {
+    vi.useFakeTimers();
+    try {
+      render(OfflineFix, { cameraId: 'den', fix: { login: null, trust: null, canFix: true }, error: 'camera_offline' });
+      await vi.advanceTimersByTimeAsync(20_000);
+      expect(calls.filter((c) => c.url === '/api/cameras/den/status')).toHaveLength(0);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});

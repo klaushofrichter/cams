@@ -11,8 +11,29 @@
   import { me } from '../lib/stores';
   import { checkLiveStatus, type OfflineFixInfo } from '../lib/liveUi';
 
-  let { cameraId, fix }: { cameraId: string; fix: OfflineFixInfo } = $props();
+  // error: the status's error; a certificate problem without a measured
+  // fingerprint yet is asked for again every 5 s, at most a minute, so the
+  // Trust button appears without a reload.
+  let { cameraId, fix, error = '' }: { cameraId: string; fix: OfflineFixInfo; error?: string } = $props();
   let dialog: 'password' | 'trust' | null = $state(null);
+  const POLL_MS = 5000, POLL_MAX = 12;
+  let polled = 0;
+  let polledFor = '';
+  const waiting = $derived(isAdmin($me) && !fix.trust && (error === 'camera_untrusted' || error === 'camera_cert_changed'));
+  $effect(() => {
+    if (polledFor !== cameraId) {
+      polledFor = cameraId;
+      polled = 0;
+    }
+    if (!waiting) return;
+    const id = cameraId;
+    const timer = setInterval(() => {
+      if (polled >= POLL_MAX) return clearInterval(timer);
+      polled++;
+      void checkLiveStatus(id);
+    }, POLL_MS);
+    return () => clearInterval(timer);
+  });
 
   function done() {
     dialog = null;
