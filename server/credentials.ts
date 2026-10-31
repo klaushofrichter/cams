@@ -93,6 +93,7 @@ export function setCameraPassword(accountId: string, camsId: string, user: strin
   const run = writing.then(async () => {
     const f = file();
     if (!f) throw bad('is not set');
+    if (!user || !password) throw new Error('setCameraPassword: a user and a password, or the next start refuses the file');
     loadCredentials();
     entries.set(`${accountId}/${camsId}`, { user, password });
     const out: Record<string, unknown> = { v: 1 };

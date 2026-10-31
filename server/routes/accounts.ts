@@ -109,6 +109,8 @@ accountsRouter.put('/api/cameras/:id/credentials', async (req: Request, res: Res
   if (!validPassword(password)) return void res.status(400).json({ error: 'invalid', detail: 'a password of 1 to 128 characters' });
   const cam = getCamera(key)!;
   const user = cam.user;
+  // An entry without a user would stop the next start (loadCredentials).
+  if (!user) return void res.status(409).json({ error: 'no_camera_user' });
   if (!credentialsWritable()) return void res.status(409).json({ error: 'credentials_read_only', reason: credentialsFileSet() ? 'read_only' : 'unset', secretKey: `${cam.accountId}/${cam.camsId}`, user });
   await setCameraPassword(cam.accountId, cam.camsId, user, password);
   resetClients();

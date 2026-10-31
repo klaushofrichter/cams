@@ -239,6 +239,18 @@ describe('CameraLogin', () => {
     expect(text).not.toContain('Secret');
     expect(text).not.toContain('typed-secret');
   });
+  it('a camera without a user in cams-admin: says to set it there', async () => {
+    me.set(BASE);
+    answers['PUT /api/cameras/cam1/credentials'] = { status: 409, body: { error: 'no_camera_user' } };
+    render(CameraLogin, { cameraId: 'cam1' });
+    const input = q('camera-password') as HTMLInputElement;
+    input.value = 'typed-secret';
+    input.dispatchEvent(new Event('input'));
+    flushSync();
+    q('camera-password-save')!.click();
+    await settle();
+    expect(q('camera-login')!.textContent).toContain('no user name in cams-admin');
+  });
   it('nothing for a viewer', () => {
     me.set({ ...BASE, role: 'viewer' });
     render(CameraLogin, { cameraId: 'cam1' });
