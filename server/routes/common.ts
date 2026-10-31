@@ -93,3 +93,18 @@ export async function readJson(up: globalThis.Response): Promise<unknown> {
     return null;
   }
 }
+
+// A through-proxy camera call that failed (spec §6.1): no admin token here →
+// 403 proxy_admin_missing; the proxy says the camera is offline → 503
+// camera_offline; anything else → 502 proxy_unavailable (proxyFailed).
+export function viaProxyFailed(err: unknown, cameraId: CamKey, res: Response, next: NextFunction): void {
+  if (res.destroyed) return;
+  if (!(err instanceof ProxyError)) return next(err);
+  if (res.headersSent) return void res.destroy();
+  if (err.code === 'proxy_admin_missing') return void res.status(403).json({ error: 'proxy_admin_missing' });
+  if (err.status === 503 && (err.upstream === 'camera_offline' || err.upstream === 'camera_restarting')) {
+    logger.info({ cameraId, code: err.upstream }, 'camera_request_failed');
+    return void res.status(503).json({ error: 'camera_offline' });
+  }
+  proxyFailed(err, res, 'proxy_camera_call_failed', { cameraId });
+}

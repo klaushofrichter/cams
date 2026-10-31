@@ -125,6 +125,8 @@ export interface FakeProxy {
   ptzPositions: Map<string, FakePosition[]>; // proxy camera id → its saved positions (by order)
   capabilities: Map<string, unknown>; // proxy camera id → its `capabilities` in /api/cameras (absent: null, a camera never read)
   features: string[] | null; // `features` on every /api/cameras item; null: a cam-proxy from before multi-camera P1 (no field, ?cam= is one whole id)
+  cameraSettings: Map<string, { detection: Record<string, unknown>; image: Record<string, unknown> }>; // proxy camera id → its settings (absent: fakeSettings())
+  cameraLight: Map<string, boolean>; // proxy camera id → its light (absent: off)
   cameraStatus: Map<string, unknown>; // proxy camera id → its GET /api/cameras/:cam/status answer (absent: fakeStatus(); camera-calls)
   streamConnections(): number;
   push(m: Omit<FakeMessage, 'id' | 'ts'> & { ts?: number }): FakeMessage;
@@ -155,6 +157,14 @@ export function fakeStatus(over: Record<string, unknown> = {}): Record<string, u
     credentials: { source: 'store', authOk: true, checkedAt: now },
     tls: { mode: 'none', servername: null, fingerprint: null, notAfter: null, lastPush: null, served: null, problem: null },
     ...over,
+  };
+}
+
+// cam-proxy's settings sections (cams's model, moved there unchanged in shape).
+export function fakeSettings(): { detection: Record<string, unknown>; image: Record<string, unknown> } {
+  return {
+    detection: { recording: true, motionRecording: 'on', motionSensitivity: 41, ai: { person: { record: 'on', sensitivity: 60 }, vehicle: { record: 'on', sensitivity: 60 }, pet: { record: 'off', sensitivity: 60 } } },
+    image: { dayNight: 'auto', irLights: 'auto', spotlight: { mode: 'off', brightness: 50 }, flip: { vertical: false, mirror: false }, osd: { showName: true, name: 'Den', namePosition: 'Upper Left', showTime: true, timePosition: 'Lower Right', watermark: false } },
   };
 }
 
@@ -217,6 +227,8 @@ export async function startFakeProxy(opts: { port?: number; token?: string; tls?
     checkAnswers: new Map(),
     checkFailure: null,
     cameraStatus: new Map(),
+    cameraSettings: new Map(),
+    cameraLight: new Map(),
     checkDelayMs: 0,
     checkCalls: 0,
     caPem: null,
@@ -300,6 +312,30 @@ export async function startFakeProxy(opts: { port?: number; token?: string; tls?
     const cam = String(req.params.cam);
     if (!fake.cameraNames.has(cam) && !fake.cameraStatus.has(cam)) return void res.status(404).json({ error: 'not_found' });
     res.json(fake.cameraStatus.get(cam) ?? fakeStatus({ id: cam, name: fake.cameraNames.get(cam) ?? cam }));
+  });
+
+  // The camera calls answer 503 camera_offline while its status says offline (as cam-proxy's poller).
+  const cameraDown = (cam: string, res: Response): boolean => {
+    if (!fake.cameraNames.has(cam) && !fake.cameraStatus.has(cam)) return void res.status(404).json({ error: 'not_found' }), true;
+    if ((fake.cameraStatus.get(cam) as { online?: unknown } | undefined)?.online !== false) return false;
+    res.status(503).json({ error: 'camera_offline', detail: 'the camera is offline' });
+    return true;
+  };
+  app.get('/api/cameras/:cam/snapshot.jpg', (req, res) => {
+    const stream = req.query.stream ?? 'main';
+    if (stream !== 'main' && stream !== 'sub') return void res.status(400).json({ error: 'invalid', detail: 'stream: main or sub' });
+    if (cameraDown(String(req.params.cam), res)) return;
+    res.set('Cache-Control', 'no-store').type('image/jpeg').send(JPEG);
+  });
+  app.get('/api/cameras/:cam/settings', (req, res) => {
+    const cam = String(req.params.cam);
+    if (cameraDown(cam, res)) return;
+    res.json(fake.cameraSettings.get(cam) ?? fakeSettings());
+  });
+  app.get('/api/cameras/:cam/light', (req, res) => {
+    const cam = String(req.params.cam);
+    if (cameraDown(cam, res)) return;
+    res.json({ on: fake.cameraLight.get(cam) ?? false });
   });
 
   app.get('/api/stream', (req, res) => {

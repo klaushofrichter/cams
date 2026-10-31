@@ -5,7 +5,12 @@ import { CameraError } from '../reolink/client';
 import { logger } from '../logger';
 import { proxyActive, setReportedName } from '../cameraRegistry';
 import { plausibleName } from '../proxy/names';
-import { knownCamera, outId, sendCameraError } from './common';
+import { knownCamera, outId, sendCameraError, viaProxyFailed } from './common';
+import { throughProxy } from '../proxy/features';
+import { readProxyStatus, type ProxyCameraStatus } from '../proxy/cameraCalls';
+import { getCamera } from '../cameraRegistry';
+import { ProxyError, proxyPath, requireProxyClient } from '../proxy/client';
+import { nodeBody } from '../httpBody';
 import type { CamKey } from '../fleet';
 
 export const MAX_LIVE_PER_CAMERA = 4;
@@ -29,9 +34,48 @@ function errorDetail(err: unknown): string {
 // says so); forgotten when it answers again.
 const offlineSince = new Map<CamKey, number>();
 
+// Why a through-proxy camera is offline, the first that applies (spec §6.2).
+function proxyOfflineError(s: ProxyCameraStatus): string {
+  if (s.credentials.source === 'none') return 'camera_credentials_missing';
+  if (s.credentials.authOk === false) return 'camera_auth_failed';
+  if (s.tls.problem === 'untrusted') return 'camera_untrusted';
+  if (s.tls.problem === 'changed') return 'camera_cert_changed';
+  return 'camera_offline';
+}
+
+// What an admin can do about it from cams: enter the camera's password, or
+// trust the certificate the proxy measured (never a typed fingerprint).
+function proxyFix(id: CamKey, s: ProxyCameraStatus | null): { login: 'missing' | 'refused' | null; trust: { fingerprint: string } | null; canFix: boolean } {
+  const login = !s ? null : s.credentials.source === 'none' ? 'missing' : s.credentials.authOk === false ? 'refused' : null;
+  const trust = s?.tls.problem && s.tls.served ? { fingerprint: s.tls.served } : null;
+  return { login, trust, canFix: !!getCamera(id)?.proxy?.adminToken };
+}
+
+// A camera reached through its proxy only: the proxy's status; the proxy down is the camera offline (no direct try).
+async function statusViaProxy(id: CamKey, res: Response): Promise<void> {
+  let s: ProxyCameraStatus | null = null;
+  let error: string;
+  try {
+    s = await readProxyStatus(id, { timeoutMs: 10_000 });
+    if (s.online) {
+      offlineSince.delete(id);
+      res.json({ id: outId(id), online: true, model: s.model, firmware: s.firmware, simulator: s.simulator, streams: s.streams, via: 'proxy' });
+      return;
+    }
+    error = proxyOfflineError(s);
+  } catch (err) {
+    if (!(err instanceof ProxyError)) throw err;
+    logger.warn({ cameraId: id, code: err.code, message: err.message }, 'camera_status_failed');
+    error = 'proxy_unreachable';
+  }
+  if (!offlineSince.has(id)) offlineSince.set(id, Date.now());
+  res.json({ id: outId(id), online: false, error, offlineSince: offlineSince.get(id), via: 'proxy', fix: proxyFix(id, s) });
+}
+
 camerasRouter.get('/api/cameras/:id/status', async (req: Request, res: Response, next: NextFunction) => {
   const id = knownCamera(req, res);
   if (!id) return;
+  if (throughProxy(id)) return statusViaProxy(id, res).catch(next);
   try {
     const { name, ...status } = await requireClient(id).status();
     offlineSince.delete(id);
@@ -50,6 +94,24 @@ camerasRouter.get('/api/cameras/:id/status', async (req: Request, res: Response,
 camerasRouter.get('/api/cameras/:id/snapshot.jpg', async (req: Request, res: Response, next: NextFunction) => {
   const id = knownCamera(req, res);
   if (!id) return;
+  if (throughProxy(id)) {
+    // The proxy's full-size snapshot (the camera's Snap), streamed.
+    const ctl = new AbortController();
+    res.on('close', () => ctl.abort());
+    try {
+      const up = await requireProxyClient(id).open(proxyPath(id, '/snapshot.jpg'), { stream: 'main' }, { idleMs: 10_000, signal: ctl.signal, timeoutMs: 20_000 });
+      if (!up.ok || !up.body) {
+        const body = (await up.json().catch(() => null)) as { error?: unknown } | null;
+        return void res.status(up.status === 503 && body?.error === 'camera_offline' ? 503 : 502).json({ error: up.status === 503 && body?.error === 'camera_offline' ? 'camera_offline' : 'proxy_unavailable' });
+      }
+      res.status(200).set({ 'Content-Type': 'image/jpeg', 'Cache-Control': 'no-store' });
+      await pipeline(nodeBody(up), res);
+    } catch (err) {
+      if (ctl.signal.aborted) return;
+      viaProxyFailed(err, id, res, next);
+    }
+    return;
+  }
   try {
     const jpeg = await requireClient(id).snapshot();
     res.type('image/jpeg').send(jpeg);

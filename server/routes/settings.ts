@@ -11,7 +11,11 @@ import {
 } from '../reolink/settings';
 import { logger } from '../logger';
 import { currentUser } from '../middleware/requireAuth';
-import { knownCamera, sendCameraError as fail } from './common';
+import { knownCamera, sendCameraError as fail, viaProxyFailed } from './common';
+import { throughProxy } from '../proxy/features';
+import { readProxyStatus } from '../proxy/cameraCalls';
+import { proxyPath, requireProxyClient } from '../proxy/client';
+import { webUiOf } from '../cameraRegistry';
 import type { CamKey } from '../fleet';
 
 export const settingsRouter = Router();
@@ -38,6 +42,14 @@ function expectedChange(key: string, commands: SettingsCommand[], after: unknown
     if (parts[0] === 'ai' && (body as Record<string, unknown>)?.ai_type !== AI_TYPE[parts[1] as AiKind]) return false;
     return JSON.stringify(at(body, parts.slice(i + 1))) === now;
   });
+}
+
+// A camera reached through its proxy only (spec §6.1): its key; undefined
+// for a camera called directly; null for an unknown one (answered 404 here).
+function viaProxy(req: Request, res: Response): CamKey | undefined | null {
+  const key = knownCamera(req, res);
+  if (!key) return null;
+  return throughProxy(key) ? key : undefined;
 }
 
 function cameraOr404(req: Request, res: Response) {
@@ -75,6 +87,16 @@ async function apply(client: Client, commands: SettingsCommand[]): Promise<Recor
 }
 
 settingsRouter.get('/api/cameras/:id/settings', async (req, res, next) => {
+  const p = viaProxy(req, res);
+  if (p === null) return;
+  if (p) {
+    try {
+      const s = await requireProxyClient(p).json<{ detection?: unknown; image?: unknown }>(proxyPath(p, '/settings'), undefined, { timeoutMs: 20_000 });
+      return void res.json({ detection: s?.detection ?? null, image: s?.image ?? null });
+    } catch (err) {
+      return viaProxyFailed(err, p, res, next);
+    }
+  }
   const c = cameraOr404(req, res);
   if (!c) return;
   try {
@@ -130,6 +152,25 @@ async function writeSection<P extends DetectionPatch | ImagePatch, R>(s: Section
 }
 
 settingsRouter.get('/api/cameras/:id/device', async (req, res, next) => {
+  const p = viaProxy(req, res);
+  if (p === null) return;
+  if (p) {
+    try {
+      const s = await readProxyStatus(p, { timeoutMs: 20_000 });
+      const cam = getCamera(p)!;
+      return void res.json({
+        model: s.model ?? '',
+        firmware: s.firmware ?? '',
+        hardware: s.hardware ?? '',
+        name: s.name ?? '',
+        storage: s.sd && s.sd.capacityMB !== null ? { totalMb: s.sd.capacityMB, usedMb: s.sd.capacityMB - (s.sd.freeMB ?? 0), mounted: s.sd.mounted } : null,
+        certificate: s.certificate ? { ...s.certificate, daysLeft: Math.floor((Date.parse(s.certificate.validTo) - Date.now()) / 86_400_000) } : null,
+        ...webUiOf(cam),
+      });
+    } catch (err) {
+      return viaProxyFailed(err, p, res, next);
+    }
+  }
   const c = cameraOr404(req, res);
   if (!c) return;
   try {
@@ -155,6 +196,16 @@ async function readWhiteLed(client: Client): Promise<Record<string, unknown>> {
 }
 
 settingsRouter.get('/api/cameras/:id/light', async (req, res, next) => {
+  const p = viaProxy(req, res);
+  if (p === null) return;
+  if (p) {
+    try {
+      const l = await requireProxyClient(p).json<{ on?: unknown }>(proxyPath(p, '/light'));
+      return void res.json({ on: l?.on === true });
+    } catch (err) {
+      return viaProxyFailed(err, p, res, next);
+    }
+  }
   const c = cameraOr404(req, res);
   if (!c) return;
   try {

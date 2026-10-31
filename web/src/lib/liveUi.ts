@@ -96,6 +96,9 @@ export function offlineReason(code: string | undefined): string {
   if (code === 'camera_credentials_missing') return 'cams has no password for this camera yet.';
   if (code === 'camera_unconfirmed') return "A change to the camera's connection data is waiting for an admin to confirm it.";
   if (code === 'camera_unverified_tls') return "cams can't verify the camera's certificate, so it doesn't send the password.";
+  if (code === 'proxy_unreachable') return "The camera's cam-proxy could not be reached.";
+  if (code === 'camera_untrusted') return "The cam-proxy doesn't trust the camera's certificate yet.";
+  if (code === 'camera_cert_changed') return 'The camera now shows another certificate than the one trusted.';
   return 'The camera answered with an error (for example a certificate problem). Check the server logs.';
 }
 
