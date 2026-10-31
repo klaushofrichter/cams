@@ -5,7 +5,8 @@ import { CameraError } from '../reolink/client';
 import { logger } from '../logger';
 import { proxyActive, setReportedName } from '../cameraRegistry';
 import { plausibleName } from '../proxy/names';
-import { knownCamera, outId, sendCameraError, viaProxyFailed } from './common';
+import { badRequest, knownCamera, outId, sendCameraError, viaProxyFailed } from './common';
+import { LIVE_CODECS, openProxyLive, type ProxyLive } from '../proxy/live';
 import { throughProxy } from '../proxy/features';
 import { readProxyStatus, type ProxyCameraStatus } from '../proxy/cameraCalls';
 import { getCamera } from '../cameraRegistry';
@@ -120,9 +121,60 @@ camerasRouter.get('/api/cameras/:id/snapshot.jpg', async (req: Request, res: Res
   }
 });
 
+// A viewer that stops reading is cut once this much waits in its response
+// (spec §10.3: the proxy cuts cams at 8 MiB; cams cuts a viewer before that).
+export const LIVE_MAX_QUEUED = 4 * 1024 * 1024;
+
+// A camera reached through its proxy only: the proxy's live WebSocket (MSE,
+// fMP4) relayed as chunked HTTP, the same per-camera slot and route as FLV.
+async function liveViaProxy(id: CamKey, req: Request, res: Response, next: NextFunction): Promise<void> {
+  const codecs = req.query.codecs;
+  if (codecs !== undefined && (typeof codecs !== 'string' || !LIVE_CODECS.test(codecs))) return badRequest(res, 'codecs: a comma list of codec names');
+  if (liveStreamCount(id) >= MAX_LIVE_PER_CAMERA) return void res.status(503).json({ error: 'too_many_streams' });
+  const quality = req.query.quality === 'main' ? 'main' : 'sub';
+  const open = liveStreams.get(id) ?? new Set<Response>();
+  liveStreams.set(id, open.add(res));
+  const abort = new AbortController();
+  let live: ProxyLive | undefined;
+  const release = () => {
+    abort.abort();
+    live?.close();
+    open.delete(res);
+  };
+  res.on('close', release);
+  try {
+    live = await openProxyLive(id, quality, codecs, abort.signal);
+    if (abort.signal.aborted) return;
+    res.status(200).set({ 'Content-Type': live.mime, 'X-Accel-Buffering': 'no', 'Cache-Control': 'no-store' });
+    res.flushHeaders();
+    for await (const chunk of live.chunks) {
+      if (res.destroyed) break;
+      res.write(chunk);
+      if (res.writableLength > LIVE_MAX_QUEUED) {
+        logger.warn({ cameraId: id, code: 'slow_viewer' }, 'camera_stream_failed');
+        res.destroy();
+        break;
+      }
+    }
+    if (!res.destroyed) res.end();
+  } catch (err) {
+    if (abort.signal.aborted && !res.headersSent) return;
+    if (res.headersSent) return void res.destroy();
+    // The proxy's own refusal before any byte (camera offline, restarting, no stream, too many).
+    if (err instanceof ProxyError && err.code === 'proxy_error' && err.status === 503 && err.upstream) {
+      logger.info({ cameraId: id, code: err.upstream }, 'camera_stream_refused');
+      return void res.status(503).json({ error: err.upstream });
+    }
+    viaProxyFailed(err, id, res, next);
+  } finally {
+    release();
+  }
+}
+
 camerasRouter.get('/api/cameras/:id/live', async (req: Request, res: Response, next: NextFunction) => {
   const id = knownCamera(req, res);
   if (!id) return;
+  if (throughProxy(id)) return liveViaProxy(id, req, res, next);
   if (liveStreamCount(id) >= MAX_LIVE_PER_CAMERA) {
     res.status(503).json({ error: 'too_many_streams' });
     return;

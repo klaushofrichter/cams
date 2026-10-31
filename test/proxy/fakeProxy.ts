@@ -16,6 +16,8 @@ import { cameraNameProblem } from '../../server/cameraName';
 import { generateMaxS } from '../../server/clipLimits';
 import { validateDetectionPatch, validateImagePatch } from '../../server/reolink/settings';
 import { installFakeArchive, type FakeArchive } from './fakeArchive';
+import { WebSocketServer, type WebSocket } from 'ws';
+import { FAKE_LIVE_MIME, fmp4Stream } from './fakeLive';
 
 // cam-proxy's own wording of a length (src/compose/plan.ts there), not cams's.
 const proxySeconds = (s: number) => (s < 60 ? `${s} s` : `${s} s (${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')})`);
@@ -133,6 +135,11 @@ export interface FakeProxy {
   reboots: string[]; // proxy camera ids rebooted (POST /api/cameras/:cam/reboot)
   rebootConfirmed: boolean; // the reboot's 202 {confirmed}
   rebootCooldown: boolean; // a second reboot within the fake's life answers 429 too_soon
+  liveRefusal: string | null; // tests: the live socket answers {"type":"error","value":<this>} and closes 1013 instead of the stream
+  liveRequests: { cam: string; auth: string | undefined; query: Record<string, string> }[]; // live WebSocket upgrades asked for
+  liveOpen(): number; // live sockets open now
+  closeLive(): void; // tests: the proxy closes every live socket (1000)
+  liveFlood(): void; // tests: every live socket gets 12 MiB at once (a viewer that stops reading)
   cameraStatus: Map<string, unknown>; // proxy camera id → its GET /api/cameras/:cam/status answer (absent: fakeStatus(); camera-calls)
   streamConnections(): number;
   push(m: Omit<FakeMessage, 'id' | 'ts'> & { ts?: number }): FakeMessage;
@@ -185,6 +192,7 @@ export async function startFakeProxy(opts: { port?: number; token?: string; tls?
   const streamFilters = new Map<Response, { types?: string[]; cams?: Set<string> }>();
   const wanted = (f: { types?: string[]; cams?: Set<string> } | undefined, m: FakeMessage) => (!f?.types || f.types.includes(m.type)) && (!fake.camFilter || !f?.cams || f.cams.has(m.cam));
   const sockets = new Set<import('net').Socket>();
+  const liveSockets = new Set<WebSocket>();
   let nextId = 1;
 
   const fake: FakeProxy = {
@@ -233,6 +241,15 @@ export async function startFakeProxy(opts: { port?: number; token?: string; tls?
     checkAnswers: new Map(),
     checkFailure: null,
     cameraStatus: new Map(),
+    liveRefusal: null,
+    liveRequests: [],
+    liveOpen: () => [...liveSockets].filter((w) => w.readyState === w.OPEN).length,
+    closeLive: () => {
+      for (const w of liveSockets) w.close(1000);
+    },
+    liveFlood: () => {
+      for (const w of liveSockets) for (let i = 0; i < 48; i++) w.send(Buffer.alloc(256 * 1024));
+    },
     cameraSettings: new Map(),
     cameraLight: new Map(),
     settingsAnswer: null,
@@ -265,6 +282,7 @@ export async function startFakeProxy(opts: { port?: number; token?: string; tls?
     },
     async stop() {
       fake.dropStreams();
+      for (const w of liveSockets) w.terminate();
       for (const s of sockets) s.destroy();
       await new Promise<void>((r) => server.close(() => r()));
     },
@@ -1010,6 +1028,56 @@ export async function startFakeProxy(opts: { port?: number; token?: string; tls?
   server.on('connection', (s) => {
     sockets.add(s);
     s.on('close', () => sockets.delete(s));
+  });
+  // Live video (camera-calls): MSE over a WebSocket on the proxy's own
+  // address. Refusals before the upgrade are plain HTTP answers; the camera's
+  // state over the socket ({"type":"error","value":…}, close 1013); else the
+  // `mse` text, then fMP4 as binary messages.
+  const wss = new WebSocketServer({ noServer: true });
+  const refuse = (socket: import('stream').Duplex, status: number, error: string) => {
+    socket.end(`HTTP/1.1 ${status} ${http.STATUS_CODES[status]}\r\nContent-Type: application/json\r\nConnection: close\r\n\r\n${JSON.stringify({ error })}`);
+  };
+  server.on('upgrade', (req: http.IncomingMessage, socket: import('stream').Duplex, head: Buffer) => {
+    if (fake.offline) return void socket.destroy();
+    const u = new URL(req.url ?? '/', 'http://fake');
+    const m = /^\/api\/cameras\/([^/?]+)\/live$/.exec(u.pathname);
+    if (!m) return refuse(socket, 404, 'not_found');
+    const cam = decodeURIComponent(m[1]);
+    const auth = req.headers.authorization;
+    fake.liveRequests.push({ cam, auth, query: Object.fromEntries(u.searchParams) });
+    if (u.searchParams.has('token') || u.searchParams.has('access_token')) return refuse(socket, 400, 'token_in_url');
+    if (auth !== `Bearer ${fake.token}` && auth !== `Bearer ${FAKE_ADMIN_TOKEN}`) return refuse(socket, 401, 'unauthorized');
+    if (!fake.cameraNames.has(cam)) return refuse(socket, 404, 'not_found');
+    const stream = u.searchParams.get('stream') ?? 'sub';
+    const codecs = u.searchParams.get('codecs');
+    if ((stream !== 'sub' && stream !== 'main') || (codecs !== null && !/^[A-Za-z0-9.,]{1,512}$/.test(codecs))) return refuse(socket, 400, 'invalid');
+    wss.handleUpgrade(req, socket, head, (ws) => {
+      liveSockets.add(ws);
+      const ctl = new AbortController();
+      ws.on('close', () => {
+        liveSockets.delete(ws);
+        ctl.abort();
+      });
+      ws.on('error', () => ctl.abort());
+      const offline = (fake.cameraStatus.get(cam) as { online?: unknown } | undefined)?.online === false;
+      const refusal = fake.liveRefusal ?? (offline ? 'camera_offline' : null);
+      if (refusal) {
+        ws.send(JSON.stringify({ type: 'error', value: refusal }));
+        return void ws.close(1013);
+      }
+      ws.send(JSON.stringify({ type: 'mse', value: FAKE_LIVE_MIME }));
+      void (async () => {
+        try {
+          for await (const chunk of fmp4Stream({ signal: ctl.signal })) {
+            if (ws.readyState !== ws.OPEN) break;
+            ws.send(chunk);
+          }
+        } catch {
+          // the socket or ffmpeg went away
+        }
+        if (ws.readyState === ws.OPEN) ws.close(1011);
+      })();
+    });
   });
   await new Promise<void>((r) => server.listen(opts.port ?? 0, '127.0.0.1', () => r()));
   fake.url = `${opts.tls ? 'https' : 'http'}://127.0.0.1:${(server.address() as AddressInfo).port}`;
