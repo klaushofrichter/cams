@@ -10,7 +10,11 @@ import type { HeldProxy, ProxyTrust, TrustField, TrustValues } from '../admin/tr
 import { sessionAccount } from './common';
 import { credentialsFileSet, credentialsWritable, setCameraPassword } from '../credentials';
 import { resetClients } from '../reolink/clients';
-import { knownCamera } from './common';
+import type { CamKey } from '../fleet';
+import { knownCamera, readJson, viaProxyFailed } from './common';
+import { throughProxy } from '../proxy/features';
+import { proxyAdminClient } from '../proxy/cameraCalls';
+import { proxyCameraId } from '../proxy/client';
 
 // The account picker (migration P4, M §9.5, R4-13): a person in several
 // accounts chooses one after sign-in, and can switch later. The choice is
@@ -53,12 +57,56 @@ accountsRouter.post('/api/session/account', (req: Request, res: Response) => {
 // the password. Keyed by the account's id (security review I2). It confirms
 // nothing: a new camera's connection data is confirmed on the held list.
 const CONTROL = /[\u0000-\u001f\u007f]/;
+const validPassword = (p: unknown): p is string => typeof p === 'string' && p.length >= 1 && p.length <= 128 && !CONTROL.test(p);
+
+// A camera reached through its proxy only (spec §6.2, §10.1): the password
+// goes straight to the proxy (PUT /control/cameras/:cam/password, the
+// proxy-admin token), which saves it only once the camera accepts it. cams
+// stores, logs and echoes nothing of it.
+const RELAYED: Record<number, string[]> = { 422: ['camera_refused'], 503: ['camera_offline'], 409: ['env_password', 'not_trusted', 'fingerprint_mismatch'], 429: ['too_many_attempts'] };
+async function relayPassword(key: CamKey, password: string, req: Request, res: Response): Promise<void> {
+  const by = currentUser(req)?.email;
+  const done = (outcome: string) => logger.info({ cameraId: key, outcome, by }, 'camera_password_relayed');
+  try {
+    const up = await proxyAdminClient(key).open(`/control/cameras/${encodeURIComponent(proxyCameraId(key))}/password`, undefined, { method: 'PUT', body: JSON.stringify({ password }), timeoutMs: 20_000 });
+    const body = (await readJson(up)) as { error?: unknown } | null;
+    const error = typeof body?.error === 'string' ? body.error : '';
+    if (up.ok) {
+      done('saved');
+      return void res.status(204).end();
+    }
+    if (RELAYED[up.status]?.includes(error)) {
+      done(error);
+      if (up.status === 429) {
+        const ra = up.headers.get('retry-after');
+        const s = ra && /^\d{1,6}$/.test(ra) ? Number(ra) : null;
+        if (s !== null) res.setHeader('Retry-After', String(s));
+        return void res.status(429).json({ error, ...(s !== null && { retryAfterS: s }) });
+      }
+      // The camera serves another certificate than the pinned one: trust it again first.
+      return void res.status(up.status).json({ error: error === 'fingerprint_mismatch' ? 'fingerprint_changed' : error });
+    }
+    done('proxy_error');
+    logger.warn({ cameraId: key, status: up.status }, 'camera_password_relay_failed');
+    res.status(502).json({ error: 'proxy_unavailable' });
+  } catch (err) {
+    done('proxy_unavailable');
+    viaProxyFailed(err, key, res, (e) => {
+      throw e;
+    });
+  }
+}
+
 accountsRouter.put('/api/cameras/:id/credentials', async (req: Request, res: Response) => {
   const key = knownCamera(req, res);
   if (!key) return;
-  if (configMode() !== 'cams-admin') return void res.status(409).json({ error: 'file_mode' });
   const password = (req.body as { password?: unknown } | undefined)?.password;
-  if (typeof password !== 'string' || password.length < 1 || password.length > 128 || CONTROL.test(password)) return void res.status(400).json({ error: 'invalid', detail: 'a password of 1 to 128 characters' });
+  if (throughProxy(key)) {
+    if (!validPassword(password)) return void res.status(400).json({ error: 'invalid', detail: 'a password of 1 to 128 characters' });
+    return relayPassword(key, password, req, res);
+  }
+  if (configMode() !== 'cams-admin') return void res.status(409).json({ error: 'file_mode' });
+  if (!validPassword(password)) return void res.status(400).json({ error: 'invalid', detail: 'a password of 1 to 128 characters' });
   const cam = getCamera(key)!;
   const user = cam.user;
   if (!credentialsWritable()) return void res.status(409).json({ error: 'credentials_read_only', reason: credentialsFileSet() ? 'read_only' : 'unset', secretKey: `${cam.accountId}/${cam.camsId}`, user });

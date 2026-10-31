@@ -3,7 +3,8 @@ import { getCamera, proxyActive, setReportedName } from '../cameraRegistry';
 import { cameraNameProblem, cameraRefusalReason } from '../cameraName';
 import { logger } from '../logger';
 import { currentUser } from '../middleware/requireAuth';
-import { errorBody, groupTrustOptions, ProxyClient, ProxyError } from '../proxy/client';
+import { errorBody, groupTrustOptions, ProxyClient, ProxyError, proxyCameraId } from '../proxy/client';
+import { throughProxy } from '../proxy/features';
 import { plausibleName } from '../proxy/names';
 import { CameraError } from '../reolink/client';
 import { requireClient } from '../reolink/clients';
@@ -24,10 +25,14 @@ const PROXY_TIMEOUT_MS = 20_000; // the proxy writes, then re-reads the camera
 type Answer = { status: number; body: Record<string, unknown> };
 const invalid = (reason: string): Answer => ({ status: 400, body: { error: 'invalid_name', reason } });
 
+// A camera reached through its proxy only names it by the proxy's id for
+// it (PUT /control/cameras/:cam/name: right on a multi-camera host); others
+// keep the legacy one-camera route.
 async function viaProxy(id: CamKey, proxy: { url: string; adminToken: string }, name: string): Promise<Answer> {
   let res: globalThis.Response;
+  const path = throughProxy(id) ? `/control/cameras/${encodeURIComponent(proxyCameraId(id))}/name` : '/control/camera/name';
   try {
-    res = await new ProxyClient({ url: proxy.url, token: proxy.adminToken }, { timeoutMs: PROXY_TIMEOUT_MS, ...groupTrustOptions(id) }).open('/control/camera/name', undefined, { method: 'PUT', body: JSON.stringify({ name }) });
+    res = await new ProxyClient({ url: proxy.url, token: proxy.adminToken }, { timeoutMs: PROXY_TIMEOUT_MS, ...groupTrustOptions(id) }).open(path, undefined, { method: 'PUT', body: JSON.stringify({ name }) });
   } catch (err) {
     if (!(err instanceof ProxyError)) throw err;
     logger.warn({ cameraId: id, code: err.code, message: err.message }, 'camera_rename_failed');
@@ -78,6 +83,8 @@ nameRouter.put('/api/cameras/:id/name', async (req: Request, res: Response) => {
   const problem = cameraNameProblem(name);
   if (problem) return void res.status(400).json({ error: 'invalid_name', reason: problem });
   const proxy = getCamera(id)!.proxy;
+  // No direct fallback for a camera reached through its proxy only.
+  if (throughProxy(id) && !proxy?.adminToken) return void res.status(403).json({ error: 'proxy_admin_missing' });
   const via = proxy?.adminToken && proxyActive(id) ? 'proxy' : 'camera';
   const answer = via === 'proxy' ? await viaProxy(id, { url: proxy!.url, adminToken: proxy!.adminToken! }, name as string) : await direct(id, name as string);
   if (answer.status === 200) {

@@ -306,6 +306,24 @@ Two real cams processes from this repo's build (`cluster` on :29610 with both pr
 
 The browser checks of cams-admin mode (two accounts with the same `cam1`, the picker, a viewer, a held change, an offline start) are e2e specs against a fake cams-admin: `e2e/accounts.spec.ts`, `viewer.spec.ts`, `held.spec.ts`, `offline-start.spec.ts` (projects `admin-desktop`, `admin-phone`).
 
+## 6. Cameras through the proxy (camera-calls)
+
+With a cam-proxy release that lists `camera-calls` in its camera list, cams
+reaches that proxy's cameras only through it (cam-proxy spec
+2026-10-30-camera-onboarding-design §6). Check by hand on the sim stack, after
+the stack is up and the proxy's list was read once (`GET /api/cameras` shows
+`"throughProxy": true` for the camera):
+
+- `GET /api/cameras/<id>/status` answers `"via": "proxy"`;
+- `GET /api/cameras/<id>/live?quality=sub` answers `Content-Type: video/mp4; codecs="…"` (fMP4 from the proxy's WebSocket), not `video/x-flv`;
+- cam-sim's counters (`GET /control/state` on its control port) show no new login from cams while you use Live, Settings and History; only the proxy logs in;
+- with the proxy stopped, the camera shows offline with "The camera's cam-proxy could not be reached." and cam-sim still sees no login from cams.
+
+Stored camera passwords of such cameras leave the local credentials file
+(`camera_password_removed` in cams's log); a read-only one (the cluster's
+Secret) is only reported (`camera_password_left`): see
+`docs/through-proxy-kube-setup.md`.
+
 ## What the 23 checks prove
 
 check-stack.sh signs a cams session cookie with the run's `COOKIE_SECRET`

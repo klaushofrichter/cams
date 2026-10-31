@@ -4,6 +4,7 @@ import { groupOf } from '../proxy/groups';
 import type { CameraTrust } from '../reolink/http';
 import { normalizeFingerprint } from './fingerprint';
 import { fallbackPin, setFallbackPin, verifiedCas } from './store';
+import { throughProxy } from '../proxy/features';
 
 // How cams checks a camera's certificate (cam-proxy spec 2026-10-05 §12.3).
 // A camera of a pinned proxy: its fallback leaf pin when the proxy reported
@@ -29,6 +30,11 @@ export function cameraTrust(cam: CameraConfig): CameraTrust {
 // the pin goes. Only for a
 // proxy with a pinned site CA: anyone else's word isn't taken.
 export async function applyProxyTls(id: CamKey, tls: unknown): Promise<void> {
+  // A camera reached through its proxy only: cams never connects to it, so it keeps no pin.
+  if (throughProxy(id)) {
+    if (groupOf(id)?.pins && fallbackPin(id, cameraHost(id))) await setFallbackPin(id, null);
+    return;
+  }
   if (!groupOf(id)?.pins || typeof tls !== 'object' || tls === null) return;
   const t = tls as { mode?: unknown; fingerprint?: unknown };
   if (t.mode === 'pinned') {

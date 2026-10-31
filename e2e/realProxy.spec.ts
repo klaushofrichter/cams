@@ -204,3 +204,37 @@ test('the Archive holds clips of both cameras on the one proxy, and names their 
     for (const m of made) await page.request.delete(`/api/archive/silo/items/${m.id}`);
   }
 });
+
+// --- Cameras through the proxy (cam-proxy spec 2026-10-30-camera-onboarding-
+// design §6; cams plan 2026-10-31-cams-through-proxy, Task 11). A cam-proxy
+// that lists `camera-calls` serves Silo's live video, status and settings;
+// cams calls the camera no more. Runs once the pinned image (e2e/env.ts) is
+// a release with camera-calls; before that, it says so and skips.
+test('Silo plays live through the real cam-proxy and reports its status from it', async ({ page }) => {
+  const list = (await (await page.request.get(`${PROXY}/api/cameras`, { headers: asClient })).json()) as { id: string; features?: string[] }[];
+  test.skip(!list.find((c) => c.id === 'silo')?.features?.includes('camera-calls'), 'the pinned cam-proxy predates camera-calls (bump CAM_PROXY_TAG and CAM_PROXY_DIGEST in e2e/env.ts)');
+  await expect.poll(async () => ((await (await page.request.get('/api/cameras')).json()) as { id: string; throughProxy?: boolean }[]).find((c) => c.id === 'silo')?.throughProxy, { timeout: 20_000 }).toBe(true);
+  const status = (await (await page.request.get('/api/cameras/silo/status')).json()) as { online: boolean; via?: string };
+  expect(status).toMatchObject({ online: true, via: 'proxy' });
+  // The proxy's go2rtc reads the sim's RTSP (MediaMTX in CI): its stills show it does.
+  await expect.poll(async () => {
+    const now = Date.now();
+    const r = await page.request.get(`${PROXY}/api/cameras/silo/stills?from=${now - 60_000}&to=${now}`, { headers: asClient });
+    return r.ok() ? ((await r.json()) as number[]).length : -r.status();
+  }, { message: 'the real cam-proxy has no stills of Silo: its go2rtc gets no RTSP from the sim', timeout: 45_000 }).toBeGreaterThan(0);
+  // Every live answer cams gives, with the body of a refusal (JSON), for the
+  // test output; the player retries, so the first may come before go2rtc's stream.
+  const refusals: string[] = [];
+  page.on('response', async (r) => {
+    if (!/\/api\/cameras\/silo\/live\?/.test(r.url()) || (r.headers()['content-type'] ?? '').startsWith('video/')) return;
+    refusals.push(`${r.status()} ${r.headers()['content-type']} ${await r.text().catch(() => '(no body)')}`);
+  });
+  const live = page.waitForResponse((r) => /\/api\/cameras\/silo\/live\?/.test(r.url()) && (r.headers()['content-type'] ?? '').startsWith('video/mp4'), { timeout: 45_000 }).catch(() => null);
+  await page.goto('/app/live');
+  await page.getByTestId('camera-picker').selectOption('silo');
+  const ok = await live;
+  expect(ok, `no video/mp4 live answer for Silo; cams answered: ${refusals.join(' | ') || '(nothing)'}`).not.toBeNull();
+  if (refusals.length) console.log(`[realProxy] live refusals before playing: ${refusals.join(' | ')}`);
+  const video = page.getByTestId('live-video');
+  await expect.poll(() => video.evaluate((v: HTMLVideoElement) => v.currentTime), { timeout: 30_000 }).toBeGreaterThan(1);
+});

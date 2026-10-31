@@ -19,6 +19,8 @@ import { cardEvents, proxyCardEvents, thumbPlan } from './detection';
 import { abortError, RecordingError } from './errors';
 import { fallsBack, headProxyRecording, listProxyDays, listProxyDay, logProxyFailure, openProxyRecording, type ProxyRecording } from './proxyRecordings';
 import { ProxyError } from '../proxy/client';
+import { throughProxy } from '../proxy/features';
+import { proxyTimeInfo } from '../proxy/cameraCalls';
 import { camsIdOf, fileSafe, type CamKey } from '../fleet';
 import { contentLength } from '../httpBody';
 
@@ -250,7 +252,7 @@ export class RecordingsService {
   // day and month lists ask the camera again (the day before and after too,
   // for events near midnight).
   async invalidateAround(cameraId: CamKey, ts: number): Promise<void> {
-    const time = await this.client(cameraId).timeInfo();
+    const time = await this.cameraTime(cameraId);
     const offset = time.stdOffsetMinutes + time.dstOffsetMinutes;
     for (const t of [ts - 86_400_000, ts, ts + 86_400_000]) {
       const date = cameraToday(offset, t);
@@ -261,6 +263,17 @@ export class RecordingsService {
 
   private client(cameraId: CamKey) {
     return requireClient(cameraId);
+  }
+
+  // The camera's time and zone: from its proxy's status for a camera reached
+  // through the proxy only (spec §4.8), else the camera's own GetTime.
+  cameraTime(cameraId: CamKey): Promise<TimeInfo> {
+    return throughProxy(cameraId) ? proxyTimeInfo(cameraId) : this.client(cameraId).timeInfo();
+  }
+
+  // A camera reached through its proxy only has no camera fallback: the proxy's failure is final.
+  private noFallback(cameraId: CamKey): void {
+    if (throughProxy(cameraId)) throw new RecordingError('recordings_unavailable', 'the camera\'s cam-proxy could not list or send its recordings');
   }
 
   // Per camera: proxy still lookups and fetches for thumbnails, three at a time.
@@ -289,6 +302,7 @@ export class RecordingsService {
     const hit = this.days_.get(key);
     if (hit && Date.now() - hit.at < (hit.doubtful ? TODAY_TTL : MONTH_TTL)) return hit.days;
     const proxied = await this.listViaProxy(cameraId, month, () => listProxyDays(cameraId, month));
+    if (!proxied) this.noFallback(cameraId);
     const days = proxied ?? (await this.client(cameraId).searchMonth(month));
     sweep(this.days_, MONTH_TTL);
     this.days_.set(key, { at: Date.now(), days, doubtful: !proxied && proxyActive(cameraId) });
@@ -299,8 +313,7 @@ export class RecordingsService {
   // it is abandoned only when the last of them has left.
   private async day(cameraId: CamKey, date: string, signal?: AbortSignal): Promise<DayEntry> {
     const key = `${cameraId}|${date}`;
-    const client = this.client(cameraId);
-    const time = await client.timeInfo();
+    const time = await this.cameraTime(cameraId);
     const ttl = isRecentDay(date, time.stdOffsetMinutes + time.dstOffsetMinutes) ? TODAY_TTL : PAST_TTL;
     const hit = this.dayCache.get(key);
     if (hit && Date.now() - hit.at < (hit.doubtful ? TODAY_TTL : ttl)) return hit;
@@ -316,7 +329,9 @@ export class RecordingsService {
         const mainList = files(await listProxyDay(cameraId, date, 'main', ctl.signal));
         return [subList, mainList] as const;
       }, ctl.signal);
-      const [sub, main] = proxied ?? (await Promise.all([client.searchDay(date, 'sub'), client.searchDay(date, 'main')]));
+      if (!proxied) this.noFallback(cameraId);
+      const client = proxied ? null : this.client(cameraId);
+      const [sub, main] = proxied ?? (await Promise.all([client!.searchDay(date, 'sub'), client!.searchDay(date, 'main')]));
       const entry: DayEntry = { at: Date.now(), ...mergeDay(sub, main, date, time), doubtful: !proxied && proxyActive(cameraId) };
       sweep(this.dayCache, PAST_TTL);
       this.dayCache.set(key, entry);
@@ -606,7 +621,9 @@ export class RecordingsService {
         //    breaker. The proxy was asked above, so a camera refusal is final
         //    here (issue #38: no second lookup); a retry asks the proxy again.
         //    With the breaker open there's no Search either; the file's path
-        //    is found before the slot is taken.
+        //    is found before the slot is taken. Never for a camera reached
+        //    through its proxy only.
+        this.noFallback(cameraId);
         this.assertNotRefusing(cameraId);
         const name = await this.cameraPath(cameraId, clipId, sub, 'sub');
         await this.gate(cameraId).run(
@@ -816,6 +833,11 @@ export class RecordingsService {
 
     // 3. The camera's own download, behind the breaker (no Search while it's
     //    open), the file's path found before its one transfer slot is taken.
+    // Never for a camera reached through its proxy only: the proxy's answer was final.
+    if (throughProxy(cameraId)) {
+      if (served === 'main') throw new RecordingError('full_quality_unavailable', 'the full-resolution file is not available right now');
+      this.noFallback(cameraId);
+    }
     try {
       this.assertNotRefusing(cameraId);
       const path = await this.cameraPath(cameraId, clipId, name, served);

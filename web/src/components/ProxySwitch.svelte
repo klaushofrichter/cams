@@ -56,9 +56,13 @@
 {#if camera?.proxyConfigured}
   {#if showsAdminControls($me)}
     <label class="row">
-      <input type="checkbox" data-testid="proxy-toggle" checked={!!camera.proxy} disabled={saving} onchange={toggle} />
+      <input type="checkbox" data-testid="proxy-toggle" checked={!!camera.proxy || !!camera.throughProxy} disabled={saving || !!camera.throughProxy} onchange={toggle} />
       Use cam-proxy
     </label>
+  {/if}
+  {#if camera.throughProxy}
+    <!-- Locked on: cams keeps no password for it, so there is no direct way (spec 2026-10-30 §6.1). -->
+    <p class="muted" data-testid="proxy-locked">This camera goes through its proxy: cams doesn't call it directly, so the switch stays on.</p>
   {/if}
   <p class="muted" data-testid="proxy-note">
     {#if camera.proxy}
