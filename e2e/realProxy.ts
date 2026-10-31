@@ -36,7 +36,10 @@ writeFileSync(
       { id: 'loft', name: 'Loft', host: `127.0.0.1:${l.http}`, protocol: 'http', user: 'e2e', onvifPort: l.onvif, rtspPort: l.rtsp, baichuanPort: l.baichuan, statusPollS: 5 },
     ],
     go2rtc: { rtspPort: REAL_PROXY.go2rtcRtsp, apiPort: REAL_PROXY.go2rtcApi },
-    stills: { enabled: false },
+    // Stills on: its go2rtc streams are also what live video for cams
+    // (camera-calls) is served from; without them the proxy answers live
+    // with stream_unavailable (cam-proxy src/api/live-upgrade.ts).
+    stills: { enabled: true, stream: 'sub' },
     ftp: { enabled: false },
   }),
 );

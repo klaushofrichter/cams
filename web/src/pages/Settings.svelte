@@ -10,8 +10,9 @@
   import { cameras, cameraById, me, selectedCameraId } from '../lib/stores';
   import { isAdmin, showsAdminControls } from '../lib/session';
   import CameraLogin from '../components/CameraLogin.svelte';
+  import OfflineFix from '../components/OfflineFix.svelte';
   import { getJson, HttpError, postJson, putJson } from '../lib/api';
-  import { cameraKind, streamsText, WAITING_FOR_PROXY, type CameraStatus } from '../lib/liveUi';
+  import { cameraKind, streamsText, WAITING_FOR_PROXY, type CameraStatus, type OfflineFixInfo } from '../lib/liveUi';
   import {
     diffPatch, FIELD_LABELS, OSD_POSITIONS,
     type DetectionSettings, type DeviceInfo, type ImageSettings, type SaveResult,
@@ -81,6 +82,8 @@
   // by the server): the Live panel showed them before the Video page.
   let status: CameraStatus | null = $state(null);
   let authFailed = $state(false);
+  let loginMissing = $state(false); // a through-proxy camera whose proxy has no password for it
+  let offlineFix: OfflineFixInfo | null = $state(null); // a through-proxy camera offline: its certificate to trust
   let seq = 0;
 
   $effect(() => {
@@ -89,6 +92,8 @@
     detection = detectionEdit = image = imageEdit = device = null;
     status = null;
     authFailed = false;
+    loginMissing = false;
+    offlineFix = null;
     // A switch to another camera must not carry over the previous camera's
     // errors, save states, or an open reboot-confirm step.
     detectionErrors = {};
@@ -116,7 +121,11 @@
       .then((st) => {
         if (mine !== seq) return;
         if (st.online) status = st;
-        else authFailed = st.error === 'camera_auth_failed';
+        else {
+          authFailed = st.error === 'camera_auth_failed';
+          loginMissing = st.via === 'proxy' && st.error === 'camera_credentials_missing';
+          offlineFix = st.fix?.trust ? { ...st.fix, login: null } : null;
+        }
       })
       .catch(() => {});
     getJson<DeviceInfo>(`/api/cameras/${encodeURIComponent(id)}/device`)
@@ -347,7 +356,8 @@
 
     {#if $me?.mcp?.enabled}<McpTokensCard admin={isAdmin($me)} />{/if}
 
-    {#if $selectedCameraId}<CameraLogin cameraId={$selectedCameraId} {authFailed} />{/if}
+    {#if $selectedCameraId}<CameraLogin cameraId={$selectedCameraId} {authFailed} missing={loginMissing} />{/if}
+    {#if $selectedCameraId && offlineFix}<div class="card"><OfflineFix cameraId={$selectedCameraId} fix={offlineFix} /></div>{/if}
     {#if $selectedCameraId}<CameraNameCard cameraId={$selectedCameraId} />{/if}
 
     <SettingsCard id="detection" title="Detection and recording" description={cameraName ? `What ${cameraName} records.` : ''}>

@@ -5,6 +5,21 @@ import { cameraTrust } from '../tls/cameraTrust';
 import { trustEvents } from '../tls/store';
 import { CameraError, ReolinkClient } from './client';
 import type { CamKey } from '../fleet';
+import { throughProxy } from '../proxy/features';
+import { logger } from '../logger';
+
+// A camera reached through its proxy only never gets a direct client (spec
+// 2026-10-30 §6.1): a route that missed its proxy branch shows up in the
+// log, never as a camera call. Logged once per camera.
+const refusedLogged = new Set<CamKey>();
+function directRefused(id: CamKey): boolean {
+  if (!throughProxy(id)) return false;
+  if (!refusedLogged.has(id)) {
+    refusedLogged.add(id);
+    logger.warn({ cameraId: id }, 'direct_call_refused');
+  }
+  return true;
+}
 
 // One client per camera for the life of the process, so the token cache and
 // the concurrency gate are shared by every request for that camera. A
@@ -19,6 +34,7 @@ trustEvents.on('trust', ({ cam }: { cam: CamKey }) => clients.delete(cam));
 
 // None for a camera without its password here (cams-admin mode, M §9.8).
 export function getClient(id: CamKey): ReolinkClient | undefined {
+  if (directRefused(id)) return undefined;
   const existing = clients.get(id);
   if (existing) return existing;
   const cam = getCamera(id);
@@ -41,6 +57,7 @@ function passwordBlocked(cam: CameraConfig): 'camera_unconfirmed' | 'camera_unve
 
 // The camera's client, or a CameraError the routes answer with (503).
 export function requireClient(id: CamKey): ReolinkClient {
+  if (directRefused(id)) throw new CameraError('camera_offline', 'reached through its proxy only');
   const c = getClient(id);
   if (c) return c;
   const cam = getCamera(id);
@@ -53,4 +70,5 @@ export function requireClient(id: CamKey): ReolinkClient {
 
 export function resetClients(): void {
   clients.clear();
+  refusedLogged.clear();
 }

@@ -2,6 +2,7 @@ import { Router, Request, Response } from 'express';
 import { pipeline } from 'stream/promises';
 import { getCamera, proxyActive, setReportedName, type CameraConfig } from '../cameraRegistry';
 import { forgetProxyName, plausibleName } from '../proxy/names';
+import { throughProxy } from '../proxy/features';
 import { logger } from '../logger';
 import { setProxyEnabled } from '../proxyState';
 import { proxyHub, startProxyStream, stopProxyStream } from '../proxy/stream';
@@ -41,6 +42,8 @@ proxyRouter.put('/api/cameras/:id/proxy', async (req: Request, res: Response) =>
   const { id } = c;
   const enabled = (req.body as { enabled?: unknown } | undefined)?.enabled;
   if (typeof enabled !== 'boolean') return badRequest(res, 'enabled must be true or false');
+  // A camera reached through its proxy only has no direct path (no password here).
+  if (!enabled && throughProxy(id)) return void res.status(409).json({ error: 'proxy_required' });
   await setProxyEnabled(id, enabled);
   if (enabled) startProxyStream(id);
   else {

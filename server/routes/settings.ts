@@ -11,7 +11,12 @@ import {
 } from '../reolink/settings';
 import { logger } from '../logger';
 import { currentUser } from '../middleware/requireAuth';
-import { knownCamera, sendCameraError as fail } from './common';
+import { knownCamera, sendCameraError as fail, viaProxyFailed } from './common';
+import { throughProxy } from '../proxy/features';
+import { proxyAdminClient, readProxyStatus } from '../proxy/cameraCalls';
+import { readJson } from './common';
+import { proxyPath, requireProxyClient } from '../proxy/client';
+import { webUiOf } from '../cameraRegistry';
 import type { CamKey } from '../fleet';
 
 export const settingsRouter = Router();
@@ -38,6 +43,29 @@ function expectedChange(key: string, commands: SettingsCommand[], after: unknown
     if (parts[0] === 'ai' && (body as Record<string, unknown>)?.ai_type !== AI_TYPE[parts[1] as AiKind]) return false;
     return JSON.stringify(at(body, parts.slice(i + 1))) === now;
   });
+}
+
+// A camera reached through its proxy only (spec §6.1): its key; undefined
+// for a camera called directly; null for an unknown one (answered 404 here).
+function viaProxy(req: Request, res: Response): CamKey | undefined | null {
+  const key = knownCamera(req, res);
+  if (!key) return null;
+  return throughProxy(key) ? key : undefined;
+}
+
+// A camera-changing call with the proxy-admin token (spec §10.1): the
+// proxy's status and JSON body (null when it sent none).
+async function adminCall(id: CamKey, method: 'PUT' | 'POST', path: string, body: unknown): Promise<{ status: number; body: Record<string, unknown> | null; retryAfter: string | null }> {
+  const up = await proxyAdminClient(id).open(proxyPath(id, path), undefined, { method, body: JSON.stringify(body), timeoutMs: 30_000 });
+  const json = await readJson(up);
+  return { status: up.status, body: json && typeof json === 'object' && !Array.isArray(json) ? (json as Record<string, unknown>) : null, retryAfter: up.headers.get('retry-after') };
+}
+
+// The proxy's own refusals of a camera call: its 503 camera_offline as ours, anything else unavailable.
+function adminRefused(res: Response, id: CamKey, a: { status: number; body: Record<string, unknown> | null }, event: string): void {
+  if (a.status === 503 || (a.status === 502 && a.body?.error === 'camera_offline')) return void res.status(503).json({ error: 'camera_offline' });
+  logger.warn({ cameraId: id, status: a.status, upstream: typeof a.body?.error === 'string' ? a.body.error.slice(0, 64) : undefined }, event);
+  res.status(502).json({ error: a.status === 502 && a.body?.error === 'camera_error' ? 'camera_error' : 'proxy_unavailable' });
 }
 
 function cameraOr404(req: Request, res: Response) {
@@ -75,6 +103,16 @@ async function apply(client: Client, commands: SettingsCommand[]): Promise<Recor
 }
 
 settingsRouter.get('/api/cameras/:id/settings', async (req, res, next) => {
+  const p = viaProxy(req, res);
+  if (p === null) return;
+  if (p) {
+    try {
+      const s = await requireProxyClient(p).json<{ detection?: unknown; image?: unknown }>(proxyPath(p, '/settings'), undefined, { timeoutMs: 20_000 });
+      return void res.json({ detection: s?.detection ?? null, image: s?.image ?? null });
+    } catch (err) {
+      return viaProxyFailed(err, p, res, next);
+    }
+  }
   const c = cameraOr404(req, res);
   if (!c) return;
   try {
@@ -93,8 +131,20 @@ interface Section<P, R> {
 const DETECTION: Section<DetectionPatch, RawDetection> = { validate: validateDetectionPatch, read: readDetectionRaw, commands: detectionCommands };
 const IMAGE: Section<ImagePatch, RawImage> = { validate: validateImagePatch, read: readImageRaw, commands: imageCommands };
 
-settingsRouter.put('/api/cameras/:id/settings/:section', (req, res, next) => {
+settingsRouter.put('/api/cameras/:id/settings/:section', async (req, res, next) => {
   const section = String(req.params.section);
+  const p = section === 'detection' || section === 'image' ? viaProxy(req, res) : undefined;
+  if (p === null) return;
+  if (p) {
+    try {
+      const a = await adminCall(p, 'PUT', `/settings/${section}`, req.body ?? {});
+      if ((a.status === 200 || a.status === 207) && a.body) return void res.status(a.status).json({ fields: a.body.fields, settings: a.body.settings });
+      if (a.status === 400) return void res.status(400).json({ error: 'bad_request', details: Array.isArray(a.body?.details) ? a.body.details.filter((d) => typeof d === 'string').slice(0, 50) : [] });
+      return adminRefused(res, p, a, 'camera_settings_failed');
+    } catch (err) {
+      return viaProxyFailed(err, p, res, next);
+    }
+  }
   if (section === 'detection') return writeSection(DETECTION, section, req, res, next);
   if (section === 'image') return writeSection(IMAGE, section, req, res, next);
   res.status(404).json({ error: 'not found' });
@@ -130,6 +180,25 @@ async function writeSection<P extends DetectionPatch | ImagePatch, R>(s: Section
 }
 
 settingsRouter.get('/api/cameras/:id/device', async (req, res, next) => {
+  const p = viaProxy(req, res);
+  if (p === null) return;
+  if (p) {
+    try {
+      const s = await readProxyStatus(p, { timeoutMs: 20_000 });
+      const cam = getCamera(p)!;
+      return void res.json({
+        model: s.model ?? '',
+        firmware: s.firmware ?? '',
+        hardware: s.hardware ?? '',
+        name: s.name ?? '',
+        storage: s.sd && s.sd.capacityMB !== null ? { totalMb: s.sd.capacityMB, usedMb: s.sd.capacityMB - (s.sd.freeMB ?? 0), mounted: s.sd.mounted } : null,
+        certificate: s.certificate ? { ...s.certificate, daysLeft: Math.floor((Date.parse(s.certificate.validTo) - Date.now()) / 86_400_000) } : null,
+        ...webUiOf(cam),
+      });
+    } catch (err) {
+      return viaProxyFailed(err, p, res, next);
+    }
+  }
   const c = cameraOr404(req, res);
   if (!c) return;
   try {
@@ -155,6 +224,16 @@ async function readWhiteLed(client: Client): Promise<Record<string, unknown>> {
 }
 
 settingsRouter.get('/api/cameras/:id/light', async (req, res, next) => {
+  const p = viaProxy(req, res);
+  if (p === null) return;
+  if (p) {
+    try {
+      const l = await requireProxyClient(p).json<{ on?: unknown }>(proxyPath(p, '/light'));
+      return void res.json({ on: l?.on === true });
+    } catch (err) {
+      return viaProxyFailed(err, p, res, next);
+    }
+  }
   const c = cameraOr404(req, res);
   if (!c) return;
   try {
@@ -171,6 +250,20 @@ settingsRouter.put('/api/cameras/:id/light', async (req, res, next) => {
     return;
   }
   const want = (body as { on: boolean }).on;
+  const p = viaProxy(req, res);
+  if (p === null) return;
+  if (p) {
+    try {
+      const a = await adminCall(p, 'PUT', '/light', { on: want });
+      const on = a.body?.on === true;
+      if (a.status === 200 || (a.status === 502 && a.body?.error === 'not_applied')) logger.info({ cameraId: p, on, by: currentUser(req)?.email, via: 'proxy' }, 'camera_light_switched');
+      if (a.status === 200) return void res.json({ on });
+      if (a.status === 502 && a.body?.error === 'not_applied') return void res.status(502).json({ error: 'not_applied', on });
+      return adminRefused(res, p, a, 'camera_light_failed');
+    } catch (err) {
+      return viaProxyFailed(err, p, res, next);
+    }
+  }
   const c = cameraOr404(req, res);
   if (!c) return;
   try {
@@ -205,6 +298,28 @@ export function resetRebootCooldowns(): void {
 
 // Review focus 4: only the exact confirmation body reboots.
 settingsRouter.post('/api/cameras/:id/reboot', async (req, res, next) => {
+  const p = viaProxy(req, res);
+  if (p === null) return;
+  if (p) {
+    if (req.body?.confirm !== 'reboot' || Object.keys(req.body).length !== 1) return void res.status(400).json({ error: 'bad_request' });
+    // The proxy counts the cooldown (shared with its power-cycle), not cams.
+    try {
+      const a = await adminCall(p, 'POST', '/reboot', { confirm: 'reboot' });
+      const by = currentUser(req)?.email;
+      if (a.status === 202 && a.body?.confirmed === true) {
+        logger.info({ cameraId: p, by, via: 'proxy' }, 'camera_reboot_requested');
+        return void res.json({ ok: true });
+      }
+      if (a.status === 202) {
+        logger.info({ cameraId: p, by, via: 'proxy' }, 'camera_reboot_unconfirmed');
+        return void res.status(202).json({ ok: true, confirmed: false });
+      }
+      if (a.status === 429) return void res.status(429).json({ error: 'reboot_cooldown' });
+      return adminRefused(res, p, a, 'camera_reboot_failed');
+    } catch (err) {
+      return viaProxyFailed(err, p, res, next);
+    }
+  }
   const c = cameraOr404(req, res);
   if (!c) return;
   if (req.body?.confirm !== 'reboot' || Object.keys(req.body).length !== 1) {

@@ -5,7 +5,6 @@ import { logger } from '../logger';
 import { getProxyClient, proxyPath, ProxyError, type ProxyClient } from '../proxy/client';
 import { CLIP_ID as EVENT, offsetAt, offsetStamp, zoneStamp, type TimeInfo } from '../recordings/clipNames';
 import { getRecordings } from '../recordings/service';
-import { getClient } from '../reolink/clients';
 import { knownCamera, proxyTarget } from './common';
 import { camsIdOf, type CamKey } from '../fleet';
 import { nodeBody } from '../httpBody';
@@ -149,9 +148,7 @@ const validZone = (z: string) => {
 async function stampOf(cam: CamKey, at: number, zone: string | undefined): Promise<string> {
   let time: TimeInfo;
   try {
-    const client = getClient(cam);
-    if (!client) throw new Error('no client');
-    time = await Promise.race([client.timeInfo(), new Promise<never>((_r, reject) => setTimeout(() => reject(new Error('slow')), 2000).unref())]);
+    time = await Promise.race([getRecordings().cameraTime(cam), new Promise<never>((_r, reject) => setTimeout(() => reject(new Error('slow')), 2000).unref())]);
   } catch {
     return zone ? zoneStamp(at, zone) : offsetStamp(at, 0);
   }

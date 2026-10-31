@@ -4,6 +4,7 @@ import { basename } from 'path';
 import { logger } from './logger';
 import { proxyEnabled } from './proxyState';
 import { proxyGroupKey } from './proxy/groupKey';
+import { throughProxy } from './proxy/features';
 import { fingerprintList } from './tls/fingerprint';
 import { pinTransportOk } from './tls/loopback';
 import type { Capabilities } from './proxy/capabilities';
@@ -65,6 +66,7 @@ export interface CameraSummary {
   proxyConfigured: boolean; // whether the camera has a cam-proxy at all (the switch on Settings)
   credentials?: 'missing' | 'mismatch' | 'unconfirmed'; // cams-admin mode: no usable password here (the camera login), or held as new
   capabilities: Capabilities | null; // what the camera can do, from its cam-proxy (null: unknown, or no proxy in use)
+  throughProxy: boolean; // every camera call goes through its cam-proxy (it lists camera-calls); no direct call, no password here
 }
 
 const ID_PATTERN = /^[a-z0-9][a-z0-9-]{0,31}$/;
@@ -103,6 +105,8 @@ export function parseCameras(parsed: unknown, label: string): FileCameraConfig[]
     if (typeof entry !== 'object' || entry === null) throw new Error(`camera registry entry ${i} is not an object`);
     const e = entry as Record<string, unknown>;
     for (const field of FIELDS) {
+      // A camera with a cam-proxy may have no password here (the proxy has it, spec 2026-10-30 §6.2).
+      if (field === 'password' && e.proxy !== undefined && (e.password === undefined || e.password === '')) continue;
       if (typeof e[field] !== 'string' || (e[field] as string).length === 0) {
         throw new Error(`camera registry entry ${i}: field "${field}" must be a non-empty string`);
       }
@@ -141,7 +145,7 @@ export function parseCameras(parsed: unknown, label: string): FileCameraConfig[]
       host: e.host as string,
       protocol: (e.protocol as 'https' | 'http' | undefined) ?? 'https',
       user: e.user as string,
-      password: e.password as string,
+      password: (e.password as string | undefined) ?? '',
     };
     if (e.tlsServername !== undefined) camera.tlsServername = e.tlsServername as string;
     if (e.webUiUrl !== undefined) camera.webUiUrl = e.webUiUrl as string | null;
@@ -222,8 +226,9 @@ function proxyOf(v: unknown, i: number): ProxyConfig {
 }
 
 // File entries as cameras of one account (credentials present: the file has them).
+// An entry without a password (one with a proxy may have none) has no credentials: no direct client.
 export function keyed(accountId: string, list: FileCameraConfig[]): CameraConfig[] {
-  return list.map(({ id, ...rest }) => ({ ...rest, id: camKey(accountId, id), camsId: id, accountId, credentials: 'ok' as const }));
+  return list.map(({ id, ...rest }) => ({ ...rest, id: camKey(accountId, id), camsId: id, accountId, credentials: rest.password ? ('ok' as const) : ('missing' as const) }));
 }
 
 // File mode (and tests): every camera into the file account, as before P4.
@@ -232,12 +237,13 @@ export function setCameras(list: FileCameraConfig[]): void {
   setFleet([{ ...account, users: null, cameras: keyed(account.id, list) }]);
   reported.clear();
   reportedAddress.clear();
+  proxyAddress.clear();
   reportedCapabilities.clear();
 }
 
 // A new fleet: forget what was reported for cameras that are gone.
 fleetEvents.on('applied', () => {
-  for (const m of [reported, reportedAddress, reportedCapabilities]) for (const key of m.keys()) if (!fleetCamera(key)) m.delete(key);
+  for (const m of [reported, reportedAddress, proxyAddress, reportedCapabilities]) for (const key of m.keys()) if (!fleetCamera(key)) m.delete(key);
 });
 
 // The ONLY way from a URL's camera id to a key: within the given account.
@@ -257,6 +263,7 @@ export function accountCameras(accountId: string): readonly CameraConfig[] {
 // 2026-10-04-camera-address-from-proxy-design): `"host": "from-proxy"`.
 export const FROM_PROXY = 'from-proxy';
 const reportedAddress = new Map<CamKey, string>();
+const proxyAddress = new Map<CamKey, string>(); // what any camera's proxy reported (its camera list, `camera` messages)
 // 'address' {cam, address}: a from-proxy camera's address changed (the
 // direct client is built again for it).
 export const addressEvents = new EventEmitter();
@@ -284,11 +291,15 @@ export function cameraHost(id: CamKey): string | undefined {
 // What the proxy reported; anything but an address is ignored. Announced
 // only on a change, and only for a from-proxy camera.
 export function setReportedAddress(id: CamKey, address: unknown): void {
-  if (!hostFromProxy(getCamera(id))) return;
+  const cam = getCamera(id);
+  if (!cam?.proxy) return;
   if (!validCameraAddress(address)) {
     if (address !== undefined) logger.debug({ cameraId: id }, 'proxy_address_ignored');
     return;
   }
+  // Every proxied camera's reported address: a through-proxy camera's web link (webUiOf).
+  proxyAddress.set(id, address);
+  if (!hostFromProxy(cam)) return;
   if (reportedAddress.get(id) === address) return;
   reportedAddress.set(id, address);
   logger.info({ cameraId: id, address }, 'camera_address_from_proxy');
@@ -345,8 +356,10 @@ export function listCameras(accountId: string): CameraSummary[] {
     ...webUiOf(c),
     proxy: proxyActive(c.id),
     proxyConfigured: !!c.proxy,
-    ...(c.credentials !== 'ok' && { credentials: c.credentials }),
+    // A through-proxy camera needs no password here: no "missing" for it.
+    ...(c.credentials !== 'ok' && !throughProxy(c.id) && { credentials: c.credentials }),
     capabilities: proxyActive(c.id) ? cameraCapabilities(c.id) : null,
+    throughProxy: throughProxy(c.id),
   }));
 }
 
@@ -361,9 +374,10 @@ export function listProxied(accountId?: string): CamKey[] {
   return (accountId === undefined ? fleetCameras() : accountCameras(accountId)).filter((c) => proxyActive(c.id)).map((c) => c.id);
 }
 
-// A camera with a cam-proxy that isn't switched off on the Settings page.
+// A camera with a cam-proxy that isn't switched off on the Settings page,
+// or one reached through its proxy only (the switch is locked on for it).
 export function proxyActive(id: CamKey): boolean {
-  return !!getCamera(id)?.proxy && proxyEnabled(id);
+  return !!getCamera(id)?.proxy && (proxyEnabled(id) || throughProxy(id));
 }
 
 export function getCamera(id: CamKey): CameraConfig | undefined {
@@ -372,7 +386,16 @@ export function getCamera(id: CamKey): CameraConfig | undefined {
 
 // The link to the camera's web page, or a note instead of one. A configured
 // webUiUrl wins; a note alone means no link; otherwise the LAN address.
+// A camera reached through its proxy only: the link only from the address
+// its proxy reported, never from a configured webUiUrl or host (cams-admin
+// offers those unheld for such cameras; security review M5).
 export function webUiOf(cam: CameraConfig): { webUiUrl: string | null; webUiNote?: string } {
+  if (throughProxy(cam.id)) {
+    const a = proxyAddress.get(cam.id);
+    const host = a ? (a.startsWith('[') ? a.slice(0, a.indexOf(']') + 1) : a.split(':')[0]) : null;
+    const url = host ? `https://${host}/` : null;
+    return cam.webUiNote ? { webUiUrl: url, webUiNote: cam.webUiNote } : { webUiUrl: url };
+  }
   const webUiUrl = cam.webUiUrl !== undefined ? cam.webUiUrl : cam.webUiNote ? null : webUiUrlOf(cam);
   return cam.webUiNote ? { webUiUrl, webUiNote: cam.webUiNote } : { webUiUrl };
 }

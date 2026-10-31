@@ -26,6 +26,7 @@ export interface CameraSummary {
   proxyConfigured?: boolean; // the camera has a cam-proxy at all (the switch on Settings)
   credentials?: 'missing' | 'mismatch' | 'unconfirmed'; // cams-admin mode: no usable camera password here, or held as new
   capabilities?: Capabilities | null; // what the camera can do, from its cam-proxy (null: unknown or nothing extra)
+  throughProxy?: boolean; // every camera call goes through its cam-proxy (live is fMP4, no camera password in cams)
 }
 
 // A boolean kept in localStorage. Storage failures (private mode) degrade to

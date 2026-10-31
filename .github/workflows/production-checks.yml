@@ -49,6 +49,9 @@ jobs:
         run: for i in 1 2 3; do npm ci && exit 0; echo "try $i failed"; sleep 10; done; exit 1
       # ffmpeg (thumbnail tests) from a GitHub release, not apt.
       - uses: ./.github/actions/ffmpeg
+      # MediaMTX: the sims' RTSP, which the real cam-proxy's go2rtc reads for
+      # Silo's live video (without it cam-sim starts with no RTSP).
+      - uses: ./.github/actions/mediamtx
       - run: npm run build
       # playwright.config.ts starts the built server with e2e/env.ts values.
       # Which browser `channel: 'chrome'` actually launches on this runner.

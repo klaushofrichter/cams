@@ -55,7 +55,7 @@ const isValues = (v: unknown): v is TrustValues => {
 // A log entry carries ids, never values. `proxyIds`: bare proxy ids for
 // confirm-proxy and move-attested (the proxy it trusted, if any),
 // `<accountId>/<proxyId>` keys for seed-proxies (it spans accounts).
-type LogEntry = { at: number; email: string; accountId: string; camsIds: string[]; action: 'confirm' | 'keep' | 'seed' | 'seed-proxies' | 'confirm-proxy' | 'move' | 'move-attested'; moveId?: string; proxyIds?: string[] };
+type LogEntry = { at: number; email: string; accountId: string; camsIds: string[]; action: 'confirm' | 'keep' | 'seed' | 'seed-proxies' | 'confirm-proxy' | 'move' | 'move-attested' | 'via-proxy'; moveId?: string; proxyIds?: string[] };
 // `proxies` absent: written before trusted proxies (seeded once, M2).
 interface FileShape { v: 1; confirmed: Record<string, TrustValues>; keptOld: Record<string, TrustValues>; proxies?: Record<string, ProxyTrust>; fileAccountId?: string; log: LogEntry[] }
 
@@ -147,13 +147,45 @@ export class TrustStore {
   // confirmed camera moving off a trusted source onto a proxy not trusted
   // here trusts that proxy. Rule B: a camera with nothing confirmed here,
   // landing on a proxy trusted here, is confirmed.
-  decide(accountId: string, camsId: string, offered: TrustValues, move?: MoveContext): { use: TrustValues; confirmed: boolean; held: HeldChange | null } {
+  //
+  // `via` (spec 2026-10-30 §6.1): the camera is reached through that proxy
+  // only, so viewers trust the proxy, not the camera: only the proxy fields
+  // are compared and held, the camera's host, protocol and TLS name come from
+  // the offer; a camera with nothing confirmed is confirmed on a proxy
+  // trusted here with exactly its values whose own offer is not held.
+  decide(accountId: string, camsId: string, offered: TrustValues, move?: MoveContext, via?: { viaProxy: string }): { use: TrustValues; confirmed: boolean; held: HeldChange | null } {
     const key = `${accountId}/${camsId}`;
     this.offers.set(key, offered);
     const confirmed = this.data.confirmed[key];
     if (!confirmed) {
       if (move && this.attestedNewAllowed(accountId, offered, move)) return this.applyAttested(accountId, camsId, offered, move, false);
+      if (via && offered.proxyUrl !== null && this.isTrusted(accountId, via.viaProxy, offered) && !this.heldProxyOf(`${accountId}/${via.viaProxy}`)) {
+        this.data.confirmed[key] = offered;
+        delete this.data.keptOld[key];
+        this.data.log.push({ at: Date.now(), email: '', accountId, camsIds: [camsId], action: 'via-proxy', proxyIds: [via.viaProxy] });
+        this.save();
+        logger.info({ accountId, camsId, proxyId: via.viaProxy }, 'camera_trusted_via_proxy');
+        return { use: offered, confirmed: true, held: null };
+      }
       return { use: offered, confirmed: false, held: this.heldOf(key, offered) };
+    }
+    if (via) {
+      // The camera's own values from the offer, never held; the proxy's as before.
+      const withCamera = (v: TrustValues): TrustValues => ({ ...proxyPart(v), host: offered.host, protocol: offered.protocol, tlsServername: offered.tlsServername });
+      const pf = proxyDiffers(confirmed, offered);
+      if (!pf.length) return { use: withCamera(confirmed), confirmed: true, held: null };
+      const full = withCamera(confirmed);
+      if (move && this.moveAllowed(accountId, full, offered, move)) {
+        this.data.confirmed[key] = offered;
+        delete this.data.keptOld[key];
+        this.data.log.push({ at: Date.now(), email: '', accountId, camsIds: [camsId], action: 'move', moveId: move.moveId });
+        this.save();
+        logger.info({ accountId, camsId, proxyId: move.proxyId, moveId: move.moveId }, 'camera_moved_trusted');
+        return { use: offered, confirmed: true, held: null };
+      }
+      if (move && this.attestedMoveAllowed(accountId, full, offered, move)) return this.applyAttested(accountId, camsId, offered, move, true);
+      const h = this.heldOf(key, offered);
+      return { use: full, confirmed: true, held: h && { ...h, fields: pf } };
     }
     const fields = differs(confirmed, offered);
     if (fields.length && move && this.moveAllowed(accountId, confirmed, offered, move)) {
