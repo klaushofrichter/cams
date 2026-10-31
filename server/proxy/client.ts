@@ -3,6 +3,7 @@ import { getCamera } from '../cameraRegistry';
 import type { CamKey } from '../fleet';
 import { proxyEndpoint, secretAllowed } from '../secretGuard';
 import { proxyEnabled } from '../proxyState';
+import { throughProxy } from './features';
 import { groupDispatcher, groupTlsFailed } from '../tls/groupCa';
 import { fetchWith, SiteCaError } from '../tls/siteCa';
 import { groupOf, type ProxyGroup } from './groups';
@@ -219,9 +220,10 @@ export function groupTrustOptions(id: CamKey): Pick<ProxyClientOptions, 'dispatc
   return g ? trustOf(g) : {};
 }
 
-// Undefined for a camera without a cam-proxy or with it switched off.
+// Undefined for a camera without a cam-proxy or with it switched off (a
+// camera reached through its proxy only can't be switched off).
 export function getProxyClient(id: CamKey): ProxyClient | undefined {
-  return proxyEnabled(id) ? proxyClientFor(id) : undefined;
+  return proxyEnabled(id) || throughProxy(id) ? proxyClientFor(id) : undefined;
 }
 
 // The proxy's id for a camera: `proxy.camera`, or else ours.

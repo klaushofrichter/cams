@@ -1,6 +1,7 @@
 import { groupOf } from './groups';
 import type { CamKey } from '../fleet';
 import { ProxyError, proxyCameraId, proxyClientFor, type ProxyClient } from './client';
+import { noteProxyFeatures } from './features';
 
 // The proxy's camera list (GET /api/cameras: every camera it serves, with
 // its name, address, web address and, with a site CA, its TLS state). One
@@ -17,16 +18,19 @@ const recent = new WeakMap<ProxyClient, { at: number; done: boolean; list: Promi
 // `maxAgeMs`: how old a finished answer may be; 0 shares only a request
 // still under way (a person's click wants the proxy's state now).
 export function readProxyList(id: CamKey, timeoutMs: number, o: { maxAgeMs?: number } = {}): Promise<ProxyCameraEntry[]> {
-  const client = groupOf(id) && proxyClientFor(id);
-  if (!client) return Promise.reject(new ProxyError('proxy_unreachable', 'the camera has no cam-proxy'));
+  const g = groupOf(id);
+  const client = g && proxyClientFor(id);
+  if (!g || !client) return Promise.reject(new ProxyError('proxy_unreachable', 'the camera has no cam-proxy'));
   const hit = recent.get(client);
   if (hit && (!hit.done || Date.now() - hit.at < (o.maxAgeMs ?? FRESH_MS))) return hit.list;
   const list = client.json<unknown>('/api/cameras', undefined, { timeoutMs }).then((l) => (Array.isArray(l) ? (l as ProxyCameraEntry[]) : []));
   const entry = { at: Date.now(), done: false, list };
   recent.set(client, entry);
   list.then(
-    () => {
+    (l) => {
       entry.done = true;
+      // Every successful read keeps the per-proxy switch current (camera-calls).
+      void noteProxyFeatures(g.accountId, g.url, l);
     },
     () => {
       if (recent.get(client) === entry) recent.delete(client); // a failure isn't shared with later callers

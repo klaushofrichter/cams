@@ -4,6 +4,7 @@ import { basename } from 'path';
 import { logger } from './logger';
 import { proxyEnabled } from './proxyState';
 import { proxyGroupKey } from './proxy/groupKey';
+import { throughProxy } from './proxy/features';
 import { fingerprintList } from './tls/fingerprint';
 import { pinTransportOk } from './tls/loopback';
 import type { Capabilities } from './proxy/capabilities';
@@ -65,6 +66,7 @@ export interface CameraSummary {
   proxyConfigured: boolean; // whether the camera has a cam-proxy at all (the switch on Settings)
   credentials?: 'missing' | 'mismatch' | 'unconfirmed'; // cams-admin mode: no usable password here (the camera login), or held as new
   capabilities: Capabilities | null; // what the camera can do, from its cam-proxy (null: unknown, or no proxy in use)
+  throughProxy: boolean; // every camera call goes through its cam-proxy (it lists camera-calls); no direct call, no password here
 }
 
 const ID_PATTERN = /^[a-z0-9][a-z0-9-]{0,31}$/;
@@ -347,6 +349,7 @@ export function listCameras(accountId: string): CameraSummary[] {
     proxyConfigured: !!c.proxy,
     ...(c.credentials !== 'ok' && { credentials: c.credentials }),
     capabilities: proxyActive(c.id) ? cameraCapabilities(c.id) : null,
+    throughProxy: throughProxy(c.id),
   }));
 }
 
@@ -361,9 +364,10 @@ export function listProxied(accountId?: string): CamKey[] {
   return (accountId === undefined ? fleetCameras() : accountCameras(accountId)).filter((c) => proxyActive(c.id)).map((c) => c.id);
 }
 
-// A camera with a cam-proxy that isn't switched off on the Settings page.
+// A camera with a cam-proxy that isn't switched off on the Settings page,
+// or one reached through its proxy only (the switch is locked on for it).
 export function proxyActive(id: CamKey): boolean {
-  return !!getCamera(id)?.proxy && proxyEnabled(id);
+  return !!getCamera(id)?.proxy && (proxyEnabled(id) || throughProxy(id));
 }
 
 export function getCamera(id: CamKey): CameraConfig | undefined {

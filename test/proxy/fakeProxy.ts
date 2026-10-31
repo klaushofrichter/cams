@@ -896,8 +896,12 @@ export async function startFakeProxy(opts: { port?: number; token?: string; tls?
 // e2e/fakeProxyData.ts.
 if (require.main === module) {
   void (async () => {
-    const { FAKE_PROXY_PORT, FAKE_PROXY_TOKEN, seed } = await import('../../e2e/fakeProxyData.js');
+    const data = await import('../../e2e/fakeProxyData.js');
+    const { FAKE_PROXY_TOKEN, seed } = data;
+    // A second fake for the through-proxy cameras (playwright.config.ts): its own port and features.
+    const FAKE_PROXY_PORT = process.env.FAKE_PROXY_PORT ? Number(process.env.FAKE_PROXY_PORT) : data.FAKE_PROXY_PORT;
     const fake = await startFakeProxy({ port: FAKE_PROXY_PORT, token: FAKE_PROXY_TOKEN });
+    if (process.env.FAKE_PROXY_FEATURES !== undefined) fake.features = process.env.FAKE_PROXY_FEATURES.split(',').filter(Boolean);
     const media = seed(fake);
     // e2e only: POST /push {cam, type, data} makes the fake send a stream
     // message (live events, Klaus 2026-09-28). A separate local port, so the
