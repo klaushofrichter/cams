@@ -1,8 +1,10 @@
 <script lang="ts">
   import { onDestroy, untrack } from 'svelte';
   import { LiveSession, type PlayerState } from '../lib/liveSession';
-  import { liveUrl, type Quality } from '../lib/live';
+  import { browserCodecs, liveUrl, type Quality } from '../lib/live';
   import { mpegtsPlayer } from '../lib/mpegtsPlayer';
+  import { fmp4Player } from '../lib/fmp4Player';
+  import { cameras } from '../lib/stores';
   import { whenPainted } from '../lib/liveConnectStill';
 
   let {
@@ -17,10 +19,18 @@
   let active: 0 | 1 = $state(0);
   let session: LiveSession | null = null;
 
+  // A camera behind an up-to-date cam-proxy plays the proxy's fMP4 (MSE);
+  // others the camera's FLV through mpegts.js, as before.
+  const throughProxy = $derived(!!$cameras.find((c) => c.id === cameraId)?.throughProxy);
+
   // Review focus 4: a change of camera or quality tears the old session down
   // before the new one starts.
   $effect(() => {
-    const url = liveUrl(cameraId, quality);
+    const viaProxy = throughProxy;
+    // iPhone Safari has only ManagedMediaSource.
+    const Source = (globalThis as { ManagedMediaSource?: typeof MediaSource }).ManagedMediaSource ?? globalThis.MediaSource;
+    const isTypeSupported = (t: string) => !!Source?.isTypeSupported?.(t);
+    const url = viaProxy ? liveUrl(cameraId, quality, browserCodecs(isTypeSupported)) : liveUrl(cameraId, quality);
     if (!videoA || !videoB) return;
     // untrack: a parent re-creating its callback must not restart the stream.
     const report = untrack(() => onstate);
@@ -39,7 +49,7 @@
         report('playing');
       });
     };
-    session = new LiveSession(videos, url, mpegtsPlayer, onState, (i) => (active = i));
+    session = new LiveSession(videos, url, viaProxy ? fmp4Player : mpegtsPlayer, onState, (i) => (active = i));
     session.start();
     return () => {
       cancelPaint?.();

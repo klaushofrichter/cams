@@ -7,9 +7,14 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import LivePlayer from './LivePlayer.svelte';
 import type { PlayerState } from '../lib/liveSession';
 
+const urls = vi.hoisted(() => ({ mpegts: [] as string[], fmp4: [] as string[] }));
 vi.mock('../lib/mpegtsPlayer', () => ({
-  mpegtsPlayer: () => ({ attach() {}, load() {}, play() {}, destroy() {}, onFailure() {} }),
+  mpegtsPlayer: (url: string) => (urls.mpegts.push(url), { attach() {}, load() {}, play() {}, destroy() {}, onFailure() {} }),
 }));
+vi.mock('../lib/fmp4Player', () => ({
+  fmp4Player: (url: string) => (urls.fmp4.push(url), { attach() {}, load() {}, play() {}, destroy() {}, onFailure() {} }),
+}));
+import { cameras } from '../lib/stores';
 
 let component: Record<string, unknown> | undefined;
 let target: HTMLDivElement | undefined;
@@ -20,6 +25,8 @@ beforeEach(() => {
   proto.requestVideoFrameCallback = (cb: () => void) => frames.push(cb);
   proto.cancelVideoFrameCallback = () => undefined;
   vi.useFakeTimers();
+  urls.mpegts.length = urls.fmp4.length = 0;
+  cameras.set([{ id: 'den', name: 'Den', webUiUrl: null }]);
 });
 afterEach(() => {
   if (component) unmount(component);
@@ -65,5 +72,25 @@ describe('LivePlayer', () => {
     frames[0]?.();
     vi.advanceTimersByTime(1000);
     expect(states).toEqual(['connecting']);
+  });
+});
+
+describe('LivePlayer player choice', () => {
+  it('plays a camera without a proxy through mpegts.js (FLV)', () => {
+    render();
+    expect(urls.mpegts).toEqual(['/api/cameras/den/live?quality=sub']);
+    expect(urls.fmp4).toEqual([]);
+  });
+
+  it('plays a through-proxy camera as fMP4, naming the codecs the browser takes', () => {
+    vi.stubGlobal('MediaSource', { isTypeSupported: (t: string) => !t.includes('hvc1') });
+    try {
+      cameras.set([{ id: 'den', name: 'Den', webUiUrl: null, throughProxy: true }]);
+      render();
+      expect(urls.fmp4).toEqual([`/api/cameras/den/live?quality=sub&codecs=${encodeURIComponent('avc1.640029,avc1.64002A,avc1.640033,mp4a.40.2')}`]);
+      expect(urls.mpegts).toEqual([]);
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 });
