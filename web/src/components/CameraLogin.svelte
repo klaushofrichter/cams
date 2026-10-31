@@ -68,6 +68,8 @@
         secret = { secretKey: body.secretKey, user: body.user ?? '', unset: body.reason === 'unset' };
         password = '';
         status = '';
+      } else if (res.status === 409 && body?.error === 'no_camera_user') {
+        status = "This camera has no user name in cams-admin: set its camera user there first.";
       } else status = 'Could not save the password.';
     } catch {
       status = 'Could not save the password.';

@@ -8,5 +8,5 @@ published as [GitHub releases](https://github.com/klaushofrichter/cams/releases)
 
 ## [Unreleased]
 
-- Cameras behind an up-to-date cam-proxy are reached only through it: live video, status, settings, light, reboot and the camera login go through the proxy, and cams keeps no camera password for them. When such a camera is offline because of its password or its certificate, admins can enter the password or trust the certificate (the one the proxy measured) right from the offline box.
+- Camera login: saving a password for a camera with no user name in cams-admin is refused with a message saying to set the camera user there. Before, cams saved an entry without a user, and its next start refused the whole credentials file (the Pi's cams on 2026-10-31).
 

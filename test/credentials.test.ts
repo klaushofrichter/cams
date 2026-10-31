@@ -2,7 +2,7 @@
 // cams-admin; a local credentials file (CAMERA_CREDENTIALS_FILE), else, for
 // the file account only, the same id in CAMERAS_FILE (the transition).
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { chmodSync, mkdirSync, mkdtempSync, readFileSync, statSync, writeFileSync } from 'fs';
+import { chmodSync, mkdirSync, mkdtempSync, existsSync, readFileSync, statSync, writeFileSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
 import request from 'supertest';
@@ -168,6 +168,16 @@ describe('PUT /api/cameras/:id/credentials', () => {
     loadCredentials();
     const r = await put('a@example.org', { password: 'secret-pw-3' });
     expect([r.status, r.body]).toEqual([409, { error: 'credentials_read_only', reason: 'unset', secretKey: `${ALPHA}/cam1`, user: 'cams' }]);
+  });
+
+  // The Pi on 2026-10-31: the E1 had no camera user in cams-admin; the entry
+  // with user "" was written, and the next start refused the whole file.
+  it('a camera without a user → 409 no_camera_user, and nothing is written', async () => {
+    applyFleet(fleet().map((a) => ({ ...a, cameras: a.cameras.map((c) => ({ ...c, user: '' })) })));
+    const r = await put('a@example.org', { password: 'secret-pw-4' });
+    expect([r.status, r.body]).toEqual([409, { error: 'no_camera_user' }]);
+    expect(existsSync(FILE) ? JSON.parse(readFileSync(FILE, 'utf8'))[`${ALPHA}/cam1`] : undefined).toBeUndefined();
+    loadCredentials();
   });
 
   it('refuses an empty, too long or control-character password', async () => {
