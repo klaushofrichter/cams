@@ -6,7 +6,7 @@ import { startConfig, stopConfig } from './configSource';
 import { fleetEvents } from './fleet';
 import { onFleetApplied } from './fleetApply';
 import { startProxyStreams, stopProxyStreams } from './proxy/stream';
-import { featureEvents, loadProxyFeatures } from './proxy/features';
+import { cleanupProxiedPasswords, featureEvents, loadProxyFeatures } from './proxy/features';
 import { reapplyConfig } from './configSource';
 import { resetClients } from './reolink/clients';
 
@@ -22,6 +22,9 @@ async function main(): Promise<void> {
     reapplyConfig();
     resetClients();
   });
+  // Stored passwords of cameras already reached through their proxy (a
+  // release while the proxy was down, or a file restored from a backup).
+  void cleanupProxiedPasswords();
   const port = Number(process.env.PORT) || 8080;
   const server = createApp().listen(port, () => {
     logger.info({ port }, 'cams listening');

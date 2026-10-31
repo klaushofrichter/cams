@@ -105,6 +105,8 @@ export function parseCameras(parsed: unknown, label: string): FileCameraConfig[]
     if (typeof entry !== 'object' || entry === null) throw new Error(`camera registry entry ${i} is not an object`);
     const e = entry as Record<string, unknown>;
     for (const field of FIELDS) {
+      // A camera with a cam-proxy may have no password here (the proxy has it, spec 2026-10-30 §6.2).
+      if (field === 'password' && e.proxy !== undefined && (e.password === undefined || e.password === '')) continue;
       if (typeof e[field] !== 'string' || (e[field] as string).length === 0) {
         throw new Error(`camera registry entry ${i}: field "${field}" must be a non-empty string`);
       }
@@ -143,7 +145,7 @@ export function parseCameras(parsed: unknown, label: string): FileCameraConfig[]
       host: e.host as string,
       protocol: (e.protocol as 'https' | 'http' | undefined) ?? 'https',
       user: e.user as string,
-      password: e.password as string,
+      password: (e.password as string | undefined) ?? '',
     };
     if (e.tlsServername !== undefined) camera.tlsServername = e.tlsServername as string;
     if (e.webUiUrl !== undefined) camera.webUiUrl = e.webUiUrl as string | null;

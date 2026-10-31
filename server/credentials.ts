@@ -115,3 +115,41 @@ export function setCameraPassword(accountId: string, camsId: string, user: strin
   writing = run.catch(() => undefined);
   return run;
 }
+
+// Whether the credentials file has this camera's password (not CAMERAS_FILE's).
+export function hasCameraPassword(accountId: string, camsId: string): boolean {
+  return entries.has(`${accountId}/${camsId}`);
+}
+
+// A camera reached through its proxy only keeps no password here (spec
+// 2026-10-30 §6.2): its entry removed, atomically as setCameraPassword, the
+// others kept. false when there is none or the file can't be written (the
+// cluster's read-only Secret: left to kube-setup).
+export function removeCameraPassword(accountId: string, camsId: string): Promise<boolean> {
+  const run = writing.then(async () => {
+    const f = file();
+    if (!f || !credentialsWritable()) return false;
+    loadCredentials();
+    if (!entries.delete(`${accountId}/${camsId}`)) return false;
+    const out: Record<string, unknown> = { v: 1 };
+    for (const k of [...entries.keys()].sort()) out[k] = entries.get(k);
+    const tmp = `${f}.tmp-${randomBytes(6).toString('hex')}`;
+    try {
+      const fh = await fs.open(tmp, 'wx', 0o600);
+      try {
+        await fh.writeFile(JSON.stringify(out, null, 2));
+        await fh.sync();
+      } finally {
+        await fh.close();
+      }
+      await fs.rename(tmp, f);
+    } catch (err) {
+      await fs.rm(tmp, { force: true });
+      loadCredentials();
+      throw err;
+    }
+    return true;
+  });
+  writing = run.catch(() => undefined);
+  return run;
+}

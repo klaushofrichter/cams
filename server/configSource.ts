@@ -11,6 +11,7 @@ import { fileAccount, setFileAccountId, setFleet } from './fleet';
 import { logger } from './logger';
 import { moveToAccounts } from './preferences';
 import { loadProxyState, moveProxyStateToAccounts } from './proxyState';
+import { throughProxyAt } from './proxy/features';
 import { loadTlsState, moveTlsPinsToAccounts } from './tls/store';
 import { AdminClient, AdminError } from './admin/client';
 import { cacheWrittenAt, readCache, writeCache } from './admin/cache';
@@ -123,10 +124,11 @@ function applyContext(): ApplyContext {
     credentials: credentialsFor,
     proxyToken,
     ...(st.trust && {
-      trust: (a: string, c: string, o: TrustValues, move?: MoveContext) => st.trust!.decide(a, c, o, move),
+      trust: (a: string, c: string, o: TrustValues, move?: MoveContext, via?: { viaProxy: string }) => st.trust!.decide(a, c, o, move, via),
       trustedProxiesAt: (a: string, u: string) => st.trust!.trustedProxyIdsAt(a, u),
       proxyOffer: (a: string, p: SnapProxy) => st.trust!.proxyOffer(a, p, st.applied?.revision ?? ''),
     }),
+    throughProxy: throughProxyAt,
     bind: bindSecret,
   };
 }

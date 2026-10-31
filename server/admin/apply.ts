@@ -42,12 +42,16 @@ export interface ApplyContext {
   // `confirmed` false: nothing confirmed yet (held as new) — no secrets at all.
   // `move`: the camera's move context when the snapshot marks it as moving
   // (S §9.2, M3); decide() applies it without a hold only by the move rule.
-  trust?: (accountId: string, camsId: string, offered: TrustValues, move?: MoveContext) => { use: TrustValues; confirmed: boolean; held: HeldChange | null };
+  // `via`: the camera is reached through its proxy only (spec 2026-10-30 §6.1): only the proxy's values count.
+  trust?: (accountId: string, camsId: string, offered: TrustValues, move?: MoveContext, via?: { viaProxy: string }) => { use: TrustValues; confirmed: boolean; held: HeldChange | null };
   // The proxy ids of the account trusted at exactly this URL (tokenOwner).
   trustedProxiesAt?: (accountId: string, url: string) => string[];
   // Every proxy of the account, before its cameras are decided: a proxy's
   // offer (held proxy items, and the move rule refuses a held proxy).
   proxyOffer?: (accountId: string, proxy: SnapProxy) => void;
+  // Whether the proxy at this URL takes camera calls (server/proxy/features.ts):
+  // its cameras get no password here and no camera trust (spec 2026-10-30 §6.1).
+  throughProxy?: (accountId: string, proxyUrl: string) => boolean;
   // Binds a secret to the confirmed endpoint it may go to (server/secretGuard.ts).
   bind?: (secret: string, endpoint: string) => void;
 }
@@ -109,11 +113,14 @@ export function buildFleet(parts: AccountPart[], ctx: ApplyContext): { accounts:
       const attested = c.move && c.move.id === c.moveId && p && c.move.targetProxyId === p.id
         ? { attested: { sourceProxyId: c.move.sourceProxyId, targetProxyId: c.move.targetProxyId, expiresAt: c.move.expiresAt } } : {};
       const move: MoveContext | undefined = c.moveId && p && c.proxyCameraId ? { moveId: c.moveId, proxyId: p.id, proxyCameraId: c.proxyCameraId, site: p.site, ...attested } : undefined;
-      const t = ctx.trust ? ctx.trust(part.account.id, c.camsId, offered, move) : { use: offered, confirmed: true, held: null };
+      // A camera on a proxy that takes camera calls: reached through it only.
+      const through = !!(p && offered.proxyUrl && ctx.throughProxy?.(part.account.id, offered.proxyUrl));
+      const t = ctx.trust ? ctx.trust(part.account.id, c.camsId, offered, move, through && p ? { viaProxy: p.id } : undefined) : { use: offered, confirmed: true, held: null };
       if (t.held) held.push(t.held);
       const v = t.use;
-      // Unconfirmed connection data: no token, no password (C1).
-      const cred: CredentialResult = t.confirmed ? ctx.credentials(part.account.id, c.camsId, c.cameraUser) : { ok: false, problem: 'missing', user: c.cameraUser };
+      // Unconfirmed connection data: no token, no password (C1). Through the
+      // proxy: no password at all (the proxy has it), so none is asked for.
+      const cred: CredentialResult = !t.confirmed ? { ok: false, problem: 'missing', user: c.cameraUser } : through ? { ok: true, user: c.cameraUser ?? '', password: '' } : ctx.credentials(part.account.id, c.camsId, c.cameraUser);
       let proxy: ProxyConfig | undefined;
       if (t.confirmed && p && v.proxyUrl) {
         // The token of the proxy that owns the URL in use, never the offered proxy's when they differ (a held change).
@@ -134,7 +141,7 @@ export function buildFleet(parts: AccountPart[], ctx: ApplyContext): { accounts:
           if (tok.adminToken) ctx.bind?.(tok.adminToken, ep);
         } else missingToken.add(p.id);
       }
-      if (cred.ok && v.host && v.protocol) {
+      if (cred.ok && cred.password && v.host && v.protocol) {
         ctx.bind?.(cred.password, cameraEndpoint({ protocol: v.protocol, host: v.host, tlsServername: v.tlsServername, pins: proxy?.caFingerprint ?? null }));
       }
       return {

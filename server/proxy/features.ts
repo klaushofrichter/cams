@@ -4,7 +4,8 @@ import { readFileSync, promises as fs } from 'fs';
 import { tmpdir } from 'os';
 import { dirname, join } from 'path';
 import { logger } from '../logger';
-import { fleetCamera, type CamKey } from '../fleet';
+import { fleetCamera, fleetCameras, type CamKey } from '../fleet';
+import { credentialsWritable, hasCameraPassword, loadCredentials, removeCameraPassword } from '../credentials';
 
 // The per-proxy switch to camera calls through the proxy (cam-proxy spec
 // 2026-10-30-camera-onboarding-design §6.1, §8): a camera whose proxy (by
@@ -117,3 +118,39 @@ export function throughProxy(id: CamKey): boolean {
   const cam = fleetCamera(id);
   return !!cam?.proxy && throughProxyAt(cam.accountId, cam.proxy.url);
 }
+
+// No camera password for a camera reached through its proxy (spec 2026-10-30
+// §6.2, §8): its entry in the local credentials file is removed when the
+// file is writable (the Pi); a read-only one (the cluster's Secret) is only
+// reported, once per camera, and left to kube-setup. `only`: one proxy's
+// cameras (its switch just turned on); none: every through-proxy camera (start).
+const leftReported = new Set<CamKey>();
+export async function cleanupProxiedPasswords(only?: { accountId: string; proxyUrl: string }): Promise<void> {
+  try {
+    loadCredentials();
+  } catch (err) {
+    logger.warn({ message: (err as Error).message }, 'camera_password_cleanup_skipped');
+    return;
+  }
+  for (const c of fleetCameras()) {
+    if (!c.proxy || !throughProxyAt(c.accountId, c.proxy.url)) continue;
+    if (only && (c.accountId !== only.accountId || normUrl(c.proxy.url) !== normUrl(only.proxyUrl))) continue;
+    if (!hasCameraPassword(c.accountId, c.camsId)) continue;
+    if (!credentialsWritable()) {
+      if (!leftReported.has(c.id)) {
+        leftReported.add(c.id);
+        logger.info({ cameraId: c.id, reason: 'read_only' }, 'camera_password_left');
+      }
+      continue;
+    }
+    try {
+      if (await removeCameraPassword(c.accountId, c.camsId)) logger.info({ cameraId: c.id }, 'camera_password_removed');
+    } catch (err) {
+      logger.warn({ cameraId: c.id, message: (err as Error).message }, 'camera_password_remove_failed');
+    }
+  }
+}
+
+featureEvents.on('through', (e: { accountId: string; proxyUrl: string; on: boolean }) => {
+  if (e.on) void cleanupProxiedPasswords(e);
+});
