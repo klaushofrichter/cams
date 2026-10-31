@@ -18,12 +18,12 @@ export default defineConfig({
   projects: [
     {
       name: 'desktop',
-      testIgnore: /live-teardown\.spec\.ts|camera-name\.spec\.ts|token-login\.spec\.ts|accounts\.spec\.ts|viewer\.spec\.ts|held\.spec\.ts|offline-start\.spec\.ts|ptz\.spec\.ts/,
+      testIgnore: /live-teardown\.spec\.ts|camera-name\.spec\.ts|token-login\.spec\.ts|accounts\.spec\.ts|viewer\.spec\.ts|held\.spec\.ts|offline-start\.spec\.ts|ptz\.spec\.ts|through-proxy\.spec\.ts/,
       use: { ...devices['Desktop Chrome'], channel: 'chrome', viewport: { width: 1440, height: 900 } },
     },
     {
       name: 'phone',
-      testIgnore: /live-teardown\.spec\.ts|camera-name\.spec\.ts|token-login\.spec\.ts|accounts\.spec\.ts|viewer\.spec\.ts|held\.spec\.ts|offline-start\.spec\.ts|ptz\.spec\.ts/,
+      testIgnore: /live-teardown\.spec\.ts|camera-name\.spec\.ts|token-login\.spec\.ts|accounts\.spec\.ts|viewer\.spec\.ts|held\.spec\.ts|offline-start\.spec\.ts|ptz\.spec\.ts|through-proxy\.spec\.ts/,
       use: { ...devices['Desktop Chrome'], channel: 'chrome', viewport: { width: 390, height: 844 }, hasTouch: true },
     },
     // e2e/token-login.spec.ts: the second server (E2E_TOKEN_ENV, the Pi's
@@ -85,6 +85,22 @@ export default defineConfig({
       dependencies: ['ptz-desktop'],
       use: { ...devices['Desktop Chrome'], channel: 'chrome', viewport: { width: 390, height: 844 }, hasTouch: true },
     },
+    // e2e/through-proxy.spec.ts: Mill's status, password and trust answers
+    // live in the second fake cam-proxy, so one test at a time, one size
+    // after the other.
+    {
+      name: 'through-desktop',
+      testMatch: /through-proxy\.spec\.ts/,
+      fullyParallel: false,
+      use: { ...devices['Desktop Chrome'], channel: 'chrome', viewport: { width: 1440, height: 900 } },
+    },
+    {
+      name: 'through-phone',
+      testMatch: /through-proxy\.spec\.ts/,
+      fullyParallel: false,
+      dependencies: ['through-desktop'],
+      use: { ...devices['Desktop Chrome'], channel: 'chrome', viewport: { width: 390, height: 844 }, hasTouch: true },
+    },
     // e2e/live-teardown.spec.ts reads the simulators' shared counters, so it
     // can only run once no other spec file is mid-stream against a simulator.
     // `dependencies` makes Playwright finish every test in `desktop`, `phone`
@@ -113,6 +129,10 @@ export default defineConfig({
     ...Object.values(SIMS).map((s) => ({ command: 'npx cam-sim', port: s.http, reuseExistingServer: !process.env.CI, env: simEnv(s) })),
     // A fake cam-proxy (Plan 6) for Den (stills, sprites) and Barn (a clip).
     { command: 'npx tsx test/proxy/fakeProxy.ts', port: 8095, reuseExistingServer: !process.env.CI },
+    // A second fake cam-proxy that takes camera calls (camera-calls) for Mill:
+    // cams reaches that camera through it only (e2e/through-proxy.spec.ts).
+    // Its test hooks on 8077 (8093 is the first fake's).
+    { command: 'npx tsx test/proxy/fakeProxy.ts', port: 8079, reuseExistingServer: !process.env.CI, env: { FAKE_PROXY_PORT: '8079', FAKE_PROXY_SEED: 'mill', FAKE_PROXY_FEATURES: 'sse-cam-list,ptz,camera-calls' } },
     // The real cam-proxy for Silo and Loft (released image; GitHub Actions or an opt-in, Linux only: e2e/env.ts).
     // The first run pulls the image. Its log (warn and up) shows in the
     // output; SIGTERM lets e2e/realProxy.ts stop the container.

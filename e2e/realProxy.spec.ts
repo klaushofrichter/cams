@@ -204,3 +204,22 @@ test('the Archive holds clips of both cameras on the one proxy, and names their 
     for (const m of made) await page.request.delete(`/api/archive/silo/items/${m.id}`);
   }
 });
+
+// --- Cameras through the proxy (cam-proxy spec 2026-10-30-camera-onboarding-
+// design §6; cams plan 2026-10-31-cams-through-proxy, Task 11). A cam-proxy
+// that lists `camera-calls` serves Silo's live video, status and settings;
+// cams calls the camera no more. Runs once the pinned image (e2e/env.ts) is
+// a release with camera-calls; before that, it says so and skips.
+test('Silo plays live through the real cam-proxy and reports its status from it', async ({ page }) => {
+  const list = (await (await page.request.get(`${PROXY}/api/cameras`, { headers: asClient })).json()) as { id: string; features?: string[] }[];
+  test.skip(!list.find((c) => c.id === 'silo')?.features?.includes('camera-calls'), 'the pinned cam-proxy predates camera-calls (bump CAM_PROXY_TAG and CAM_PROXY_DIGEST in e2e/env.ts)');
+  await expect.poll(async () => ((await (await page.request.get('/api/cameras')).json()) as { id: string; throughProxy?: boolean }[]).find((c) => c.id === 'silo')?.throughProxy, { timeout: 20_000 }).toBe(true);
+  const status = (await (await page.request.get('/api/cameras/silo/status')).json()) as { online: boolean; via?: string };
+  expect(status).toMatchObject({ online: true, via: 'proxy' });
+  const live = page.waitForResponse((r) => /\/api\/cameras\/silo\/live\?/.test(r.url()));
+  await page.goto('/app/live');
+  await page.getByTestId('camera-picker').selectOption('silo');
+  expect((await live).headers()['content-type']).toMatch(/^video\/mp4/);
+  const video = page.getByTestId('live-video');
+  await expect.poll(() => video.evaluate((v: HTMLVideoElement) => v.currentTime), { timeout: 30_000 }).toBeGreaterThan(1);
+});

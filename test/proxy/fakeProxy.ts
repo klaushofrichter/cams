@@ -80,7 +80,7 @@ export interface FakeProxy {
   messages: FakeMessage[];
   oldestId: number; // resuming from an id before this answers `reset`
   offline: boolean; // every request is answered by closing the connection
-  requests: { path: string; auth: string | undefined; query: Record<string, unknown> }[];
+  requests: { path: string; auth: string | undefined; query: Record<string, unknown>; method?: string }[];
   publicUrl: string | null; // what /api/cameras reports as the proxy's web address
   camerasBody?: unknown; // tests: answer /api/cameras with this instead
   loginLinks: number; // one-time admin UI links minted (POST /control/login-links)
@@ -302,7 +302,7 @@ export async function startFakeProxy(opts: { port?: number; token?: string; tls?
   app.use(rateLimit({ windowMs: 60_000, limit: 100_000, standardHeaders: false, legacyHeaders: false }));
   app.use((req, res, next) => {
     if (fake.offline) return void req.socket.destroy();
-    fake.requests.push({ path: req.path, auth: req.get('authorization'), query: { ...req.query } });
+    fake.requests.push({ path: req.path, auth: req.get('authorization'), query: { ...req.query }, method: req.method });
     if (req.path === '/health' || req.path === '/tls/ca.pem') return next();
     // The control API takes the admin token only, like the real one.
     if (req.path.startsWith('/control/')) {
@@ -1127,12 +1127,13 @@ export async function startFakeProxy(opts: { port?: number; token?: string; tls?
 if (require.main === module) {
   void (async () => {
     const data = await import('../../e2e/fakeProxyData.js');
-    const { FAKE_PROXY_TOKEN, seed } = data;
-    // A second fake for the through-proxy cameras (playwright.config.ts): its own port and features.
+    const { FAKE_PROXY_TOKEN, seed, seedMill } = data;
+    // A second fake for the through-proxy cameras (playwright.config.ts): its
+    // own port, seed (FAKE_PROXY_SEED=mill) and features.
     const FAKE_PROXY_PORT = process.env.FAKE_PROXY_PORT ? Number(process.env.FAKE_PROXY_PORT) : data.FAKE_PROXY_PORT;
     const fake = await startFakeProxy({ port: FAKE_PROXY_PORT, token: FAKE_PROXY_TOKEN });
+    const media = process.env.FAKE_PROXY_SEED === 'mill' ? seedMill(fake) : seed(fake);
     if (process.env.FAKE_PROXY_FEATURES !== undefined) fake.features = process.env.FAKE_PROXY_FEATURES.split(',').filter(Boolean);
-    const media = seed(fake);
     // e2e only: POST /push {cam, type, data} makes the fake send a stream
     // message (live events, Klaus 2026-09-28). A separate local port, so the
     // fake's own API keeps its token check.
@@ -1237,6 +1238,37 @@ if (require.main === module) {
       if (!p) return void res.status(404).json({ error: 'not_found' });
       p.state = 'missing';
       res.json({ ok: true });
+    });
+    // e2e only (e2e/through-proxy.spec.ts, camera-calls): POST /camera-status
+    // {cam, status} sets the camera's status (fakeStatus() with these fields;
+    // null: the default again); POST /password-answer and /trust-answer
+    // {answer} set what the password and trust-pin routes answer (null: the
+    // default); POST /live-refusal {value}; GET /calls?cam= the camera-changing
+    // calls seen (path and whether the admin token came, never a value).
+    hooks.post('/camera-status', (req, res) => {
+      const b = req.body as { cam?: unknown; status?: unknown };
+      if (typeof b.cam !== 'string' || (b.status !== null && (typeof b.status !== 'object' || !b.status))) return void res.status(400).json({ error: 'cam and status' });
+      if (b.status === null) fake.cameraStatus.delete(b.cam);
+      else fake.cameraStatus.set(b.cam, fakeStatus({ id: b.cam, name: fake.cameraNames.get(b.cam) ?? b.cam, ...(b.status as Record<string, unknown>) }));
+      res.json({ ok: true });
+    });
+    hooks.post('/password-answer', (req, res) => {
+      fake.passwordAnswer = (req.body as { answer?: FakeProxy['passwordAnswer'] }).answer ?? null;
+      res.json({ ok: true });
+    });
+    hooks.post('/trust-answer', (req, res) => {
+      fake.trustAnswer = (req.body as { answer?: FakeProxy['trustAnswer'] }).answer ?? null;
+      res.json({ ok: true });
+    });
+    hooks.post('/live-refusal', (req, res) => {
+      const v = (req.body as { value?: unknown }).value;
+      fake.liveRefusal = typeof v === 'string' ? v : null;
+      res.json({ ok: true });
+    });
+    hooks.get('/calls', (req, res) => {
+      const cam = String(req.query.cam ?? '');
+      const writes = fake.requests.filter((r) => r.method !== 'GET' && r.path.startsWith(`/api/cameras/${cam}/`) && /\/(settings\/[a-z]+|light|reboot)$/.test(r.path)).map((r) => ({ path: r.path, admin: r.auth === `Bearer ${FAKE_ADMIN_TOKEN}` }));
+      res.json({ writes, passwords: fake.passwordRequests.filter((p) => p.cam === cam).map((p) => ({ admin: p.auth === `Bearer ${FAKE_ADMIN_TOKEN}` })), pins: fake.trustRequests.filter((p) => p.cam === cam).map((p) => ({ fingerprint: p.fingerprint })) });
     });
     hooks.listen(FAKE_PROXY_PORT - 2, '127.0.0.1');
     process.stdout.write(`fake cam-proxy on ${fake.url} (test hooks on ${FAKE_PROXY_PORT - 2})\n`);

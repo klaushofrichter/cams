@@ -120,3 +120,20 @@ export function seed(fake: FakeProxy): { jpeg: Buffer; sprite: Buffer } {
   fake.capabilities.set('barn', { schema: 1, ptz: { move: true, zoom: true, focus: true, speed: true, positions: { max: 20 } } });
   return { jpeg, sprite };
 }
+
+// The second fake cam-proxy (port 8079, e2e/through-proxy.spec.ts): Mill, a
+// camera reached through its proxy only (`camera-calls`; cam-proxy spec
+// 2026-10-30-camera-onboarding-design §4.8, §6). cams has no password for it.
+export const THROUGH_PROXY_PORT = 8079;
+export function seedMill(fake: FakeProxy): { jpeg: Buffer; sprite: Buffer } {
+  const { jpeg, sprite } = media();
+  fake.cameraNames = new Map([['mill', 'Mill']]);
+  fake.cameraAddresses = new Map([['mill', '192.0.2.40']]);
+  // A still every 5 s around the start, for Live's stills while it connects.
+  const now = Math.floor(Date.now() / 60_000) * 60_000;
+  const stills = new Map<number, Buffer>();
+  for (let t = now - 15 * 60_000; t <= now + 60 * 60_000; t += 5000) stills.set(t, jpeg);
+  fake.stills.set('mill', stills);
+  fake.features = ['sse-cam-list', 'ptz', 'camera-calls'];
+  return { jpeg, sprite };
+}

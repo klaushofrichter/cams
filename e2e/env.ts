@@ -21,6 +21,7 @@ export const E2E_ENV: Record<string, string> = {
   CAMERAS_FILE: 'e2e/cameras.json',
   PREFS_FILE: '/tmp/cams-e2e-prefs.json',
   PROXY_STATE_FILE: '/tmp/cams-e2e-proxy-state.json',
+  PROXY_FEATURES_FILE: '/tmp/cams-e2e-proxy-features.json',
   // The run's own clip and thumbnail cache, emptied whenever Playwright starts
   // the server (playwright.config.ts). The default ($TMPDIR/cams-cache) is
   // shared with every earlier run and local server: a thumbnail cached there
@@ -57,6 +58,7 @@ export const E2E_TOKEN_ENV: Record<string, string> = {
   COOKIE_SECURE: 'false',
   PREFS_FILE: '/tmp/cams-e2e-token-prefs.json',
   PROXY_STATE_FILE: '/tmp/cams-e2e-token-proxy-state.json',
+  PROXY_FEATURES_FILE: '/tmp/cams-e2e-token-proxy-features.json',
   CACHE_DIR: join(tmpdir(), 'cams-e2e-token-cache'),
 };
 
@@ -108,6 +110,7 @@ export const E2E_ADMIN_ENV: Record<string, string> = {
   CAMERA_CREDENTIALS_FILE: join(E2E_ADMIN_DATA, 'credentials.json'),
   PREFS_FILE: join(E2E_ADMIN_DATA, 'prefs.json'),
   PROXY_STATE_FILE: join(E2E_ADMIN_DATA, 'proxy-state.json'),
+  PROXY_FEATURES_FILE: join(E2E_ADMIN_DATA, 'proxy-features.json'),
   CACHE_DIR: join(tmpdir(), 'cams-e2e-admin-cache'),
   MCP_TOKENS_FILE: join(E2E_ADMIN_DATA, 'mcp', 'tokens.json'),
 };
