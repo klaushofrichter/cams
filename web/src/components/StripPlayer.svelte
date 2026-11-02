@@ -9,7 +9,7 @@
   import { navigate } from '../lib/router';
   import { localClock, timeAgo } from '../lib/clock';
   import { previewAt, tileStyle, type PreviewMinute } from '../lib/timeline';
-  import { liveUi } from '../lib/liveUi';
+  import { liveQualityLabel, liveUi } from '../lib/liveUi';
   import FullscreenOverlay from './FullscreenOverlay.svelte';
   import { enterPlayerFullscreen, exitPlayerFullscreen, playerFs, type FsAction } from '../lib/playerFullscreen';
   import { clipShown, liveBadge, modeBadge, modeOf, registerPlayer, type PlayerFrame, type RecShown } from '../lib/videoMode';
@@ -63,8 +63,7 @@
   const liveSource = $derived.by(() => {
     const u = $liveUi;
     if (u.playerState !== 'playing' && u.stillsShowing) return BADGE.still; // not "STILLS" twice (Klaus 2026-10-06)
-    const s = u.quality === 'main' ? u.status?.streams?.main : u.status?.streams?.sub;
-    return `${u.quality === 'main' ? '4K' : 'SD'} ${s?.fps ?? (u.quality === 'main' ? 20 : 10)} FPS`;
+    return liveQualityLabel(u.quality, u.quality === 'main' ? u.status?.streams?.main : u.status?.streams?.sub);
   });
   const stillUrl = (ts: number) => `/api/cameras/${encodeURIComponent(cam)}/stills/${ts}.jpg`;
 

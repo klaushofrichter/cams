@@ -9,6 +9,7 @@ import { cameras, selectedCameraId } from '../lib/stores';
 import { initRouter, navigate } from '../lib/router';
 import { preferences } from '../lib/preferences';
 import { resetDayCache } from '../lib/dayCache';
+import { liveUi } from '../lib/liveUi';
 
 // No event stream in jsdom: the page polls instead.
 vi.mock('../lib/eventStream', async (orig) => ({ ...(await orig<typeof import('../lib/eventStream')>()), eventStream: () => undefined }));
@@ -76,6 +77,31 @@ const badge = () => target!.querySelector('[data-testid="mode-badge"]') as HTMLE
 const click = (id: string) => (target!.querySelector(`[data-testid="${id}"]`) as HTMLElement).click();
 
 describe('Video page wiring', () => {
+  // 2026-11-02: after an encoding change (the camera restarts, the stream
+  // reconnects) the label kept the old size. Each start of the live stream
+  // reads the camera's status (its streams) again.
+  it('reads the status again whenever the live stream starts playing', async () => {
+    const seen: string[] = [];
+    const inner = fetch;
+    vi.stubGlobal('fetch', async (url: string, init?: RequestInit) => (seen.push(url), inner(url, init)));
+    await open('/app/video?cam=den');
+    const statusReads = () => seen.filter((u) => u.includes('/status')).length;
+    const first = statusReads();
+    expect(first).toBeGreaterThanOrEqual(1);
+    liveUi.update((u) => ({ ...u, playerState: 'playing' }));
+    await settle();
+    expect(statusReads()).toBe(first + 1);
+    liveUi.update((u) => ({ ...u, muted: !u.muted })); // another change while playing: no read
+    await settle();
+    expect(statusReads()).toBe(first + 1);
+    liveUi.update((u) => ({ ...u, playerState: 'reconnecting' }));
+    await settle();
+    liveUi.update((u) => ({ ...u, playerState: 'playing' }));
+    await settle();
+    expect(statusReads()).toBe(first + 2);
+    liveUi.update((u) => ({ ...u, playerState: 'connecting' }));
+  });
+
   it('rewrites /app/live to /app/video, live, in place', async () => {
     const before = history.length;
     await open('/app/live');
