@@ -196,11 +196,18 @@ describe('compositions around a second', () => {
   const US_RULE = { start: { mon: 3, week: 2, weekday: 0, minutes: 120 }, end: { mon: 11, week: 1, weekday: 0, minutes: 120 } };
   const around = (more: object = {}) => post('den', { at: AT, preS: 10, postS: 10, size: 'sd', badge: true, ...more });
   const stamp = (t: number, offMin: number) => new Date(t + offMin * 60_000).toISOString().slice(0, 19).replace('T', '_').replaceAll(':', '-');
+  // America/Chicago's UTC offset at t in minutes (the US rule, as the
+  // camera's): from Intl, not from the code under test, so the expectation
+  // is right on any day the suite runs (it said -300, CDT, until DST ended).
+  const chicagoOffset = (t: number) => {
+    const p = Object.fromEntries(new Intl.DateTimeFormat('en-US', { timeZone: 'America/Chicago', hourCycle: 'h23', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit' }).formatToParts(t).map((x) => [x.type, Number(x.value)]));
+    return (Date.UTC(p.year, p.month - 1, p.day, p.hour, p.minute, p.second) - Math.floor(t / 1000) * 1000) / 60_000;
+  };
 
   it('relays {at, …} and names the file in the camera\'s time', async () => {
     const r = await around({ timeZone: 'Asia/Tokyo' });
     expect(r.status).toBe(201);
-    expect(r.body).toMatchObject({ durationS: 21, name: `den-${stamp(AT, -300)}-around.mp4` });
+    expect(r.body).toMatchObject({ durationS: 21, name: `den-${stamp(AT, chicagoOffset(AT))}-around.mp4` });
     expect(fake.composeRequests.at(-1)).toEqual({ at: AT, preS: 10, postS: 10, size: 'sd', badge: true, timeZone: 'Asia/Tokyo' });
     // Remembered like a clip's job: it can be polled and fetched.
     expect((await request(createApp()).get(`/api/cameras/den/compositions/${r.body.id}`).set('Cookie', auth)).status).toBe(200);
@@ -222,6 +229,33 @@ describe('compositions around a second', () => {
       const r = await request(createApp()).post('/api/cameras/den/compositions').set('Cookie', `${SESSION_COOKIE}=${signSession('klaus@klaushofrichter.net')}`).send({ at, preS: 0, postS: 0, size: 'sd', badge: true });
       expect(r.status).toBe(201);
       expect(r.body.name).toBe(`den-${stamp}-around.mp4`);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('the oracle: Chicago is -300 in summer, -360 in winter, and changes at the US rule\'s seconds', () => {
+    expect([Date.parse('2026-10-04T19:03:22Z'), Date.parse('2026-11-01T06:59:59Z'), Date.parse('2026-11-01T07:00:00Z'), Date.parse('2026-12-15T19:03:22Z'), Date.parse('2026-03-08T07:59:59Z'), Date.parse('2026-03-08T08:00:00Z')].map(chicagoOffset)).toEqual([-300, -300, -360, -360, -360, -300]);
+  });
+
+  // The camera's time unknown: the viewer's zone, at fixed seconds across
+  // the US changes (Chicago) and in a zone without DST (Tokyo).
+  it.each([
+    ['America/Chicago', 'the last daylight second before falling back', '2026-11-01T06:59:59Z', '2026-11-01_01-59-59'],
+    ['America/Chicago', 'the first standard second after it', '2026-11-01T07:00:00Z', '2026-11-01_01-00-00'],
+    ['America/Chicago', 'the last standard second in spring', '2026-03-08T07:59:59Z', '2026-03-08_01-59-59'],
+    ['America/Chicago', 'the first daylight second in spring', '2026-03-08T08:00:00Z', '2026-03-08_03-00-00'],
+    ['Asia/Tokyo', 'the US fall-back second', '2026-11-01T07:00:00Z', '2026-11-01_16-00-00'],
+    ['Asia/Tokyo', 'the US spring second', '2026-03-08T08:00:00Z', '2026-03-08_17-00-00'],
+  ])('camera time unknown, viewer in %s: %s', async (zone, _name, iso, expected) => {
+    vi.spyOn(getClient(k('den'))!, 'timeInfo').mockRejectedValue(new Error('offline'));
+    const at = Date.parse(iso);
+    vi.useFakeTimers({ toFake: ['Date'], now: at + 60_000 });
+    try {
+      fake.stills.set('cam1', new Map([[at, jpeg]]));
+      const r = await request(createApp()).post('/api/cameras/den/compositions').set('Cookie', `${SESSION_COOKIE}=${signSession('klaus@klaushofrichter.net')}`).send({ at, preS: 0, postS: 0, size: 'sd', badge: true, timeZone: zone });
+      expect(r.status).toBe(201);
+      expect(r.body.name).toBe(`den-${expected}-around.mp4`);
     } finally {
       vi.useRealTimers();
     }
