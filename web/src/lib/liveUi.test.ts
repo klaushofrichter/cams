@@ -1,7 +1,24 @@
 // web/src/lib/liveUi.test.ts
 import { get } from 'svelte/store';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { badgeOf, checkLiveStatus, keepAliveNote, liveUi, offlineReason, cameraKind, streamsText } from './liveUi';
+import { badgeOf, checkLiveStatus, keepAliveNote, liveQualityLabel, liveUi, offlineReason, cameraKind, streamsText } from './liveUi';
+
+describe('liveQualityLabel', () => {
+  // Measured 2026-11-02: the label said 4K while the main stream was
+  // 2560x1440 or 2304x1296. It names the main stream's size now.
+  const main = (width: number, height: number, fps = 20) => ({ codec: 'h264' as const, width, height, fps });
+  it('names the main stream by its size: 4K from 2160 lines, else <height>p', () => {
+    expect(liveQualityLabel('main', main(3840, 2160))).toBe('4K 20 FPS');
+    expect(liveQualityLabel('main', main(4512, 2512))).toBe('4K 20 FPS');
+    expect(liveQualityLabel('main', main(2560, 1440, 25))).toBe('1440p 25 FPS');
+    expect(liveQualityLabel('main', main(2304, 1296, 15))).toBe('1296p 15 FPS');
+  });
+  it('says Main when the main stream is not known, SD for the sub stream', () => {
+    expect(liveQualityLabel('main', null)).toBe('Main');
+    expect(liveQualityLabel('sub', main(640, 360, 10))).toBe('SD 10 FPS');
+    expect(liveQualityLabel('sub', undefined)).toBe('SD 10 FPS');
+  });
+});
 
 describe('liveUi helpers', () => {
   it('names the badge as the Live page did', () => {
