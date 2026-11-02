@@ -8,3 +8,5 @@ published as [GitHub releases](https://github.com/klaushofrichter/cams/releases)
 
 ## [Unreleased]
 
+- Fixed: recordings from the Reolink E1 Outdoor Pro read from the camera's SD card now show what triggered them (motion, person, vehicle, pet) instead of a plain "Recording"; its recording names are shorter than other models'.
+

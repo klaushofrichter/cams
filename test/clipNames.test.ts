@@ -36,7 +36,27 @@ describe('decodeTriggers (name version 10, 14 hex digits)', () => {
   });
 
   it('returns no triggers for flag fields of an unknown length', () => {
-    expect(decodeTriggers('6D28808')).toEqual([]);
+    expect(decodeTriggers('5514C08000000')).toEqual([]); // 13 digits
+    expect(decodeTriggers('2B148080')).toEqual([]); // 8 digits
+  });
+});
+
+// The E1 Outdoor Pro (name version 03, measured 2026-11-02): 7 hex digits,
+// the 14-digit field without its 7 trailing zeros (CX820 sub 2B148080000000).
+describe('decodeTriggers (name version 03, 7 hex digits)', () => {
+  it.each([
+    ['2B14808', ['motion']], // E1 sub, measured
+    ['6728828', ['motion']], // E1 main, measured
+    ['2B14C08', ['person', 'motion']],
+    ['2B14908', ['vehicle', 'motion']],
+    ['2B14888', ['pet', 'motion']],
+    ['2B14818', ['timer', 'motion']],
+  ])('%s -> %j', (hex, triggers) => {
+    expect(decodeTriggers(hex)).toEqual(triggers);
+  });
+
+  it('reads like the 14-digit field with trailing zeros', () => {
+    expect(decodeTriggers('2B14808')).toEqual(decodeTriggers('2B148080000000'));
   });
 });
 
@@ -60,6 +80,18 @@ describe('parseClipName', () => {
   it('parses a name without the DST flag and without the animal-type field', () => {
     const p = parseClipName('Mp4Record/2026-01-10/RecS0A_20260110_080000_080030_55148080000000_927C9.mp4');
     expect(p).toMatchObject({ date: '2026-01-10', dst: false, start: '080000', end: '080030' });
+  });
+
+  it('parses real E1 Outdoor Pro names: no animal-type field, 7-digit flags, with and without DST', () => {
+    expect(parseClipName('/mnt/sda/Mp4Record/2026-11-01/RecS03_20261101_070556_070624_2B14808_C6A1C.mp4')).toMatchObject({ stream: 'sub', date: '2026-11-01', start: '070556', end: '070624', dst: false, triggers: ['motion'] });
+    expect(parseClipName('RecM03_20261101_134721_134751_6728828_102F507.mp4')).toMatchObject({ stream: 'main', start: '134721', end: '134751', triggers: ['motion'] });
+    expect(parseClipName('RecS03_DST20261030_080922_080959_2B14808_C7076.mp4')).toMatchObject({ stream: 'sub', date: '2026-10-30', dst: true, triggers: ['motion'] });
+  });
+
+  it('older 14-digit names are unchanged (RLC-1224A and CX820, measured)', () => {
+    expect(parseClipName('RecM0A_DST20261030_011218_011244_0_7B288A00000000_1C0CE49.mp4')).toMatchObject({ stream: 'main', dst: true, triggers: ['pet'] });
+    expect(parseClipName('RecS0A_DST20261030_011218_011244_0_55148800000000_16F02E.mp4')).toMatchObject({ stream: 'sub', triggers: ['pet'] });
+    expect(parseClipName('RecS0A_DST20261025_235552_235631_0_2B148180000000_996AA.mp4')).toMatchObject({ triggers: ['timer', 'motion'] });
   });
 
   it.each(['', 'foo.mp4', '/etc/passwd', 'RecX0A_20260925_125653_125718_0_55148080000000_927C9.mp4', 'RecS0A_20260925_1256_125718_0_5514_9.mp4'])(

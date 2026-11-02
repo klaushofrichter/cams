@@ -47,11 +47,15 @@ export function isRealMonth(month: string): boolean {
 // RecS0A_DST20260925_125653_125718_0_55148080000000_927C9.mp4
 // stream, name version, optional DST, date, start, end, optional animal
 // type, flags (hex), size (hex). Anything else is not a clip we know.
+// The E1 Outdoor Pro: RecS03_20261101_070556_070624_2B14808_C6A1C.mp4 (no
+// animal type, 7-digit flags).
 const NAME = /^Rec([MS])([0-9A-F]{2})_(DST)?(\d{8})_(\d{6})_(\d{6})_(?:\d+_)?([0-9A-F]+)_([0-9A-F]+)\.mp4$/i;
 
-// Flag positions for name versions 9 and 10 (14 hex digits), counted in the
-// bit-reversed number, as in the reolink_aio library. Verified against real
-// clip names from our camera.
+// Flag positions counted from the field's top bit, as in the reolink_aio
+// library. Verified against real clip names from our cameras: name versions
+// 9 and 10 have 14 hex digits; the E1 Outdoor Pro's version 03 has 7, the
+// same field without its 7 trailing zeros (CX820 sub 2B148080000000, E1 sub
+// 2B14808, measured 2026-11-02). Any other length: no triggers.
 const REVERSED_POSITIONS: [Trigger, number][] = [
   ['person', 17],
   ['vehicle', 19],
@@ -61,7 +65,7 @@ const REVERSED_POSITIONS: [Trigger, number][] = [
 ];
 
 export function decodeTriggers(flagsHex: string): Trigger[] {
-  if (!/^[0-9A-F]{14}$/i.test(flagsHex)) return [];
+  if (!/^(?:[0-9A-F]{7}){1,2}$/i.test(flagsHex)) return [];
   const value = BigInt(`0x${flagsHex}`);
   const bits = flagsHex.length * 4;
   return REVERSED_POSITIONS.filter(([, pos]) => ((value >> BigInt(bits - 1 - pos)) & 1n) === 1n).map(([t]) => t);
