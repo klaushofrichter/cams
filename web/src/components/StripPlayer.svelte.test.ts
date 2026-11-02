@@ -441,6 +441,18 @@ describe('StripPlayer', () => {
     expect(q('mode-badge')!.textContent!.trim()).toBe('● STILLS');
   });
 
+  // 2026-11-02: it said "4K 20 FPS" while the camera streamed 2560x1440.
+  it('names the live main stream by the size the status reports, and follows it', () => {
+    const main = { codec: 'h265' as const, width: 2560, height: 1440, fps: 25 };
+    liveUi.update((u) => ({ ...u, quality: 'main', playerState: 'playing', stillsShowing: false, status: { id: 'den', online: true, streams: { main, sub: null } } }));
+    render({ glued: true, now: T + 2000, at: T + 12_000 });
+    expect(q('source-badge')!.textContent!.trim()).toBe('1440p 25 FPS');
+    liveUi.update((u) => ({ ...u, status: { id: 'den', online: true, streams: { main: { ...main, width: 3840, height: 2160, fps: 20 }, sub: null } } }));
+    flushSync();
+    expect(q('source-badge')!.textContent!.trim()).toBe('4K 20 FPS');
+    liveUi.update((u) => ({ ...u, quality: 'sub' }));
+  });
+
   // Klaus 2026-10-06 (screenshot): the line under the player read "● STILLS · STILLS";
   // its source part says what the stills are, as for recorded stills.
   it('the info line under live stills names the stills once', () => {

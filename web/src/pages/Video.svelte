@@ -24,7 +24,7 @@
   import { eventStream, prunePending, type Pending } from '../lib/eventStream';
   import { formatNow } from '../lib/clock';
   import { createKeepAlive } from '../lib/keepAlive';
-  import { checkLiveStatus, liveStreamHeld } from '../lib/liveUi';
+  import { checkLiveStatus, liveStreamHeld, liveUi } from '../lib/liveUi';
   import { modeOf } from '../lib/videoMode';
   import { exitPlayerFullscreen } from '../lib/playerFullscreen';
 
@@ -273,6 +273,13 @@
   // camera, whether or not the stream is open.
   $effect(() => {
     if (cam && pageVisible) untrack(() => void checkLiveStatus(cam));
+  });
+  // And each time the live stream starts playing: a camera that restarted
+  // (an encoding change) may stream another size now, and the info line's
+  // label follows the status's streams (2026-11-02).
+  const livePlaying = $derived($liveUi.playerState === 'playing');
+  $effect(() => {
+    if (livePlaying && pageVisible) untrack(() => cam && void checkLiveStatus(cam));
   });
   const camProxy = $derived(!!$cameraById(cam)?.proxy);
   const camera = $derived($cameraById(cam) ?? null);

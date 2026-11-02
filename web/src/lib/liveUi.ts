@@ -81,6 +81,17 @@ export function streamsText(s: CameraStatus | null): string {
   return [one('Main', s?.streams?.main), one('Sub', s?.streams?.sub)].filter(Boolean).join(' · ');
 }
 
+// The live stream's label (the Live panel's info line), from the camera's
+// current streams as its status reports them (the proxy's GetEnc): the main
+// stream by its size, "4K" from 2160 lines, else "<height>p" (2560x1440:
+// "1440p"; a camera's main need not be 4K, measured 2026-11-02). Main without
+// a known stream: just "Main". The sub stream stays "SD".
+export function liveQualityLabel(quality: Quality, s: StreamInfo | null | undefined): string {
+  if (quality !== 'main') return `SD ${s?.fps ?? 10} FPS`;
+  if (!s) return 'Main';
+  return `${s.height >= 2160 ? '4K' : `${s.height}p`} ${s.fps} FPS`;
+}
+
 export function badgeOf(playerState: PlayerState, stillsShowing: boolean): string {
   return playerState === 'playing' ? '● LIVE' : stillsShowing ? '● STILLS' : '● …';
 }
