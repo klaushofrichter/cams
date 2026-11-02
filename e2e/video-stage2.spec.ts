@@ -1,7 +1,7 @@
 import { type Page } from '@playwright/test';
 import { expect, test } from './clock';
 import { signIn } from './session';
-import { chicagoMs } from './fakeProxyData';
+import { chicagoIso, chicagoMs } from './fakeProxyData';
 
 // Video page stage 2 (spec docs/superpowers/specs/2026-10-04-video-page-design.md):
 // hours more than 6 h from the viewed time collapse when the viewer lands on
@@ -21,7 +21,7 @@ async function longDay(page: Page) {
       const h = Math.floor(i / 3);
       const m = (i % 3) * 20;
       const t = `${pad(h)}${pad(m)}`;
-      return { id: `${ymd}-${t}00-${t}20`, start: `${date}T${pad(h)}:${pad(m)}:00-05:00`, end: `${date}T${pad(h)}:${pad(m)}:20-05:00`, durationSec: 20, triggers: ['motion'], sizeSub: 1, sizeMain: 1 };
+      return { id: `${ymd}-${t}00-${t}20`, start: chicagoIso(date, `${pad(h)}:${pad(m)}:00`), end: chicagoIso(date, `${pad(h)}:${pad(m)}:20`), durationSec: 20, triggers: ['motion'], sizeSub: 1, sizeMain: 1 };
     });
     await route.fulfill({ json: { date, events, downloads: 'ok' } });
   });
@@ -35,7 +35,7 @@ const hourToggle = (page: Page, h: number) => page.locator(`[data-testid="hour-g
 test('a landing collapses far hours; dragging does not; a day pick does; hand toggles survive', async ({ page }) => {
   await longDay(page);
   const day = yesterday();
-  const at = Date.parse(`${day}T12:30:00-05:00`);
+  const at = chicagoMs(day, '12:30:00');
   await page.goto(`/app/video?cam=cam1&date=${day}&at=${at}`);
   await expect.poll(() => openHours(page)).toEqual(range(6, 18));
 
@@ -69,7 +69,7 @@ test('thumbnails load near the screen only, more as the list scrolls', async ({ 
   const thumbs = new Set<string>();
   page.on('request', (r) => { if (r.url().endsWith('/thumb.jpg')) thumbs.add(r.url()); });
   const day = yesterday();
-  await page.goto(`/app/video?cam=cam1&date=${day}&at=${Date.parse(`${day}T12:30:00-05:00`)}`);
+  await page.goto(`/app/video?cam=cam1&date=${day}&at=${chicagoMs(day, '12:30:00')}`);
   await expect.poll(() => openHours(page)).toEqual(range(6, 18));
   const cards = await page.getByTestId('event-card').count();
   expect(cards).toBe(13 * 3); // collapsed hours render no cards, so no thumbnails

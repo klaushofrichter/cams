@@ -403,7 +403,7 @@ Quirks:
 ```
 /mnt/sda/Mp4Record/2026-09-26/RecS0A_DST20260926_065221_065224_0_55148080000000_4AC87.mp4
                                │  │  │  │        │      │      │ │              └ size (hex)
-                               │  │  │  │        │      │      │ └ flags (14 hex digits)
+                               │  │  │  │        │      │      │ └ flags (14 hex digits; 7 on the E1)
                                │  │  │  │        │      │      └ animal type (optional)
                                │  │  │  │        │      └ end   HHMMSS (camera-local)
                                │  │  │  │        └ start HHMMSS (camera-local)
@@ -437,6 +437,31 @@ function decodeTriggers(flagsHex: string): string[] {
 decodeTriggers('55148080000000'); // ['motion']
 decodeTriggers('5514D080000000'); // ['person', 'vehicle', 'motion']
 ```
+
+**The E1 Outdoor Pro's names** (name version `03`, measured 2026-11-02 on
+firmware v3.1.0.5714) have no animal-type field and **7 hex digits** of
+flags; `DST` appears as on the other models (recorded during daylight
+saving time):
+
+```
+RecS03_20261101_070556_070624_2B14808_C6A1C.mp4      sub
+RecM03_20261101_070558_070624_6728828_83CE31.mp4     main
+RecS03_DST20261030_080922_080959_2B14808_C7076.mp4   sub, during DST
+```
+
+The 7 digits are the 14-digit field without its 7 trailing zeros: the
+CX820's sub flags are `2B148080000000`, the E1's `2B14808`. So the same
+positions apply, counted from the field's top bit (bit `27 − pos`). Checked
+against measured values: the framerate field (bits 8-14, read as a binary
+number) gives 20 for the E1 main and 10 for its sub (GetEnc 20 and 10 fps;
+25 for the CX820's main `67328…`), the encoder bit 22 is set on the H.265
+main streams only, and every motion recording has bit 24 (motion). The
+person, vehicle and pet bits have not been seen in an E1 name yet. Main and
+sub carry different flags for the same recording on every model (resolution,
+framerate and encoder differ): RLC-1224A `7B28828…`/`5514808…`, CX820
+`6732828…`/`2B14808…`, E1 `6728828`/`2B14808` (motion only; the RLC-1224A's
+framerate bits read 20 and 10, its GetEnc fps). A flags field of another
+length is decoded as no triggers.
 
 AI triggers appear only when the camera's AI **recording** schedule is on
 (`GetRecV20` schedule keys `AI_PEOPLE`, `AI_VEHICLE`, `AI_DOG_CAT`) and AI

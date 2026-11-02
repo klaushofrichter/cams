@@ -8,5 +8,5 @@ published as [GitHub releases](https://github.com/klaushofrichter/cams/releases)
 
 ## [Unreleased]
 
-- Camera login: saving a password for a camera with no user name in cams-admin is refused with a message saying to set the camera user there. Before, cams saved an entry without a user, and its next start refused the whole credentials file (the Pi's cams on 2026-10-31).
+- Fixed: recordings from the Reolink E1 Outdoor Pro read from the camera's SD card now show what triggered them (motion, person, vehicle, pet) instead of a plain "Recording"; its recording names are shorter than other models'.
 

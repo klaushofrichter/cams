@@ -35,11 +35,27 @@ function media(): { jpeg: Buffer; sprite: Buffer; mp4: Buffer; detection: Buffer
 }
 
 // Unix ms of a wall-clock time in America/Chicago on `date` (YYYY-MM-DD).
+// The offset is the one in effect at the result, not at the first guess
+// (the wall time read as UTC): near a DST change the two differ, and one
+// step was an hour off for a few hours after it (2026-11-01 06:00).
 export function chicagoMs(date: string, hms: string): number {
-  const guess = Date.parse(`${date}T${hms}Z`);
-  const parts = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Chicago', hourCycle: 'h23', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit' }).formatToParts(guess);
-  const p = (t: string) => parts.find((x) => x.type === t)!.value;
-  return guess - (Date.parse(`${p('year')}-${p('month')}-${p('day')}T${p('hour')}:${p('minute')}:${p('second')}Z`) - guess);
+  const wall = Date.parse(`${date}T${hms}Z`);
+  const offset = (t: number) => {
+    const parts = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Chicago', hourCycle: 'h23', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit' }).formatToParts(t);
+    const p = (k: string) => parts.find((x) => x.type === k)!.value;
+    return Date.parse(`${p('year')}-${p('month')}-${p('day')}T${p('hour')}:${p('minute')}:${p('second')}Z`) - t;
+  };
+  const first = wall - offset(wall);
+  return wall - offset(first);
+}
+
+// Chicago wall time with the offset in effect then, as the server writes it
+// (-05:00 in summer, -06:00 in winter: never a fixed one; a fixed -05:00
+// broke the Video page's hour specs once DST ended, 2026-11-02).
+export function chicagoIso(date: string, hms: string): string {
+  const off = (Date.parse(`${date}T${hms}Z`) - chicagoMs(date, hms)) / 60_000;
+  const a = Math.abs(off);
+  return `${date}T${hms}${off < 0 ? '-' : '+'}${String(Math.floor(a / 60)).padStart(2, '0')}:${String(a % 60).padStart(2, '0')}`;
 }
 
 const chicagoToday = () => new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Chicago' }).format(new Date());
