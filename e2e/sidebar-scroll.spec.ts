@@ -1,6 +1,7 @@
 import { expect, test, type Page } from '@playwright/test';
 import { signIn } from './session';
 import { expandAllHours } from './hours';
+import { chicagoIso } from './fakeProxyData';
 
 // The Video sidebar on a desktop (Klaus, 2026-10-03; one page 2026-10-04):
 // only the event list (cards and hour titles) scrolls; the camera card, the
@@ -25,7 +26,7 @@ async function longDay(page: Page) {
       const m = (i % 3) * 15;
       const t = `${pad(h)}${pad(m)}`;
       return {
-        id: `${ymd}-${t}00-${t}20`, start: `${date}T${pad(h)}:${pad(m)}:00-05:00`, end: `${date}T${pad(h)}:${pad(m)}:20-05:00`,
+        id: `${ymd}-${t}00-${t}20`, start: chicagoIso(date, `${pad(h)}:${pad(m)}:00`), end: chicagoIso(date, `${pad(h)}:${pad(m)}:20`),
         durationSec: 20, triggers: kinds[i % 4], sizeSub: 1, sizeMain: 1,
       };
     });
