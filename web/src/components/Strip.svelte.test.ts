@@ -264,6 +264,53 @@ describe('Strip', () => {
     expect(Number(frames[0].dataset.t)).toBe(onseek.mock.calls[0][0]);
   });
 
+  // Klaus, 2026-11-03: a blank frame says why: the proxy's outages over its whole blank stretch, else the plain sentence.
+  describe('blank frames', () => {
+    const hm = (t: number) => localClock(t, false);
+    const times = () => {
+      render({ filmWidth: 600 });
+      const ts = ([...target!.querySelectorAll('[data-testid="strip-film-frame"]')] as HTMLElement[]).map((f) => Number(f.dataset.t));
+      unmount(component!);
+      target!.remove();
+      return ts;
+    };
+    const sprite = (minute: number): PreviewMinute => ({ minute, cols: 10, rows: 6, tileW: 160, tileH: 90, intervalS: 1, present: Array(60).fill(true), url: '/p.jpg' });
+    const frames = () => [...target!.querySelectorAll('[data-testid="strip-film-frame"]')] as HTMLButtonElement[];
+
+    it('a frame with a picture has no tooltip; blank ones say "No still picture available" without outages', () => {
+      const ts = times();
+      render({ filmWidth: 600, previews: [sprite(Math.floor(ts[5] / 60_000) * 60_000)] });
+      const f = frames();
+      expect(f[5].title).toBe('');
+      expect(f[5].classList.contains('blank')).toBe(false);
+      expect(f[0].title).toBe('No still picture available');
+      expect(f[0].getAttribute('aria-label')).toBe(`${new Date(ts[0]).toLocaleTimeString()}, No still picture available`);
+    });
+
+    it("names the outages overlapping a frame's blank stretch, not those of another stretch; a tap shows it as a note", () => {
+      const ts = times();
+      // Frames 0-4 blank, 5 has a picture, 6-10 blank. The camera went offline during frame 3 and came back in frame 7's stretch.
+      const offline = { cause: 'offline', from: ts[3], to: ts[3] + 60_000 };
+      const powercycle = { cause: 'powercycle', from: ts[8], to: ts[8] + 30_000 };
+      const onseek = vi.fn();
+      render({ filmWidth: 600, previews: [sprite(Math.floor(ts[5] / 60_000) * 60_000)], outages: [offline, powercycle], onseek });
+      const f = frames();
+      const off = `Camera was offline (${hm(offline.from)}${hm(offline.from) === hm(offline.to) ? '' : `–${hm(offline.to)}`})`;
+      const cyc = `Camera power cycled (PoE) (${hm(powercycle.from)}${hm(powercycle.from) === hm(powercycle.to) ? '' : `–${hm(powercycle.to)}`})`;
+      expect(f[0].title).toBe(off); // the whole stretch 0-4, though the camera was seen offline only at 3
+      expect(f[4].title).toBe(off);
+      expect(f[10].title).toBe(cyc);
+      expect(q('strip-film-note')).toBeNull();
+      f[1].click();
+      flushSync();
+      expect(q('strip-film-note')!.textContent).toBe(`${localClock(ts[1])}: ${off}`);
+      expect(onseek).toHaveBeenCalledWith(ts[1]); // and it still seeks
+      f[5].click();
+      flushSync();
+      expect(q('strip-film-note')).toBeNull();
+    });
+  });
+
   // Klaus, 2026-10-04: the popup over the bar says what the clip is (an icon
   // per type, person, vehicle, pet, motion), "Still" over the stills, and is
   // the same size either way.

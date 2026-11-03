@@ -8,11 +8,12 @@
   import type { EventClip } from '../lib/recordings';
   import { filmFrames, FILM_H, FILM_W } from '../lib/film';
   import { localClock } from '../lib/clock';
+  import { blankTexts, type Outage } from '../lib/outages';
 
   // History's strip (spec 2026-09-27): the playhead stays in the centre and
   // time moves under it. Drag, sideways wheel, click and ←/→ move it.
   let {
-    coverage, events, visibleIds, failedIds, at, now, currentId, previews, thumbFor, onseek, ondrag, onstep, oldest = null, pending = [], onglue, filmWidth, barWidth,
+    coverage, events, visibleIds, failedIds, at, now, currentId, previews, thumbFor, onseek, ondrag, onstep, oldest = null, pending = [], onglue, filmWidth, barWidth, outages = [],
   }: {
     coverage: Coverage;
     events: EventClip[];
@@ -31,6 +32,7 @@
     pending?: { kind: string; ts: number }[]; // live events not listed as recordings yet
     filmWidth?: number; // tests only: jsdom has no layout
     barWidth?: number; // tests only, as filmWidth
+    outages?: Outage[]; // the proxy's outages: why frames are blank (Klaus, 2026-11-03)
   } = $props();
 
   const win = $derived(windowAround(at, $zoom));
@@ -226,6 +228,19 @@
   // The band of small frames under the bar (Klaus, 2026-09-28).
   let measured = $state(0);
   const film = $derived(filmFrames(win, filmWidth ?? measured, previews));
+  // A blank frame's explanation (Klaus, 2026-11-03): its title on hover, its
+  // label for screen readers, and a note on a tap (no hover on a phone).
+  const filmStep = $derived(film.length ? span / film.length : 0);
+  const filmTexts = $derived(blankTexts(film.map((f) => ({ t: f.t - filmStep / 2, blank: !f.tile })), filmStep, outages));
+  const blankText = (f: { t: number }) => filmTexts.get(f.t - filmStep / 2) ?? '';
+  let filmNote = $state<{ left: number; text: string } | null>(null);
+  let noteTimer: ReturnType<typeof setTimeout> | undefined;
+  function showNote(left: number, text: string) {
+    filmNote = { left, text };
+    clearTimeout(noteTimer);
+    noteTimer = setTimeout(() => (filmNote = null), 4000);
+  }
+  $effect(() => () => clearTimeout(noteTimer));
 </script>
 
 <div class="wrap">
@@ -291,12 +306,20 @@
   <div class="film-row">
     <div class="film" data-testid="strip-film" bind:clientWidth={measured} style={`height:${FILM_H}px`}>
       {#each film as f (f.t)}
-        <button class="frame-btn" data-testid="strip-film-frame" data-t={f.t} tabindex="-1" aria-label={new Date(f.t).toLocaleTimeString()}
-          style={`left:calc(${f.left}% - ${FILM_W / 2}px);width:${FILM_W}px;height:${FILM_H}px`} onclick={() => seekTo(f.t)}>
+        {@const why = f.tile ? '' : blankText(f)}
+        <button class="frame-btn" class:blank={!f.tile} data-testid="strip-film-frame" data-t={f.t} tabindex="-1" aria-label={new Date(f.t).toLocaleTimeString() + (why ? `, ${why}` : '')} title={why || undefined}
+          style={`left:calc(${f.left}% - ${FILM_W / 2}px);width:${FILM_W}px;height:${FILM_H}px`} onclick={() => {
+            if (why) showNote(f.left, `${localClock(f.t)}: ${why}`);
+            else filmNote = null;
+            seekTo(f.t);
+          }}>
           {#if f.tile}<span class="tile" style={tileStyle(f.tile.minute, f.tile.index, (FILM_W - 2) / f.tile.minute.tileW)}></span>{/if}
         </button>
       {/each}
     </div>
+    {#if filmNote}
+      <div class="film-note" role="status" data-testid="strip-film-note" style={`left: clamp(120px, calc(70px + (100% - 140px) * ${filmNote.left / 100}), calc(100% - 120px))`}>{filmNote.text}</div>
+    {/if}
   </div>
 </div>
 
@@ -334,11 +357,12 @@
   .cursor { position: absolute; top: 0; bottom: 0; width: 1px; background: var(--text); opacity: 0.7; pointer-events: none; }
   .cursor-time { position: absolute; top: 2px; margin-left: 4px; font-size: 10px; font-family: var(--mono); color: var(--text); background: color-mix(in srgb, var(--surface) 80%, transparent); padding: 0 3px; border-radius: 3px; pointer-events: none; white-space: nowrap; }
   .cursor-time.flip { transform: translateX(calc(-100% - 8px)); }
-  .film-row { padding: 0 70px; } /* two 30 px edge buttons, their 4 px gap and the row's 6 px gap, each side */
+  .film-row { padding: 0 70px; position: relative; } /* two 30 px edge buttons, their 4 px gap and the row's 6 px gap, each side */
   .film { position: relative; overflow: hidden; }
   .frame-btn { position: absolute; top: 0; padding: 0; border: 1px solid var(--border); box-sizing: border-box; border-radius: 4px; overflow: hidden; background: var(--no-thumb-bg); cursor: pointer; }
   .frame-btn:hover { border-color: var(--accent); }
   .frame-btn .tile { display: block; }
+  .film-note { position: absolute; top: calc(100% + 4px); transform: translateX(-50%); z-index: 5; max-width: 240px; width: max-content; padding: 4px 8px; border-radius: 8px; background: var(--surface); border: 1px solid var(--border); box-shadow: var(--shadow); color: var(--text); font-size: 12px; line-height: 1.3; pointer-events: none; }
   .span { position: absolute; top: 0; bottom: 0; pointer-events: none; }
   .span.pictures { background: var(--strip-stills); }
   .span.none { background: var(--strip-empty); }

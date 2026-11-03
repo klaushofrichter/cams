@@ -91,6 +91,7 @@ const ROUTES: Route[] = [
   { method: 'post', path: '/api/cameras/cam1/proxy/login-link' },
   { method: 'get', path: `/api/cameras/cam1/previews?from=${M}&to=${M + 60_000}` },
   { method: 'get', path: `/api/cameras/cam1/stills?from=${M}&to=${M + 60_000}`, marker: (r) => JSON.stringify(r.body) },
+  { method: 'get', path: `/api/cameras/cam1/outages?from=${M}&to=${M + 60_000}` },
   { method: 'get', path: `/api/cameras/cam1/stills/${M + 1000}.jpg` },
   { method: 'get', path: `/api/cameras/cam1/previews/${M}.jpg` },
   { method: 'get', path: '/api/cameras/cam1/still/latest.jpg' },
