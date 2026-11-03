@@ -105,9 +105,9 @@ export function streamsText(s: CameraStatus | null): string {
 // "1440p"; a camera's main need not be 4K, measured 2026-11-02). Main without
 // a known stream: just "Main". The sub stream stays "SD". The ext stream is
 // not in the camera's GetEnc (CX820): it is named by the playing picture's
-// height (896x512: "512p"), "Balanced" until that is known.
+// height (896x512: "512p"), "Mid" until that is known.
 export function liveQualityLabel(quality: Quality, s: StreamInfo | null | undefined, videoHeight?: number): string {
-  if (quality === 'ext') return videoHeight ? `${videoHeight}p` : 'Balanced';
+  if (quality === 'ext') return videoHeight ? `${videoHeight}p` : 'Mid';
   if (quality !== 'main') return `SD ${s?.fps ?? 10} FPS`;
   if (!s) return 'Main';
   return `${s.height >= 2160 ? '4K' : `${s.height}p`} ${s.fps} FPS`;
@@ -180,7 +180,7 @@ export function setQuality(quality: Quality): void {
 }
 
 // The ext stream of this camera didn't start: it plays sub for the rest of
-// the visit (Balanced shows as unavailable).
+// the visit (Mid shows as unavailable).
 export function markExtFailed(cameraId: string): void {
   liveUi.update((u) => (u.extFailed?.includes(cameraId) ? u : { ...u, extFailed: [...(u.extFailed ?? []), cameraId] }));
 }

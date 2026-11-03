@@ -12,7 +12,7 @@
   import { cameras, cameraById, selectedCameraId } from '../lib/stores';
   import { VIDEO_PATH, navigate, replaceRoute, route } from '../lib/router';
   import { getJson } from '../lib/api';
-  import { loadDay, onDayInvalidated, sourceLabel, type Downloads } from '../lib/dayCache';
+  import { loadDay, onDayInvalidated, sourceNote, type Downloads } from '../lib/dayCache';
   import { clipStartFromId } from '../lib/strip';
   import {
     addDays, cursorSearch, daysUrl, filterEvents, loadCursor, localDate,
@@ -565,7 +565,7 @@
             live bind:glued liveBox={liveWanted ? liveBoxSnippet : undefined} />
         {/key}
         {#if downloads !== 'unavailable' && !loading && !failed}
-          <p class="note" data-testid="recordings-source" role="status">Source of recordings and thumbnails: {sourceLabel(downloads)}</p>
+          <p class="note" data-testid="recordings-source" role="status">{sourceNote(downloads)}</p>
         {/if}
         {#if downloads === 'unavailable'}
           <p class="banner" data-testid="recordings-unavailable" role="status">

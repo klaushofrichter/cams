@@ -38,13 +38,13 @@ test('Mill plays live through its cam-proxy (fMP4)', async ({ page }) => {
 });
 
 // The third stream (ext, the Reolink app's Balanced): Mill's proxy lists it,
-// so the quality choice is SD | Balanced (| 4K where HEVC plays); Balanced
+// so the quality choice is SD | Mid (| 4K where HEVC plays); Mid
 // asks the proxy for stream=ext and the label names its picture, 512p.
-test('Mill offers Balanced; it plays the ext stream, labelled 512p', async ({ page }) => {
+test('Mill offers Mid; it plays the ext stream, labelled 512p', async ({ page }) => {
   await openMill(page);
   const choice = page.getByTestId('quality-choice');
   await expect(choice).toBeVisible();
-  await expect(page.getByTestId('quality-ext')).toHaveText('Balanced');
+  await expect(page.getByTestId('quality-ext')).toHaveText('Mid');
   await expect(page.getByTestId('quality-sub')).toHaveAttribute('aria-pressed', 'true');
   const live = page.waitForResponse((r) => /\/api\/cameras\/mill\/live\?quality=ext/.test(r.url()));
   await page.getByTestId('quality-ext').click();
@@ -55,6 +55,28 @@ test('Mill offers Balanced; it plays the ext stream, labelled 512p', async ({ pa
   // Back to SD for the other tests (the choice is kept in localStorage).
   await page.getByTestId('quality-sub').click();
   await expect(page.getByTestId('source-badge')).toHaveText(/^SD /);
+});
+
+// The buttons overlap by 1 px: the chosen one must not be cut off by its
+// neighbour, and SD | Mid | 4K must leave the controls on one row (Klaus, 2026-11-03).
+test('quality choice: the chosen button is not clipped; the controls stay on one row', async ({ page }, info) => {
+  await page.addInitScript(() => { MediaSource.isTypeSupported = () => true; });
+  await openMill(page);
+  for (const q of ['sub', 'ext']) {
+    await page.getByTestId(`quality-${q}`).click();
+    await expect(page.getByTestId(`quality-${q}`)).toHaveAttribute('aria-pressed', 'true');
+    const onTop = await page.getByTestId(`quality-${q}`).evaluate((b) => {
+      const r = b.getBoundingClientRect();
+      return document.elementFromPoint(r.right - 0.5, r.top + r.height / 2) === b;
+    });
+    expect(onTop).toBe(true);
+  }
+  await expect(page.getByTestId('quality-main')).toBeVisible();
+  if (!info.project.name.includes('phone')) {
+    const top = async (id: string) => (await page.getByTestId(id).boundingBox())!.y;
+    expect(await top('fullscreen')).toBe(await top('mute-toggle'));
+  }
+  await page.getByTestId('quality-sub').click();
 });
 
 test('Settings reads and saves an image setting through the proxy-admin token', async ({ page }) => {

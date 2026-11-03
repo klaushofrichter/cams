@@ -24,7 +24,7 @@ test('Silo plays and saves a recording its camera refuses over HTTP', async ({ p
   await expect.poll(() => eventCount(page), { timeout: 30_000 }).toBe(4);
   await expandAllHours(page);
   await expect(page.getByTestId('event-card')).toHaveCount(4);
-  await expect(page.getByTestId('recordings-source')).toHaveText('Source of recordings and thumbnails: cam-proxy (SD card)');
+  await expect(page.getByTestId('recordings-source')).toHaveText("Recordings: the camera's SD card, through cam-proxy. Thumbnails: cam-proxy.");
   await card(page, '120505').click();
   const video = page.getByTestId('clip-video');
   await expect.poll(() => video.evaluate((v: HTMLVideoElement) => v.readyState >= 2 && v.currentTime > 0.5), { timeout: 30_000 }).toBe(true);
