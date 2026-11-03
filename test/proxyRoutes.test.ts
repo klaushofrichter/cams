@@ -102,6 +102,42 @@ describe('proxy media routes', () => {
     expect(r.status).toBe(502);
     expect(r.body).toEqual({ error: 'proxy_unavailable' });
   });
+
+  // Blank thumbnails (Klaus, 2026-11-03): why there are no stills, from the proxy.
+  describe('outages', () => {
+    const url = (from = M, to = M + 3_600_000) => `/api/cameras/den/outages?from=${from}&to=${to}`;
+    it("relays the proxy's outages under the proxy's camera name; drops what it doesn't know", async () => {
+      fake.outages.set('cam1', [
+        { cause: 'offline', from: M + 60_000, to: M + 180_000 },
+        { cause: 'address', from: M + 170_000, to: M + 170_000 },
+        { cause: 'paused', from: M + 600_000, to: null },
+        { cause: 'meteor', from: M, to: M + 1 },
+        { cause: 'reboot', from: 'soon' as unknown as number, to: null },
+      ]);
+      const r = await get(url());
+      expect(r.status).toBe(200);
+      expect(r.body).toEqual({ outages: [
+        { cause: 'offline', from: M + 60_000, to: M + 180_000 },
+        { cause: 'address', from: M + 170_000, to: M + 170_000 },
+        { cause: 'paused', from: M + 600_000, to: null },
+      ] });
+      expect(fake.requests.at(-1)?.path).toBe('/api/cameras/cam1/outages');
+    });
+    it('an older proxy (404): none; a failing one: an error', async () => {
+      fake.outagesStatus = 404;
+      expect((await get(url())).body).toEqual({ outages: [] });
+      fake.outagesStatus = 500;
+      expect((await get(url())).status).toBeGreaterThanOrEqual(500);
+    });
+    it('checks the range: at most two days', async () => {
+      expect((await get(url(M, M + 3 * 86_400_000))).status).toBe(400);
+      expect((await get('/api/cameras/den/outages')).status).toBe(400);
+      expect((await get(url(M, M + 2 * 86_400_000))).status).toBe(200);
+    });
+    it('a camera without a proxy has none to ask', async () => {
+      expect((await get(`/api/cameras/shed/outages?from=${M}&to=${M + 1}`)).status).toBe(404);
+    });
+  });
 });
 
 // Plan 7: the Live fallback's newest still.

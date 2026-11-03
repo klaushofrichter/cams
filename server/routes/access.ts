@@ -56,6 +56,7 @@ export const ACCESS: Readonly<Record<string, Need>> = {
   'GET /api/cameras/:id/analytics': 'viewer',
   'GET /api/cameras/:id/previews': 'viewer',
   'GET /api/cameras/:id/stills': 'viewer',
+  'GET /api/cameras/:id/outages': 'viewer',
   'GET /api/cameras/:id/analyses/:eventId': 'viewer',
   'GET /api/cameras/:id/previews/:file': 'viewer',
   'GET /api/cameras/:id/stills/:file': 'viewer',

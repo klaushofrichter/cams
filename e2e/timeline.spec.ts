@@ -70,7 +70,7 @@ test('the large still steps one second with the buttons and the arrow keys, acro
   const m = Math.floor((Date.now() - 180_000) / 60_000) * 60_000; // three minutes ago
   await page.goto(`/app/timeline?cam=cam1&t=${m + 10_000}`);
   const still = page.getByTestId('timeline-still');
-  const gap = page.getByTestId('timeline-gap');
+  const gap = page.getByTestId('timeline-gap-stamp');
   const active = page.locator('[data-testid="timeline-minute"].active');
   await expect(still).toHaveAttribute('src', new RegExp(`stills/${m + 10_000}\\.jpg$`));
   const stamp = (t: number) => page.evaluate((x) => {
@@ -82,6 +82,8 @@ test('the large still steps one second with the buttons and the arrow keys, acro
   await page.getByTestId('timeline-second-next').click();
   await expect(gap).toHaveText(`${await stamp(m + 11_000)} not available as snapshot`);
   await expect(still).toHaveCount(0);
+  // Why (Klaus, 2026-11-03): the fake proxy records no outage there.
+  await expect(page.getByTestId('timeline-gap-reason')).toHaveText('No still picture available');
   await page.getByTestId('timeline-second-prev').click();
   await expect(still).toHaveAttribute('src', new RegExp(`stills/${m + 10_000}\\.jpg$`));
   // The arrow keys, and back across the minute: the previous minute's last second.
