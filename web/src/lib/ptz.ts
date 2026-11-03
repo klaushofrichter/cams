@@ -15,6 +15,7 @@ export interface PtzCapabilities {
 export interface Capabilities {
   schema: number;
   ptz: PtzCapabilities | null;
+  live?: ('main' | 'ext' | 'sub')[]; // the live streams the camera offers (ext: Balanced); absent from older cams servers
 }
 export interface PtzPosition {
   id: string;

@@ -18,10 +18,10 @@ The harness fills that gap, by hand and on demand:
 1. **All suites**: unit + build + e2e of cam-sim, cam-proxy and cams on
    `origin/main` (`run-all-suites.sh`).
 2. **The sim stack**: cam-sim → cam-proxy → cams, built from `origin/main`,
-   with the 23 checks (`start-sim-stack.sh`, `check-stack.sh`). Safe to run any
+   with the 25 checks (`start-sim-stack.sh`, `check-stack.sh`). Safe to run any
    time; it never leaves 127.0.0.1.
 3. **The real camera**: the real camera → a local cam-proxy → a local cams,
-   with the same 23 checks (`start-real-stack.sh`, `check-stack.sh`). Needs the
+   with the same 25 checks (`start-real-stack.sh`, `check-stack.sh`). Needs the
    Pi's cam-proxy stopped for a minute or two, so Klaus runs or approves it.
 4. **Two proxies**: one cams with two cam-proxies, each with its own cam-sim
    (`start-two-proxy-stack.sh`, `check-two-proxy.sh`). Safe any time, like 2;
@@ -37,7 +37,7 @@ Run them in that order: a failure in 1 or 2 is cheaper to find than in 3.
 | `run-all-suites.sh` | Part 1: the suites of the three repos, one repo at a time |
 | `start-sim-stack.sh` | Part 2: starts cam-sim, cam-proxy and cams on 127.0.0.1 |
 | `start-real-stack.sh` | Part 3: starts cam-proxy and cams on 127.0.0.1 against the real camera |
-| `check-stack.sh` | The 23 checks against a running stack |
+| `check-stack.sh` | The 25 checks against a running stack |
 | `start-two-proxy-stack.sh` | Part 4: two cam-sims, two cam-proxies and one cams on 127.0.0.1, cams' `cameras.json` from the generator; `--stop-proxy-b` / `--start-proxy-b` for the outage check; `--start-admin` / `--stop-admin` for the camera move's second cams (cams-admin mode) and its fake cams-admin; `--admin-token-to-proxy-b` installs that cams's own token on proxy B |
 | `check-two-proxy.sh` | Part 4's checks: `two-proxy.spec.ts` (Playwright, config `two-proxy.config.ts`, run.env read by `two-proxy-env.ts`), then the generator again, then the camera move (`@move` in the same spec) |
 | `two-proxy-admin.ts` | Part 4's fake cams-admin for the camera move (`test/admin/fakeAdmin.ts` as a process on 127.0.0.1, with snapshot-step hooks) |
@@ -123,6 +123,13 @@ the sub stream by FTPS to the proxy. cam-sim has two users with random
 passwords: `proxy` (cam-proxy) and `cams` (cams), as on the real camera. The
 first start builds the three repos and generates cam-sim's fixtures, a few
 minutes; later starts take seconds.
+
+`LIVESTACK_CAMSIM_MODEL=CX820` simulates a CX820, whose third live stream
+(ext, the Reolink app's *Balanced*, 896×512) check 20b plays through the
+whole chain; the default RLC-1224A has none (20b SKIP).
+`LIVESTACK_CAM_SIM_REF`, `LIVESTACK_CAM_PROXY_REF` and `LIVESTACK_CAMS_REF`
+build a branch, tag or commit instead of `origin/main` (a feature across the
+repos before it is merged); use a separate `LIVESTACK_DIR` for such a run.
 
 ## 3. The real camera
 
@@ -324,14 +331,14 @@ Stored camera passwords of such cameras leave the local credentials file
 Secret) is only reported (`camera_password_left`): see
 `docs/through-proxy-kube-setup.md`.
 
-## What the 23 checks prove
+## What the 25 checks prove
 
 check-stack.sh signs a cams session cookie with the run's `COOKIE_SECRET`
 (the JWT cams' `server/session.ts` expects, for the stack's only allowed
 email), so no Google sign-in is involved, and uses the run's cam-proxy client
 and admin tokens. It sends GETs only, plus two read-only inventory runs.
 Downloads go to a private temp folder that is deleted at the end. Exit status
-0 only when all 23 pass.
+0 only when none fails (a check that doesn't apply to the camera is SKIP).
 
 | # | Check | Proves |
 |---|---|---|
@@ -354,6 +361,8 @@ Downloads go to a private temp folder that is deleted at the end. Exit status
 | 18 | proxy stills (last 2 min) | the stills pipeline (go2rtc + ffmpeg on one RTSP reader) runs |
 | 19 | cams latest still (proxy) | cams relays the newest still (JPEG, its age) |
 | 20 | cams snapshot (camera Snap) | the camera's own Snap works through cams |
+| 20a | cams live (sub) | live video through cams (fMP4 from the proxy, or the camera's FLV): HTTP 200, `ftyp` or `FLV`, the picture size |
+| 20b | cams live ext (Balanced) | the third stream (ext) through cams → proxy → go2rtc → the camera's RTSP `h264Preview_01_ext`, for a camera whose proxy lists ext in `capabilities.live` (CX820, E1; 896×512 on the CX820); SKIP for one without (RLC-1224A) |
 | 21 | proxy `/control/status` | the admin token works; the recordings card (Baichuan session, cache, downloads) |
 | 22 | inventory stills | a read-only stills inventory finishes with outcome `ok` |
 | 23 | clips compare (camera) | a read-only clips inventory, compared with the camera's SD card, finishes `ok` |

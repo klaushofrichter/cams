@@ -427,7 +427,7 @@ export class ReolinkClient {
     throw new CameraError('camera_auth_failed', 'token rejected after re-login');
   }
 
-  async openLive(quality: 'sub' | 'main', signal: AbortSignal): Promise<IncomingMessage> {
+  async openLive(quality: 'sub' | 'main' | 'ext', signal: AbortSignal): Promise<IncomingMessage> {
     return this.getWithToken(
       (t) => `/flv?port=1935&app=bcs&stream=channel0_${quality}.bcs&token=${t}`,
       /^video\/x-flv/,

@@ -4,7 +4,7 @@ import { getJson, putJson } from './api';
 export interface Preferences {
   defaultCamera: string | null; // null: the last camera used
   lastCamera?: string | null;
-  liveQuality: 'sub' | 'main';
+  liveQuality: 'sub' | 'ext' | 'main';
   eventFilter: ('person' | 'vehicle' | 'pet' | 'motion')[]; // several kinds; all four is All
   timelineZoom: number; // hours: 24, 6, 3, 1, 0.5, 1/6 or 1/60 (lib/strip.ts STRIP_ZOOMS)
   liveKeepAlive: 0 | 30 | 60 | 120 | 300 | 900;

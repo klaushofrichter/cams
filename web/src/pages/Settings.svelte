@@ -280,6 +280,7 @@
         <label>Live quality
           <select data-testid="pref-quality" bind:value={prefs.liveQuality}>
             <option value="sub">SD (plays everywhere)</option>
+            <option value="ext">Balanced (cameras that have it; SD elsewhere)</option>
             <option value="main">HD (needs HEVC support)</option>
           </select>
         </label>

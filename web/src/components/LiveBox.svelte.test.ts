@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import LiveBox from './LiveBox.svelte';
 import { liveUi } from '../lib/liveUi';
 import { preferences, type Preferences } from '../lib/preferences';
+import { cameras } from '../lib/stores';
 
 // jsdom has no MediaSource: a player that never plays.
 vi.mock('../lib/mpegtsPlayer', () => ({
@@ -232,5 +233,57 @@ describe('LiveBox', () => {
       await settle();
       expect(stillAsks).toBe(0);
     });
+  });
+});
+
+// The third stream (ext, Balanced): played for a camera that offers it, sub
+// for one that doesn't; an ext that doesn't play within 15 s falls back to sub.
+describe('LiveBox: the ext stream', () => {
+  const mountFor = (live: ('main' | 'ext' | 'sub')[]) => {
+    cameras.set([{ id: 'cam1', name: 'Garage', webUiUrl: null, capabilities: { schema: 1, ptz: null, live } }]);
+    liveUi.update((u) => ({ ...u, quality: 'ext', extFailed: [], status: { id: 'cam1', online: true }, playerState: 'connecting' }));
+    target = document.createElement('div');
+    document.body.appendChild(target);
+    component = mount(LiveBox, { target, props: { cameraId: 'cam1', visible: true, audible: true, proxy: false } });
+    flushSync();
+  };
+  afterEach(() => {
+    cameras.set([]);
+    liveUi.update((u) => ({ ...u, quality: 'sub', extFailed: [] }));
+    vi.useRealTimers();
+  });
+
+  it('streams ext for a camera that offers it, sub for one that does not', () => {
+    mountFor(['main', 'ext', 'sub']);
+    expect(get(liveUi).stream).toBe('ext');
+    unmount(component!);
+    component = undefined;
+    target?.remove();
+    mountFor(['main', 'sub']);
+    expect(get(liveUi).stream).toBe('sub');
+  });
+
+  it('falls back to sub when ext does not play within 15 s, for this camera only', () => {
+    vi.useFakeTimers();
+    mountFor(['main', 'ext', 'sub']);
+    vi.advanceTimersByTime(14_000);
+    flushSync();
+    expect(get(liveUi).stream).toBe('ext');
+    vi.advanceTimersByTime(1_500);
+    flushSync();
+    expect(get(liveUi).extFailed).toEqual(['cam1']);
+    expect(get(liveUi).stream).toBe('sub');
+    expect(get(liveUi).quality).toBe('ext'); // the choice stays for other cameras
+  });
+
+  it('keeps ext once it plays', () => {
+    vi.useFakeTimers();
+    mountFor(['main', 'ext', 'sub']);
+    liveUi.update((u) => ({ ...u, playerState: 'playing' }));
+    flushSync();
+    vi.advanceTimersByTime(20_000);
+    flushSync();
+    expect(get(liveUi).extFailed).toEqual([]);
+    expect(get(liveUi).stream).toBe('ext');
   });
 });

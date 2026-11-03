@@ -13,7 +13,7 @@ const isPrefsMap = (v: unknown): v is AllPrefs => typeof v === 'object' && v !==
 export interface Preferences {
   defaultCamera: string | null; // null: the last camera used (Klaus, 2026-09-28)
   lastCamera: string | null; // remembered on every camera switch
-  liveQuality: 'sub' | 'main';
+  liveQuality: 'sub' | 'ext' | 'main'; // ext (Balanced): for cameras that have it, else sub
   eventFilter: EventKind[]; // shown kinds, several at once; all four is "All" (Klaus, 2026-09-28)
   timelineZoom: number; // hours, one of TIMELINE_ZOOMS
   liveKeepAlive: 0 | 30 | 60 | 120 | 300 | 900; // seconds; 0 = off
@@ -200,7 +200,7 @@ export function validatePreferencesPatch(accountId: string, body: unknown): { ok
   for (const k of Object.keys(b)) if (!Object.prototype.hasOwnProperty.call(DEFAULT_PREFERENCES, k)) details.push(`${k}: unknown field`);
   if ('defaultCamera' in b && b.defaultCamera !== null && !resolveCamera(accountId, b.defaultCamera)) details.push('defaultCamera: a configured camera id or null');
   if ('lastCamera' in b && b.lastCamera !== null && !resolveCamera(accountId, b.lastCamera)) details.push('lastCamera: a configured camera id or null');
-  if ('liveQuality' in b && b.liveQuality !== 'sub' && b.liveQuality !== 'main') details.push('liveQuality: sub or main');
+  if ('liveQuality' in b && b.liveQuality !== 'sub' && b.liveQuality !== 'ext' && b.liveQuality !== 'main') details.push('liveQuality: sub, ext or main');
   let eventFilter: EventKind[] | null = null;
   if ('eventFilter' in b && !(eventFilter = eventFilterOf(b.eventFilter))) details.push('eventFilter: a list of person, vehicle, pet and motion');
   let timelineZoom: number | null = null;

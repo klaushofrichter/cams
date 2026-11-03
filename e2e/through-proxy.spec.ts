@@ -37,6 +37,26 @@ test('Mill plays live through its cam-proxy (fMP4)', async ({ page }) => {
   await expect(page.getByTestId('live-badge')).toHaveText('● LIVE');
 });
 
+// The third stream (ext, the Reolink app's Balanced): Mill's proxy lists it,
+// so the quality choice is SD | Balanced (| 4K where HEVC plays); Balanced
+// asks the proxy for stream=ext and the label names its picture, 512p.
+test('Mill offers Balanced; it plays the ext stream, labelled 512p', async ({ page }) => {
+  await openMill(page);
+  const choice = page.getByTestId('quality-choice');
+  await expect(choice).toBeVisible();
+  await expect(page.getByTestId('quality-ext')).toHaveText('Balanced');
+  await expect(page.getByTestId('quality-sub')).toHaveAttribute('aria-pressed', 'true');
+  const live = page.waitForResponse((r) => /\/api\/cameras\/mill\/live\?quality=ext/.test(r.url()));
+  await page.getByTestId('quality-ext').click();
+  expect((await live).status()).toBe(200);
+  await expect(page.getByTestId('quality-ext')).toHaveAttribute('aria-pressed', 'true');
+  await expect.poll(() => page.getByTestId('live-video').evaluate((v: HTMLVideoElement) => v.videoHeight), { timeout: 20_000 }).toBe(512);
+  await expect(page.getByTestId('source-badge')).toHaveText('512p');
+  // Back to SD for the other tests (the choice is kept in localStorage).
+  await page.getByTestId('quality-sub').click();
+  await expect(page.getByTestId('source-badge')).toHaveText(/^SD /);
+});
+
 test('Settings reads and saves an image setting through the proxy-admin token', async ({ page }) => {
   await openMill(page, '/app/settings');
   const mirror = page.getByTestId('flip-mirror');
