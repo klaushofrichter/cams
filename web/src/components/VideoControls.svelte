@@ -86,18 +86,19 @@
   const qualityTip = $derived(!live ? LIVE_ONLY : $liveUi.quality === 'main' ? 'Switch to SD' : 'Switch to 4K');
   const qualityName = $derived(!live ? 'Quality — only in live mode' : `Quality: ${$liveUi.quality === 'main' ? '4K, switch to SD' : 'SD, switch to 4K'}`);
   // A camera with a third stream (ext, the Reolink app's Balanced) gets three
-  // choices, SD | Balanced | 4K (4K where HEVC plays), instead of the toggle.
+  // choices, SD | Mid | 4K (4K where HEVC plays), instead of the toggle. "Mid"
+  // keeps the row on one line (Klaus, 2026-11-03); the tooltip names Balanced.
   const hasExt = $derived(offersExt($cameraById(cameraId)));
   const extFailed = $derived(!!$liveUi.extFailed?.includes(cameraId));
   const shown = $derived(effectiveQuality($liveUi.quality, { hevc: $liveUi.hevc, ext: hasExt && !extFailed }));
   const CHOICES: { q: Quality; label: string; tip: string }[] = [
     { q: 'sub', label: 'SD', tip: 'SD (smallest, plays everywhere)' },
-    { q: 'ext', label: 'Balanced', tip: 'Balanced (between SD and 4K)' },
+    { q: 'ext', label: 'Mid', tip: 'Mid: between SD and 4K (Balanced in the Reolink app)' },
     { q: 'main', label: '4K', tip: 'Full quality (needs HEVC support)' },
   ];
   const choices = $derived(CHOICES.filter((c) => c.q !== 'main' || $liveUi.hevc));
   const choiceTip = (c: { q: Quality; tip: string }) =>
-    !live ? LIVE_ONLY : c.q === 'ext' && extFailed ? "Balanced didn't start for this camera; it plays SD" : c.tip;
+    !live ? LIVE_ONLY : c.q === 'ext' && extFailed ? "Mid didn't start for this camera; it plays SD" : c.tip;
   const lightName = $derived(!live ? 'Light — only in live mode' : lightTip);
   const snapTip = $derived($liveUi.snapshotBusy ? 'Saving…' : live ? 'Save a snapshot' : 'Save this frame');
 </script>
@@ -139,9 +140,9 @@
 
 <style>
   .tile { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 12px 14px; }
-  .controls { display: flex; flex-direction: row; flex-wrap: wrap; gap: 8px; }
+  .controls { display: flex; flex-direction: row; flex-wrap: wrap; gap: 6px; }
   .controls button {
-    display: inline-flex; align-items: center; gap: 6px; padding: 7px 12px; border-radius: 10px;
+    display: inline-flex; align-items: center; gap: 6px; padding: 7px 10px; border-radius: 10px;
     border: 1px solid var(--border); background: var(--surface-2); color: var(--text); font-size: 13px; cursor: pointer;
   }
   .controls button:hover:not(:disabled) { background: color-mix(in srgb, var(--accent) 14%, var(--surface-2)); }
@@ -150,8 +151,11 @@
   .controls button:disabled, .controls button[aria-disabled='true'] { opacity: 0.45; cursor: not-allowed; }
   .controls button[aria-disabled='true']:hover { background: var(--surface-2); }
   .quality { display: inline-flex; gap: 0; }
-  .quality button { border-radius: 0; }
+  .quality button { border-radius: 0; padding-inline: 9px; white-space: nowrap; }
   .quality button + button { margin-left: -1px; }
+  /* The overlap: the chosen or focused button paints above its neighbours, so
+     its border and focus ring aren't cut off by the next button. */
+  .quality button[aria-pressed='true'], .quality button:focus-visible { position: relative; z-index: 1; }
   .quality button:first-child { border-radius: 10px 0 0 10px; }
   .quality button:last-child { border-radius: 0 10px 10px 0; }
   .note { margin: 0; width: 100%; font-size: 13px; color: var(--muted); }

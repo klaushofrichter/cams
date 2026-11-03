@@ -13,11 +13,12 @@ import type { Change } from './eventStream';
 export type Downloads = 'ok' | 'proxy-recordings' | 'proxy' | 'unavailable';
 export interface DayEvents { events: EventClip[]; downloads: Downloads }
 
-// The note under the player.
-export function sourceLabel(d: Downloads): string {
-  if (d === 'proxy-recordings') return 'cam-proxy (SD card)';
-  if (d === 'proxy') return 'cam-proxy (FTP copies)';
-  return 'camera';
+// The note under the player: recordings and thumbnails can come from different
+// places, so it names each (Klaus, 2026-11-03: "cam-proxy (SD card)" read as both).
+export function sourceNote(d: Downloads): string {
+  if (d === 'proxy-recordings') return "Recordings: the camera's SD card, through cam-proxy. Thumbnails: cam-proxy.";
+  if (d === 'proxy') return 'Recordings: cam-proxy (FTP copies). Thumbnails: cam-proxy.';
+  return 'Recordings and thumbnails: the camera.';
 }
 export type Fetch = <T>(url: string) => Promise<T>;
 

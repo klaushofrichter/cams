@@ -769,9 +769,9 @@ test('names the source of recordings and thumbnails: cam-proxy or camera (Klaus,
   // Den's fake cam-proxy holds no SD recordings (it answers 503), so cams
   // falls back, and clips would come from the proxy's FTP copies.
   await page.goto('/app/recordings?panel=history&cam=cam1');
-  await expect(page.getByTestId('recordings-source')).toHaveText('Source of recordings and thumbnails: cam-proxy (FTP copies)');
+  await expect(page.getByTestId('recordings-source')).toHaveText('Recordings: cam-proxy (FTP copies). Thumbnails: cam-proxy.');
   await page.goto('/app/recordings?panel=history&cam=porch');
-  await expect(page.getByTestId('recordings-source')).toHaveText('Source of recordings and thumbnails: camera');
+  await expect(page.getByTestId('recordings-source')).toHaveText('Recordings and thumbnails: the camera.');
 });
 
 // Wide windows (Klaus, 2026-09-28): the whole app, top bar included, is

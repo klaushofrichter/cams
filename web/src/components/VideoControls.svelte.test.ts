@@ -271,13 +271,13 @@ describe('VideoControls: Balanced', () => {
   const withExt = (live: ('main' | 'ext' | 'sub')[] = ['main', 'ext', 'sub']) =>
     cameras.set([{ id: 'cam2', name: 'Garage', webUiUrl: null, capabilities: { schema: 1, ptz: null, live } }]);
 
-  it('offers SD, Balanced and 4K for a camera with ext; the choice is kept', () => {
+  it('offers SD, Mid and 4K for a camera with ext; the choice is kept', () => {
     withExt();
     lightServer();
     render();
     expect(q('quality-toggle')).toBeNull();
     const group = q('quality-choice')!;
-    expect([...group.querySelectorAll('button')].map((b) => b.textContent!.trim())).toEqual(['SD', 'Balanced', '4K']);
+    expect([...group.querySelectorAll('button')].map((b) => b.textContent!.trim())).toEqual(['SD', 'Mid', '4K']);
     expect(q('quality-sub')!.getAttribute('aria-pressed')).toBe('true');
     q('quality-ext')!.click();
     flushSync();
@@ -290,12 +290,12 @@ describe('VideoControls: Balanced', () => {
     expect(get(liveUi).quality).toBe('main');
   });
 
-  it('without HEVC: SD and Balanced only (ext is H.264)', () => {
+  it('without HEVC: SD and Mid only (ext is H.264)', () => {
     withExt();
     lightServer();
     liveUi.update((u) => ({ ...u, hevc: false }));
     render();
-    expect([...q('quality-choice')!.querySelectorAll('button')].map((b) => b.textContent!.trim())).toEqual(['SD', 'Balanced']);
+    expect([...q('quality-choice')!.querySelectorAll('button')].map((b) => b.textContent!.trim())).toEqual(['SD', 'Mid']);
   });
 
   it('a camera without ext (or an older proxy) keeps the SD/4K toggle; a stored Balanced shows as SD there', () => {
@@ -316,7 +316,7 @@ describe('VideoControls: Balanced', () => {
     liveUi.update((u) => ({ ...u, quality: 'ext', extFailed: ['cam2'] }));
     render();
     expect(q('quality-ext')!.disabled).toBe(true);
-    expect(q('quality-ext')!.title).toBe("Balanced didn't start for this camera; it plays SD");
+    expect(q('quality-ext')!.title).toBe("Mid didn't start for this camera; it plays SD");
     expect(q('quality-sub')!.getAttribute('aria-pressed')).toBe('true');
   });
 

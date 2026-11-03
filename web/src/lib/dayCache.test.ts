@@ -1,7 +1,7 @@
 // web/src/lib/dayCache.test.ts
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { get } from 'svelte/store';
-import { affectedDays, dayStore, followDayChanges, loadDay, onDayInvalidated, resetDayCache, sourceLabel, type Fetch } from './dayCache';
+import { affectedDays, dayStore, followDayChanges, loadDay, onDayInvalidated, resetDayCache, sourceNote, type Fetch } from './dayCache';
 import type { Change } from './eventStream';
 
 const asFetch = (m: unknown) => m as Fetch;
@@ -32,9 +32,9 @@ describe('dayCache', () => {
   });
 
   it('names the source of recordings for the note under the player', () => {
-    expect(sourceLabel('proxy-recordings')).toBe('cam-proxy (SD card)');
-    expect(sourceLabel('proxy')).toBe('cam-proxy (FTP copies)');
-    expect(sourceLabel('ok')).toBe('camera');
+    expect(sourceNote('proxy-recordings')).toBe("Recordings: the camera's SD card, through cam-proxy. Thumbnails: cam-proxy.");
+    expect(sourceNote('proxy')).toBe('Recordings: cam-proxy (FTP copies). Thumbnails: cam-proxy.');
+    expect(sourceNote('ok')).toBe('Recordings and thumbnails: the camera.');
   });
 });
 
