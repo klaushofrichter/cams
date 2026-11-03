@@ -32,6 +32,11 @@ describe('preferences', () => {
     expect(again.body.timelineZoom).toBe(6);
   });
 
+  it('accepts liveQuality ext (Balanced, for cameras that have it)', async () => {
+    const res = await request(createApp()).put('/api/preferences').set('Cookie', klaus).send({ liveQuality: 'ext' });
+    expect([res.status, res.body.liveQuality]).toEqual([200, 'ext']);
+  });
+
   it.each([
     [{ liveQuality: 'ultra' }],
     [{ timelineZoom: 5 }],

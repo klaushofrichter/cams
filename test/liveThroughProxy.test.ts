@@ -11,6 +11,7 @@ import { SESSION_COOKIE, signSession } from '../server/session';
 import { FAKE_TOKEN } from './proxy/fakeProxy';
 import { startThroughProxy, type ThroughProxy } from './helpers/throughProxy';
 import { k } from './helpers/fleet';
+import { setReportedCapabilities } from '../server/cameraRegistry';
 
 const auth = `${SESSION_COOKIE}=${signSession('klaus@klaushofrichter.net')}`;
 let t: ThroughProxy;
@@ -80,6 +81,32 @@ describe('live through the proxy', () => {
     const bad = await open(`quality=sub&codecs=${encodeURIComponent('a"b')}`);
     expect(bad.statusCode).toBe(400);
     expect(JSON.parse(await body(bad))).toMatchObject({ error: 'invalid' });
+  }, 15_000);
+
+  // The third stream (ext, the Reolink app's Balanced): only for a camera
+  // whose proxy lists it in capabilities.live.
+  it('passes quality=ext on as stream=ext for a camera that offers it', async () => {
+    t.fake.capabilities.set('cam1', { schema: 1, ptz: null, live: ['main', 'ext', 'sub'] });
+    setReportedCapabilities(k('den'), { schema: 1, ptz: null, live: ['main', 'ext', 'sub'] });
+    const res = await open('quality=ext&codecs=avc1.640029');
+    expect(res.statusCode).toBe(200);
+    expect((await read(res, 1000)).subarray(4, 8).toString()).toBe('ftyp');
+    res.destroy();
+    expect(t.fake.liveRequests.at(-1)?.query).toEqual({ stream: 'ext', codecs: 'avc1.640029' });
+  }, 15_000);
+
+  it('answers 503 stream_not_offered for ext of a camera without it, without asking the proxy; the proxy refuses it too', async () => {
+    setReportedCapabilities(k('den'), { schema: 1, ptz: null, live: ['main', 'sub'] });
+    const res = await open('quality=ext');
+    expect(res.statusCode).toBe(503);
+    expect(JSON.parse(await body(res))).toEqual({ error: 'stream_not_offered' });
+    expect(t.fake.liveRequests).toEqual([]);
+    expect(liveStreamCount(k('den'))).toBe(0);
+    // Capabilities that say ext while the proxy doesn't (stale): the proxy's refusal comes through.
+    setReportedCapabilities(k('den'), { schema: 1, ptz: null, live: ['main', 'ext', 'sub'] });
+    const stale = await open('quality=ext');
+    expect(stale.statusCode).toBe(503);
+    expect(JSON.parse(await body(stale))).toEqual({ error: 'stream_not_offered' });
   }, 15_000);
 
   it('closes the proxy socket when the viewer leaves and frees the slot', async () => {

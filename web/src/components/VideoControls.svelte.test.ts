@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { get } from 'svelte/store';
 import VideoControls from './VideoControls.svelte';
 import { liveUi } from '../lib/liveUi';
+import { cameras } from '../lib/stores';
 import { registerPlayer, type PlayerFrame } from '../lib/videoMode';
 import { ICONS } from '../lib/icons';
 
@@ -19,6 +20,8 @@ afterEach(() => {
   component = target = undefined;
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
+  cameras.set([]);
+  liveUi.update((u) => ({ ...u, extFailed: [] }));
 });
 function render(extra: Record<string, unknown> = {}) {
   target = document.createElement('div');
@@ -259,5 +262,72 @@ describe('VideoControls', () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+});
+
+// The third stream (ext, the Reolink app's Balanced): a camera whose proxy
+// lists it gets three choices, SD | Balanced | 4K; others keep the toggle.
+describe('VideoControls: Balanced', () => {
+  const withExt = (live: ('main' | 'ext' | 'sub')[] = ['main', 'ext', 'sub']) =>
+    cameras.set([{ id: 'cam2', name: 'Garage', webUiUrl: null, capabilities: { schema: 1, ptz: null, live } }]);
+
+  it('offers SD, Balanced and 4K for a camera with ext; the choice is kept', () => {
+    withExt();
+    lightServer();
+    render();
+    expect(q('quality-toggle')).toBeNull();
+    const group = q('quality-choice')!;
+    expect([...group.querySelectorAll('button')].map((b) => b.textContent!.trim())).toEqual(['SD', 'Balanced', '4K']);
+    expect(q('quality-sub')!.getAttribute('aria-pressed')).toBe('true');
+    q('quality-ext')!.click();
+    flushSync();
+    expect(get(liveUi).quality).toBe('ext');
+    expect(localStorage.getItem('cams-live-quality')).toBe('ext');
+    expect(q('quality-ext')!.getAttribute('aria-pressed')).toBe('true');
+    expect(q('quality-sub')!.getAttribute('aria-pressed')).toBe('false');
+    q('quality-main')!.click();
+    flushSync();
+    expect(get(liveUi).quality).toBe('main');
+  });
+
+  it('without HEVC: SD and Balanced only (ext is H.264)', () => {
+    withExt();
+    lightServer();
+    liveUi.update((u) => ({ ...u, hevc: false }));
+    render();
+    expect([...q('quality-choice')!.querySelectorAll('button')].map((b) => b.textContent!.trim())).toEqual(['SD', 'Balanced']);
+  });
+
+  it('a camera without ext (or an older proxy) keeps the SD/4K toggle; a stored Balanced shows as SD there', () => {
+    withExt(['main', 'sub']);
+    lightServer();
+    liveUi.update((u) => ({ ...u, quality: 'ext' }));
+    render();
+    expect(q('quality-choice')).toBeNull();
+    expect(q('quality-toggle')!.textContent!.trim()).toBe('SD');
+    q('quality-toggle')!.click();
+    flushSync();
+    expect(get(liveUi).quality).toBe('main');
+  });
+
+  it('Balanced that did not start for this camera is disabled and says why; the camera plays SD', () => {
+    withExt();
+    lightServer();
+    liveUi.update((u) => ({ ...u, quality: 'ext', extFailed: ['cam2'] }));
+    render();
+    expect(q('quality-ext')!.disabled).toBe(true);
+    expect(q('quality-ext')!.title).toBe("Balanced didn't start for this camera; it plays SD");
+    expect(q('quality-sub')!.getAttribute('aria-pressed')).toBe('true');
+  });
+
+  it('in a recording the choices are only in live mode', () => {
+    withExt();
+    lightServer();
+    render({ mode: 'recording' });
+    expect(q('quality-choice')!.getAttribute('aria-label')).toBe('Quality — only in live mode');
+    q('quality-ext')!.click();
+    flushSync();
+    expect(get(liveUi).quality).toBe('sub');
+    expect(q('live-only-note')!.dataset.shown).toBe('true');
   });
 });

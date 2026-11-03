@@ -31,7 +31,10 @@ export interface CameraStatus {
 // What cams can fix of a through-proxy camera that is offline (spec 2026-10-30 §6.2).
 export interface OfflineFixInfo { login: 'missing' | 'refused' | null; trust: { fingerprint: string } | null; canFix: boolean }
 export interface LiveUi {
-  quality: Quality;
+  quality: Quality; // the viewer's choice (kept across cameras)
+  stream?: Quality; // what the player streams now: the choice where the camera and browser allow it (LiveBox)
+  videoHeight?: number; // the playing picture's height (0 or absent: not known yet); names the ext stream
+  extFailed?: string[]; // cameras whose ext stream didn't start this visit: they play sub
   muted: boolean;
   hevc: boolean;
   playerState: PlayerState;
@@ -53,7 +56,22 @@ function initialQuality(): Quality {
     // not available; fall back to the stored preference below
   }
   const wanted = stored ?? pref('liveQuality') ?? 'sub';
-  return hevc && wanted === 'main' ? 'main' : 'sub';
+  // ext stays the choice: a camera without it plays sub (effectiveQuality).
+  return hevc && wanted === 'main' ? 'main' : wanted === 'ext' ? 'ext' : 'sub';
+}
+
+// Whether a camera offers the ext stream (Balanced): its cam-proxy lists it
+// in the capabilities. An older proxy doesn't say: no.
+export function offersExt(camera: { capabilities?: { live?: readonly string[] } | null } | null | undefined): boolean {
+  return !!camera?.capabilities?.live?.includes('ext');
+}
+
+// What a camera plays for the viewer's choice: main only where HEVC plays,
+// ext only where the camera has it (and it started this visit); else sub.
+export function effectiveQuality(choice: Quality, o: { hevc: boolean; ext: boolean }): Quality {
+  if (choice === 'main') return o.hevc ? 'main' : 'sub';
+  if (choice === 'ext') return o.ext ? 'ext' : 'sub';
+  return 'sub';
 }
 
 export const liveUi = writable<LiveUi>({
@@ -85,8 +103,11 @@ export function streamsText(s: CameraStatus | null): string {
 // current streams as its status reports them (the proxy's GetEnc): the main
 // stream by its size, "4K" from 2160 lines, else "<height>p" (2560x1440:
 // "1440p"; a camera's main need not be 4K, measured 2026-11-02). Main without
-// a known stream: just "Main". The sub stream stays "SD".
-export function liveQualityLabel(quality: Quality, s: StreamInfo | null | undefined): string {
+// a known stream: just "Main". The sub stream stays "SD". The ext stream is
+// not in the camera's GetEnc (CX820): it is named by the playing picture's
+// height (896x512: "512p"), "Balanced" until that is known.
+export function liveQualityLabel(quality: Quality, s: StreamInfo | null | undefined, videoHeight?: number): string {
+  if (quality === 'ext') return videoHeight ? `${videoHeight}p` : 'Balanced';
   if (quality !== 'main') return `SD ${s?.fps ?? 10} FPS`;
   if (!s) return 'Main';
   return `${s.height >= 2160 ? '4K' : `${s.height}p`} ${s.fps} FPS`;
@@ -145,15 +166,23 @@ export function toggleMute(): void {
 }
 
 export function toggleQuality(): void {
-  liveUi.update((u) => {
-    const quality = u.quality === 'sub' ? 'main' : 'sub';
-    try {
-      localStorage.setItem(QUALITY_KEY, quality);
-    } catch {
-      // not persisted
-    }
-    return { ...u, quality };
-  });
+  setQuality(get(liveUi).quality === 'main' ? 'sub' : 'main');
+}
+
+// The viewer's choice, kept for the next visit (cameras with three streams).
+export function setQuality(quality: Quality): void {
+  try {
+    localStorage.setItem(QUALITY_KEY, quality);
+  } catch {
+    // not persisted
+  }
+  liveUi.update((u) => ({ ...u, quality }));
+}
+
+// The ext stream of this camera didn't start: it plays sub for the rest of
+// the visit (Balanced shows as unavailable).
+export function markExtFailed(cameraId: string): void {
+  liveUi.update((u) => (u.extFailed?.includes(cameraId) ? u : { ...u, extFailed: [...(u.extFailed ?? []), cameraId] }));
 }
 
 // Fetch first, then save: a plain download link would silently save an

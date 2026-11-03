@@ -1,7 +1,7 @@
 // web/src/lib/liveUi.test.ts
 import { get } from 'svelte/store';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { badgeOf, checkLiveStatus, keepAliveNote, liveQualityLabel, liveUi, offlineReason, cameraKind, streamsText } from './liveUi';
+import { badgeOf, checkLiveStatus, effectiveQuality, keepAliveNote, liveQualityLabel, liveUi, markExtFailed, offersExt, offlineReason, cameraKind, setQuality, streamsText } from './liveUi';
 
 describe('liveQualityLabel', () => {
   // Measured 2026-11-02: the label said 4K while the main stream was
@@ -17,6 +17,37 @@ describe('liveQualityLabel', () => {
     expect(liveQualityLabel('main', null)).toBe('Main');
     expect(liveQualityLabel('sub', main(640, 360, 10))).toBe('SD 10 FPS');
     expect(liveQualityLabel('sub', undefined)).toBe('SD 10 FPS');
+  });
+});
+
+// The third stream (ext, Balanced): not in GetEnc, so named by the playing picture.
+describe('the ext stream (Balanced)', () => {
+  it('is named by the picture height: 896x512 is 512p; Balanced until known', () => {
+    expect(liveQualityLabel('ext', null, 512)).toBe('512p');
+    expect(liveQualityLabel('ext', null)).toBe('Balanced');
+    expect(liveQualityLabel('ext', null, 0)).toBe('Balanced');
+  });
+  it('is offered only when the camera\'s capabilities list it', () => {
+    expect(offersExt({ capabilities: { live: ['main', 'ext', 'sub'] } })).toBe(true);
+    expect(offersExt({ capabilities: { live: ['main', 'sub'] } })).toBe(false);
+    expect(offersExt({ capabilities: { schema: 1, ptz: null } as never })).toBe(false); // an older proxy
+    expect(offersExt({ capabilities: null })).toBe(false);
+    expect(offersExt(undefined)).toBe(false);
+  });
+  it('plays the choice where it can, else sub', () => {
+    expect(effectiveQuality('ext', { hevc: false, ext: true })).toBe('ext');
+    expect(effectiveQuality('ext', { hevc: true, ext: false })).toBe('sub');
+    expect(effectiveQuality('main', { hevc: false, ext: true })).toBe('sub');
+    expect(effectiveQuality('main', { hevc: true, ext: false })).toBe('main');
+    expect(effectiveQuality('sub', { hevc: true, ext: true })).toBe('sub');
+  });
+  it('keeps the choice and the cameras whose ext did not start', () => {
+    setQuality('ext');
+    expect(get(liveUi).quality).toBe('ext');
+    markExtFailed('cam4');
+    markExtFailed('cam4');
+    expect(get(liveUi).extFailed).toEqual(['cam4']);
+    setQuality('sub');
   });
 });
 

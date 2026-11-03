@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# check-stack.sh <proxyUrl> <camsUrl> <cam>: the 23 API-level checks against a
+# check-stack.sh <proxyUrl> <camsUrl> <cam>: the 25 API-level checks against a
 # running stack. See docs/livestack.md for what each check proves.
 #
 #   sim:  check-stack.sh http://127.0.0.1:19480 http://127.0.0.1:19580 simcam
@@ -16,7 +16,7 @@
 # Downloads (one sub recording, the first 2 MiB of its 4K file, a thumbnail,
 # stills) land in that temp folder, which is deleted at the end.
 #
-# Prerequisites: curl, jq, node, xxd. Exit status 0 only when all checks pass.
+# Prerequisites: curl, jq, node, xxd, ffprobe. Exit status 0 only when all checks pass.
 set -uo pipefail
 source "$(dirname "$0")/lib.sh"
 
@@ -48,9 +48,9 @@ TZ_CAM="$(env_get "$RUN_ENV" CAM_TZ)"; TZ_CAM="${TZ_CAM:-America/Chicago}"
 TODAY="$(TZ="$TZ_CAM" date +%F)"
 YDAY="$(TZ="$TZ_CAM" date -v-1d +%F 2>/dev/null || TZ="$TZ_CAM" date -d yesterday +%F)"; MONTH="${TODAY:0:7}"
 
-ROWS=(); FAILS=0
-row() { # row RESULT NAME DETAIL
-  ROWS+=("$1|$2|$3"); [ "$1" = FAIL ] && FAILS=$((FAILS + 1))
+ROWS=(); FAILS=0; SKIPS=0
+row() { # row RESULT NAME DETAIL (RESULT: PASS, FAIL or SKIP)
+  ROWS+=("$1|$2|$3"); [ "$1" = FAIL ] && FAILS=$((FAILS + 1)); [ "$1" = SKIP ] && SKIPS=$((SKIPS + 1))
   printf '  %-4s %-34s %s\n' "$1" "$2" "${3:0:110}"
 }
 # get NAME URL HEADERFILE [MAXTIME]: body in $TMP/NAME.body, status in CODE.
@@ -168,6 +168,25 @@ ST="$(header still x-still-time)"
 get snap "$CAMS/api/cameras/$CAM/snapshot.jpg" "$TMP/h_cookie" 30
 [ "$CODE" = 200 ] && is_jpeg snap && row PASS "cams snapshot (camera Snap)" "JPEG $(size snap) bytes" || row FAIL "cams snapshot (camera Snap)" "HTTP $CODE $(err_of snap)"
 
+# --- live video through cams -----------------------------------------------------
+# The first 512 KiB of the live stream as the browser gets it (fMP4 from the
+# proxy for a camera through it, else the camera's FLV), and its picture size.
+# ext (the Reolink app's Balanced) only for a camera whose proxy lists it in
+# capabilities.live (CX820, E1); else SKIP.
+LIVE_CODECS='avc1.640029,avc1.64002A,avc1.640033,mp4a.40.2'
+is_flv() { [ "$(head -c 3 "$TMP/$1.body" 2>/dev/null)" = FLV ]; }
+picture() { ffprobe -v error -select_streams v:0 -show_entries stream=codec_name,width,height -of csv=p=0 "$TMP/$1.body" 2>/dev/null | head -n 1; }
+live_check() { # live_check QUALITY NAME
+  partial "live_$1" "$CAMS/api/cameras/$CAM/live?quality=$1&codecs=$LIVE_CODECS" "$TMP/h_cookie" 524288 25
+  if [ "$CODE" = 200 ] && { is_mp4 "live_$1" || is_flv "live_$1"; }; then
+    row PASS "$2" "$(header "live_$1" content-type | cut -d';' -f1), $(picture "live_$1" | tr ',' ' ')"
+  else row FAIL "$2" "HTTP $CODE $(err_of "live_$1")"; fi
+}
+live_check sub "cams live (sub)"
+if [ "$(body cams_cameras | jq -r --arg c "$CAM" '.[] | select(.id==$c) | (.capabilities.live // []) | index("ext") != null')" = true ]; then
+  live_check ext "cams live ext (Balanced)"
+else row SKIP "cams live ext (Balanced)" "the camera offers no ext stream (capabilities.live)"; fi
+
 # --- proxy control (admin token): status and read-only inventories ----------------------
 get cstatus "$PROXY/control/status" "$TMP/h_admin"
 if [ "$CODE" = 200 ] && body cstatus | jq -e 'has("recordings")' >/dev/null 2>&1; then
@@ -215,5 +234,5 @@ for r in "${ROWS[@]}"; do
   printf '%-4s  %-34s  %s\n' "$res" "$name" "${detail:0:100}"
 done
 echo
-echo "$(( ${#ROWS[@]} - FAILS )) passed, $FAILS failed"
+echo "$(( ${#ROWS[@]} - FAILS - SKIPS )) passed, $SKIPS skipped, $FAILS failed"
 [ "$FAILS" -eq 0 ]

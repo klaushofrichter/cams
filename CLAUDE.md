@@ -10,7 +10,7 @@ Camera viewer for Reolink cameras at cams.skylar.technology. Spec: `docs/superpo
 - `npm run lint:types`: `tsc --noEmit -p tsconfig.check.json` over `server/`, `test/` and `e2e/` (with the DOM lib, for page.evaluate and jsdom code). Runs in the `test` check.
 - `npm run test:e2e`: Playwright. It runs the BUILT server on :8099 and reuses one already running there locally, so rebuild first.
 - `npm run dev` / `npm run dev:web`: local server and Vite dev server
-- `scripts/livestack/`: the local live-stack harness (all suites; cam-sim or the real camera → cam-proxy → cams, 23 checks), see `docs/livestack.md`. Its work dir is outside the repo. The real-camera part needs the Pi's proxy stopped: Klaus runs or approves it.
+- `scripts/livestack/`: the local live-stack harness (all suites; cam-sim or the real camera → cam-proxy → cams, 25 checks), see `docs/livestack.md`. Its work dir is outside the repo. The real-camera part needs the Pi's proxy stopped: Klaus runs or approves it.
 
 ## Branches and releases
 

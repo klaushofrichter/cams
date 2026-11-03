@@ -17,10 +17,13 @@ import { until } from './helpers/wait';
 // A camera's capabilities from its cam-proxy (cam-proxy spec
 // 2026-10-30-ptz-capabilities-design §4): passed on in GET /api/cameras.
 const PTZ = { schema: 1, ptz: { move: true, zoom: true, focus: true, speed: true, positions: { max: 20 } } };
+// What cams keeps: an older proxy says nothing about live streams, so main and sub.
+const MAIN_SUB = ['main', 'sub'];
+const PTZ_PARSED = { ...PTZ, live: MAIN_SUB };
 
 describe('parseCapabilities', () => {
-  it('takes the proxy object when features lists ptz', () => expect(parseCapabilities({ features: ['sse-cam-list', 'ptz'], capabilities: PTZ })).toEqual(PTZ));
-  it('drops ptz when the proxy does not list the ptz feature', () => expect(parseCapabilities({ features: ['sse-cam-list'], capabilities: PTZ })).toEqual({ schema: 1, ptz: null }));
+  it('takes the proxy object when features lists ptz', () => expect(parseCapabilities({ features: ['sse-cam-list', 'ptz'], capabilities: PTZ })).toEqual(PTZ_PARSED));
+  it('drops ptz when the proxy does not list the ptz feature', () => expect(parseCapabilities({ features: ['sse-cam-list'], capabilities: PTZ })).toEqual({ schema: 1, ptz: null, live: MAIN_SUB }));
   it('is null without a capabilities object', () => {
     for (const c of [undefined, null, 'x', 3, []]) expect(parseCapabilities({ features: ['ptz'], capabilities: c })).toBeNull();
     expect(parseCapabilities({ features: ['ptz'], capabilities: { ptz: PTZ.ptz } })).toBeNull(); // no schema
@@ -30,14 +33,22 @@ describe('parseCapabilities', () => {
     expect(parseCapabilities({ features: ['ptz'], capabilities: { schema: 1, ptz: { move: 'yes', zoom: true, positions: { max: 500 } } } })).toEqual({
       schema: 1,
       ptz: { move: false, zoom: true, focus: false, speed: false, positions: null },
+      live: MAIN_SUB,
     }));
   it('reads a camera without presets (no positions field) as positions null', () =>
     expect(parseCapabilities({ features: ['ptz'], capabilities: { schema: 1, ptz: { move: true, zoom: false, focus: false, speed: true } } })).toEqual({
       schema: 1,
       ptz: { move: true, zoom: false, focus: false, speed: true, positions: null },
+      live: MAIN_SUB,
     }));
-  it('reads ptz null (a fixed camera) as ptz null', () => expect(parseCapabilities({ features: ['ptz'], capabilities: { schema: 1, ptz: null } })).toEqual({ schema: 1, ptz: null }));
-  it('accepts a later schema and keeps only what it knows', () => expect(parseCapabilities({ features: ['ptz'], capabilities: { ...PTZ, schema: 2, light: {} } })).toEqual(PTZ));
+  it('reads ptz null (a fixed camera) as ptz null', () => expect(parseCapabilities({ features: ['ptz'], capabilities: { schema: 1, ptz: null } })).toEqual({ schema: 1, ptz: null, live: MAIN_SUB }));
+  it('accepts a later schema and keeps only what it knows', () => expect(parseCapabilities({ features: ['ptz'], capabilities: { ...PTZ, schema: 2, light: {} } })).toEqual(PTZ_PARSED));
+  // The third stream (ext, Balanced): kept when the proxy lists it, without needing a feature.
+  it('keeps live: ext when the proxy lists it; anything odd is main and sub', () => {
+    expect(parseCapabilities({ features: ['sse-cam-list'], capabilities: { schema: 1, ptz: null, live: ['main', 'ext', 'sub'] } })).toEqual({ schema: 1, ptz: null, live: ['main', 'ext', 'sub'] });
+    expect(parseCapabilities({ features: ['ptz'], capabilities: { ...PTZ, live: ['main', 'ext', 'sub'] } })).toEqual({ ...PTZ, live: ['main', 'ext', 'sub'] });
+    for (const live of [undefined, null, 'ext', ['main', 'sub'], ['other'], [1, 2]]) expect(parseCapabilities({ features: [], capabilities: { schema: 1, ptz: null, live } })?.live).toEqual(MAIN_SUB);
+  });
 });
 
 const auth = `${SESSION_COOKIE}=${signSession('klaus@klaushofrichter.net')}`;
@@ -97,7 +108,7 @@ describe('capabilities in GET /api/cameras', () => {
     await until(() => capsOf('den') !== null);
     const res = await request(base).get('/api/cameras').set('Cookie', auth);
     expect(res.body.map((c: { id: string; capabilities: unknown }) => [c.id, c.capabilities])).toEqual([
-      ['den', PTZ],
+      ['den', PTZ_PARSED],
       ['shed', null],
     ]);
   });
@@ -119,7 +130,7 @@ describe('capabilities in GET /api/cameras', () => {
     fake.capabilities.set('cam1', { schema: 1, ptz: null });
     fake.push({ cam: 'cam1', type: 'camera', data: { name: 'Den' } });
     await until(() => frames.filter((f) => f.startsWith('event: cameras\n')).length > before);
-    expect(capsOf('den')).toEqual({ schema: 1, ptz: null });
+    expect(capsOf('den')).toEqual({ schema: 1, ptz: null, live: MAIN_SUB });
     // The same capabilities again: nothing to tell.
     const after = frames.filter((f) => f.startsWith('event: cameras\n')).length;
     fake.push({ cam: 'cam1', type: 'camera', data: { name: 'Den' } });

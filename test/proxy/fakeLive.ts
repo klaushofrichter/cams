@@ -5,8 +5,9 @@ import { spawn } from 'child_process';
 
 export const FAKE_LIVE_MIME = 'video/mp4; codecs="avc1.640029"';
 
-export async function* fmp4Stream(o: { signal: AbortSignal }): AsyncIterable<Buffer> {
-  const ff = spawn('ffmpeg', ['-hide_banner', '-loglevel', 'error', '-re', '-f', 'lavfi', '-i', 'testsrc2=size=640x360:rate=15', '-c:v', 'libx264', '-profile:v', 'high', '-level', '4.1', '-g', '15', '-an', '-movflags', 'frag_keyframe+empty_moov+default_base_moof', '-f', 'mp4', 'pipe:1'], { stdio: ['ignore', 'pipe', 'ignore'] });
+// size: the picture (sub 640x360; the ext stream is 896x512, as the CX820's).
+export async function* fmp4Stream(o: { signal: AbortSignal; size?: string }): AsyncIterable<Buffer> {
+  const ff = spawn('ffmpeg', ['-hide_banner', '-loglevel', 'error', '-re', '-f', 'lavfi', '-i', `testsrc2=size=${o.size ?? '640x360'}:rate=15`, '-c:v', 'libx264', '-profile:v', 'high', '-level', '4.1', '-g', '15', '-an', '-movflags', 'frag_keyframe+empty_moov+default_base_moof', '-f', 'mp4', 'pipe:1'], { stdio: ['ignore', 'pipe', 'ignore'] });
   const stop = () => ff.kill('SIGKILL');
   o.signal.addEventListener('abort', stop, { once: true });
   try {

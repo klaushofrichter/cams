@@ -63,7 +63,8 @@
   const liveSource = $derived.by(() => {
     const u = $liveUi;
     if (u.playerState !== 'playing' && u.stillsShowing) return BADGE.still; // not "STILLS" twice (Klaus 2026-10-06)
-    return liveQualityLabel(u.quality, u.quality === 'main' ? u.status?.streams?.main : u.status?.streams?.sub);
+    const q = u.stream ?? u.quality;
+    return liveQualityLabel(q, q === 'main' ? u.status?.streams?.main : u.status?.streams?.sub, u.videoHeight);
   });
   const stillUrl = (ts: number) => `/api/cameras/${encodeURIComponent(cam)}/stills/${ts}.jpg`;
 

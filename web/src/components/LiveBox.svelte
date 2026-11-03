@@ -6,7 +6,7 @@
   import { cameraById } from '../lib/stores';
   import type { PlayerState } from '../lib/liveSession';
   import { deriveStatus, liveStatus } from '../lib/liveStatus';
-  import { badgeOf, liveUi, offlineReason } from '../lib/liveUi';
+  import { badgeOf, effectiveQuality, liveUi, markExtFailed, offersExt, offlineReason } from '../lib/liveUi';
 
   const UNAVAILABLE_AFTER_MS = 30_000; // Klaus, 2026-10-03: no spinner forever
 
@@ -21,7 +21,15 @@
   const camera = $derived($cameraById(cameraId) ?? null);
   // Narrowed: LivePlayer restarts its stream when these change, and reading
   // the whole store in its props would restart it on every state report.
-  const quality = $derived($liveUi.quality);
+  // The viewer's choice where this camera and browser allow it: ext
+  // (Balanced) only for a camera that offers it and whose ext started.
+  const ext = $derived(offersExt(camera) && !$liveUi.extFailed?.includes(cameraId));
+  const quality = $derived(effectiveQuality($liveUi.quality, { hevc: $liveUi.hevc, ext }));
+  $effect(() => {
+    const stream = quality;
+    void cameraId;
+    liveUi.update((u) => ({ ...u, stream, videoHeight: 0 }));
+  });
   const muted = $derived($liveUi.muted || !audible);
 
   function setState(s: PlayerState) {
@@ -64,6 +72,18 @@
     return () => clearTimeout(t);
   });
 
+  // The ext stream not playing within 15 s (the camera's FLV ext doesn't
+  // answer, or the proxy refused it): this camera plays sub for the
+  // rest of the visit, and Balanced shows as unavailable.
+  const EXT_START_MS = 15_000;
+  const online = $derived($liveUi.status?.online === true); // not every liveUi change: that would restart the 15 s
+  $effect(() => {
+    const id = cameraId;
+    if (quality !== 'ext' || playerState === 'playing' || !online) return;
+    const t = setTimeout(() => markExtFailed(id), EXT_START_MS);
+    return () => clearTimeout(t);
+  });
+
   // Fullscreen is the player box's (StripPlayer), in every mode (#182): this
   // box alone left the mode badge out.
 
@@ -92,7 +112,7 @@
   {#if $liveUi.status?.online}
     <!-- Muted here, not by changing `muted`, so the user's choice comes back
          once it is on screen again. -->
-    <LivePlayer {cameraId} {quality} {muted} onstate={(s) => setState(s)} />
+    <LivePlayer {cameraId} {quality} {muted} onstate={(s) => setState(s)} onsize={(h) => liveUi.update((u) => ({ ...u, videoHeight: h }))} />
     {#if proxy && notPlaying}<LiveStill {cameraId} active={visible} overlay freshOnly={!stuck} onactive={(on) => setStills(on)} />{/if}
   {:else if $liveUi.status && !$liveUi.status.online && proxy}
     <LiveStill {cameraId} active={visible} onactive={(on) => setStills(on)} />

@@ -12,7 +12,7 @@ import { PROXY_FINGERPRINT, proxyAdminClient, readProxyStatus, type ProxyCameraS
 import { currentUser } from '../middleware/requireAuth';
 import { readJson } from './common';
 import { proxyCameraId } from '../proxy/client';
-import { getCamera } from '../cameraRegistry';
+import { cameraCapabilities, getCamera } from '../cameraRegistry';
 import { ProxyError, proxyPath, requireProxyClient } from '../proxy/client';
 import { nodeBody } from '../httpBody';
 import type { CamKey } from '../fleet';
@@ -124,6 +124,15 @@ camerasRouter.get('/api/cameras/:id/snapshot.jpg', async (req: Request, res: Res
   }
 });
 
+// The live stream asked for: main, sub (the default), or ext (Balanced, the
+// third stream) for a camera whose cam-proxy lists it in its capabilities;
+// null for ext of a camera without it.
+function liveQuality(id: CamKey, q: unknown): 'main' | 'ext' | 'sub' | null {
+  if (q === 'main') return 'main';
+  if (q !== 'ext') return 'sub';
+  return proxyActive(id) && cameraCapabilities(id)?.live.includes('ext') ? 'ext' : null;
+}
+
 // A viewer that stops reading is cut once this much waits in its response
 // (spec §10.3: the proxy cuts cams at 8 MiB; cams cuts a viewer before that).
 export const LIVE_MAX_QUEUED = 4 * 1024 * 1024;
@@ -134,7 +143,8 @@ async function liveViaProxy(id: CamKey, req: Request, res: Response, next: NextF
   const codecs = req.query.codecs;
   if (codecs !== undefined && (typeof codecs !== 'string' || !LIVE_CODECS.test(codecs))) return badRequest(res, 'codecs: a comma list of codec names');
   if (liveStreamCount(id) >= MAX_LIVE_PER_CAMERA) return void res.status(503).json({ error: 'too_many_streams' });
-  const quality = req.query.quality === 'main' ? 'main' : 'sub';
+  const quality = liveQuality(id, req.query.quality);
+  if (!quality) return void res.status(503).json({ error: 'stream_not_offered' });
   const open = liveStreams.get(id) ?? new Set<Response>();
   liveStreams.set(id, open.add(res));
   const abort = new AbortController();
@@ -182,7 +192,8 @@ camerasRouter.get('/api/cameras/:id/live', async (req: Request, res: Response, n
     res.status(503).json({ error: 'too_many_streams' });
     return;
   }
-  const quality = req.query.quality === 'main' ? 'main' : 'sub';
+  const quality = liveQuality(id, req.query.quality);
+  if (!quality) return void res.status(503).json({ error: 'stream_not_offered' });
   const open = liveStreams.get(id) ?? new Set<Response>();
   liveStreams.set(id, open.add(res));
   const abort = new AbortController();

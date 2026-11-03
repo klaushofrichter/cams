@@ -1,8 +1,9 @@
 <script lang="ts">
   import Icon from './Icon.svelte';
-  import { liveUi, saveSnapshot, toggleMute, toggleQuality } from '../lib/liveUi';
+  import { effectiveQuality, liveUi, offersExt, saveSnapshot, setQuality, toggleMute, toggleQuality } from '../lib/liveUi';
+  import type { Quality } from '../lib/live';
   import { getJson, putJson } from '../lib/api';
-  import { me } from '../lib/stores';
+  import { cameraById, me } from '../lib/stores';
   import { showsAdminControls } from '../lib/session';
   import { currentPlayer, LIVE_ONLY, saveRecordingSnapshot, type Mode } from '../lib/videoMode';
 
@@ -84,6 +85,19 @@
   const lightTip = $derived(!live ? LIVE_ONLY : light ? 'Light is on, click to turn off' : 'Light is off, click to turn on');
   const qualityTip = $derived(!live ? LIVE_ONLY : $liveUi.quality === 'main' ? 'Switch to SD' : 'Switch to 4K');
   const qualityName = $derived(!live ? 'Quality — only in live mode' : `Quality: ${$liveUi.quality === 'main' ? '4K, switch to SD' : 'SD, switch to 4K'}`);
+  // A camera with a third stream (ext, the Reolink app's Balanced) gets three
+  // choices, SD | Balanced | 4K (4K where HEVC plays), instead of the toggle.
+  const hasExt = $derived(offersExt($cameraById(cameraId)));
+  const extFailed = $derived(!!$liveUi.extFailed?.includes(cameraId));
+  const shown = $derived(effectiveQuality($liveUi.quality, { hevc: $liveUi.hevc, ext: hasExt && !extFailed }));
+  const CHOICES: { q: Quality; label: string; tip: string }[] = [
+    { q: 'sub', label: 'SD', tip: 'SD (smallest, plays everywhere)' },
+    { q: 'ext', label: 'Balanced', tip: 'Balanced (between SD and 4K)' },
+    { q: 'main', label: '4K', tip: 'Full quality (needs HEVC support)' },
+  ];
+  const choices = $derived(CHOICES.filter((c) => c.q !== 'main' || $liveUi.hevc));
+  const choiceTip = (c: { q: Quality; tip: string }) =>
+    !live ? LIVE_ONLY : c.q === 'ext' && extFailed ? "Balanced didn't start for this camera; it plays SD" : c.tip;
   const lightName = $derived(!live ? 'Light — only in live mode' : lightTip);
   const snapTip = $derived($liveUi.snapshotBusy ? 'Saving…' : live ? 'Save a snapshot' : 'Save this frame');
 </script>
@@ -93,7 +107,15 @@
   <button data-testid="mute-toggle" aria-pressed={!$liveUi.muted} onclick={() => toggleMute()} title={muteTip} aria-label={muteTip}>
     <Icon name={$liveUi.muted ? 'volumeOff' : 'volumeOn'} size={18} />
   </button>
-  {#if $liveUi.hevc}
+  {#if hasExt}
+    <div class="quality" role="group" aria-label={live ? 'Quality' : 'Quality — only in live mode'} data-testid="quality-choice">
+      {#each choices as c (c.q)}
+        <button data-testid={`quality-${c.q}`} aria-pressed={shown === c.q} disabled={live && c.q === 'ext' && extFailed}
+          aria-disabled={live ? undefined : 'true'} aria-describedby={live ? undefined : 'live-only-note'}
+          onclick={() => liveOnly(() => setQuality(c.q))} title={choiceTip(c)} aria-label={`Quality: ${c.label}`}>{c.label}</button>
+      {/each}
+    </div>
+  {:else if $liveUi.hevc}
     <button data-testid="quality-toggle" aria-pressed={$liveUi.quality === 'main'} aria-disabled={live ? undefined : 'true'} aria-describedby={live ? undefined : 'live-only-note'}
       onclick={() => liveOnly(toggleQuality)} title={qualityTip} aria-label={qualityName}>
       {$liveUi.quality === 'main' ? '4K' : 'SD'}
@@ -127,6 +149,11 @@
   /* Disabled buttons keep their tooltip: it says why ("Only in live mode"). */
   .controls button:disabled, .controls button[aria-disabled='true'] { opacity: 0.45; cursor: not-allowed; }
   .controls button[aria-disabled='true']:hover { background: var(--surface-2); }
+  .quality { display: inline-flex; gap: 0; }
+  .quality button { border-radius: 0; }
+  .quality button + button { margin-left: -1px; }
+  .quality button:first-child { border-radius: 10px 0 0 10px; }
+  .quality button:last-child { border-radius: 0 10px 10px 0; }
   .note { margin: 0; width: 100%; font-size: 13px; color: var(--muted); }
   /* After .note: its width must not undo the hiding (it overflowed the page). */
   .note.sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
