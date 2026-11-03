@@ -112,7 +112,7 @@ describe('proxy media routes', () => {
         { cause: 'address', from: M + 170_000, to: M + 170_000 },
         { cause: 'paused', from: M + 600_000, to: null },
         { cause: 'meteor', from: M, to: M + 1 },
-        { cause: 'reboot', from: 'soon', to: null },
+        { cause: 'reboot', from: 'soon' as unknown as number, to: null },
       ]);
       const r = await get(url());
       expect(r.status).toBe(200);
