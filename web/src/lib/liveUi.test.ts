@@ -22,10 +22,10 @@ describe('liveQualityLabel', () => {
 
 // The third stream (ext, Balanced): not in GetEnc, so named by the playing picture.
 describe('the ext stream (Balanced)', () => {
-  it('is named by the picture height: 896x512 is 512p; Balanced until known', () => {
+  it('is named by the picture height: 896x512 is 512p; Mid until known', () => {
     expect(liveQualityLabel('ext', null, 512)).toBe('512p');
-    expect(liveQualityLabel('ext', null)).toBe('Balanced');
-    expect(liveQualityLabel('ext', null, 0)).toBe('Balanced');
+    expect(liveQualityLabel('ext', null)).toBe('Mid');
+    expect(liveQualityLabel('ext', null, 0)).toBe('Mid');
   });
   it('is offered only when the camera\'s capabilities list it', () => {
     expect(offersExt({ capabilities: { live: ['main', 'ext', 'sub'] } })).toBe(true);
