@@ -72,7 +72,7 @@ describe('createOutages', () => {
       return { outages: [o1] } as R;
     });
     const changed = vi.fn();
-    const o = createOutages('back yard', fetch, changed);
+    const o = createOutages('back yard', fetch as <T>(url: string) => Promise<T>, changed);
     o.ensure(T - 7 * 3_600_000, T); // two blocks
     o.ensure(T - 7 * 3_600_000, T); // in flight: not again
     await vi.waitFor(() => expect(changed).toHaveBeenCalledTimes(2));
