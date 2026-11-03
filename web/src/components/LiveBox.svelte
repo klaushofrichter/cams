@@ -72,8 +72,8 @@
     return () => clearTimeout(t);
   });
 
-  // The ext stream not playing within 15 s (a camera whose RTSP ext path
-  // doesn't answer, or the proxy refused it): this camera plays sub for the
+  // The ext stream not playing within 15 s (the camera's FLV ext doesn't
+  // answer, or the proxy refused it): this camera plays sub for the
   // rest of the visit, and Balanced shows as unavailable.
   const EXT_START_MS = 15_000;
   const online = $derived($liveUi.status?.online === true); // not every liveUi change: that would restart the 15 s

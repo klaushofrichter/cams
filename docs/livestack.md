@@ -362,7 +362,7 @@ Downloads go to a private temp folder that is deleted at the end. Exit status
 | 19 | cams latest still (proxy) | cams relays the newest still (JPEG, its age) |
 | 20 | cams snapshot (camera Snap) | the camera's own Snap works through cams |
 | 20a | cams live (sub) | live video through cams (fMP4 from the proxy, or the camera's FLV): HTTP 200, `ftyp` or `FLV`, the picture size |
-| 20b | cams live ext (Balanced) | the third stream (ext) through cams → proxy → go2rtc → the camera's RTSP `h264Preview_01_ext`, for a camera whose proxy lists ext in `capabilities.live` (CX820, E1; 896×512 on the CX820); SKIP for one without (RLC-1224A) |
+| 20b | cams live ext (Balanced) | the third stream (ext) through cams → proxy → go2rtc → the proxy's loopback feed → the camera's HTTP-FLV `channel0_ext` (with the proxy's login token; the camera has no RTSP ext), for a camera whose proxy lists ext in `capabilities.live` (CX820, E1; 896×512 on the CX820); SKIP for one without (RLC-1224A) |
 | 21 | proxy `/control/status` | the admin token works; the recordings card (Baichuan session, cache, downloads) |
 | 22 | inventory stills | a read-only stills inventory finishes with outcome `ok` |
 | 23 | clips compare (camera) | a read-only clips inventory, compared with the camera's SD card, finishes `ok` |
