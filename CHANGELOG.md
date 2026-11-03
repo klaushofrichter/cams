@@ -8,6 +8,3 @@ published as [GitHub releases](https://github.com/klaushofrichter/cams/releases)
 
 ## [Unreleased]
 
-- Live quality on cameras with a third stream: the middle choice reads **Mid** (Balanced in the Reolink app; the tooltip says so), the controls stay on one row, and the chosen button is no longer cut off by its neighbour.
-- The note under the player names both sources: "Recordings: the camera's SD card, through cam-proxy. Thumbnails: cam-proxy." instead of "cam-proxy (SD card)".
-
