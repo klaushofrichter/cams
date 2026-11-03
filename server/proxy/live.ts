@@ -57,7 +57,7 @@ function chunkQueue(): { push(c: Uint8Array): void; end(): void; iterable: Async
   };
 }
 
-export async function openProxyLive(id: CamKey, quality: 'sub' | 'main', codecs: string | undefined, signal: AbortSignal): Promise<ProxyLive> {
+export async function openProxyLive(id: CamKey, quality: 'sub' | 'main' | 'ext', codecs: string | undefined, signal: AbortSignal): Promise<ProxyLive> {
   const g = groupOf(id);
   if (!g) throw new ProxyError('proxy_unreachable', 'the camera has no cam-proxy');
   const host = new URL(g.url).host;

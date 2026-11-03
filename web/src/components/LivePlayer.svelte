@@ -12,7 +12,14 @@
     quality,
     muted,
     onstate,
-  }: { cameraId: string; quality: Quality; muted: boolean; onstate: (s: PlayerState) => void } = $props();
+    onsize,
+  }: { cameraId: string; quality: Quality; muted: boolean; onstate: (s: PlayerState) => void; onsize?: (height: number) => void } = $props();
+
+  // The picture's height on screen (the ext stream is named by it, "512p").
+  function sized(e: Event, i: 0 | 1) {
+    const v = e.currentTarget as HTMLVideoElement;
+    if (i === active && v.videoHeight) onsize?.(v.videoHeight);
+  }
 
   let videoA: HTMLVideoElement | undefined = $state();
   let videoB: HTMLVideoElement | undefined = $state();
@@ -67,9 +74,9 @@
 <div class="stage">
   {#if unsupported}<p class="unsupported" data-testid="live-unsupported">This browser can't play this camera's video format.</p>{/if}
   <!-- svelte-ignore a11y_media_has_caption -->
-  <video bind:this={videoA} class:on={active === 0} data-testid={active === 0 ? 'live-video' : undefined} {muted} playsinline autoplay disableremoteplayback></video>
+  <video bind:this={videoA} class:on={active === 0} data-testid={active === 0 ? 'live-video' : undefined} {muted} playsinline autoplay disableremoteplayback onresize={(e) => sized(e, 0)}></video>
   <!-- svelte-ignore a11y_media_has_caption -->
-  <video bind:this={videoB} class:on={active === 1} data-testid={active === 1 ? 'live-video' : undefined} {muted} playsinline autoplay disableremoteplayback></video>
+  <video bind:this={videoB} class:on={active === 1} data-testid={active === 1 ? 'live-video' : undefined} {muted} playsinline autoplay disableremoteplayback onresize={(e) => sized(e, 1)}></video>
 </div>
 
 <style>

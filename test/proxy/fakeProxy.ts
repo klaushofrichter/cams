@@ -1102,7 +1102,10 @@ export async function startFakeProxy(opts: { port?: number; token?: string; tls?
     if (!fake.cameraNames.has(cam)) return refuse(socket, 404, 'not_found');
     const stream = u.searchParams.get('stream') ?? 'sub';
     const codecs = u.searchParams.get('codecs');
-    if ((stream !== 'sub' && stream !== 'main') || (codecs !== null && !/^[A-Za-z0-9.,]{1,512}$/.test(codecs))) return refuse(socket, 400, 'invalid');
+    if ((stream !== 'sub' && stream !== 'main' && stream !== 'ext') || (codecs !== null && !/^[A-Za-z0-9.,]{1,512}$/.test(codecs))) return refuse(socket, 400, 'invalid');
+    // Like cam-proxy: ext only for a camera whose capabilities.live lists it, else stream_not_offered (1011) over the socket.
+    const live = (fake.capabilities.get(cam) as { live?: unknown } | null | undefined)?.live;
+    const notOffered = stream === 'ext' && !(Array.isArray(live) && live.includes('ext'));
     wss.handleUpgrade(req, socket, head, (ws) => {
       liveSockets.add(ws);
       const ctl = new AbortController();
@@ -1117,10 +1120,14 @@ export async function startFakeProxy(opts: { port?: number; token?: string; tls?
         ws.send(JSON.stringify({ type: 'error', value: refusal }));
         return void ws.close(1013);
       }
+      if (notOffered) {
+        ws.send(JSON.stringify({ type: 'error', value: 'stream_not_offered' }));
+        return void ws.close(1011);
+      }
       ws.send(JSON.stringify({ type: 'mse', value: FAKE_LIVE_MIME }));
       void (async () => {
         try {
-          for await (const chunk of fmp4Stream({ signal: ctl.signal })) {
+          for await (const chunk of fmp4Stream({ signal: ctl.signal, size: stream === 'ext' ? '896x512' : undefined })) {
             if (ws.readyState !== ws.OPEN) break;
             ws.send(chunk);
           }

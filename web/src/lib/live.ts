@@ -1,4 +1,6 @@
-export type Quality = 'sub' | 'main';
+// sub (SD; the Reolink app's Fluent), ext (Balanced: the third stream, only
+// on cameras whose cam-proxy lists it), main (4K or the main size; Clear).
+export type Quality = 'sub' | 'ext' | 'main';
 
 // Knative cuts a response at 600 s; the player moves to a fresh connection
 // well before that so the cut is never visible.

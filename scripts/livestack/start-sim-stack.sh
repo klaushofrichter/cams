@@ -20,6 +20,13 @@
 # go2rtc in cam-proxy/tools and MediaMTX in cam-sim/tools (their install
 # scripts). The work dir is LIVESTACK_DIR (default ${TMPDIR:-/tmp}/cams-livestack).
 #
+# Options (environment):
+#   LIVESTACK_CAMSIM_MODEL  cam-sim's model (CAMSIM_MODEL): RLC-1224A (default),
+#                           CX820 (with the third live stream, ext) or E1-Outdoor-Pro
+#   LIVESTACK_CAM_SIM_REF, LIVESTACK_CAM_PROXY_REF, LIVESTACK_CAMS_REF
+#                           what to build instead of origin/main (a branch, tag
+#                           or commit of that repo), e.g. a feature's branches
+#
 # Never: touches the real camera or the Pi, binds anything but 127.0.0.1,
 # reads a .env file, or prints a secret (all passwords and tokens are random
 # per run).
@@ -37,9 +44,11 @@ require_ports_free $SIM_HTTP $SIM_HTTPS $SIM_CONTROL $SIM_RTSP $SIM_ONVIF $SIM_B
   $PROXY_PORT $GO2RTC_RTSP $GO2RTC_API $FTP_PORT $(seq 19230 19239) $CAMS_PORT
 [ -x "$MEDIAMTX_BIN" ] || die "MediaMTX missing at $MEDIAMTX_BIN (cam-sim scripts/install-mediamtx.sh, or set MEDIAMTX_BIN); cam-sim would run without RTSP and the proxy without stills"
 
-prepare_repo cam-sim
-prepare_repo cam-proxy
-prepare_repo cams
+prepare_repo cam-sim "${LIVESTACK_CAM_SIM_REF:-origin/main}"
+prepare_repo cam-proxy "${LIVESTACK_CAM_PROXY_REF:-origin/main}"
+prepare_repo cams "${LIVESTACK_CAMS_REF:-origin/main}"
+CAMSIM_MODEL="${LIVESTACK_CAMSIM_MODEL:-RLC-1224A}"
+case "$CAMSIM_MODEL" in RLC-1224A|CX820|E1-Outdoor-Pro) ;; *) die "LIVESTACK_CAMSIM_MODEL: RLC-1224A, CX820 or E1-Outdoor-Pro" ;; esac
 
 # Per-run secrets: files in run/secrets (600), tokens also in run.env (600)
 # for check-stack.sh. cam-sim gets two camera users: "proxy" for cam-proxy and
@@ -106,7 +115,7 @@ start_bg cam-sim env \
   LIVESTACK_CAMSIM_DIR="$WORK/src-cam-sim" \
   CAMSIM_USERS_FILE="$RUN/secrets/camsim_users" \
   CAMSIM_CONTROL_TOKEN_FILE="$RUN/secrets/camsim_control_token" \
-  CAMSIM_NAME=Sim CAMSIM_TZ="$TZ_CAM" CAMSIM_SEED_CLIPS=demo CAMSIM_SD_MB=61047 \
+  CAMSIM_NAME=Sim CAMSIM_MODEL="$CAMSIM_MODEL" CAMSIM_TZ="$TZ_CAM" CAMSIM_SEED_CLIPS=demo CAMSIM_SD_MB=61047 \
   CAMSIM_FAULTS='[{"name":"downloads.refuse"}]' \
   CAMSIM_AUTO_EVENTS='motion:6/h,person:2/h' \
   CAMSIM_WEB_UI=true CAMSIM_LOG_LEVEL=info \
@@ -141,7 +150,7 @@ fi
 cat <<EOF
 
 Sim stack up (all on 127.0.0.1; work dir $WORK):
-  cam-sim   http :$SIM_HTTP  https :$SIM_HTTPS  control+UI :$SIM_CONTROL  rtsp :$SIM_RTSP  onvif :$SIM_ONVIF  baichuan :$SIM_BAICHUAN
+  cam-sim   $CAMSIM_MODEL  http :$SIM_HTTP  https :$SIM_HTTPS  control+UI :$SIM_CONTROL  rtsp :$SIM_RTSP  onvif :$SIM_ONVIF  baichuan :$SIM_BAICHUAN
   cam-proxy http://127.0.0.1:$PROXY_PORT  (ftp :$FTP_PORT, passive $FTP_PASSIVE, go2rtc :$GO2RTC_RTSP/:$GO2RTC_API)
   cams      http://127.0.0.1:$CAMS_PORT   camera "$CAM"
 Check:  $HERE/check-stack.sh http://127.0.0.1:$PROXY_PORT http://127.0.0.1:$CAMS_PORT $CAM

@@ -151,5 +151,7 @@ export function seedMill(fake: FakeProxy): { jpeg: Buffer; sprite: Buffer } {
   for (let t = now - 15 * 60_000; t <= now + 60 * 60_000; t += 5000) stills.set(t, jpeg);
   fake.stills.set('mill', stills);
   fake.features = ['sse-cam-list', 'ptz', 'camera-calls'];
+  // Mill has the third stream (ext, Balanced), like a CX820.
+  fake.capabilities.set('mill', { schema: 1, ptz: null, live: ['main', 'ext', 'sub'] });
   return { jpeg, sprite };
 }
