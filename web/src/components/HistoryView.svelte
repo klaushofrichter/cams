@@ -9,6 +9,7 @@
   import { filterEvents, localDate, thumbUrl, VIDEO_STREAM, type EventClip, type Filter } from '../lib/recordings';
   import type { PreviewMinute } from '../lib/timeline';
   import { zoom } from '../lib/zoomPref';
+  import { createOutages, type Outage } from '../lib/outages';
 
   // History's strip and player (spec 2026-09-27). Owns the position `at`;
   // the page only hears about it (onposition) and can jump it (jump()).
@@ -118,7 +119,29 @@
   $effect(() => {
     void tick30;
     const w = windowAround(at, $zoom);
-    untrack(() => data.ensure(w.start, w.end));
+    untrack(() => {
+      data.ensure(w.start, w.end);
+      outageData?.ensure(w.start, w.end);
+    });
+  });
+
+  // Why thumbnails are blank (Klaus, 2026-11-03): the proxy's outages for the
+  // window, for the strip's blank frames. Only with a proxy (no stills without one).
+  let outageData: ReturnType<typeof createOutages> | null = $state(null);
+  let outages: Outage[] = $state([]);
+  $effect(() => {
+    const c = cam;
+    if (!proxy) {
+      outageData = null;
+      outages = [];
+      return;
+    }
+    const o = createOutages(c, getJson, () => (outages = o.get(-Infinity, Infinity)));
+    outageData = o;
+    outages = [];
+    const w = untrack(() => windowAround(at, $zoom));
+    o.ensure(w.start, w.end);
+    return () => o.destroy();
   });
   $effect(() => {
     void tick30;
@@ -262,7 +285,7 @@
       failed = new Set(failed).add(id);
     }}
     onstep={step} {stepAvail} />
-  <Strip {oldest} {pending} {coverage} events={allEvents} {visibleIds} failedIds={failed} {at} {now} currentId={current} {previews}
+  <Strip {oldest} {pending} {coverage} events={allEvents} {visibleIds} failedIds={failed} {at} {now} currentId={current} {previews} {outages}
     thumbFor={unavailable ? undefined : (id) => thumbUrl(cam, id, allEvents.find((e) => e.id === id)?.thumb)}
     onseek={(t) => seek(t)}
     onglue={live ? glue : playing && onlive ? () => { playing = false; onlive(); } : undefined}

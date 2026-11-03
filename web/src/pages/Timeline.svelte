@@ -15,6 +15,7 @@
   import StillCheck from '../components/StillCheck.svelte';
   import ChecksList from '../components/ChecksList.svelte';
   import ComposeDialog from '../components/ComposeDialog.svelte';
+  import { blankTexts, outageText, walkBlank, type Outage } from '../lib/outages';
   import { checkedMinutes, checkSeconds, loadCheckObjects, loadChecks, loadUsage, stepCheck, withCheck, type CheckResult, type DayCheck, type UsageState } from '../lib/stillChecks';
   import {
     analysedSeconds, blankMinute, cardKind, cardsInMinute, timelineSearch, dayRange, historyHref, hourGroups, loadViewPoint, minuteIndex, minuteOf, nearestMinute, secondStamp, seenStills, shareViewPoint,
@@ -63,6 +64,27 @@
   });
   const minutesChecked = $derived(checkedMinutes(checks));
   let pickMessage = $state(''); // in the minute view, next to its seconds (issue #109)
+  // Why seconds have no still (Klaus, 2026-11-03): the proxy's outages for the
+  // day; none known (an older proxy, a failed request): "No still picture available".
+  let outages = $state<Outage[]>([]);
+  const minuteMap = $derived(new Map(minutes.map((m) => [m.minute, m])));
+  // No still at t: a minute without a sprite, or its tile missing.
+  const blankAt = (t: number) => {
+    const m = minuteMap.get(minuteOf(t));
+    return !m || !m.present[Math.floor((t - m.minute) / (m.intervalS * 1000))];
+  };
+  // The open minute's blank seconds, each with the text of its whole blank
+  // stretch (into the minutes either side).
+  const secondTexts = $derived.by(() => {
+    const m = open;
+    if (!m) return new Map<number, string>();
+    const step = m.intervalS * 1000;
+    return blankTexts(m.present.map((ok, i) => ({ t: m.minute + i * step, blank: !ok })), step, outages, {
+      before: (a) => walkBlank(a, -step, blankAt),
+      after: (b) => walkBlank(b, step, blankAt),
+    });
+  });
+  const gapText = (ts: number) => secondTexts.get(ts) ?? outageText(outages, ts, ts + 1000);
   let refreshTick = $state(0);
   let pickSeq = 0;
 
@@ -106,6 +128,7 @@
     cards = [];
     checks = [];
     eventAnswer = null;
+    outages = [];
     open = null;
     still = null;
     newPick(); // a still still loading for the day before is dropped
@@ -115,6 +138,11 @@
     let stale = false;
     const b = base;
     void reloadChecks(b, d, () => stale);
+    const [dayFrom, dayTo] = dayRange(d);
+    getJson<{ outages?: Outage[] }>(`${b}/outages?from=${dayFrom}&to=${dayTo}`).then(
+      (r) => { if (!stale) outages = Array.isArray(r?.outages) ? r.outages : []; },
+      () => undefined,
+    );
     fetchDay(b, d).then(
       ({ m, ev }) => {
         if (stale) return;
@@ -304,6 +332,8 @@
   }
 
   function openSecond(m: PreviewMinute, i: number, seen: SeenStill | null, checked: DayCheck | null = null) {
+    // A second without a still: the gap view, which says why (Klaus, 2026-11-03).
+    if (!m.present[i] && !seen && !checked) return void goSecond(m.minute + i * m.intervalS * 1000);
     if (seen || checked) {
       newPick();
       pickMessage = '';
@@ -578,9 +608,10 @@
               <div class="seconds">
                 {#each m.present as ok, i (i)}
                   {@const ts = m.minute + i * m.intervalS * 1000}
+                  {@const why = !ok && !seen[i] && !marks[i] ? (secondTexts.get(ts) ?? '') : ''}
                   <button class="second {kinds[i] ? `ev-${kinds[i]}` : ''}" class:missing={!ok && !marks[i]} class:analysed={seen[i] !== null} class:checked={marks[i] !== null && !seen[i]}
                     class:active={still !== null && still.ts >= ts && still.ts < ts + m.intervalS * 1000}
-                    disabled={!ok && !seen[i] && !marks[i]} style={tileStyle(m, i, 0.6)} title={clock(ts, true)} aria-label={`${clock(ts, true)}${seen[i] ? ', analysed by Vision' : marks[i] ? ', checked by Vision' : ''}`}
+                    style={tileStyle(m, i, 0.6)} title={why ? `${clock(ts, true)}: ${why}` : clock(ts, true)} aria-label={`${clock(ts, true)}${seen[i] ? ', analysed by Vision' : marks[i] ? ', checked by Vision' : why ? `, ${why}` : ''}`}
                     onclick={() => openSecond(m, i, seen[i], marks[i])} data-testid="timeline-second" data-ts={ts}>{#if seen[i]}<span class="spark">✦</span>{:else if marks[i]}<span class="spark" data-testid="timeline-check-mark">✧</span>{/if}</button>
                 {/each}
               </div>
@@ -591,7 +622,8 @@
                   {#if s.gap && !k}
                     <!-- A second without a still (an outage, issue #149): said so, and the steps go on (issue #159). -->
                     <div class="gap" style={`aspect-ratio:${m.tileW}/${m.tileH}`} data-testid="timeline-gap" role="status">
-                      <span>{secondStamp(s.ts)} not available as snapshot</span>
+                      <span data-testid="timeline-gap-stamp">{secondStamp(s.ts)} not available as snapshot</span>
+                      <span class="why" data-testid="timeline-gap-reason">{gapText(s.ts)}</span>
                     </div>
                   {:else}
                     {#if k}
@@ -665,7 +697,9 @@
   .evtag { display: inline-block; margin-right: 10px; padding-left: 6px; border-left: 4px solid; }
   .large { display: grid; gap: 6px; }
   .gap { display: grid; place-items: center; width: min(100%, 896px); max-height: 60vh; padding: 16px; box-sizing: border-box; text-align: center; color: var(--muted); background: var(--surface-2); border: 1px dashed var(--border); border-radius: 8px; }
+  .gap { align-content: center; gap: 6px; }
   .gap span { font-family: var(--mono); font-size: 14px; line-height: 1.4; }
+  .gap .why { font-family: inherit; font-size: 13px; color: var(--text); }
   .bar button.sec { min-width: 64px; min-height: 36px; font-variant-numeric: tabular-nums; }
   .bar button.chk { min-height: 36px; color: var(--vision-mark); }
   .bar button:disabled { opacity: 0.45; cursor: default; }

@@ -165,6 +165,32 @@ proxyRouter.get('/api/cameras/:id/stills', async (req: Request, res: Response) =
   }
 });
 
+// Why there are no stills in a stretch (blank thumbnails, Klaus 2026-11-03):
+// the proxy's outages over at most two days. A proxy without the route (404)
+// or a bad answer: none known, and the page says "No still picture available".
+const OUTAGE_CAUSES = new Set(['stop', 'crash', 'reboot', 'powercycle', 'paused', 'offline', 'address']);
+const ms = (v: unknown): v is number => Number.isSafeInteger(v) && (v as number) >= 0;
+proxyRouter.get('/api/cameras/:id/outages', async (req: Request, res: Response) => {
+  const p = proxied(req, res);
+  if (!p) return;
+  const from = String(req.query.from ?? ''), to = String(req.query.to ?? '');
+  if (!/^\d{1,15}$/.test(from) || !/^\d{1,15}$/.test(to) || Number(to) < Number(from)) return badRequest(res, 'from and to (unix ms) are required');
+  if (Number(to) - Number(from) > 2 * DAY) return badRequest(res, 'at most two days per request');
+  try {
+    const body = await p.client.json<{ outages?: unknown }>(proxyPath(p.id, '/outages'), { from: Number(from), to: Number(to) });
+    const list = Array.isArray(body?.outages) ? body.outages : [];
+    res.json({
+      outages: list
+        .filter((o): o is { cause: string; from: number; to: number | null } => typeof o === 'object' && o !== null && OUTAGE_CAUSES.has((o as { cause?: unknown }).cause as string) && ms((o as { from?: unknown }).from) && ((o as { to?: unknown }).to === null || ms((o as { to?: unknown }).to)))
+        .slice(0, 1000)
+        .map((o) => ({ cause: o.cause, from: o.from, to: o.to })),
+    });
+  } catch (err) {
+    if (err instanceof ProxyError && err.status === 404 && !res.headersSent) return void res.json({ outages: [] });
+    proxyFailed(err, res, 'proxy_request_failed', { cameraId: p.id });
+  }
+});
+
 // One analysis in full, for the Timeline's "Show all objects": the summary
 // and every object, never the provider's raw answer.
 proxyRouter.get('/api/cameras/:id/analyses/:eventId', async (req: Request, res: Response) => {

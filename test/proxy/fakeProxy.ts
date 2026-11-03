@@ -77,6 +77,8 @@ export interface FakeProxy {
   previews: Map<string, Map<number, Buffer>>; // cam → minute → sprite
   previewPresent: Map<number, boolean[]>; // tests: minute → its tiles' presence (default all 60)
   previewCurrent: number | null; // tests: the minute being collected; like cam-proxy, its sprite answers no-store
+  outages: Map<string, { cause: string; from: number; to: number | null }[]>; // proxy camera id → why stills are missing (GET /outages)
+  outagesStatus: number | null; // tests: /outages answers this error (404: an older proxy)
   messages: FakeMessage[];
   oldestId: number; // resuming from an id before this answers `reset`
   offline: boolean; // every request is answered by closing the connection
@@ -207,6 +209,8 @@ export async function startFakeProxy(opts: { port?: number; token?: string; tls?
     previews: new Map(),
     previewPresent: new Map(),
     previewCurrent: null,
+    outages: new Map(),
+    outagesStatus: null,
     messages: [],
     oldestId: 1,
     offline: false,
@@ -656,6 +660,13 @@ export async function startFakeProxy(opts: { port?: number; token?: string; tls?
     res.status(204).end();
   });
 
+  // Like cam-proxy's: the outages overlapping [from, to], at most two days.
+  app.get('/api/cameras/:cam/outages', (req, res) => {
+    if (fake.outagesStatus) return void res.status(fake.outagesStatus).json({ error: 'not_found' });
+    const from = Number(req.query.from), to = Number(req.query.to);
+    if (!Number.isFinite(from) || !Number.isFinite(to) || to < from || to - from > 2 * 86_400_000) return void res.status(400).json({ error: 'invalid' });
+    res.json({ outages: (fake.outages.get(req.params.cam) ?? []).filter((o) => o.from <= to && (o.to === null || o.to >= from)) });
+  });
   app.get('/api/cameras/:cam/extent', (req, res) => {
     const cam = req.params.cam;
     const min = (xs: number[]) => (xs.length ? Math.min(...xs) : null);

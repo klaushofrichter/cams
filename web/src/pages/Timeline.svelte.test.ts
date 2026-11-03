@@ -285,7 +285,7 @@ describe('Timeline', () => {
     // opts.missing: tiles missing from every sprite; opts.hold: awaited before each /stills answer;
     // opts.holdDay: awaited before each /previews answer; opts.stills: the /stills answer ('fail': a 502).
     const calls: string[] = [];
-    async function open(vp?: number | null, sprites: number[] = [m0, minute], events: unknown[] = [], opts: { missing?: number[]; hold?: () => Promise<void>; holdDay?: () => Promise<void>; stills?: number[] | 'fail'; extent?: { oldest: number | null; stills: number | null } } = {}) {
+    async function open(vp?: number | null, sprites: number[] = [m0, minute], events: unknown[] = [], opts: { missing?: number[]; hold?: () => Promise<void>; holdDay?: () => Promise<void>; stills?: number[] | 'fail'; extent?: { oldest: number | null; stills: number | null }; outages?: unknown[] | 'fail' } = {}) {
       calls.length = 0;
       sessionStorage.clear();
       history.replaceState(null, '', '/app/timeline');
@@ -309,6 +309,7 @@ describe('Timeline', () => {
         // The cards on their own day only (the page also asks for its neighbours).
         if (url.includes('/events?')) return json({ events: new URL(url, 'http://x').searchParams.get('date') === localDate(new Date(sprites[0])) ? events : [] });
         if (url.endsWith('/extent')) return json(opts.extent ?? { oldest: null, stills: null });
+        if (url.includes('/outages?')) return opts.outages === 'fail' ? new Response('{"error":"proxy_unavailable"}', { status: 502 }) : json({ outages: opts.outages ?? [] });
         return json({});
       });
       cameras.set([{ id: 'den', name: 'Den', webUiUrl: null, proxy: true }]);
@@ -598,7 +599,8 @@ describe('Timeline', () => {
         await settle();
       };
       const active = () => q('[data-testid="timeline-minute"].active')?.getAttribute('data-minute');
-      const gap = () => q('[data-testid="timeline-gap"]')?.textContent?.trim() ?? null;
+      const gap = () => q('[data-testid="timeline-gap-stamp"]')?.textContent?.trim() ?? null;
+      const why = () => q('[data-testid="timeline-gap-reason"]')?.textContent?.trim() ?? null;
       const stamp = (t: number) => {
         const d = new Date(t);
         const p = (n: number) => String(n).padStart(2, '0');
@@ -698,12 +700,45 @@ describe('Timeline', () => {
         expect(new URLSearchParams(location.search).get('t')).toBe(String(m0 + 8000));
       });
 
+      // Klaus, 2026-11-03: a blank second says why, from the proxy's outages; a click shows it too (touch).
+      it("a blank second's tooltip and the gap view name the proxy's reason for the whole blank stretch", async () => {
+        const hm = (t: number) => new Date(t).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+        // Seconds 10-19 blank; the camera was seen offline at 15 s (after the stills stopped), back at 25 s.
+        const outages = [
+          { cause: 'offline', from: m0 + 15_000, to: m0 + 25_000 },
+          { cause: 'address', from: m0 + 18_000, to: m0 + 18_000 },
+          { cause: 'reboot', from: m0 + 40_000, to: m0 + 50_000 }, // overlaps no blank second
+        ];
+        const reason = `Camera was offline (${hm(m0 + 15_000)}${hm(m0 + 15_000) === hm(m0 + 25_000) ? '' : `–${hm(m0 + 25_000)}`}); Camera address changed (${hm(m0 + 18_000)})`;
+        await open(m0 + 5000, [m0, minute], [], { missing: [10, 11, 12, 13, 14, 15, 16, 17, 18, 19], outages, stills: Array.from({ length: 60 }, (_, i) => m0 + i * 1000).filter((_, i) => i < 10 || i > 19) });
+        const second = (i: number) => q(`[data-testid="timeline-second"][data-ts="${m0 + i * 1000}"]`) as HTMLButtonElement;
+        expect(second(10).title.endsWith(`: ${reason}`)).toBe(true);
+        expect(second(10).getAttribute('aria-label')?.endsWith(`, ${reason}`)).toBe(true);
+        expect(second(19).title.endsWith(`: ${reason}`)).toBe(true);
+        expect(second(9).title).not.toContain('Camera');
+        expect(second(9).classList.contains('missing')).toBe(false);
+        second(12).click();
+        await wait(170);
+        await settle();
+        expect(gap()).toBe(`${stamp(m0 + 12_000)} not available as snapshot`);
+        expect(why()).toBe(reason);
+      });
+
+      it('without outages (an older proxy, a failed request): "No still picture available"', async () => {
+        await open(m0 + 5000, [m0, minute], [], { missing: [10, 11], outages: 'fail' });
+        const s10 = q(`[data-testid="timeline-second"][data-ts="${m0 + 10_000}"]`) as HTMLButtonElement;
+        expect(s10.title.endsWith(': No still picture available')).toBe(true);
+      });
+
       it('steps into a minute without a sprite, shown blank in the grid', async () => {
         await open(m0 - 60_000 + 59_000, [m0 - 60_000, minute], [], { stills: [m0 - 60_000 + 59_000] });
         await press('ArrowRight');
         expect(active()).toBe(String(m0)); // a blank tile for the open minute
         expect(gap()).toBe(`${stamp(m0)} not available as snapshot`);
-        expect(qa('[data-testid="timeline-second"]').every((x) => (x as HTMLButtonElement).disabled)).toBe(true);
+        // Blank, and clickable: a click opens the gap view, which says why (Klaus, 2026-11-03).
+        expect(qa('[data-testid="timeline-second"]').every((x) => x.classList.contains('missing') && !(x as HTMLButtonElement).disabled)).toBe(true);
+        expect(q('[data-testid="timeline-second"]')?.getAttribute('title')).toMatch(/: No still picture available$/);
+        expect(why()).toBe('No still picture available');
         await press('ArrowLeft');
         expect(still()).toBe(`/api/cameras/den/stills/${m0 - 60_000 + 59_000}.jpg`);
         expect(qa('[data-testid="timeline-minute"]').map((x) => Number(x.getAttribute('data-minute')))).toEqual([m0 - 60_000, minute]); // gone again
