@@ -162,6 +162,62 @@ describe('HistoryView', () => {
   });
 });
 
+// The side list's highlight (Klaus, 2026-11-04).
+describe('the events at the playhead', () => {
+  const ids = (fn: ReturnType<typeof vi.fn>) => fn.mock.calls.map(([s]) => [...(s as Set<string>)]);
+  const skip10 = () => {
+    target!.querySelector<HTMLButtonElement>('[data-testid="fwd-10"]')!.click();
+    flushSync();
+  };
+
+  it('reports them when they change, not with every move of the playhead', async () => {
+    const onatevents = vi.fn();
+    await render({ initialAt: Date.parse(E1.start) + 1000, onatevents });
+    expect(ids(onatevents)).toEqual([[], [E1.id]]); // none until the day's events are in
+    skip10(); // 11 s in, the same event
+    expect(onatevents).toHaveBeenCalledTimes(2);
+    skip10(); // 21 s in, still
+    expect(onatevents).toHaveBeenCalledTimes(2);
+    skip10(); // past its end (25 s)
+    expect(ids(onatevents)).toEqual([[], [E1.id], []]);
+  });
+
+  it('reports all of an overlap, and an event the filter hides', async () => {
+    const overlap = { ...E2, id: '20260927-093010-093030', start: '2026-09-27T14:30:10.000Z', end: '2026-09-27T14:30:30.000Z' };
+    vi.stubGlobal('fetch', async (url: string) => {
+      if (url.includes('/extent')) return new Response(JSON.stringify({ oldest: null }), { status: 200 });
+      const body = url.includes('/events?date=2026-09-27') ? { events: [E2, overlap], downloads: 'ok' } : url.includes('/events?') ? { events: [], downloads: 'ok' } : [];
+      return new Response(JSON.stringify(body), { status: 200 });
+    });
+    const onatevents = vi.fn();
+    await render({ initialAt: Date.parse(E2.start) + 15_000, filter: ['person'] as Filter, onatevents });
+    expect(ids(onatevents).at(-1)).toEqual([E2.id, overlap.id]);
+  });
+
+  it('keeps a failed clip’s event: its span still holds the playhead', async () => {
+    const onatevents = vi.fn();
+    await render({ initialAt: Date.parse(E1.start) + 1000, onatevents });
+    target!.querySelector('video')?.dispatchEvent(new Event('error'));
+    flushSync();
+    expect(ids(onatevents).at(-1)).toEqual([E1.id]);
+  });
+
+  it('reports none while live, even with a clip reaching past now', async () => {
+    const running = { ...E3, id: '20260927-195900-200100', start: new Date(NOW - 60_000).toISOString(), end: new Date(NOW + 60_000).toISOString() };
+    vi.stubGlobal('fetch', async (url: string) => {
+      if (url.includes('/extent')) return new Response(JSON.stringify({ oldest: null }), { status: 200 });
+      const body = url.includes('/events?date=2026-09-27') ? { events: [running], downloads: 'ok' } : url.includes('/events?') ? { events: [], downloads: 'ok' } : [];
+      return new Response(JSON.stringify(body), { status: 200 });
+    });
+    const onatevents = vi.fn();
+    await render({ live: true, glued: true, onatevents });
+    expect(ids(onatevents)).toEqual([[]]);
+    target!.querySelector<HTMLButtonElement>('[data-testid="back-10"]')!.click();
+    flushSync();
+    expect(ids(onatevents).at(-1)).toEqual([running.id]); // a recording again
+  });
+});
+
 describe('the live end (glue, spec 2026-09-28)', () => {
   const badge = () => target!.querySelector('[data-testid="live-badge"]');
   it('opens glued on the live panel, following now', async () => {
