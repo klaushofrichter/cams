@@ -502,7 +502,7 @@ export class RecordingsService {
 
   // The proxy's clip for an event (composed clips, cam-proxy spec 2026-09-28),
   // with the event's own span (unix ms): the proxy's FTP copy can start
-  // earlier or run longer, and a composition's rolls apply to the event
+  // earlier or later, or run longer, and a composition's rolls apply to the event
   // (2026-10-04). null when it has none; a failed lookup throws (issue #76).
   async proxyClipOf(cameraId: CamKey, clipId: string): Promise<{ id: number; event: { start: number; end: number } } | null> {
     if (!proxyActive(cameraId)) return null;

@@ -22,7 +22,7 @@ import { FAKE_LIVE_MIME, fmp4Stream } from './fakeLive';
 // cam-proxy's own wording of a length (src/compose/plan.ts there), not cams's.
 const proxySeconds = (s: number) => (s < 60 ? `${s} s` : `${s} s (${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')})`);
 
-export interface FakeClip { id: number; cam: string; start: number; end: number; stream: string; events: number[]; body: Buffer; snapshot?: Buffer }
+export interface FakeClip { id: number; cam: string; start: number; end: number; stream: string; events: number[]; body: Buffer; snapshot?: Buffer; origin?: 'ftp' | 'camera' | null } // origin: 'ftp' by default, like an upload; null: an older proxy's answer without it
 export interface FakeMessage { id: number; ts: number; cam: string; type: string; data: Record<string, unknown> }
 export interface FakeBox { x0: number; y0: number; x1: number; y1: number }
 // An analysis as cam-proxy stores it (spec 2026-09-30-analytics-in-cams-design):
@@ -685,7 +685,7 @@ export async function startFakeProxy(opts: { port?: number; token?: string; tls?
       fake.clips
         .filter((c) => c.cam === req.params.cam && c.start <= r[1] && c.end >= r[0])
         .sort((a, b) => a.start - b.start)
-        .map((c) => ({ id: c.id, start: c.start, end: c.end, stream: c.stream, size: c.body.length, events: c.events, url: `${base}/${c.id}.mp4`, snapshotUrl: c.snapshot ? `${base}/${c.id}.jpg` : null })),
+        .map((c) => ({ id: c.id, start: c.start, end: c.end, stream: c.stream, size: c.body.length, ...(c.origin === null ? {} : { origin: c.origin ?? 'ftp' }), events: c.events, url: `${base}/${c.id}.mp4`, snapshotUrl: c.snapshot ? `${base}/${c.id}.jpg` : null })),
     );
   });
   app.get('/api/cameras/:cam/clips/:file', (req, res) => {
