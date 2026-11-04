@@ -9,6 +9,7 @@
   import { loginMethods, noConfiguration } from './lib/login';
   import { ADMIN_CONSOLE_URL, EPAPER_PAGES, HIGHLIGHTS, LLMS_TXT, MCP, NUMBERS, REPOS, SECTIONS, SHOWCASE } from './lib/landingContent';
   import { countUp, reducedMotion, reveal, spotlight } from './lib/landingMotion';
+  import { runWhileUseful } from './lib/landingAnimations';
   import { currentTheme } from './lib/theme';
   import { theme } from './lib/stores';
 
@@ -111,7 +112,7 @@
   </header>
 
   <main id="top">
-    <section class="hero" aria-labelledby="hero-title" bind:this={hero}>
+    <section class="hero" aria-labelledby="hero-title" bind:this={hero} use:runWhileUseful>
       <div class="copy">
         {#if none}<p class="notice" data-testid="no-configuration">No cameras are configured yet.</p>{/if}
         <p class="eyebrow">Private camera system · Open source</p>
@@ -136,7 +137,7 @@
 
     <!-- The five repositories, drifting by; each name opens its repository.
          The loop's second copy is for the eye only. -->
-    <nav class="marquee" aria-label="The repositories" data-testid="ticker">
+    <nav class="marquee" aria-label="The repositories" data-testid="ticker" use:runWhileUseful>
       <div class="track" data-testid="ticker-track">
         <div class="group">
           {#each REPOS as r (r.name)}<a href={r.url} data-testid="ticker-link">{r.name}</a><i aria-hidden="true">✦</i>{/each}
@@ -193,7 +194,7 @@
           {/if}
           {#if s.id === 'find'}
             <!-- An abstract strip: no footage, just the kinds' colours. -->
-            <div class="strip" aria-hidden="true">
+            <div class="strip" aria-hidden="true" use:runWhileUseful>
               <i class="motion" style="left: 8%; width: 6%"></i>
               <i class="person" style="left: 21%; width: 9%"></i>
               <i class="vehicle" style="left: 41%; width: 5%"></i>
@@ -430,8 +431,8 @@
     font-weight: 600;
     padding: 6px 12px;
     border-radius: 999px;
-    background: color-mix(in srgb, var(--surface) 85%, transparent);
-    backdrop-filter: blur(6px);
+    /* Nearly solid instead of a blur, which repaints every frame on a moving layer (#327). */
+    background: color-mix(in srgb, var(--surface) 94%, transparent);
     border: 1px solid var(--border);
     box-shadow: var(--shadow);
     animation: bob 5s ease-in-out infinite;
@@ -668,6 +669,15 @@
   @keyframes cue { 0% { opacity: 0; transform: translateY(0); } 40% { opacity: 1; } 80%, 100% { opacity: 0; transform: translateY(12px); } }
   @keyframes marquee { to { transform: translateX(-50%); } }
   @keyframes scrub { from { left: 12%; } to { left: 86%; } }
+
+  /* Off screen or idle (lib/landingAnimations.ts): the loops hold where they
+     are, each a fine still frame. The cue's dot would hold at any fade, even
+     gone, so it rests fully shown at the top of the cue instead. */
+  .hero:global(.motion-paused) .tag,
+  .hero:global(.motion-paused) :global(.glow),
+  .marquee:global(.motion-paused) .track,
+  .strip:global(.motion-paused) .playhead { animation-play-state: paused; }
+  .hero:global(.motion-paused) .cue::after { animation: none; }
 
   /* Nothing moves under reduced motion (theme.css zeroes the durations; the
      endless loops stop here too, and reveals show at once in landingMotion.ts). */

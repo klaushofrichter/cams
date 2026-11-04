@@ -9,7 +9,9 @@ set -euo pipefail
 dir=contract/cams-v1
 repo=${CAMS_ADMIN_REPO:-https://github.com/klaushofrichter/cams-admin.git}
 tmp=$(mktemp -d)
-trap 'rm -rf "$tmp"' EXIT
+# The check's own status stands: a cleanup that fails (git still writing to
+# the clone's objects: "Directory not empty") must not fail a passed check.
+trap 'status=$?; rm -rf "$tmp" || true; exit "$status"' EXIT
 git clone -q --filter=blob:none --no-checkout "$repo" "$tmp/repo"
 branch=$(sed -n 's/.*(contract\/cams-v1, \([A-Za-z0-9._\/-]*\)).*/\1/p' "$dir/SOURCE")
 ref=origin/${branch:-main}

@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
 import request from 'supertest';
 import { cpSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'fs';
 import { tmpdir } from 'os';
@@ -35,6 +35,57 @@ describe('pages', () => {
     expect(signedIn.headers.location).toBe('/app/video');
     const out = await request(createApp()).get('/signin?returnTo=/app/settings');
     expect((out.get('Set-Cookie') ?? []).join(';')).toContain('return_to=%2Fapp%2Fsettings');
+  });
+
+  describe('a local viewer (token login, no Google)', () => {
+    const saved: Record<string, string | undefined> = {};
+    const GOOGLE = ['GOOGLE_CLIENT_ID', 'GOOGLE_CLIENT_SECRET', 'GOOGLE_REDIRECT_URI'];
+    beforeAll(() => {
+      for (const name of [...GOOGLE, 'CAMS_LOGIN_TOKEN']) saved[name] = process.env[name];
+    });
+    afterEach(() => {
+      for (const [name, value] of Object.entries(saved)) {
+        if (value === undefined) delete process.env[name];
+        else process.env[name] = value;
+      }
+    });
+    const tokenOnly = () => {
+      for (const name of GOOGLE) delete process.env[name];
+      process.env.CAMS_LOGIN_TOKEN = 'a-login-token-for-this-test-only-000';
+    };
+
+    it('answers / with the sign-in page, and /signin itself without a redirect (no loop)', async () => {
+      tokenOnly();
+      const start = await request(createApp()).get('/');
+      expect(start.status).toBe(302);
+      expect(start.headers.location).toBe('/signin');
+      const signin = await request(createApp()).get('/signin');
+      expect(signin.status).toBe(200);
+      expect(signin.text).toContain('LANDING');
+    });
+
+    it('keeps ?returnTo= on the way to the sign-in page', async () => {
+      tokenOnly();
+      const res = await request(createApp()).get('/?returnTo=/app/settings');
+      expect(res.headers.location).toBe('/signin');
+      expect((res.get('Set-Cookie') ?? []).join(';')).toContain('return_to=%2Fapp%2Fsettings');
+    });
+
+    it('a signed-in visitor still goes to the app', async () => {
+      tokenOnly();
+      const res = await request(createApp()).get('/').set('Cookie', auth);
+      expect(res.headers.location).toBe('/app/video');
+    });
+
+    it('with Google as well as a token, / stays the landing page', async () => {
+      process.env.GOOGLE_CLIENT_ID = 'x';
+      process.env.GOOGLE_CLIENT_SECRET = 'x';
+      process.env.GOOGLE_REDIRECT_URI = 'http://localhost/auth/google/callback';
+      process.env.CAMS_LOGIN_TOKEN = 'a-login-token-for-this-test-only-000';
+      const res = await request(createApp()).get('/');
+      expect(res.status).toBe(200);
+      expect(res.text).toContain('LANDING');
+    });
   });
 
   it('sends signed-in visitors from / to /app/video', async () => {

@@ -3,6 +3,12 @@ import { signIn } from './session';
 import { openSignIn } from './landingSignIn';
 
 test.describe('landing page', () => {
+  test('a server with Google keeps its landing page at /', async ({ page }) => {
+    await page.goto('/');
+    await expect(page).toHaveURL('/');
+    await expect(page.getByTestId('highlights')).toBeAttached();
+  });
+
   test('shows branding, the camera illustration and the Google login', async ({ page }) => {
     await page.goto('/');
     await expect(page.getByRole('heading', { level: 1 })).toContainText('Your cameras');
@@ -329,9 +335,11 @@ test.describe('landing page', () => {
       'The e-paper display’s Proxy page',
       'The e-paper display’s Pi page',
     ]);
-    const anim = await pages.evaluateAll((ims) => ims.map((i) => { const cs = getComputedStyle(i); return [cs.animationDuration, cs.animationDelay, cs.animationIterationCount, cs.animationTimingFunction]; }));
-    // A soft fade: 0.7 s ease-in-out, each page held 2 s (2.7 s a page, 10.8 s a cycle).
-    expect(anim).toEqual(['0s', '2.7s', '5.4s', '8.1s'].map((d) => ['10.8s', d, 'infinite', 'ease-in-out']));
+    const fade = await pages.evaluateAll((ims) => ims.map((i) => { const cs = getComputedStyle(i); return [cs.transitionProperty, cs.transitionDuration, cs.transitionTimingFunction]; }));
+    // A soft fade: 0.7 s ease-in-out, each page held 2 s (2.7 s a page).
+    expect(fade).toEqual(Array(4).fill(['opacity', '0.7s', 'ease-in-out']));
+    // It moves on to the next page by itself.
+    await expect.poll(() => pages.nth(1).evaluate((e) => getComputedStyle(e).opacity), { timeout: 5000 }).toBe('1');
     // No flash: no flash layer, no flash keyframes, and white paper behind the stack.
     await expect(cycle.getByTestId('epaper-flash')).toHaveCount(0);
     const keyframes = await page.evaluate(() =>
@@ -363,6 +371,67 @@ test.describe('landing page', () => {
     // The rest of the page is unchanged.
     await expect(page.getByTestId('highlights')).toBeVisible();
     await expect(page.getByTestId('maker')).toBeVisible();
+  });
+
+  // Issue #327: the endless animations. page.clock moves the idle timer on;
+  // CSS animations keep real time.
+  const running = (page: import('@playwright/test').Page) => page.evaluate(() => document.getAnimations().filter((a) => a.playState === 'running').length);
+
+  test('animations run on arrival, stop after 30 s without input, and resume on input', async ({ page }) => {
+    await page.route('**/landing/*.webp', (r) => r.fulfill({ status: 200, contentType: 'image/webp', body: WEBP_1PX }));
+    await page.emulateMedia({ reducedMotion: 'no-preference' });
+    await page.clock.install();
+    await page.goto('/');
+    await expect.poll(() => running(page)).toBeGreaterThan(0);
+    await page.clock.fastForward(29_000);
+    expect(await running(page)).toBeGreaterThan(0);
+    await page.clock.fastForward(2_000);
+    await expect.poll(() => running(page)).toBe(0);
+    // Paused, the page still looks whole: the tags and the cue's dot show.
+    await expect(page.locator('section.hero .tag.live')).toBeVisible();
+    expect(await page.locator('section.hero .cue').evaluate((e) => getComputedStyle(e, '::after').opacity)).toBe('1');
+    await page.mouse.move(40, 40);
+    await page.mouse.move(60, 60);
+    await expect.poll(() => running(page)).toBeGreaterThan(0);
+    await page.clock.fastForward(31_000);
+    await expect.poll(() => running(page)).toBe(0);
+    await page.keyboard.press('Shift');
+    await expect.poll(() => running(page)).toBeGreaterThan(0);
+  });
+
+  test('scrolled away from the hero, its animations stop; back at the top they run', async ({ page }) => {
+    await page.emulateMedia({ reducedMotion: 'no-preference' });
+    await page.goto('/');
+    const tag = page.locator('section.hero .tag.live');
+    const state = () => tag.evaluate((e) => e.getAnimations()[0]?.playState);
+    await expect.poll(state).toBe('running');
+    await page.getByTestId('maker').scrollIntoViewIfNeeded();
+    await expect.poll(state).toBe('paused');
+    await expect.poll(() => running(page)).toBe(0);
+    await page.evaluate(() => window.scrollTo(0, 0));
+    await expect.poll(state).toBe('running');
+  });
+
+  test('the e-paper display rests on one whole page when idle, and goes on after input', async ({ page }) => {
+    await page.route('**/landing/*.webp', (r) => r.fulfill({ status: 200, contentType: 'image/webp', body: WEBP_1PX }));
+    await page.emulateMedia({ reducedMotion: 'no-preference' });
+    await page.clock.install();
+    await page.goto('/');
+    const cycle = page.locator('#hardware').getByTestId('epaper-cycle');
+    await cycle.scrollIntoViewIfNeeded();
+    const pages = cycle.getByTestId('epaper-page');
+    await expect(pages).toHaveCount(4);
+    const opacities = () => pages.evaluateAll((ims) => ims.map((i) => getComputedStyle(i).opacity));
+    // Into a fade (page 2 of 4), then idle while it runs.
+    await page.clock.fastForward(30_100);
+    await expect.poll(async () => (await opacities()).sort().join(' ')).toBe('0 0 0 1');
+    const rest = (await opacities()).indexOf('1');
+    await page.clock.fastForward(30_000);
+    expect((await opacities()).indexOf('1')).toBe(rest);
+    await page.mouse.move(50, 50);
+    await page.mouse.move(70, 70);
+    await page.clock.fastForward(2_800);
+    await expect.poll(async () => { const now = (await opacities()).indexOf('1'); return now >= 0 && now !== rest; }).toBe(true);
   });
 
   test('login starts the Google flow', async ({ request }) => {
