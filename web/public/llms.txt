@@ -47,7 +47,7 @@ All five repositories are public on GitHub. Each has a README with an overview a
 
 - [cams README](https://github.com/klaushofrichter/cams/blob/main/README.md): what the viewer does and how it uses cam-proxy and cams-admin.
 - [Pages and API](https://github.com/klaushofrichter/cams/blob/main/README.md#pages-and-api): the app's pages and its session-cookie JSON API (`/api/me`, `/api/cameras/*`, clips, events stream, cam-proxy pass-throughs).
-- [MCP server](https://github.com/klaushofrichter/cams/blob/main/README.md#mcp-server): `https://cams.skylar.technology/mcp`, a Model Context Protocol endpoint (Streamable HTTP) with read tools over one account's cameras: events with AI labels, stills, recordings, the archive, short clips as 15-minute links. It needs a personal token made on the viewer's Settings page.
+- [MCP server](https://github.com/klaushofrichter/cams/blob/main/README.md#mcp-server): `https://cams.skylar.technology/mcp`, a Model Context Protocol endpoint (Streamable HTTP) with read tools over one account's cameras: events with AI labels, stills, recordings, the archive, short clips as 15-minute links; for the account's admins also that account's own proxies, viewers and camera moves (`list_proxies`, `list_viewers`, `list_moves`). It needs a personal token made on the viewer's Settings page.
 - [Accounts, roles and cams-admin](https://github.com/klaushofrichter/cams/blob/main/README.md#accounts-roles-and-cams-admin): where cams takes accounts, users and cameras from (file or cams-admin).
 - [Reolink camera API, as measured](https://github.com/klaushofrichter/cams/blob/main/docs/reolink-api.md): the real camera's HTTP API behaviour, measured on an RLC-1224A; the authority cam-sim follows.
 

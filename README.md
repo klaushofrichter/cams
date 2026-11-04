@@ -108,7 +108,7 @@ Production has two cameras:
   claude mcp add --transport http cams https://cams.skylar.technology/mcp --header "Authorization: Bearer cmcp_<your token>"
   ```
 
-- **Tools:** `list_cameras`, `get_snapshot` (the current picture, scaled), `list_events` (a camera's events between two times, at most 7 days, with AI labels and Vision's word), `get_event` (one event, its stills' objects, pictures and a video link), `search_recordings` (across cameras, at most 31 days), `list_archive`, `get_archive_clip`, `generate_clip` (a time range or an event with rolls, at most 5 minutes, 2 at 1080p; one per account at a time, 10 an hour; never archived), `get_clip_job`, `analytics_usage` (the Vision budget). Pictures are JPEGs scaled to at most 1568 px wide (400 KB each, 4 per answer); videos are links to `/mcp/media/…`, signed and valid for 15 minutes, dead once their token is revoked.
+- **Tools:** `list_cameras`, `get_snapshot` (the current picture, scaled), `list_events` (a camera's events between two times, at most 7 days, with AI labels and Vision's word), `get_event` (one event, its stills' objects, pictures and a video link), `search_recordings` (across cameras, at most 31 days), `list_archive`, `get_archive_clip`, `generate_clip` (a time range or an event with rolls, at most 5 minutes, 2 at 1080p; one per account at a time, 10 an hour; never archived), `get_clip_job`, `analytics_usage` (the Vision budget); for the account's admins also `list_proxies`, `list_viewers` and `list_moves` (below). Pictures are JPEGs scaled to at most 1568 px wide (400 KB each, 4 per answer); videos are links to `/mcp/media/…`, signed and valid for 15 minutes, dead once their token is revoked.
 - **Sample prompts** (and the tools the assistant uses for them):
   - "How many cameras do we have, and are they all online?" → `list_cameras`
   - "Show me the backyard right now." → `get_snapshot` (the picture comes back for the assistant to look at)
@@ -117,7 +117,16 @@ Production has two cameras:
   - "Make a clip of the garage from 14:10 to 14:12 today." → `generate_clip`, `get_clip_job` (a download link)
   - "What's in the archive from October?" → `list_archive`, `get_archive_clip`
   - "How much of the AI check budget is left this month?" → `analytics_usage`
+  - "Are all our proxies online? Do any report problems?" (admin) → `list_proxies`
+  - "Which viewers serve this account, and is any change waiting for confirmation?" (admin) → `list_viewers`
+  - "How far along is the move of the garage camera?" (admin) → `list_moves`
   - Requests to change something ("turn on night vision") are declined: the tools are read-only.
+- **Fleet tools** (design `docs/superpowers/specs/2026-11-04-mcp-fleet-tools-design.md`): for **this account's admins**, an owner's view of its own fleet, not the whole system's; read-only. A viewer-role token doesn't see them, and the role is read at each call. Use them on the cluster's address, `https://cams.skylar.technology/mcp`: a viewer on a Pi or mini PC has them too, with only the proxies routed to it.
+  - `list_proxies`: name, display name, state, version, problems (ids, labels, texts), the address of its web page with a note when it is local network only, its cameras with online; `notRouted` counts the account's proxies not routed to this viewer.
+  - `list_viewers`: the viewers serving this account: name, display name, address, and held changes for this account only (camera or proxy and field names, never values). A viewer serving several accounts shows nothing of the others.
+  - `list_moves`: this account's camera moves: phase, progress, times, at most the newest 50.
+  - They come from cams-admin over the viewer's signed connection (`GET /cams/v1/accounts/:accountId/fleet`, contract cams-v1), which refuses any account the viewer doesn't serve. cams keeps an answer at most 5 seconds and sends at most 20 such requests a minute. Other accounts, tokens, keys, CA fingerprints, camera passwords and the audit log are never in the answer.
+  - cams-admin down: `{error: "admin_unavailable", message, retryable: true}`, and every other tool keeps working. `not_available`: this viewer has no cams-admin, or an older one.
 - **How it works:** a tool calls cams's own `/api` in-process (loopback, a per-process secret plus the token id) as the token's person, so the role table, the account isolation and every route's checks apply unchanged. Cookies are ignored on `/mcp`.
 - **Limits:** per token 60 calls a minute and 2000 a day, per account 300 a minute, video links 30 a minute per token, failed tokens 10 per 15 minutes per address. Each call is logged as `mcp_call` (token id, tool, camera, outcome, duration), never the token.
 - **Errors:** 401 with `WWW-Authenticate: Bearer error="invalid_token"` for any bad token; a tool's failure is a result with `isError` and `{error, message, retryable}`.
