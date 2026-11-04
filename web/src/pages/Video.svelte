@@ -219,6 +219,8 @@
     return () => (stale = true);
   });
   let playheadClip: string | null = $state(null);
+  // The events whose span holds the playhead, whatever the filter or the list shows.
+  let atPlayhead: ReadonlySet<string> = $state.raw(new Set());
 
   // The URL is the source of truth; with none (e.g. a sidebar link), the
   // last cursor of this session is restored -- but only when it agrees with
@@ -561,7 +563,7 @@
         {#key cam}
           <HistoryView bind:this={historyView} {cam} proxy={camProxy}
             date={cursor.date} {initialAt} {filter}
-            unavailable={downloads === 'unavailable'} onposition={onPosition} {pending}
+            unavailable={downloads === 'unavailable'} onposition={onPosition} onatevents={(ids) => (atPlayhead = ids)} {pending}
             live bind:glued liveBox={liveWanted ? liveBoxSnippet : undefined} />
         {/key}
         {#if downloads !== 'unavailable' && !loading && !failed}
@@ -591,7 +593,7 @@
         {#if mode === 'live' && camera?.capabilities?.ptz}
           <div transition:reveal><PtzPanel cameraId={cam} ptz={camera.capabilities.ptz} /></div>
         {/if}
-        <EventList bind:this={eventList} cameraId={cam} events={visible} {filter} date={cursor.date} selectedId={playheadClip} pending={pendingToday}
+        <EventList bind:this={eventList} cameraId={cam} events={visible} {filter} date={cursor.date} selectedId={glued ? null : playheadClip} {atPlayhead} pending={pendingToday}
           onreveal={revealPlayer} onhours={(o) => (hoursOpen = o)}
           onfilter={setFilter}
           {landing}

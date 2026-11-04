@@ -1,7 +1,7 @@
 // web/src/lib/strip.test.ts
 import { describe, expect, it } from 'vitest';
 import {
-  STRIP_ZOOMS, normalizeZoom, zoomKey, zoomLabel, tickStep, stripTicks, TICK_CHAR_PX, clipRuns, clipStartFromId, eventStep, inRuns, localDaysBetween, mergeRuns, nextChange, previewRuns, sourceAt, stillRuns, stripSpans, windowAround,
+  STRIP_ZOOMS, normalizeZoom, zoomKey, zoomLabel, tickStep, stripTicks, TICK_CHAR_PX, clipRuns, clipStartFromId, eventsAt, eventStep, inRuns, localDaysBetween, mergeRuns, nextChange, previewRuns, sourceAt, stillRuns, stripSpans, windowAround,
   type Coverage,
 } from './strip';
 import type { EventClip } from './recordings';
@@ -13,6 +13,40 @@ const clip = (id: string, s: string, e: string): EventClip => ({
   id, start: new Date(at(s)).toISOString(), end: new Date(at(e)).toISOString(), durationSec: (at(e) - at(s)) / 1000, triggers: ['motion'], sizeSub: 1, sizeMain: 1,
 });
 const NOW = at('20:00:00');
+
+// The side list's highlight (Klaus, 2026-11-04): the same runs the strip draws.
+describe('eventsAt', () => {
+  const runs = clipRuns([
+    clip('c', '09:02:00', '09:02:10'),
+    clip('a', '09:00:00', '09:00:20'),
+    clip('b', '09:00:10', '09:00:30'),
+  ]);
+  it('names the event around a position, its start included and its end not', () => {
+    expect(eventsAt(runs, at('09:00:05'))).toEqual(['a']);
+    expect(eventsAt(runs, at('09:02:00'))).toEqual(['c']);
+    expect(eventsAt(runs, at('09:02:10') - 1)).toEqual(['c']);
+    expect(eventsAt(runs, at('09:02:10'))).toEqual([]);
+  });
+  it('names nothing before, after and between events', () => {
+    expect(eventsAt(runs, at('08:59:59'))).toEqual([]);
+    expect(eventsAt(runs, at('09:01:00'))).toEqual([]);
+    expect(eventsAt(runs, at('09:03:00'))).toEqual([]);
+    expect(eventsAt([], at('09:00:05'))).toEqual([]);
+  });
+  it('names every event of an overlap', () => {
+    expect(eventsAt(runs, at('09:00:15'))).toEqual(['a', 'b']);
+    expect(eventsAt(runs, at('09:00:20'))).toEqual(['b']); // a just ended
+  });
+  it('skips an event without a span, as the strip does when it draws them', () => {
+    const open = clipRuns([
+      clip('zero', '09:00:00', '09:00:00'),
+      { ...clip('noEnd', '09:00:00', '09:00:10'), end: '' },
+      clip('real', '09:00:00', '09:00:10'),
+    ]);
+    expect(eventsAt(open, at('09:00:00'))).toEqual(['real']);
+    expect(eventsAt(open, at('09:00:05'))).toEqual(['real']);
+  });
+});
 
 describe('runs', () => {
   it('merges touching and nearby runs', () => {
