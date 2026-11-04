@@ -12,19 +12,38 @@ interface ProxyClip {
   id: number;
   start: number;
   end: number | null;
+  origin?: string; // 'ftp' or 'camera' (fetched); an older proxy may not say
 }
 
-// The clip containing the event's start. The upload is named by the same
-// camera clock as the SD-card recording, so only a few seconds of slack are
-// allowed; a clip that ended before the event, or starts later, is another
-// recording and never used (it would be cached under this event's key).
+// The clip of an event: cam-proxy's rule for one recording (its
+// src/inventory/match.ts, sameRecording), closest start first.
+// - The clip that holds the event's start. The upload is named by the same
+//   camera clock as the SD-card recording, so a clip may start up to 5 s after
+//   the event; one that ended before the event is another recording.
+// - An FTP clip that starts more than 5 s and at most 10 s after the event,
+//   and before the event's end: an E1 Outdoor Pro's upload starts about 8 s
+//   after its SD recording (measured 2026-11-03/04). Only a clip that says it
+//   came by FTP: a fetched one starts exactly where its recording does.
+// Anything later is another recording (an RLC-1224A's clips at +13 s and later)
+// and never used: it would be cached under this event's key. A late clip is
+// this event's own, so it may be, though it lacks the event's first seconds
+// (the SD file is asked first; a composition fills them with stills or cards).
 const SLACK_MS = 5_000;
+const LATE_FTP_MS = 10_000;
+
+function holdsStart(c: ProxyClip, start: number): boolean {
+  return c.start <= start + SLACK_MS && (c.end ?? c.start) >= start;
+}
+
+function lateFtpCopy(c: ProxyClip, start: number, end: number): boolean {
+  return c.origin === 'ftp' && c.start > start + SLACK_MS && c.start <= start + LATE_FTP_MS && c.start < end;
+}
 
 export async function findProxyClip(cameraId: CamKey, start: number, end: number): Promise<ProxyClip | null> {
   const client = getProxyClient(cameraId);
   if (!client) return null;
   const clips = await client.json<ProxyClip[]>(proxyPath(cameraId, '/clips'), { from: start - SLACK_MS, to: Math.max(end, start) });
-  const valid = clips.filter((c) => Number.isSafeInteger(c.id) && c.start <= start + SLACK_MS && (c.end ?? c.start) >= start);
+  const valid = clips.filter((c) => Number.isSafeInteger(c.id) && (holdsStart(c, start) || lateFtpCopy(c, start, end)));
   return valid.sort((a, b) => Math.abs(a.start - start) - Math.abs(b.start - start))[0] ?? null;
 }
 

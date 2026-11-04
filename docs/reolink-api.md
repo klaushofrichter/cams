@@ -680,6 +680,11 @@ talk FTP itself: a camera's clips arrive at its
 [cam-proxy](https://github.com/klaushofrichter/cam-proxy) by FTP, and cams
 fetches them from there (`server/recordings/proxyClips.ts`).
 
+- **An upload can start later than its SD recording.** An E1 Outdoor Pro's FTP
+  clip starts about 8 s after the SD recording of the same event (measured
+  2026-11-03/04). An RLC-1224A's clips at +13 s and later are other recordings.
+  So an FTP clip counts as the event's up to +10 s, and only if it starts before
+  the event ends (`findProxyClip`, the same rule as cam-proxy's `sameRecording`).
 - `SetFtpV20` configures it (server, port, user, password, `remoteDir`,
   `ftpSubStream`, schedule), and `TestFtp` tests a configuration.
   `TestFtpV20` and `GetFtp` return `rspCode -9` on this firmware.
