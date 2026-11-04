@@ -14,6 +14,8 @@
   const failed = query.get('login') === 'failed';
   const unavailable = query.get('login') === 'unavailable';
   const none = noConfiguration();
+  // Without Google (the Pi and mini-PC viewers) / is this page: nothing to go back to.
+  const hasStartPage = methods.includes('google');
   theme.set(currentTheme());
   document.title = 'Sign in · cams';
   import { externalLinks } from './lib/externalLinks';
@@ -22,7 +24,11 @@
 <div class="page" use:externalLinks={'signin-new-tab'}>
   <span id="signin-new-tab" class="nt-hint">opens in a new tab</span>
   <header>
-    <a class="home" href="/" data-testid="signin-home"><span aria-hidden="true">←</span> cams</a>
+    {#if hasStartPage}
+      <a class="home" href="/" data-testid="signin-home"><span aria-hidden="true">←</span> cams</a>
+    {:else}
+      <span class="home" data-testid="signin-brand">cams</span>
+    {/if}
     <ThemeToggle />
   </header>
   <main>
@@ -50,7 +56,7 @@
   }
   header { display: flex; align-items: center; justify-content: space-between; padding: 14px 24px; }
   .home { color: var(--text); text-decoration: none; font-weight: 700; font-size: 18px; }
-  .home:hover { color: var(--accent); }
+  a.home:hover { color: var(--accent); }
   main { flex: 1; display: grid; place-items: center; padding: 24px 16px 64px; }
   .card {
     width: min(440px, 100%);

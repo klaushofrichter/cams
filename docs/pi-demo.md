@@ -203,5 +203,5 @@ takes the camera's address from cam-proxy, so a new LAN changes only
 | Change the token | edit `CAMS_LOGIN_TOKEN` in `/srv/cam-proxy/config/.env`, then `docker compose up -d --force-recreate` here; every browser signs in again |
 | Stop | `docker compose down` (cam-proxy keeps running) |
 
-A token session lasts 7 days, like a Google one; then the start page asks for
+A token session lasts 7 days, like a Google one; then the sign-in page asks for
 the token again and returns to the page you were on.

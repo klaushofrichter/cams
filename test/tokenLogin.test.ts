@@ -309,7 +309,9 @@ describe('the start page variants', () => {
 
   it('token only', async () => {
     tokenOnly();
-    const res = await request(createApp()).get('/');
+    // No landing page there: / leads to the sign-in page, the same bundle (#327).
+    expect((await request(createApp()).get('/')).headers.location).toBe('/signin');
+    const res = await request(createApp()).get('/signin');
     expect(res.status).toBe(200);
     expect(res.headers['content-type']).toMatch(/text\/html/);
     expect(meta(res.text)).toBe('token');
