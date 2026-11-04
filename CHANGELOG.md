@@ -8,7 +8,8 @@ published as [GitHub releases](https://github.com/klaushofrichter/cams/releases)
 
 ## [Unreleased]
 
-### Fixed
-
-- E1 Outdoor Pro: an event whose only copy on the proxy is the camera's FTP clip, which starts about 8 s after the SD recording, is now found. Such an event can be composed again and can use the FTP clip for playback, saving and archiving when the SD file can't be reached. The FTP clip lacks the event's first seconds: in a composed clip, those seconds and any pre-roll show stills, or a "No recording" card where there is no still.
+- Live quality: where the browser can't play H.265 (the Pi's Chromium, for example), 4K stays visible but dimmed, and its tooltip says why. It used to disappear, which looked as if the camera had no 4K. Cameras without a third stream show SD and a dimmed 4K there instead of no control.
+- The landing page's animations run only while their section is on screen, and pause after 30 s without input until the next pointer, key, scroll or touch. The moving hero tags have a nearly solid background instead of a blur. An open landing page uses far less CPU on small hardware such as a Raspberry Pi (#327).
+- The landing page's hero text no longer gets the MCP copy button's panel and left border: both used the CSS class `copy`.
+- The contract drift check no longer fails when only its cleanup of temporary files fails (#327).
 

@@ -1,18 +1,30 @@
 <script lang="ts">
   // The Pi's e-paper display in its frame, showing its pages 2 s each with a
   // soft crossfade (Klaus, 2026-10-27), on white paper so nothing dark ever
-  // shows between pages. Under reduced motion the pages stand side by side,
-  // still. When the first page's file is missing, the display is left out.
+  // shows between pages. A timer moves to the next page and CSS transitions do
+  // the fade, so when the timer stops (off screen or idle, #327) the running
+  // fade still finishes: the display always rests on one whole page. Under
+  // reduced motion the pages stand side by side, still. When the first page's
+  // file is missing, the display is left out.
   import type { Shot } from '../lib/landingContent';
+  import { runWhileUseful } from '../lib/landingAnimations';
+
+  const PAGE_MS = 2700; // 0.7 s fading in over the outgoing page, then held 2 s.
 
   let { pages }: { pages: (Shot & { name: string })[] } = $props();
   let failed = $state(false);
+  let current = $state(0);
+  let timer: ReturnType<typeof setInterval> | undefined;
+  function cycle(running: boolean) {
+    clearInterval(timer);
+    if (running) timer = setInterval(() => (current = (current + 1) % pages.length), PAGE_MS);
+  }
 </script>
 
 {#if !failed}
   <figure class="device" data-testid="epaper-cycle">
     <span class="keys" aria-hidden="true"><i></i><i></i><i></i><i></i></span>
-    <div class="screen" data-testid="epaper-screen">
+    <div class="screen" data-testid="epaper-screen" use:runWhileUseful={cycle}>
       {#each pages as page, i (page.src)}
         <img
           data-testid="epaper-page"
@@ -22,7 +34,7 @@
           height={page.height}
           loading="lazy"
           decoding="async"
-          style="animation-delay: {(i * 2.7).toFixed(1)}s"
+          class:on={i === current}
           onerror={() => {
             if (i === 0) failed = true;
           }}
@@ -50,19 +62,12 @@
   .keys { display: grid; gap: 16px; }
   .keys i { display: block; width: 18px; height: 10px; border-radius: 3px; background: var(--surface-2); border: 1px solid var(--border); }
   .screen { position: relative; display: grid; border: 2px solid var(--border); border-radius: 2px; overflow: hidden; background: var(--epaper-paper); }
-  img { grid-area: 1 / 1; display: block; width: 100%; height: auto; opacity: 0; animation: page 10.8s ease-in-out infinite; }
+  img { grid-area: 1 / 1; display: block; width: 100%; height: auto; opacity: 0; transition: opacity 0.7s ease-in-out; }
+  img.on { opacity: 1; }
   figcaption { grid-column: 2; margin-top: 8px; font-size: 12px; color: var(--muted); text-align: center; letter-spacing: 0.06em; }
-  /* A soft fade (Klaus, 2026-10-27): each page has a quarter of the 10.8 s
-     cycle, 0.7 s fading in over the outgoing page (which fades out at the
-     same time), then held 2 s; ease-in-out per step. */
-  @keyframes page {
-    0% { opacity: 0; }
-    6.481%, 25% { opacity: 1; }
-    31.481%, 100% { opacity: 0; }
-  }
   @media (prefers-reduced-motion: reduce) {
     .device { max-width: none; }
     .screen { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; border: 0; }
-    img { grid-area: auto; opacity: 1; animation: none; border: 2px solid var(--border); }
+    img { grid-area: auto; opacity: 1; transition: none; border: 2px solid var(--border); }
   }
 </style>
