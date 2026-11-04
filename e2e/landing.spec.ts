@@ -9,6 +9,15 @@ test.describe('landing page', () => {
     await expect(page.getByTestId('highlights')).toBeAttached();
   });
 
+  // The hero's text and the MCP copy button once shared the CSS class `copy`.
+  test("the hero's text has no panel or border from the copy button", async ({ page }) => {
+    await page.goto('/');
+    const hero = page.getByRole('heading', { level: 1 }).locator('..');
+    await expect(hero).toHaveCSS('border-left-width', '0px');
+    await expect(hero).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)');
+    await expect(page.getByTestId('mcp-copy')).toHaveCSS('border-left-width', '1px');
+  });
+
   test('shows branding, the camera illustration and the Google login', async ({ page }) => {
     await page.goto('/');
     await expect(page.getByRole('heading', { level: 1 })).toContainText('Your cameras');

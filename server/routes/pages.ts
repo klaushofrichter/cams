@@ -4,7 +4,7 @@ import { readdirSync } from 'fs';
 import { readFile } from 'fs/promises';
 import { authState, currentUser, noStore, rememberReturn, requireAuthPage, RETURN_COOKIE, safeReturnPath } from '../middleware/requireAuth';
 import { createApiRateLimit } from '../middleware/rateLimit';
-import { cookieOptions, googleLoginEnabled, loginMethods, tokenLoginEnabled } from '../loginConfig';
+import { cookieOptions, loginMethods } from '../loginConfig';
 import { configMode } from '../configSource';
 import { fleetAccounts } from '../fleet';
 
@@ -57,8 +57,6 @@ export function pagesRouter(dir: string): Router {
   // ignored then, so a third-party link can't open a chosen /app page.
   // /signin is the same bundle: the sign-in page (the token form on the Pi;
   // a token form post comes back there with ?login=failed or unavailable).
-  // A local viewer (token login, no Google) has no use for the public start
-  // page, which is also heavy on a Pi (#327): its / is the sign-in page.
   router.get(['/', '/signin'], (req: Request, res: Response) => {
     // Signed in but several accounts and none chosen: the picker.
     if (authState(req).kind === 'choose') return void res.redirect(302, '/app/accounts');
@@ -69,7 +67,6 @@ export function pagesRouter(dir: string): Router {
       return;
     }
     rememberReturn(res, req.query.returnTo);
-    if (req.path === '/' && tokenLoginEnabled() && !googleLoginEnabled()) return void res.redirect(302, '/signin');
     sendLanding(join(dir, 'index.html'), res);
   });
 
