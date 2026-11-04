@@ -290,14 +290,34 @@ describe('VideoControls: Balanced', () => {
     expect(get(liveUi).quality).toBe('main');
   });
 
-  it('without HEVC: SD and Mid only (ext is H.264)', () => {
+  // Klaus, 2026-11-04: show the quality the browser can't play, dimmed, and say why.
+  const NO_HEVC = "4K needs a browser that plays H.265 (HEVC), and this one doesn't";
+  it('without HEVC: 4K is shown, disabled, and its tooltip says why; SD and Mid play (ext is H.264)', () => {
     withExt();
     lightServer();
     liveUi.update((u) => ({ ...u, hevc: false }));
     render();
-    expect([...q('quality-choice')!.querySelectorAll('button')].map((b) => b.textContent!.trim())).toEqual(['SD', 'Mid']);
+    expect([...q('quality-choice')!.querySelectorAll('button')].map((b) => b.textContent!.trim())).toEqual(['SD', 'Mid', '4K']);
+    const k = q('quality-main') as HTMLButtonElement;
+    expect(k.disabled).toBe(true);
+    expect(k.title).toBe(NO_HEVC);
+    expect(k.getAttribute('aria-pressed')).toBe('false');
+    expect((q('quality-ext') as HTMLButtonElement).disabled).toBe(false);
+    k.click();
+    flushSync();
+    expect(get(liveUi).quality).toBe('sub');
   });
-
+  it('without HEVC and without ext: SD and a disabled 4K instead of no quality control at all', () => {
+    withExt(['main', 'sub']);
+    lightServer();
+    liveUi.update((u) => ({ ...u, hevc: false }));
+    render();
+    expect(q('quality-toggle')).toBeNull();
+    expect([...q('quality-choice')!.querySelectorAll('button')].map((b) => b.textContent!.trim())).toEqual(['SD', '4K']);
+    expect((q('quality-main') as HTMLButtonElement).disabled).toBe(true);
+    expect(q('quality-main')!.title).toBe(NO_HEVC);
+    expect(q('quality-sub')!.getAttribute('aria-pressed')).toBe('true');
+  });
   it('a camera without ext (or an older proxy) keeps the SD/4K toggle; a stored Balanced shows as SD there', () => {
     withExt(['main', 'sub']);
     lightServer();
