@@ -11,7 +11,9 @@ import { resetClients } from '../server/reolink/clients';
 import { resetProxyClients } from '../server/proxy/client';
 import { resetRecordings } from '../server/recordings/service';
 import { SESSION_COOKIE, signSession } from '../server/session';
+import { findProxyClip } from '../server/recordings/proxyClips';
 import { createSimCamera } from './camera/sim';
+import { k } from './helpers/fleet';
 import { FAKE_TOKEN, JPEG, startFakeProxy, type FakeProxy } from './proxy/fakeProxy';
 
 // Plan 6: the real camera refuses every recording download; with a
@@ -177,5 +179,84 @@ describe('recordings from cam-proxy clips', () => {
     expect(r.status).toBe(503);
     expect(r.headers['content-type']).toMatch(/json/);
     expect(Date.now() - t0).toBeLessThan(10_000);
+  });
+});
+
+// cam-proxy #343: an E1 Outdoor Pro's FTP clip starts about 8 s after the SD
+// recording; an RLC-1224A's clips at +13 s and later are other recordings.
+describe('an FTP clip that starts after the event', () => {
+  const START = Date.UTC(2026, 10, 3, 18, 0, 0);
+  const END = START + 40_000;
+  const clip = (id: number, offset: number, origin?: 'ftp' | 'camera' | null) =>
+    fake.clips.push({ id, cam: 'cam1', start: START + offset, end: START + offset + 32_000, stream: 'sub', events: [], body: CLIP, ...(origin === undefined ? {} : { origin }) });
+  const found = async (end = END) => (await findProxyClip(k('cam1'), START, end))?.id ?? null;
+
+  it('finds it at +8 s, and up to +10 s', async () => {
+    clip(1, 8_000);
+    expect(await found()).toBe(1);
+    fake.clips.length = 0;
+    clip(2, 10_000);
+    expect(await found()).toBe(2);
+  });
+
+  it.each([10_001, 13_000, 33_000])('leaves a clip at +%i ms alone: another recording', async (offset) => {
+    clip(1, offset);
+    expect(await found()).toBeNull();
+  });
+
+  it('prefers a clip at +1 s to one at +8 s, in either order', async () => {
+    clip(1, 8_000);
+    clip(2, 1_000);
+    expect(await found()).toBe(2);
+    fake.clips.length = 0;
+    clip(3, 1_000);
+    clip(4, 8_000);
+    expect(await found()).toBe(3);
+  });
+
+  it('prefers the +5 s limit itself, and a clip before the event, to one at +8 s', async () => {
+    clip(1, 8_000);
+    clip(2, 5_000);
+    expect(await found()).toBe(2);
+    fake.clips.length = 0;
+    clip(3, 8_000);
+    clip(4, -4_000);
+    expect(await found()).toBe(4);
+  });
+
+  it('takes it when the clip within 5 s ended before the event', async () => {
+    fake.clips.push({ id: 1, cam: 'cam1', start: START - 4_000, end: START - 1_000, stream: 'sub', events: [], body: CLIP });
+    clip(2, 8_000);
+    expect(await found()).toBe(2);
+  });
+
+  it('needs the proxy to say it came by FTP: an older proxy or a fetched clip keeps the 5 s rule', async () => {
+    clip(1, 8_000, null);
+    expect(await found()).toBeNull();
+    clip(2, 8_000, 'camera');
+    expect(await found()).toBeNull();
+    clip(3, 4_000, null);
+    expect(await found()).toBe(3);
+  });
+
+  it('needs it to start strictly before the event ends', async () => {
+    clip(1, 8_000);
+    expect(await found(START + 8_000)).toBeNull();
+    expect(await found(START + 6_000)).toBeNull();
+    expect(await found(START + 8_001)).toBe(1);
+  });
+
+  it('offers composing and plays that clip for a real event', async () => {
+    const app = createApp();
+    const [ev] = (await events(app)).events;
+    const start = Date.parse(ev.start);
+    const available = () => request(app).get(`/api/cameras/cam1/compositions/available?eventId=${ev.id}`).set('Cookie', auth);
+    fake.clips.push({ id: 31, cam: 'cam1', start: start + 13_000, end: start + 45_000, stream: 'sub', events: [], body: OTHER });
+    expect((await available()).body).toEqual({ available: false });
+    fake.clips.push({ id: 32, cam: 'cam1', start: start + 8_000, end: start + 40_000, stream: 'sub', events: [], body: CLIP });
+    expect((await available()).body).toEqual({ available: true });
+    const r = await binary(request(app).get(`/api/cameras/cam1/clips/${ev.id}/video`).set('Cookie', auth));
+    expect(r.status).toBe(200);
+    expect(Buffer.compare(r.body, CLIP)).toBe(0);
   });
 });

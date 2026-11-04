@@ -377,4 +377,12 @@ describe('what the Archive stores for a plain save', () => {
     await binary(download(ev.id, 'sub')); // the failure is noted
     expect(await getRecordings().archiveSource(k('cam1'), ev.id, 'sub')).toEqual({ type: 'clip', clipId: 8 });
   });
+
+  it('takes an FTP copy that starts 8 s after the event the same way', async () => {
+    const { ev } = await seeded();
+    fake.clips.push({ id: 9, cam: 'cam1', start: Date.parse(ev.start) + 8000, end: Date.parse(ev.start) + 40_000, stream: 'sub', events: [], body: CLIP });
+    fake.recordingsOverride = { status: 502, body: { error: 'recordings_unavailable', reason: 'timeout' } };
+    await binary(download(ev.id, 'sub')); // the failure is noted
+    expect(await getRecordings().archiveSource(k('cam1'), ev.id, 'sub')).toEqual({ type: 'clip', clipId: 9 });
+  });
 });
