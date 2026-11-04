@@ -156,7 +156,7 @@ The Google OAuth client must list the redirect URI: `http://localhost:8080/auth/
 |---|---|---|
 | `COOKIE_SECRET` | required | signs the session cookie |
 | `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `GOOGLE_REDIRECT_URI`, `ALLOWED_EMAILS` | required for Google sign-in | all three Google variables or none; `ALLOWED_EMAILS` is comma-separated |
-| `CAMS_LOGIN_TOKEN` or `CAMS_LOGIN_TOKEN_FILE` | none | the token sign-in (the Pi demo kit, [docs/pi-demo.md](docs/pi-demo.md)): 24+ characters, "Sign in with token" on the sign-in page (below Google when both are set; alone without Google). `POST /auth/token` (`{"token"}` JSON or a form; never in the URL), 10 failures per 15 min per address. At least one sign-in must be configured, or the server refuses to start |
+| `CAMS_LOGIN_TOKEN` or `CAMS_LOGIN_TOKEN_FILE` | none | the token sign-in (the Pi demo kit, [docs/pi-demo.md](docs/pi-demo.md)): 24+ characters, "Sign in with token" on the start page (below Google when both are set; alone without Google). `POST /auth/token` (`{"token"}` JSON or a form; never in the URL), 10 failures per 15 min per address. At least one sign-in must be configured, or the server refuses to start |
 | `CAMS_TOKEN_USER` | `local` | the identity of a token session; it bypasses `ALLOWED_EMAILS` (only token sessions do) |
 | `COOKIE_SECURE` | `true` | `false` drops `Secure` from cams' cookies so they work over plain http (the Pi); logged at startup |
 | `CAMERAS_FILE` | none (no cameras) | see [Cameras](#cameras) |

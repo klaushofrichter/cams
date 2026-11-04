@@ -230,7 +230,7 @@
               <p class="mcp-available" data-testid="mcp-available">{MCP.available}</p>
               <div class="mcp-line">
                 <code data-testid="mcp-command">{MCP.command}</code>
-                <button type="button" class="copy" data-testid="mcp-copy" onclick={copyMcp} aria-live="polite">{copied ? 'Copied' : 'Copy'}</button>
+                <button type="button" class="mcp-copy" data-testid="mcp-copy" onclick={copyMcp} aria-live="polite">{copied ? 'Copied' : 'Copy'}</button>
               </div>
               <a class="mcp-docs" href={MCP.docs} data-testid="mcp-docs">Set up the MCP server: the README <span aria-hidden="true">→</span></a>
             </div>
@@ -603,8 +603,8 @@
   .mcp-available { margin: 0; font-size: 14px; font-weight: 600; }
   .mcp-line { display: flex; align-items: stretch; border: 1px solid var(--border); border-radius: 12px; overflow: hidden; background: var(--surface-2); }
   .mcp-line code { flex: 1; min-width: 0; padding: 12px 14px; font-family: var(--mono); font-size: 12.5px; line-height: 1.6; overflow-wrap: anywhere; }
-  .copy { flex: none; padding: 0 16px; border: 0; border-left: 1px solid var(--border); background: var(--surface); color: var(--text); font-weight: 600; cursor: pointer; }
-  .copy:hover { color: var(--accent); }
+  .mcp-copy { flex: none; padding: 0 16px; border: 0; border-left: 1px solid var(--border); background: var(--surface); color: var(--text); font-weight: 600; cursor: pointer; }
+  .mcp-copy:hover { color: var(--accent); }
   .mcp-docs { font-size: 14px; font-weight: 600; color: var(--accent); text-decoration: none; }
   .mcp-docs:hover { text-decoration: underline; }
   .repos { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; grid-template-columns: repeat(auto-fill, minmax(min(100%, 250px), 1fr)); }

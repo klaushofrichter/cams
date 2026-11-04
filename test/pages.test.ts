@@ -54,21 +54,12 @@ describe('pages', () => {
       process.env.CAMS_LOGIN_TOKEN = 'a-login-token-for-this-test-only-000';
     };
 
-    it('answers / with the sign-in page, and /signin itself without a redirect (no loop)', async () => {
+    // Klaus, 2026-11-04: the same GUI on all platforms, so a local viewer keeps the landing page.
+    it('answers / with the landing page, like every other viewer', async () => {
       tokenOnly();
-      const start = await request(createApp()).get('/');
-      expect(start.status).toBe(302);
-      expect(start.headers.location).toBe('/signin');
-      const signin = await request(createApp()).get('/signin');
-      expect(signin.status).toBe(200);
-      expect(signin.text).toContain('LANDING');
-    });
-
-    it('keeps ?returnTo= on the way to the sign-in page', async () => {
-      tokenOnly();
-      const res = await request(createApp()).get('/?returnTo=/app/settings');
-      expect(res.headers.location).toBe('/signin');
-      expect((res.get('Set-Cookie') ?? []).join(';')).toContain('return_to=%2Fapp%2Fsettings');
+      const res = await request(createApp()).get('/');
+      expect(res.status).toBe(200);
+      expect(res.text).toContain('LANDING');
     });
 
     it('a signed-in visitor still goes to the app', async () => {
