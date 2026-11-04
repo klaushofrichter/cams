@@ -424,6 +424,8 @@ export function stopConfig(): void {
 }
 
 export const trustStore = (): TrustStore | null => st.trust;
+// The signed cams-admin client of an enrolled instance (null in file mode).
+export const adminClient = (): AdminClient | null => st.client;
 
 // A pull soon (debounced): after a sign-in, a "changed" report, a confirmed change.
 export function pullSoon(_reason: 'login' | 'report' | 'confirm'): void {

@@ -121,9 +121,9 @@ describe('analytics_usage', () => {
 });
 
 describe('the tool list', () => {
-  it('is exactly the ten read tools', async () => {
+  it('is exactly the ten read tools, and for an admin the three fleet tools', async () => {
     const names = (await client.listTools()).tools.map((t) => t.name).sort();
-    expect(names).toEqual(['analytics_usage', 'generate_clip', 'get_archive_clip', 'get_clip_job', 'get_event', 'get_snapshot', 'list_archive', 'list_cameras', 'list_events', 'search_recordings']);
+    expect(names).toEqual(['analytics_usage', 'generate_clip', 'get_archive_clip', 'get_clip_job', 'get_event', 'get_snapshot', 'list_archive', 'list_cameras', 'list_events', 'list_moves', 'list_proxies', 'list_viewers', 'search_recordings']);
   });
 });
 
