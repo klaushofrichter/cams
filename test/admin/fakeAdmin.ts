@@ -61,6 +61,8 @@ export interface FakeAdmin {
   oversize: boolean;
   slowMs: number;
   tokenAnswer: { status: number; body: Record<string, unknown> } | null; // the next POST /tokens answers this
+  // GET /accounts/:id/fleet: the account's answer, else 403 not_served; null: an older cams-admin (404).
+  fleet: Record<string, unknown> | null;
   revoked: boolean; // the instance is blocked: 403 revoked (contract step 7)
   skewBy(ms: number): void;
   down(): void;
@@ -103,6 +105,7 @@ export async function startFakeAdmin(o: { port?: number; instanceId?: string; in
     oversize: false,
     slowMs: 0,
     tokenAnswer: null,
+    fleet: null,
     revoked: false,
     skewBy(ms) {
       skew = ms;
@@ -199,6 +202,13 @@ export async function startFakeAdmin(o: { port?: number; instanceId?: string; in
     const etag = `"${String(s.revision)}"`;
     if (req.get('if-none-match') === etag) return answer(req, res, 304, undefined, { ETag: etag });
     answer(req, res, 200, s, { ETag: etag });
+  });
+
+  app.get('/cams/v1/accounts/:accountId/fleet', (req, res) => {
+    if (!fake.fleet) return answer(req, res, 404, { error: 'not_found' });
+    const a = fake.fleet[String(req.params.accountId)];
+    if (!a) return answer(req, res, 403, { error: 'not_served' });
+    answer(req, res, 200, a);
   });
 
   app.post('/cams/v1/tokens', (req, res) => {

@@ -23,7 +23,7 @@ describe('cams-v1 contract (vendored)', () => {
   });
 
   it('request texts and signatures reproduce byte for byte (cams key)', () => {
-    expect(vectors.requests.length).toBe(3);
+    expect(vectors.requests.length).toBe(4);
     for (const r of vectors.requests) {
       const body = Buffer.from(r.body, 'utf8');
       expect(sha256hex(body)).toBe(r.bodySha256);

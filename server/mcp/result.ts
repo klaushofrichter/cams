@@ -5,7 +5,7 @@ import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 
 export type ErrorCode =
   | 'invalid' | 'unknown_camera' | 'no_proxy' | 'camera_offline' | 'camera_error' | 'proxy_unavailable' | 'too_old'
-  | 'not_found' | 'range_too_large' | 'too_long' | 'nothing_kept' | 'busy' | 'image_too_large' | 'rate_limited' | 'forbidden';
+  | 'not_found' | 'range_too_large' | 'too_long' | 'nothing_kept' | 'busy' | 'image_too_large' | 'rate_limited' | 'forbidden' | 'admin_unavailable' | 'not_available';
 
 const MESSAGES: Record<ErrorCode, string> = {
   invalid: 'The request is not valid.',
@@ -23,8 +23,10 @@ const MESSAGES: Record<ErrorCode, string> = {
   image_too_large: 'The image is too large to return.',
   rate_limited: 'Too many requests. Wait a minute and try again.',
   forbidden: 'This token may not do that.',
+  admin_unavailable: "cams-admin can't be reached right now. The camera tools still work.",
+  not_available: 'This is not available on this viewer yet.',
 };
-const RETRYABLE = new Set<ErrorCode>(['camera_offline', 'proxy_unavailable', 'busy', 'rate_limited']);
+const RETRYABLE = new Set<ErrorCode>(['camera_offline', 'proxy_unavailable', 'busy', 'rate_limited', 'admin_unavailable']);
 
 export interface Image { data: Buffer; mime: 'image/jpeg' }
 

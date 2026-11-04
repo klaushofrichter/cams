@@ -152,6 +152,11 @@ export class AdminClient {
     return { status: 200, body: this.json(r), etag: r.etag ? r.etag.replace(/^W\//, '').replace(/^"|"$/g, '') : null };
   }
 
+  // One account's fleet (GET only; the caller keeps it at most a few seconds).
+  async getFleet(accountId: string): Promise<Record<string, unknown>> {
+    return this.json(await this.request('GET', `/cams/v1/accounts/${encodeURIComponent(accountId)}/fleet`, undefined));
+  }
+
   async registerToken(proxyId: string, kind: 'client' | 'admin', hash: string): Promise<{ status: 200 | 201; tokenId: string; state: string; label: string }> {
     const r = await this.request('POST', '/cams/v1/tokens', { v: 1, proxyId, kind, hash });
     const b = this.json(r);

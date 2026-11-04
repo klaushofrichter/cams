@@ -14,6 +14,7 @@ import { registerArchiveTools } from './tools/archive';
 import { registerClipTools } from './tools/clips';
 import { registerCameraTools } from './tools/cameras';
 import { registerEventTools } from './tools/events';
+import { registerFleetTools } from './tools/fleet';
 import { registerSnapshotTool } from './tools/snapshot';
 
 export interface Audit { tool?: string; camera?: string; outcome?: string; imageBytes?: number }
@@ -96,12 +97,15 @@ export function addTool<I extends z.ZodTypeAny>(server: McpServer, ctx: ToolCtx,
 }
 
 export function buildServer(ctx: ToolCtx): McpServer {
-  const server = new McpServer({ name: 'cams', version: appVersion() }, { capabilities: { tools: {} }, instructions: 'Read-only access to the cameras of one cams account: events with AI labels, stills, recordings, the archive, and short clips. Times are ISO 8601 with an offset, or unix ms. Videos come back as links valid for 15 minutes.' });
+  const admin = ctx.principal.role === 'admin';
+  const server = new McpServer({ name: 'cams', version: appVersion() }, { capabilities: { tools: {} }, instructions: `Read-only access to the cameras of one cams account: events with AI labels, stills, recordings, the archive, and short clips. Times are ISO 8601 with an offset, or unix ms. Videos come back as links valid for 15 minutes.${admin ? " For this account's admin also its fleet: list_proxies, list_viewers, list_moves." : ''}` });
   registerCameraTools(server, ctx);
   registerSnapshotTool(server, ctx);
   registerEventTools(server, ctx);
   registerArchiveTools(server, ctx);
   registerClipTools(server, ctx);
   registerAnalyticsTool(server, ctx);
+  // Account admins only (design 2026-11-04): the server is built per request, with the role of right now.
+  if (admin) registerFleetTools(server, ctx);
   return server;
 }
