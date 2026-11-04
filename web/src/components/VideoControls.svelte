@@ -96,9 +96,12 @@
     { q: 'ext', label: 'Mid', tip: 'Mid: between SD and 4K (Balanced in the Reolink app)' },
     { q: 'main', label: '4K', tip: 'Full quality (needs HEVC support)' },
   ];
-  const choices = $derived(CHOICES.filter((c) => c.q !== 'main' || $liveUi.hevc));
+  // 4K stays visible where the browser can't play it, disabled with the reason
+  // (Klaus, 2026-11-04); Mid only for a camera with a third stream.
+  const choices = $derived(CHOICES.filter((c) => c.q !== 'ext' || hasExt));
+  const unplayable = (c: { q: Quality }) => c.q === 'main' && !$liveUi.hevc;
   const choiceTip = (c: { q: Quality; tip: string }) =>
-    !live ? LIVE_ONLY : c.q === 'ext' && extFailed ? "Mid didn't start for this camera; it plays SD" : c.tip;
+    unplayable(c) ? "4K needs a browser that plays H.265 (HEVC), and this one doesn't" : !live ? LIVE_ONLY : c.q === 'ext' && extFailed ? "Mid didn't start for this camera; it plays SD" : c.tip;
   const lightName = $derived(!live ? 'Light — only in live mode' : lightTip);
   const snapTip = $derived($liveUi.snapshotBusy ? 'Saving…' : live ? 'Save a snapshot' : 'Save this frame');
 </script>
@@ -108,15 +111,15 @@
   <button data-testid="mute-toggle" aria-pressed={!$liveUi.muted} onclick={() => toggleMute()} title={muteTip} aria-label={muteTip}>
     <Icon name={$liveUi.muted ? 'volumeOff' : 'volumeOn'} size={18} />
   </button>
-  {#if hasExt}
+  {#if hasExt || !$liveUi.hevc}
     <div class="quality" role="group" aria-label={live ? 'Quality' : 'Quality — only in live mode'} data-testid="quality-choice">
       {#each choices as c (c.q)}
-        <button data-testid={`quality-${c.q}`} aria-pressed={shown === c.q} disabled={live && c.q === 'ext' && extFailed}
+        <button data-testid={`quality-${c.q}`} aria-pressed={shown === c.q} disabled={unplayable(c) || (live && c.q === 'ext' && extFailed)}
           aria-disabled={live ? undefined : 'true'} aria-describedby={live ? undefined : 'live-only-note'}
           onclick={() => liveOnly(() => setQuality(c.q))} title={choiceTip(c)} aria-label={`Quality: ${c.label}`}>{c.label}</button>
       {/each}
     </div>
-  {:else if $liveUi.hevc}
+  {:else}
     <button data-testid="quality-toggle" aria-pressed={$liveUi.quality === 'main'} aria-disabled={live ? undefined : 'true'} aria-describedby={live ? undefined : 'live-only-note'}
       onclick={() => liveOnly(toggleQuality)} title={qualityTip} aria-label={qualityName}>
       {$liveUi.quality === 'main' ? '4K' : 'SD'}
