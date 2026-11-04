@@ -5,7 +5,7 @@
   import { getJson } from '../lib/api';
   import StripPlayer from './StripPlayer.svelte';
   import { createStripData, type StripData } from '../lib/stripData';
-  import { EMPTY_COVERAGE, eventStep, windowAround, type Coverage } from '../lib/strip';
+  import { clipRuns, EMPTY_COVERAGE, eventsAt, eventStep, windowAround, type Coverage } from '../lib/strip';
   import { filterEvents, localDate, thumbUrl, VIDEO_STREAM, type EventClip, type Filter } from '../lib/recordings';
   import type { PreviewMinute } from '../lib/timeline';
   import { zoom } from '../lib/zoomPref';
@@ -14,7 +14,7 @@
   // History's strip and player (spec 2026-09-27). Owns the position `at`;
   // the page only hears about it (onposition) and can jump it (jump()).
   let {
-    cam, proxy, date, initialAt, filter, unavailable, onposition, pending = [],
+    cam, proxy, date, initialAt, filter, unavailable, onposition, onatevents, pending = [],
     live = false, glued = $bindable(untrack(() => live)), liveBox, onlive,
   }: {
     cam: string;
@@ -24,6 +24,7 @@
     filter: Filter; // the page's event filter: dims the strip, and ←/→ and previous/next skip hidden events
     unavailable: boolean;
     onposition: (at: number, clipId: string | null) => void;
+    onatevents?: (ids: ReadonlySet<string>) => void; // the events whose span holds the playhead, when that changes; none while live
     pending?: { kind: string; ts: number }[]; // live events not listed yet: marked on the strip
     live?: boolean; // the Live panel: the strip's right end is the live stream (spec 2026-09-28)
     glued?: boolean; // the playhead is glued to now and the player shows live
@@ -111,6 +112,17 @@
     if (playing) placed = true; // the user took over: a late load must not move the playhead
   });
   const current = $derived(coverage.clips.find((c) => at >= c.start && at < c.end)?.clip.id ?? null);
+
+  // The side list's highlight (Klaus, 2026-11-04). From every event, not
+  // `coverage`: a clip that failed to play is still an event at that time.
+  // Joined so the report runs when the events change, not with each move of
+  // `at`; the first one always runs (a new camera starts over).
+  const allRuns = $derived(clipRuns(allEvents));
+  const atEvents = $derived((glued ? [] : eventsAt(allRuns, at)).join('\n'));
+  $effect(() => {
+    const ids = atEvents;
+    untrack(() => onatevents?.(new Set(ids ? ids.split('\n') : [])));
+  });
 
   // Load what the window (and one day either side) needs, and stills around the
   // playhead; asked again every 30 s so today's data keeps up (the loaders only

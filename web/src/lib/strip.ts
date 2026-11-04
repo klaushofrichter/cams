@@ -81,6 +81,19 @@ export function clipRuns(events: EventClip[], failed: ReadonlySet<string> = new 
     .sort((a, b) => a.start - b.start);
 }
 
+// Every event whose span holds t, for the side list's highlight (Klaus,
+// 2026-11-04). The runs are clipRuns': start-sorted, the times the strip draws
+// and the cards show, an event without a span (no end yet) left out. They may
+// overlap, so this is not inRuns' first match.
+export function eventsAt(runs: ClipRun[], t: number): string[] {
+  const ids: string[] = [];
+  for (const r of runs) {
+    if (r.start > t) break;
+    if (t < r.end) ids.push(r.clip.id);
+  }
+  return ids;
+}
+
 // Previous/next event from `at` among the clips the filter shows: the next
 // start after it, or the previous one before it (1.5 s in still counts as
 // "this" event, so ⏮ goes to the one before). None at the first/last.

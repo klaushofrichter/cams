@@ -1,12 +1,12 @@
 // @vitest-environment jsdom
 //
-// Fix round 1, item 3: a deep link or a cross-day prev/next can set the
-// selection before the matching events have even loaded (or before the
-// group holding it has opened), so scrolling had to be retried until the
-// card actually exists rather than attempted once and given up on.
-// `pendingScroll` now covers that: set on an external selection change,
-// retried via `tick()` as groups/groupOpen change, and cleared only once
-// the card is actually found and scrolled to.
+// Fix round 1, item 3: a deep link can land before the matching events have
+// even loaded (or before the group holding them has opened), so scrolling had
+// to be retried until the card actually exists rather than attempted once and
+// given up on. `pendingScroll` covers that: set by a landing, retried via
+// `tick()` as groups/groupOpen change, and cleared only once the card is
+// actually found and scrolled to. The list doesn't follow the playhead (Klaus,
+// 2026-11-04): a selection moving by itself never scrolls.
 import { flushSync, mount, unmount, tick as svelteTick } from 'svelte';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 vi.mock('../lib/scroll', () => ({ scrollIntoContainer: vi.fn(() => true) }));
@@ -27,7 +27,7 @@ afterEach(() => {
   component = undefined;
 });
 
-describe('EventList scrolls to a selection set before its events arrive', () => {
+describe('EventList scrolls to a landing made before its events arrive', () => {
   // It scrolls within the list's own scroll area only (iPhone, 2026-09-29): never the page.
   it('scrolls to the card exactly once once the 20 events (including the selection) load', async () => {
     const scrollSpy = vi.mocked(scrollIntoContainer);
@@ -36,15 +36,17 @@ describe('EventList scrolls to a selection set before its events arrive', () => 
     target = document.createElement('div');
     document.body.appendChild(target);
 
-    const events = makeEvents(DATE, 9, 20);
-    const wanted = events[5].id; // set as the selection before events load below
+    // One minute apart, each lasting 5 s.
+    const events = makeEvents(DATE, 9, 20).map((e) => ({ ...e, end: new Date(Date.parse(e.start) + 5000).toISOString() }));
+    const wanted = events[5]; // landed on before the events load below
 
     const props = $state({
       cameraId: 'cam1',
       events: [] as typeof events,
       filter: ALL_KINDS,
       date: DATE,
-      selectedId: wanted as string | null,
+      selectedId: wanted.id as string | null,
+      landing: { at: Date.parse(wanted.start) + 1000 },
       onfilter: () => {},
       onselect: () => {},
     });
@@ -70,7 +72,30 @@ describe('EventList scrolls to a selection set before its events arrive', () => 
     await Promise.resolve();
 
     expect(scrollSpy).toHaveBeenCalledTimes(1);
+    expect((scrollSpy.mock.calls[0][0] as HTMLElement).dataset.clipId).toBe(wanted.id);
     expect(pageSpy).not.toHaveBeenCalled();
     pageSpy.mockRestore();
+  });
+
+  // Klaus, 2026-11-04: playing, seeking and stepping leave the list where it is.
+  it('does not follow a selection that moves without a landing', async () => {
+    const scrollSpy = vi.mocked(scrollIntoContainer);
+    scrollSpy.mockClear();
+    target = document.createElement('div');
+    document.body.appendChild(target);
+    const events = makeEvents(DATE, 9, 20);
+    const props = $state({
+      cameraId: 'cam1', events, filter: ALL_KINDS, date: DATE,
+      selectedId: null as string | null, onfilter: () => {}, onselect: () => {},
+    });
+    component = mount(EventList, { target, props }) as unknown as Record<string, unknown>;
+    flushSync();
+    for (const e of [events[3], events[15]]) {
+      props.selectedId = e.id;
+      flushSync();
+      await svelteTick();
+      await svelteTick();
+    }
+    expect(scrollSpy).not.toHaveBeenCalled();
   });
 });

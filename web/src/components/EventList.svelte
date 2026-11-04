@@ -6,6 +6,7 @@
   import Icon from './Icon.svelte';
   import VisionBadges from './VisionBadges.svelte';
   import { scrollIntoContainer } from '../lib/scroll';
+  import { clipRuns, eventsAt } from '../lib/strip';
   import { groupPending } from '../lib/eventStream';
   import { cameraById } from '../lib/stores';
   import { localClock } from '../lib/clock';
@@ -18,6 +19,7 @@
     filter,
     date,
     selectedId,
+    atPlayhead = new Set(),
     onfilter,
     onselect,
     onthumberror,
@@ -33,6 +35,10 @@
     filter: Filter;
     date: string;
     selectedId: string | null;
+    // The events whose span holds the playhead (Klaus, 2026-11-04): each card
+    // that is rendered shows it, wherever it is scrolled to; nothing scrolls
+    // or opens for it.
+    atPlayhead?: ReadonlySet<string>;
     onfilter: (f: Filter) => void;
     onselect: (e: EventClip) => void;
     onthumberror?: () => void;
@@ -109,18 +115,16 @@
   }
 
   let listEl: HTMLElement | undefined = $state();
-  // The id a click inside this list just selected, so the effect below can
-  // tell that apart from a selection that changed from outside (prev/next,
-  // the timeline, a deep link, a cross-day navigation): only the latter
-  // ever needs a scroll, since a click can't land on a hidden card.
-  let clickedId: string | null = null;
-  let prevSelected: string | null = null;
-  // The id this list still owes a scroll to. Set on an external selection
-  // change and retried (via the effect below, which reruns whenever the
-  // groups or their open state change) until the card actually exists in
-  // the DOM -- e.g. a deep link or a cross-day prev/next can set the
-  // selection before its events have loaded, or before the group holding it
-  // has opened -- and is cleared only once that scroll actually happens.
+  // A click inside this list just made the landing: a click can't land on a
+  // hidden card, so that one needs no scroll.
+  let clicked = false;
+  // The id this list still owes a scroll to. The list doesn't follow the
+  // playhead (Klaus, 2026-11-04): playing, seeking and stepping leave its
+  // scroll position alone, and only a landing (a deep link, a day picked)
+  // scrolls, to the event at the landing's time. Retried (via the effect
+  // below, which reruns whenever the groups or their open state change) until
+  // the card actually exists in the DOM, and cleared only once that scroll
+  // actually happens.
   let pendingScroll: string | null = $state(null);
 
   $effect(() => {
@@ -129,10 +133,9 @@
     const l = landing;
     const landed = l !== lastLanding;
     lastLanding = l;
-    const changed = id !== prevSelected;
-    prevSelected = id;
-    const wasClicked = id !== null && id === clickedId;
-    clickedId = null;
+    const wasClicked = clicked;
+    clicked = false;
+    let scrollTo: string | null = null;
     const updates: Record<string, boolean> = {};
     untrack(() => {
       const day = `${cameraId}|${date}`;
@@ -149,7 +152,10 @@
         landingDay = day;
       }
       const applyAll = pendingLanding && gs.length > 0;
-      if (applyAll) pendingLanding = false;
+      if (applyAll) {
+        pendingLanding = false;
+        if (l?.at != null && !wasClicked) scrollTo = eventsAt(clipRuns(events), l.at)[0] ?? null;
+      }
       for (const g of gs) {
         const key = keyOf(g.hour);
         if (applyAll || !(key in groupOpen)) updates[key] = openFor(g, id);
@@ -160,7 +166,7 @@
     });
     if (Object.keys(updates).length) groupOpen = { ...groupOpen, ...updates };
 
-    if (changed && id && !wasClicked) pendingScroll = id;
+    if (scrollTo) pendingScroll = scrollTo;
   });
 
   // Tries to scroll to `pendingScroll`'s card, retrying (via `groupOpen` and
@@ -242,7 +248,7 @@
   }
 
   function select(e: EventClip) {
-    clickedId = e.id;
+    clicked = true;
     onselect(e);
   }
 </script>
@@ -284,12 +290,13 @@
           <ul class="list">
             {#each g.events as e (e.id)}
               {@const kinds = orderTriggers(e.triggers)}
-              <li class="item" class:current={e.id === selectedId} data-anchor={e.id}>
+              {@const here = atPlayhead.has(e.id)}
+              <li class="item" class:current={e.id === selectedId} class:at-playhead={here} data-anchor={e.id}>
                 <!-- The card's button fills the play area; its text lies over it and lets
                      clicks through, all but the Vision badges, which are buttons of
                      their own beside it, not in it (issue #113). -->
                 <div class="play">
-                  <button class="card" data-testid="event-card" data-clip-id={e.id} aria-current={e.id === selectedId ? 'true' : undefined} onclick={(ev) => {
+                  <button class="card" data-testid="event-card" data-clip-id={e.id} data-at-playhead={here ? 'true' : undefined} aria-current={e.id === selectedId ? 'true' : undefined} onclick={(ev) => {
                     select(e);
                     // The thumbnail also brings the player into view; the rest of the card keeps the list in view.
                     if ((ev.target as Element | null)?.closest('[data-testid="event-thumb"]')) onreveal?.();
@@ -299,7 +306,7 @@
                     {:else}
                       <img class="thumb" data-testid="event-thumb" alt="" use:lazySrc={thumbUrl(cameraId, e.id, e.thumb)} data-broken-key={brokenKey(e)} onerror={markBroken} />
                     {/if}
-                    <span class="sr-only">{[formatClock(e.start), `${e.durationSec} s`, ...kinds.map((t) => tagText(t, e.counts))].join(', ')}</span>
+                    <span class="sr-only">{[formatClock(e.start), `${e.durationSec} s`, ...kinds.map((t) => tagText(t, e.counts)), ...(here ? ['at the playhead'] : [])].join(', ')}</span>
                   </button>
                   <span class="meta">
                     <strong aria-hidden="true">{formatClock(e.start)}</strong>
@@ -350,7 +357,14 @@
     display: flex; align-items: stretch; border-radius: 10px; border: 1px solid var(--border); background: var(--surface);
     overflow: hidden; transition: border-color 0.15s ease, background-color 0.15s ease;
   }
+  .item { position: relative; }
   .item.current { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 10%, var(--surface)); }
+  /* The playhead is inside this event's span: a stronger tint and a bar, over
+     the play area so a hover keeps it, and under the sticky hour title. The
+     accent border stays the selection's: of two overlapping events, the one
+     the player shows. */
+  .item.at-playhead { background: color-mix(in srgb, var(--accent) 20%, var(--surface)); }
+  .item.at-playhead::after { content: ''; position: absolute; inset: 0 auto 0 0; width: 4px; background: var(--accent); pointer-events: none; }
   /* The play area: the card's button and its text share one grid cell, the
      text on top. A hover anywhere in it, badges included, is the card's. */
   .play { position: relative; flex: 1; min-width: 0; display: grid; grid-template-columns: minmax(0, 1fr); }
