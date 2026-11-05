@@ -8,13 +8,4 @@ published as [GitHub releases](https://github.com/klaushofrichter/cams/releases)
 
 ## [Unreleased]
 
-
-### Added
-
-- Video: double tap the picture (double click on a computer) to go fullscreen. In fullscreen, a double tap in the middle of the picture (a double click anywhere) leaves it again. A single tap in the middle still plays or pauses, a moment later so a double tap doesn't also play or pause; the sides still step 10 s on every tap. While zoomed in, a double tap still goes back to normal size.
-- Video: links to a moment. The address now holds the time to the second and whether it was playing, so a reload comes back to the same moment, playing or paused, and a copied address opens there for anyone else (paused, unless it was copied while playing). Older links still work.
-- Video: the hour title in the event list is tinted too while the playing moment is inside one of its events, so a collapsed hour shows where you are.
-
-### Changed
-
-- Video: a zoomed picture stays zoomed when playback runs into the next recording, when stills stand in for the video, and when stepping or dragging the timeline. Picking a moment (a thumbnail under the timeline, an event, another day or camera, back to live) starts at normal size again.
+- Event list: the hour of the event being played is tinted turquoise whether it is open or collapsed, in the same font as the other hours; the ▶ of a collapsed hour now follows the hour, so its text no longer moves.
