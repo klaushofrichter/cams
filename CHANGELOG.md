@@ -8,6 +8,3 @@ published as [GitHub releases](https://github.com/klaushofrichter/cams/releases)
 
 ## [Unreleased]
 
-- Video on a phone: the player no longer jumps down a line when the day's events finish loading.
-- A camera renamed at the moment its cam-proxy reconnected no longer goes back to its old name for up to 15 minutes.
-
