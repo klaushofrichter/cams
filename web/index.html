@@ -12,6 +12,10 @@
     <meta name="theme-color" content="#0B1220" />
     <!-- Which sign-ins exist: GET / rewrites this to "google", "token" or "google token" (server/routes/pages.ts). -->
     <meta name="cams-login" content="google" />
+    <!-- /token#t=<token> (viewer tokens): the token leaves the address bar and the history entry before any other script runs; web/src/Token.svelte takes it from here once. -->
+    <script>
+      if (location.pathname === '/token' && location.hash) { window.camsTokenFragment = location.hash; history.replaceState(null, '', '/token'); }
+    </script>
     <script>
       try { var t = localStorage.getItem('cams-theme'); if (t === 'light' || t === 'dark') document.documentElement.dataset.theme = t; } catch (e) {}
     </script>

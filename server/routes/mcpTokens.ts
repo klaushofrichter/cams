@@ -33,6 +33,8 @@ mcpTokensRouter.get('/api/mcp-tokens', (req: Request, res: Response) => {
 
 mcpTokensRouter.post('/api/mcp-tokens', (req: Request, res: Response) => {
   const p = principal(res);
+  // A viewer token's session makes no MCP tokens (viewer tokens design §9.4).
+  if (p.via === 'viewer-token') return void res.status(403).json({ error: 'forbidden_viewer_token' });
   try {
     const { token, item } = getMcpTokens().issue(p.account.id, issuerOf(p), req.body);
     logger.info({ kind: 'audit', tokenId: item.id, accountId: p.account.id, issuer: p.email, expiresAt: item.expiresAt }, 'mcp_token_issue');

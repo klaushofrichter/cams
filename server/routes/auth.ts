@@ -1,15 +1,16 @@
 import express, { NextFunction, Router, Request, Response } from 'express';
 import { createHash, timingSafeEqual } from 'crypto';
 import { OAuth2Client } from 'google-auth-library';
-import { expiredSessionKind, SESSION_COOKIE, SESSION_MAX_AGE_MS, signSession, signTokenSession } from '../session';
+import { expiredSessionKind, SESSION_COOKIE, SESSION_MAX_AGE_MS, signSession, signTokenSession, signViewerTokenSession } from '../session';
 import { membershipsOf, tokenAccount } from '../membership';
 import { configMode, pullSoon } from '../configSource';
-import { createApiRateLimit, createAuthRateLimit, createTokenFailureLimit } from '../middleware/rateLimit';
+import { createApiRateLimit, createAuthRateLimit, createTokenFailureLimit, createViewerTokenGlobalLimit } from '../middleware/rateLimit';
 import { RETURN_COOKIE, rememberReturn, safeReturnPath } from '../middleware/requireAuth';
 import { requireSameOrigin } from '../middleware/requireSameOrigin';
 import { checkState, clearLoginHint, clearState, loginHint, redirectToGoogle, setLoginHint } from '../googleLogin';
 import { cookieOptions, googleLoginEnabled, loginToken, tokenFingerprint, tokenLoginEnabled, tokenUser } from '../loginConfig';
 import { logger } from '../logger';
+import { checkViewerToken, sessionTag, viewerTokenNow } from '../viewerTokens';
 
 export const authRouter = Router();
 const authRateLimit = createAuthRateLimit();
@@ -24,6 +25,11 @@ export { safeReturnPath };
 // logged out) there is nothing to renew: the start page, as before.
 authRouter.get('/auth/google/login', authRateLimit, (req: Request, res: Response) => {
   rememberReturn(res, req.query.returnTo);
+  // A viewer token's session that ended (revoked, expired): its own sign-in page.
+  if (req.query.silent === '1' && expiredSessionKind(req.cookies?.[SESSION_COOKIE]) === 'viewer-token') {
+    res.redirect(302, '/token');
+    return;
+  }
   // No Google here (the Pi), or the session that ran out came from the token
   // login: nothing to renew with Google, the start page signs in again.
   if (!googleLoginEnabled()) {
@@ -203,6 +209,71 @@ authRouter.post(
     else res.json({ redirect: returnTo ?? '/app/video' });
   },
 );
+
+// --- Viewer tokens (cams-admin design 2026-11-05-viewer-tokens-design §9) ---
+//
+// A token made in cams-admin, from the /token page (pasted, scanned, or the
+// link's fragment). Both POSTs: JSON only, same origin, the failure limits
+// (per address, shared with the token login, and one bucket for all), 4 KiB.
+// The token is looked up by its fingerprint and never logged; unknown,
+// expired, revoked, a viewer 24 h without cams-admin, and file mode all get
+// the one answer 401 invalid_token. "check" only names the token (the
+// link's confirm step: no silent sign-in); the other one signs in.
+const VIEWER_TOKEN_MAX_BODY = 4096;
+const viewerTokenGlobalLimit = createViewerTokenGlobalLimit();
+
+function presentedViewerToken(req: Request, res: Response): { token: unknown } | null {
+  // Never in a URL (logs, history, Referer): refused, never read.
+  if (req.query.t !== undefined || req.query.token !== undefined) {
+    res.status(400).json({ error: 'token_in_url' });
+    return null;
+  }
+  if (Number(req.get('content-length') ?? 0) > VIEWER_TOKEN_MAX_BODY) {
+    res.status(413).json({ error: 'too_large' });
+    return null;
+  }
+  if (!req.is('application/json')) {
+    res.status(415).json({ error: 'json_only' });
+    return null;
+  }
+  return { token: (req.body as { token?: unknown } | undefined)?.token };
+}
+
+function viewerTokenRefused(res: Response, reason: string): void {
+  logger.warn({ kind: 'auth', reason }, 'viewer_token_login_failed');
+  res.status(401).json({ error: 'invalid_token' });
+}
+
+const viewerTokenGuards = [authRateLimit, requireSameOrigin, tokenFailureLimit, viewerTokenGlobalLimit];
+
+authRouter.post('/auth/viewer-token/check', ...viewerTokenGuards, (req: Request, res: Response) => {
+  const p = presentedViewerToken(req, res);
+  if (!p) return;
+  const r = checkViewerToken(p.token);
+  if (!r.ok) return viewerTokenRefused(res, r.reason);
+  res.locals.tokenOk = true;
+  res.set('Cache-Control', 'no-store');
+  res.json({ name: r.token.name, expiresAt: r.token.expiresAt });
+});
+
+authRouter.post('/auth/viewer-token', ...viewerTokenGuards, (req: Request, res: Response) => {
+  const p = presentedViewerToken(req, res);
+  if (!p) return;
+  const r = checkViewerToken(p.token);
+  if (!r.ok) return viewerTokenRefused(res, r.reason);
+  res.locals.tokenOk = true;
+  const t = r.token;
+  // One account: in; several: the picker (no account in the cookie yet).
+  const acc = t.accounts.length === 1 ? t.accounts[0].id : undefined;
+  res.cookie(SESSION_COOKIE, signViewerTokenSession(t.id, sessionTag(t.fingerprint), t.expiresAt, acc), { ...cookieOptions(), maxAge: Math.max(0, t.expiresAt - viewerTokenNow()) });
+  clearLoginHint(res); // no Google renewal for this browser
+  clearState(res);
+  const returnTo = safeReturnPath(req.cookies?.[RETURN_COOKIE]);
+  if (req.cookies?.[RETURN_COOKIE] !== undefined) res.clearCookie(RETURN_COOKIE, cookieOptions());
+  logger.info({ kind: 'auth', tokenId: t.id }, 'viewer_token_login');
+  res.set('Cache-Control', 'no-store');
+  res.json({ redirect: acc ? (returnTo ?? '/app/video') : '/app/accounts' });
+});
 
 // Logout clears exactly the four cookies this app sets (session, return_to,
 // oauth_state, login_hint), with the same attributes they were set with, so the next

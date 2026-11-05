@@ -161,7 +161,7 @@ export function buildFleet(parts: AccountPart[], ctx: ApplyContext): { accounts:
       };
     });
     for (const id of missingToken) problems.push({ code: 'proxy_token_missing', accountId: part.account.id, detail: `proxy ${id}` });
-    return { ...part.account, users: part.users, cameras };
+    return { ...part.account, users: part.users, cameras, viewerTokens: part.viewerTokens ?? [] };
   });
   return { accounts, held, problems };
 }

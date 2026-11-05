@@ -25,6 +25,7 @@ import { TrustStore, trustValuesOf } from './admin/trust';
 import { LocalTokens } from './admin/tokens';
 import { buildReport, Reporter } from './admin/report';
 import { shadowDiff } from './admin/shadow';
+import { registerViewerTokenClock, returnViewerTokenUses, takeViewerTokenUses } from './viewerTokens';
 
 export type ConfigMode = 'file' | 'shadow' | 'cams-admin';
 const MODES: readonly ConfigMode[] = ['file', 'shadow', 'cams-admin'];
@@ -264,15 +265,28 @@ async function sendReport(): Promise<void> {
   if (!st.client) return;
   st.lastReportAt = st.now();
   st.reporter ??= new Reporter(st.client, st.now, () => pullSoon('report'));
+  const used = takeViewerTokenUses();
   const r = buildReport(configStatus(), {
     held: st.trust?.held() ?? [],
     heldProxies: st.trust?.heldProxies() ?? [],
     shadow: st.shadow,
     tokens: { ...(st.tokens?.counts() ?? { managed: 0, pending: 0 }), legacy: st.legacyProxies.size },
     version: appVersion() || 'dev',
+    viewerTokens: used,
   });
-  await st.reporter.send(r, true); // the timing is reportSoon's
+  // the timing is reportSoon's; a report not taken gives its viewer token uses back
+  if (!(await st.reporter.send(r, true))) returnViewerTokenUses(used);
 }
+
+// Viewer tokens (cams-admin design 2026-11-05 §9.4): cams-admin mode only;
+// expiry by cams-admin's clock (this clock plus the offset the signed
+// requests measured), and the last good pull for the 24 h rule.
+registerViewerTokenClock({
+  now: () => st.now(),
+  adminNow: () => st.now() + (st.client?.offsetMs() ?? 0),
+  lastGoodAt: () => st.lastGoodAt,
+  enabled: () => configMode() === 'cams-admin',
+});
 
 // Shadow mode: cameras.json against cams-admin's file account, names only;
 // logged once per new set of differences, reported every time.

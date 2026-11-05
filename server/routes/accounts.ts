@@ -2,8 +2,9 @@ import { Router, type Request, type Response } from 'express';
 import { cookieOptions } from '../loginConfig';
 import { logger } from '../logger';
 import { REMEMBER_COOKIE, membershipsOf } from '../membership';
-import { currentUser, type AuthState } from '../middleware/requireAuth';
-import { SESSION_COOKIE, SESSION_MAX_AGE_MS, signSession } from '../session';
+import { currentUser, viewerTokenMemberships, type AuthState } from '../middleware/requireAuth';
+import { SESSION_COOKIE, SESSION_MAX_AGE_MS, signSession, signViewerTokenSession } from '../session';
+import { sessionTag, viewerTokenNow, viewerTokens } from '../viewerTokens';
 import { getCamera } from '../cameraRegistry';
 import { configMode, configStatus, reapplyConfig, reportSoon, trustStore } from '../configSource';
 import type { HeldProxy, ProxyTrust, TrustField, TrustValues } from '../admin/trust';
@@ -24,6 +25,11 @@ const REMEMBER_MAX_AGE_MS = 400 * 24 * 60 * 60 * 1000;
 
 const stateOf = (res: Response): AuthState => res.locals.auth as AuthState;
 const emailOf = (s: AuthState): string | null => (s.kind === 'ok' ? s.principal.email : s.kind === 'choose' ? s.email : null);
+// A viewer token's session (signed in or choosing): its token, as the fleet has it now.
+const viewerTokenOf = (s: AuthState) => {
+  const id = s.kind === 'ok' ? s.principal.viewerToken?.id : s.kind === 'choose' ? s.viewerToken?.id : undefined;
+  return id ? viewerTokens().byId.get(id) : undefined;
+};
 
 accountsRouter.get('/api/accounts', (req: Request, res: Response) => {
   const s = stateOf(res);
@@ -31,7 +37,8 @@ accountsRouter.get('/api/accounts', (req: Request, res: Response) => {
   if (!email) return void res.status(401).json({ error: 'unauthorized' });
   const current = s.kind === 'ok' ? s.principal.account.id : null;
   const remembered = typeof req.cookies?.[REMEMBER_COOKIE] === 'string' ? req.cookies[REMEMBER_COOKIE] : null;
-  const list = s.kind === 'ok' && s.principal.via === 'token' ? [{ account: s.principal.account, role: s.principal.role }] : membershipsOf(email);
+  const vt = viewerTokenOf(s);
+  const list = s.kind === 'ok' && s.principal.via === 'token' ? [{ account: s.principal.account, role: s.principal.role }] : vt ? viewerTokenMemberships(vt) : membershipsOf(email);
   res.json({
     items: list.map((m) => ({ id: m.account.id, name: m.account.name, displayName: m.account.displayName, role: m.role, current: m.account.id === current, remembered: m.account.id === remembered })),
   });
@@ -43,9 +50,12 @@ accountsRouter.post('/api/session/account', (req: Request, res: Response) => {
   const email = emailOf(s);
   if (!email) return void res.status(401).json({ error: 'unauthorized' });
   const accountId = (req.body as { accountId?: unknown } | undefined)?.accountId;
-  const m = typeof accountId === 'string' ? membershipsOf(email).find((x) => x.account.id === accountId) : undefined;
+  // A viewer token's session stays one: its accounts, re-signed with the choice, until the token's expiry.
+  const vt = viewerTokenOf(s);
+  const m = typeof accountId === 'string' ? (vt ? viewerTokenMemberships(vt) : membershipsOf(email)).find((x) => x.account.id === accountId) : undefined;
   if (!m) return void res.status(404).json({ error: 'not_a_member' });
-  res.cookie(SESSION_COOKIE, signSession(email, m.account.id), { ...cookieOptions(), maxAge: SESSION_MAX_AGE_MS });
+  if (vt) res.cookie(SESSION_COOKIE, signViewerTokenSession(vt.id, sessionTag(vt.fingerprint), vt.expiresAt, m.account.id), { ...cookieOptions(), maxAge: Math.max(0, vt.expiresAt - viewerTokenNow()) });
+  else res.cookie(SESSION_COOKIE, signSession(email, m.account.id), { ...cookieOptions(), maxAge: SESSION_MAX_AGE_MS });
   res.cookie(REMEMBER_COOKIE, m.account.id, { ...cookieOptions(), maxAge: REMEMBER_MAX_AGE_MS });
   logger.info({ kind: 'auth', accountId: m.account.id }, 'account_chosen');
   res.json({ redirect: '/app/video' });

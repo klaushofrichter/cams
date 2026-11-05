@@ -115,5 +115,7 @@ export const E2E_ADMIN_ENV: Record<string, string> = {
   PROXY_FEATURES_FILE: join(E2E_ADMIN_DATA, 'proxy-features.json'),
   CACHE_DIR: join(tmpdir(), 'cams-e2e-admin-cache'),
   MCP_TOKENS_FILE: join(E2E_ADMIN_DATA, 'mcp', 'tokens.json'),
+  // e2e/viewer-tokens.spec.ts refuses an expired token at both sizes (and CI retries).
+  RATE_LIMIT_TOKEN_FAILURES: '1000',
 };
 export const ADMIN_USERS = { both: 'both@e2e.example', alpha: 'alpha@e2e.example' } as const;

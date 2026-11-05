@@ -8,6 +8,6 @@ published as [GitHub releases](https://github.com/klaushofrichter/cams/releases)
 
 ## [Unreleased]
 
-- Video: the address also holds the timeline's interval (24 h down to 1 min), so a link or a reload opens with the same interval. A link's interval is shown without changing your saved "Timeline zoom"; picking another interval updates the address (without an extra step for Back) and is saved as before.
-- Menu: Video now comes back to where you left the Video page in this browser tab: the camera, the day and moment, the interval, and playing, paused or live (before, it always opened live). Back and Forward still step through the pages as before.
-- Top bar: the cams logo opens Video live and playing, on the camera you have picked, with the interval kept; the menu's Video is live from then on too. On a phone the logo now shows next to the menu button (it was hidden there).
+- Sign in with a token: a token made in cams-admin lets someone watch the cameras of its accounts without a Google account, until it expires. The sign-in page has "Sign in with a token": paste the token, scan its QR code with the phone's or laptop's camera, or open its link, which asks "Sign in as '<name>'?" before signing in. Revoking the token in cams-admin, or making it shorter, signs its sessions out within about a minute; a viewer that hasn't reached cams-admin for 24 hours stops taking these tokens. The Pi's own sign-in token keeps working as before.
+- About shows who is signed in: the Google address, or the token's name and how long it is valid.
+
