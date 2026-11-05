@@ -178,6 +178,7 @@ test.describe('phone layout', () => {
   // names than these: the page must fit anyway (Klaus's iPhone, 2026-11-05).
   for (const path of ['/app/video', '/app/timeline', '/app/settings', '/app/archive', '/app/about']) {
     test(`${path} fits the screen with a long camera name`, async ({ page }) => {
+      await page.setViewportSize({ width: 320, height: 800 }); // the smallest phones, and room for wider fonts
       await page.goto(path);
       await expect(page.getByTestId('camera-picker')).toBeEnabled();
       await page.waitForTimeout(1500); // a page's own selects come with its data

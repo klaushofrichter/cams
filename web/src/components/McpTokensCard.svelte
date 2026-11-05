@@ -149,7 +149,7 @@
   .what strong { font-size: 14px; overflow-wrap: anywhere; }
   .confirm { display: inline-flex; gap: 6px; }
   .new { display: flex; gap: 10px; align-items: end; flex-wrap: wrap; }
-  .new label { display: grid; gap: 4px; font-size: 13px; }
+  .new label { display: grid; grid-template-columns: minmax(0, 1fr); gap: 4px; font-size: 13px; max-width: 100%; }
   .fresh { display: grid; gap: 8px; padding: 10px; border: 1px solid var(--border); border-radius: 9px; background: var(--surface-2); }
   .fresh p { margin: 0; }
   code { overflow-wrap: anywhere; word-break: break-all; font-size: 12px; user-select: all; }

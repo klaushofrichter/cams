@@ -524,12 +524,13 @@
 
 <style>
   .grid { display: grid; gap: 18px; grid-template-columns: repeat(auto-fit, minmax(min(100%, 420px), 1fr)); align-items: start; }
-  label { display: grid; gap: 6px; font-size: 14px; }
+  /* minmax(0, 1fr): an auto column would be as wide as a select's longest option. */
+  label { display: grid; grid-template-columns: minmax(0, 1fr); gap: 6px; font-size: 14px; }
   label.row { display: flex; align-items: center; gap: 8px; }
   select, input:not([type='checkbox']):not([type='range']) { font: inherit; color: var(--text); background: var(--surface-2); border: 1px solid var(--border); border-radius: 9px; padding: 6px 10px; }
   input[type='range'] { accent-color: var(--accent); }
   output { color: var(--muted); font-family: var(--mono); font-size: 12px; margin-left: 6px; }
-  fieldset { border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px; display: grid; gap: 10px; }
+  fieldset { border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px; display: grid; grid-template-columns: minmax(0, 1fr); gap: 10px; }
   legend { padding: 0 6px; color: var(--muted); font-size: 13px; }
   .ai { display: grid; gap: 8px; padding-top: 6px; border-top: 1px dashed var(--border); }
   dl { display: grid; grid-template-columns: max-content 1fr; gap: 6px 14px; margin: 0; font-size: 14px; }
@@ -543,7 +544,7 @@
   button:disabled { opacity: 0.45; cursor: default; }
   button.primary { background: var(--accent); color: var(--accent-ink); border-color: transparent; }
   button.danger { background: var(--danger); color: #fff; border-color: transparent; }
-  .live-events { border: 1px solid var(--border); border-radius: 10px; padding: 8px 12px; display: grid; gap: 6px; }
+  .live-events { border: 1px solid var(--border); border-radius: 10px; padding: 8px 12px; display: grid; grid-template-columns: minmax(0, 1fr); gap: 6px; }
   .live-events legend { font-size: 13px; padding: 0 4px; }
   .live-events .types { display: flex; gap: 14px; flex-wrap: wrap; }
 </style>
