@@ -287,7 +287,7 @@
         <button class="group-head" class:holds class:at-playhead={hereHour} data-anchor={`hour-${g.hour}`} data-testid="hour-toggle" aria-expanded={open}
           data-at-playhead={hereHour ? 'true' : undefined}
           aria-label={holds || hereHour ? [g.label, count, ...(holds ? ['playing'] : []), ...(hereHour ? ['at the playhead'] : [])].join(', ') : undefined} onclick={() => toggle(g.hour)}>
-          <span class="label">{#if holds}<span class="playing" data-testid="hour-playing" aria-hidden="true">▶</span>{/if}{g.label}</span>
+          <span class="label">{g.label}{#if holds}<span class="playing" data-testid="hour-playing" aria-hidden="true">▶</span>{/if}</span>
           <span class="count" data-testid="hour-count">{g.events.length} {g.events.length === 1 ? 'event' : 'events'}</span>
         </button>
         {#if open}
@@ -350,13 +350,14 @@
     color: var(--text); font-size: 12px; cursor: pointer;
   }
   .group-head .label { font-weight: 600; }
-  /* A collapsed hour holding the playing clip. */
-  .group-head.holds { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 12%, var(--surface)); }
-  .group-head.holds .label { font-weight: 800; color: var(--accent); }
-  /* The hour of an event at the playhead: the cards' tint and bar, quieter. */
-  .group-head.at-playhead { background: color-mix(in srgb, var(--accent) 10%, var(--surface)); box-shadow: inset 3px 0 0 color-mix(in srgb, var(--accent) 70%, transparent); }
-  .group-head.holds.at-playhead { background: color-mix(in srgb, var(--accent) 14%, var(--surface)); }
-  .playing { margin-right: 6px; font-size: 10px; }
+  /* The hour of an event at the playhead, open or collapsed, and a collapsed
+     hour holding the playing clip: colour only, the same font, so nothing
+     moves (Klaus, 2026-11-05). The ▶ follows the hour's text. */
+  .group-head.holds, .group-head.at-playhead {
+    border-color: var(--accent); background: color-mix(in srgb, var(--accent) 16%, var(--surface));
+  }
+  .group-head.holds .label, .group-head.at-playhead .label { color: var(--accent); }
+  .playing { margin-left: 6px; font-size: 10px; }
   .group-head .count { color: var(--muted); }
   .list { list-style: none; margin: 6px 0 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
   /* One card: the play area and, beside it, the download button. */

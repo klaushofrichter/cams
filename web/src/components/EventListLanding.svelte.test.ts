@@ -121,6 +121,8 @@ describe('auto-collapse on landing', () => {
     flushSync();
     const head = target!.querySelector('[data-hour="22"] [data-testid="hour-toggle"]') as HTMLElement;
     expect(head.querySelector('[data-testid="hour-playing"]')).not.toBeNull();
+    // After the hour, so the hour's text doesn't move (Klaus, 2026-11-05).
+    expect(head.querySelector('.label')!.firstChild!.textContent).toBe('22:00–23:00');
     expect(head.getAttribute('aria-label')).toMatch(/^22:00–23:00, 1 event, playing$/);
     const other = target!.querySelector('[data-hour="21"] [data-testid="hour-toggle"]') as HTMLElement;
     expect(other.querySelector('[data-testid="hour-playing"]')).toBeNull();
