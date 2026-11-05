@@ -175,6 +175,8 @@ html {
 ::-webkit-scrollbar-thumb:hover { background: var(--scroll-thumb-hover); }
 
 *, *::before, *::after { box-sizing: border-box; }
+/* A select is as wide as its longest option: never wider than its place. */
+select { max-width: 100%; text-overflow: ellipsis; }
 html, body { margin: 0; height: 100%; }
 body {
   background: var(--bg);

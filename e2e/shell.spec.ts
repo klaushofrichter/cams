@@ -180,6 +180,7 @@ test.describe('phone layout', () => {
     test(`${path} fits the screen with a long camera name`, async ({ page }) => {
       await page.goto(path);
       await expect(page.getByTestId('camera-picker')).toBeEnabled();
+      await page.waitForTimeout(1500); // a page's own selects come with its data
       const fit = await page.evaluate(async () => {
         for (const select of document.querySelectorAll('select')) {
           const o = document.createElement('option');
@@ -190,13 +191,14 @@ test.describe('phone layout', () => {
         const vw = document.documentElement.clientWidth;
         const main = document.querySelector('main')!;
         return {
+          wide: [...main.querySelectorAll('*')].filter((e) => e.getBoundingClientRect().right > vw).map((e) => e.tagName + ' ' + (e.getAttribute('data-testid') ?? '')).slice(0, 5),
           page: document.documentElement.scrollWidth - vw,
           main: main.scrollWidth - main.clientWidth,
           clock: document.querySelector('[data-testid="top-clock"]')!.getBoundingClientRect().right - vw,
         };
       });
       expect(fit.page).toBeLessThanOrEqual(0);
-      expect(fit.main).toBeLessThanOrEqual(0);
+      expect(fit.main, fit.wide.join(', ')).toBeLessThanOrEqual(0);
       expect(fit.clock).toBeLessThanOrEqual(0);
     });
   }
