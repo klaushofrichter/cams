@@ -20,7 +20,8 @@ const current = (page: Page) => page.locator('[data-testid="event-card"][aria-cu
 // Den's 12:05:05 motion clip (CDT), 1 s in: its video is shorter than the
 // clip's 25 s, so the steps stay in its first 12 s.
 const clipAt = () => chicagoMs(chicagoToday(), '12:05:06');
-// The URL follows the video's own time while a clip is on screen: within a few frames.
+// The URL follows the position, reported at most every 2 s (HistoryView's
+// report()), so it can be up to 2 s late; the badge shows the position at once.
 const near = async (page: Page, want: number) => expect.poll(() => Math.abs(urlAt(page) - want)).toBeLessThan(300);
 
 // Screenshots for the PR review, only when asked (FS_SHOTS=<dir>).
@@ -214,10 +215,22 @@ test('fill the screen, a recording on a phone: taps by third, swipes, Back keeps
   await expect.poll(() => page.getByTestId('clip-video').evaluate((v: HTMLVideoElement) => v.readyState >= 2), { timeout: 15_000 }).toBe(true);
   await shot(page, 'phone-fill-recorded-portrait-light');
   const y = vp.height / 2;
+  // A tap's meaning depends on the controls: hidden, it only shows them;
+  // shown, a side third steps and the middle plays or pauses. A pointer move
+  // is no gesture and keeps them up 3 s more, so that a slow step here (each
+  // `near` can take its 2 s) doesn't change what the next tap does.
+  let moves = 0;
+  const keepControlsUp = () => page.mouse.move(100 + (moves++ % 2), 40);
+  const stoppedAtTheSameMoment = async (shown: string) => {
+    await page.waitForTimeout(300);
+    await expect(badge(page)).toHaveText(shown);
+  };
   // The overlay shows on entering: a tap on the right third acts at once.
+  await keepControlsUp();
   await page.touchscreen.tap(vp.width * 0.85, y);
   await expect(page.getByTestId('fs-hint')).toHaveText('+10 s');
   await near(page, at + 10_000);
+  await keepControlsUp();
   await page.touchscreen.tap(vp.width * 0.15, y);
   await near(page, at);
   await swipe(page, vp.width * 0.6, vp.width * 0.3, y); // left: 1 s forward
@@ -225,24 +238,27 @@ test('fill the screen, a recording on a phone: taps by third, swipes, Back keeps
   await near(page, at + 1000);
   await swipe(page, vp.width * 0.3, vp.width * 0.6, y); // right: 1 s back
   await near(page, at);
+  const atStart = (await badge(page).textContent())!;
   await swipe(page, 4, vp.width * 0.5, y); // from the edge: the system's
-  await page.waitForTimeout(300);
-  expect(Math.abs(urlAt(page) - at)).toBeLessThan(300);
+  await stoppedAtTheSameMoment(atStart);
   // Hidden after 3 s: the first tap only shows the controls.
   await expect(overlay).toHaveAttribute('data-shown', 'false', { timeout: 6000 });
   await page.touchscreen.tap(vp.width * 0.85, y);
   await expect(overlay).toHaveAttribute('data-shown', 'true');
-  await page.waitForTimeout(300);
-  expect(Math.abs(urlAt(page) - at)).toBeLessThan(300);
+  await stoppedAtTheSameMoment(atStart);
   // Landscape, light and dark.
   await page.setViewportSize({ width: vp.height, height: vp.width });
   await expect.poll(async () => (await overlay.boundingBox())!.width).toBe(vp.height);
-  await page.touchscreen.tap(vp.height * 0.5, 40); // show the controls
+  await keepControlsUp(); // not a tap: in the middle, with the controls up, that plays
   await shot(page, 'phone-fill-recorded-landscape-light');
   await page.emulateMedia({ colorScheme: 'dark' });
   await shot(page, 'phone-fill-recorded-landscape-dark');
   await page.setViewportSize(vp);
+  // Paused so far: nothing above may have started the clip, whose position
+  // would run away from every check below.
+  await expect(page.getByTestId('fs-play')).toHaveAttribute('aria-pressed', 'false');
   // Back leaves fill mode and stays at the moment shown.
+  await keepControlsUp();
   await page.getByTestId('fs-fwd-10').click();
   await near(page, at + 10_000);
   await page.goBack();

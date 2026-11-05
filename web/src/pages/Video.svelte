@@ -623,7 +623,8 @@
   .updated { color: var(--muted); font-size: 12px; justify-self: end; text-align: right; }
   @media (max-width: 640px) {
     .head { grid-template-columns: 1fr auto; }
-    .updated { grid-column: 1 / -1; justify-self: start; }
+    /* Its own line here: kept while empty, or the day's list arriving pushes the video down. */
+    .updated { grid-column: 1 / -1; justify-self: start; min-height: 1lh; }
   }
   @media (max-width: 380px) {
     .head { grid-template-columns: 1fr; }

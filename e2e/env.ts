@@ -31,7 +31,9 @@ export const E2E_ENV: Record<string, string> = {
   APP_VERSION: 'e2e-test-version',
   LOG_LEVEL: 'silent',
   RATE_LIMIT_MAX: '1000',
-  RATE_LIMIT_API_MAX: '10000',
+  // Per address and 5 minutes, and every worker's browser has the one address:
+  // a fast run went through 10000 and the rest of it got 429s ("No cameras").
+  RATE_LIMIT_API_MAX: '1000000',
   RATE_LIMIT_MEDIA_MAX: '10000',
   RATE_LIMIT_IMAGE_MAX: '50000',
   RATE_LIMIT_CHECKS_PER_MIN: '1000',

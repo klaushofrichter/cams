@@ -126,6 +126,10 @@ describe('capabilities in GET /api/cameras', () => {
     const frames = browser(base);
     await until(() => capsOf('den') !== null);
     await until(() => frames.some((f) => f.includes('event: proxy') && f.includes('"up":true')));
+    // The first read's own event: on the way until a later frame has come
+    // (else it passes for the one this message causes, with the old capabilities).
+    fake.push({ cam: 'cam1', type: 'ptz-positions', data: {} });
+    await until(() => frames.some((f) => f.startsWith('event: ptz-positions\n')));
     const before = frames.filter((f) => f.startsWith('event: cameras\n')).length;
     fake.capabilities.set('cam1', { schema: 1, ptz: null });
     fake.push({ cam: 'cam1', type: 'camera', data: { name: 'Den' } });

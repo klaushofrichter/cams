@@ -435,6 +435,12 @@ export function pullSoon(_reason: 'login' | 'report' | 'confirm'): void {
 // Tests: one pull now, and the wait before the next.
 export const pullNow = (): Promise<void> => st.puller?.pullNow() ?? Promise.resolve();
 export const nextDelayMs = (): number => st.puller?.nextDelayMs(() => 0.5) ?? 0;
+// Tests: the registrations of the pulls so far are done (they run after the
+// pull, one request at a time, each with its fsynced writes).
+export async function tokensSettled(): Promise<void> {
+  await pullNow();
+  while (st.ensuring) await st.ensuring;
+}
 
 export function configStatus(): ConfigStatus {
   const now = st.now();

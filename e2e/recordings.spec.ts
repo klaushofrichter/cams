@@ -325,6 +325,23 @@ test('the video stays in place between live and a recording', async ({ page }) =
   expect(b).toEqual(a);
 });
 
+test('the day\'s list arriving does not move the video ("Updated" has its own line on a phone)', async ({ page }) => {
+  let release!: () => void;
+  const held = new Promise<void>((r) => (release = r));
+  await page.route(/\/api\/cameras\/[^/]+\/events(\?|$)/, async (route) => {
+    await held;
+    await route.continue();
+  });
+  await page.goto('/app/video');
+  await expect(page.getByTestId('mode-badge')).toHaveAttribute('data-mode', 'live');
+  const box = () => page.locator('.player .box').boundingBox();
+  const before = await box();
+  await expect(page.getByTestId('events-updated')).toHaveCount(0);
+  release();
+  await expect(page.getByTestId('events-updated')).toBeVisible();
+  expect(await box()).toEqual(before);
+});
+
 // --- Pinned review fixes, with no automated coverage yet ---
 
 test('a cold-load deep link to a second camera stays on it', async ({ page }) => {
