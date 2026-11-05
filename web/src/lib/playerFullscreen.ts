@@ -69,12 +69,21 @@ function listen() {
   const onChange = () => {
     const d = document as Document & { webkitFullscreenElement?: Element | null };
     if (!(document.fullscreenElement ?? d.webkitFullscreenElement) && get(state) === 'element') {
+      leftAt = Date.now();
       state.set('off');
       restoreFocus();
     }
   };
   document.addEventListener('fullscreenchange', onChange);
   document.addEventListener('webkitfullscreenchange', onChange);
+}
+
+// When fullscreen last ended: a double click whose second click left it
+// mustn't enter it again (Klaus, 2026-11-05: double tap and double click
+// enter and leave).
+let leftAt = -Infinity;
+export function leftFullscreenWithin(ms: number, now = Date.now()): boolean {
+  return now >= leftAt && now - leftAt < ms; // a clock set back: long ago
 }
 
 const FILL_CLASS = 'player-fill';
@@ -94,6 +103,7 @@ function enterFill() {
 }
 
 function leaveFill() {
+  leftAt = Date.now();
   document.documentElement.classList.remove(FILL_CLASS);
   state.set('off');
   restoreFocus();
@@ -140,6 +150,7 @@ export async function enterPlayerFullscreen(el: HTMLElement): Promise<'element' 
 export function exitPlayerFullscreen(): void {
   const s = get(state);
   if (s === 'element') {
+    leftAt = Date.now();
     state.set('off');
     if (document.fullscreenElement) void document.exitFullscreen().then(restoreFocus, restoreFocus);
     else restoreFocus();

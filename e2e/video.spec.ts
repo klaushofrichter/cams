@@ -28,7 +28,7 @@ test('/app/live lands on /app/video, live, titled Video', async ({ page }) => {
 test('an old History link lands on /app/video at the asked day and time, as a recording', async ({ page }) => {
   const at = chicagoMs(chicagoToday(), '12:05:10'); // Den's 12:05:05 motion clip (Chicago time, DST-proof)
   await page.goto(`/app/recordings?cam=cam1&date=${chicagoToday()}&panel=history&at=${at}`);
-  await expect(page).toHaveURL(new RegExp(`/app/video\\?cam=cam1&date=${chicagoToday()}&at=${at}`));
+  await expect(page).toHaveURL(new RegExp(`/app/video\\?cam=cam1&date=${chicagoToday()}&at=${at / 1000}`)); // rewritten in seconds
   await expect(page).not.toHaveURL(/panel=/);
   await expect(badge(page)).toHaveAttribute('data-mode', 'rec');
   await expect(badge(page)).toHaveText(/^REC \d{2}:\d{2}:\d{2}( [AP]M)? · SD$/); // a clip: the sub stream

@@ -1,33 +1,17 @@
-import { execFileSync } from 'child_process';
-import { mkdtempSync, readFileSync } from 'fs';
-import { tmpdir } from 'os';
-import { join } from 'path';
-import { expect, test, type Page, type Route } from '@playwright/test';
+import { expect, test, type Page } from '@playwright/test';
 import { signIn } from './session';
 import { expandAllHours } from './hours';
-import { chicagoIso, chicagoMs } from './fakeProxyData';
+import { chicagoMs } from './fakeProxyData';
+import { chicagoDay, event, stubDay as stub, YESTERDAY as DAY } from './stubDay';
 
 // While the playhead is inside an event's span, its card is highlighted
-// (Klaus, 2026-11-04). The list doesn't follow: a card scrolled away, filtered
-// out or in a collapsed hour isn't brought back, and shows the highlight as
-// soon as it is on screen again.
+// (Klaus, 2026-11-04), and its hour's title too (2026-11-05). The list doesn't
+// follow: a card scrolled away, filtered out or in a collapsed hour isn't
+// brought back, and shows the highlight as soon as it is on screen again.
 test.beforeEach(async ({ context, baseURL }) => {
   await signIn(context, baseURL!);
 });
 
-const chicagoDay = (ms: number) => new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Chicago' }).format(new Date(ms));
-// Yesterday: all in the past, whatever time of day this runs.
-const DAY = () => chicagoDay(Date.now() - 86_400_000);
-
-function event(date: string, start: string, end: string, trigger: string) {
-  const compact = (t: string) => t.replaceAll(':', '');
-  const s = chicagoMs(date, start);
-  const e = chicagoMs(date, end);
-  return {
-    id: `${date.replaceAll('-', '')}-${compact(start)}-${compact(end)}`, start: chicagoIso(date, start), end: chicagoIso(date, end),
-    durationSec: (e - s) / 1000, triggers: [trigger], sizeSub: 1, sizeMain: 1,
-  };
-}
 // A and B overlap; a gap; C; and enough others for the list to scroll.
 function day(date: string) {
   const pad = (n: number) => String(n).padStart(2, '0');
@@ -39,41 +23,6 @@ function day(date: string) {
     c: event(date, '10:02:00', '10:02:04', 'motion'),
     others,
   };
-}
-
-// Longer than any event here: the player treats a seek past a video's end as that clip's end.
-const CLIP_S = 30;
-let mp4: Buffer;
-test.beforeAll(() => {
-  const dir = mkdtempSync(join(tmpdir(), 'cams-e2e-highlight-'));
-  execFileSync(process.env.FFMPEG_PATH ?? 'ffmpeg', ['-v', 'error', '-y', '-f', 'lavfi', '-i', 'testsrc=size=320x180:rate=10', '-t', String(CLIP_S),
-    '-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-g', '10', '-movflags', '+faststart', join(dir, 'clip.mp4')]);
-  mp4 = readFileSync(join(dir, 'clip.mp4'));
-});
-
-function serveMp4(route: Route) {
-  const m = /bytes=(\d+)-(\d*)/.exec(route.request().headers()['range'] ?? '');
-  if (!m) return route.fulfill({ status: 200, contentType: 'video/mp4', headers: { 'Accept-Ranges': 'bytes' }, body: mp4 });
-  const from = Number(m[1]);
-  const to = m[2] ? Math.min(Number(m[2]), mp4.length - 1) : mp4.length - 1;
-  return route.fulfill({
-    status: 206, contentType: 'video/mp4', body: mp4.subarray(from, to + 1),
-    headers: { 'Accept-Ranges': 'bytes', 'Content-Range': `bytes ${from}-${to}/${mp4.length}` },
-  });
-}
-
-// `events` on `date`; every clip plays; a filter change is never saved for the shared user.
-async function stub(page: Page, date: string, events: ReturnType<typeof event>[]) {
-  await page.route('**/api/preferences', async (route) => {
-    if (route.request().method() !== 'GET') return route.fulfill({ json: route.request().postDataJSON() });
-    const res = await route.fetch();
-    await route.fulfill({ response: res, json: { ...(await res.json()), eventFilter: ['person', 'vehicle', 'pet', 'motion'] } });
-  });
-  await page.route(/\/api\/cameras\/cam1\/events\?date=/, async (route) => {
-    if (new URL(route.request().url()).searchParams.get('date') !== date) return route.fallback();
-    await route.fulfill({ json: { date, events, downloads: 'ok' } });
-  });
-  await page.route(/\/api\/cameras\/cam1\/clips\/[^/]+\/video/, serveMp4);
 }
 
 const marked = (page: Page) => page.locator('[data-testid="event-card"][data-at-playhead="true"]');
@@ -210,4 +159,54 @@ test('live shows no highlight, even with a clip reaching past now; a recording d
   await page.getByTestId('back-10').click();
   await expect(page.getByTestId('mode-badge')).toHaveAttribute('data-mode', 'rec');
   await expectMarked(page, [running.id]);
+});
+
+const hourHead = (page: Page, hour: number) => page.locator(`[data-testid="hour-group"][data-hour="${hour}"] [data-testid="hour-toggle"]`);
+const markedHours = (page: Page) => page.locator('[data-testid="hour-toggle"][data-at-playhead="true"]');
+
+test('the hour title of the event at the playhead is tinted too, collapsed or open; filtered out or live, none', async ({ page }) => {
+  await open(page, '10:00:05'); // inside A (10:00)
+  await expect(markedHours(page)).toHaveCount(1);
+  await expect(hourHead(page, 10)).toHaveAttribute('data-at-playhead', 'true');
+  // The accent's family, quieter than the card: a thinner bar, a lighter tint.
+  const look = await hourHead(page, 10).evaluate((el) => {
+    const card = document.querySelector('[data-testid="event-card"][data-at-playhead="true"]')!.closest('li')!;
+    return { head: getComputedStyle(el).backgroundColor, card: getComputedStyle(card).backgroundColor, plain: getComputedStyle(document.querySelector('[data-testid="hour-toggle"]:not([data-at-playhead])')!).backgroundColor, shadow: getComputedStyle(el).boxShadow };
+  });
+  expect(look.head).not.toBe(look.plain);
+  expect(look.head).not.toBe(look.card);
+  expect(look.shadow).toMatch(/inset/);
+  // Collapsed: still tinted.
+  await hourHead(page, 10).click();
+  await expect(hourHead(page, 10)).toHaveAttribute('aria-expanded', 'false');
+  await expect(hourHead(page, 10)).toHaveAttribute('data-at-playhead', 'true');
+  // The gap: none.
+  await hourHead(page, 10).click();
+  await page.getByTestId('fwd-10').click(); // 10:00:15
+  await page.getByTestId('fwd-10').click(); // 10:00:25, B only
+  await page.getByTestId('fwd-10').click(); // 10:00:35, the gap
+  await expect(markedHours(page)).toHaveCount(0);
+  // Back in B, which the filter then hides: none.
+  await page.getByTestId('back-10').click(); // 10:00:25
+  await expect(hourHead(page, 10)).toHaveAttribute('data-at-playhead', 'true');
+  await page.locator('.side').getByTestId('filter-person').click();
+  await expect(markedHours(page)).toHaveCount(0);
+  await page.locator('.side').getByTestId('filter-all').click();
+  await expect(hourHead(page, 10)).toHaveAttribute('data-at-playhead', 'true');
+});
+
+test('live tints no hour title', async ({ page }) => {
+  const now = Date.now();
+  const today = chicagoDay(now);
+  const hms = (ms: number) => new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Chicago', hourCycle: 'h23', hour: '2-digit', minute: '2-digit', second: '2-digit' }).format(new Date(ms));
+  const start = Math.max(now - 20_000, chicagoMs(today, '00:00:00'));
+  const running = { ...event(today, hms(start), hms(start), 'motion'), start: new Date(start).toISOString(), end: new Date(now + 10_000).toISOString(), durationSec: 30 };
+  await stub(page, today, [running]);
+  await page.goto('/app/video');
+  await expect(page.getByTestId('mode-badge')).toHaveAttribute('data-mode', 'live');
+  await expect(card(page, running.id)).toBeVisible();
+  await expect(markedHours(page)).toHaveCount(0);
+  await page.getByTestId('back-10').click();
+  await expect(page.getByTestId('mode-badge')).toHaveAttribute('data-mode', 'rec');
+  await expect(markedHours(page)).toHaveCount(1);
 });

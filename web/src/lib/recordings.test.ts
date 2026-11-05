@@ -184,9 +184,41 @@ describe('the strip position in the URL', () => {
     expect(old.cursor).toEqual({ date: '2026-09-27', clipId: '20260927-120505-120530', offsetSec: 7, at: null });
   });
 
-  it('writes at and the clip under the playhead, no t', () => {
-    const s = cursorSearch('den', { date: '2026-09-27', clipId: '20260927-120505-120530', offsetSec: 0, at: 1790552160000 });
-    expect(s).toBe('?cam=den&date=2026-09-27&at=1790552160000&clip=20260927-120505-120530');
+  // Shareable links (Klaus, 2026-11-05): epoch seconds, to the second.
+  it('writes at in epoch seconds and the clip under the playhead, no t', () => {
+    const s = cursorSearch('den', { date: '2026-09-27', clipId: '20260927-120505-120530', offsetSec: 0, at: 1790552160999 });
+    expect(s).toBe('?cam=den&date=2026-09-27&at=1790552160&clip=20260927-120505-120530');
+  });
+
+  it('reads at in epoch seconds, and the old ms form', () => {
+    expect(parseCursor(new URLSearchParams('cam=den&at=1790552160'), '2026-09-27').cursor.at).toBe(1790552160000);
+    expect(parseCursor(new URLSearchParams('cam=den&at=1790552160123'), '2026-09-27').cursor.at).toBe(1790552160123);
+    // Neither: no position (the day's first event).
+    for (const bad of ['17905521', '179055216012345', '-1790552160', '1790552160.5', 'x']) {
+      expect(parseCursor(new URLSearchParams(`cam=den&at=${bad}`), '2026-09-27').cursor.at).toBeNull();
+    }
+  });
+
+  it('says play=1 while playing, nothing while paused, and reads it back', () => {
+    const c = { date: '2026-09-27', clipId: null, offsetSec: 0, at: 1790552160000 };
+    expect(cursorSearch('den', { ...c, play: true })).toBe('?cam=den&date=2026-09-27&at=1790552160&play=1');
+    expect(cursorSearch('den', { ...c, play: false })).toBe('?cam=den&date=2026-09-27&at=1790552160');
+    expect(parseCursor(new URLSearchParams('cam=den&at=1790552160&play=1'), '2026-09-27').cursor.play).toBe(true);
+    expect(parseCursor(new URLSearchParams('cam=den&at=1790552160'), '2026-09-27').cursor.play).toBeFalsy();
+    expect(parseCursor(new URLSearchParams('cam=den&at=1790552160&play=yes'), '2026-09-27').cursor.play).toBeFalsy();
+    // Without a time there is nothing to play: a day's link opens paused.
+    expect(cursorSearch('den', { date: '2026-09-27', clipId: null, offsetSec: 0, at: null, play: true })).toBe('?cam=den&date=2026-09-27&t=0');
+  });
+
+  it('a whole second written and read back is the same position', () => {
+    const at = 1790552167000;
+    const back = parseCursor(new URLSearchParams(cursorSearch('den', { date: '2026-09-27', clipId: null, offsetSec: 0, at: at + 640 })), '2026-09-27');
+    expect(back.cursor.at).toBe(at);
+  });
+
+  it('a stored cursor never plays by itself', () => {
+    saveCursor('den', { date: '2026-09-27', clipId: null, offsetSec: 0, at: 1790552160000, play: true });
+    expect(loadCursor()?.cursor.play).toBeFalsy();
   });
 });
 

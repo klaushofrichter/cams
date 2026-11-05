@@ -3,7 +3,7 @@
   import { onDestroy, onMount } from 'svelte';
   import Icon from './Icon.svelte';
   import { focusBeforeFullscreen, fsKey, hintFor, type FsAction } from '../lib/playerFullscreen';
-  import { classifyStroke, gestureAction } from '../lib/gestures';
+  import { classifyStroke, createTapGate, gestureAction } from '../lib/gestures';
   import type { ZoomState } from '../lib/pinchZoom';
   import type { Mode } from '../lib/videoMode';
 
@@ -65,9 +65,13 @@
 
   let hint = $state('');
   let hintTimer: ReturnType<typeof setTimeout> | undefined;
+  // The middle third's tap (the mouse's: anywhere) waits for a second one: a
+  // double tap leaves fullscreen (Klaus, 2026-11-05).
+  const gate = createTapGate();
   onDestroy(() => {
     clearTimeout(hideTimer);
     clearTimeout(hintTimer);
+    gate.cancel();
   });
 
   function act(a: FsAction) {
@@ -129,13 +133,20 @@
     const g = classifyStroke({ x0: s.x, y0: s.y, x1: e.clientX, y1: e.clientY, ms: Date.now() - s.t, boxLeft: r.left, boxWidth: r.width, viewWidth: window.innerWidth });
     if (!g) return;
     if (e.pointerType === 'mouse') {
-      // Desktop: a click on the picture plays or pauses (the thirds are for touch).
-      if (g.kind === 'tap' && !live) act({ kind: 'toggle' });
-      else show();
+      // Desktop: a click on the picture plays or pauses (the thirds are for
+      // touch), a double click leaves.
+      show();
+      if (g.kind === 'tap') gate.tap(e.clientX, e.clientY, () => { if (!live) act({ kind: 'toggle' }); }, () => act({ kind: 'exit' }));
       return;
     }
     const wasHidden = !shown;
     show();
+    // The middle: play or pause, unless a second tap makes it a double tap
+    // (leave); the controls show at once either way.
+    if (g.kind === 'tap' && g.zone === 'middle') {
+      gate.tap(e.clientX, e.clientY, () => { if (!live && !wasHidden) act({ kind: 'toggle' }); }, () => act({ kind: 'exit' }));
+      return;
+    }
     // Live: the picture only shows the controls (a stray tap mustn't leave live);
     // hidden: the first tap only shows them (a stray tap mustn't jump 10 s).
     if (live || (g.kind === 'tap' && wasHidden)) return;

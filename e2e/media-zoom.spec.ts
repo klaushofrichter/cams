@@ -2,6 +2,7 @@ import { expect, test, type Page } from '@playwright/test';
 import { chicagoMs } from './fakeProxyData';
 import { signIn } from './session';
 import { centreOf, doubleTap, drag, pageScale, pinch, viewOf } from './touch';
+import { event, stubDay, urlAt as urlAtOf, YESTERDAY } from './stubDay';
 
 // Pinch-to-zoom on the pictures (lib/pinchZoom.ts, Klaus 2026-11-05): the
 // picture zooms inside its frame, the page and its buttons never do. Touch:
@@ -15,7 +16,8 @@ const today = () => new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Chicag
 const badge = (page: Page) => page.getByTestId('mode-badge');
 const box = (page: Page) => page.getByTestId('player-box');
 const clip = (page: Page) => page.getByTestId('clip-video');
-const urlAt = (page: Page) => Number(new URL(page.url()).searchParams.get('at'));
+const zoomOf = (page: Page) => box(page).evaluate((b) => b.style.getPropertyValue('--media-zoom'));
+const urlAt = (page: Page) => urlAtOf(page.url());
 // Den's 12:05:05 motion clip, 1 s in (as fullscreen.spec.ts).
 const atClip = () => chicagoMs(today(), '12:05:06');
 
@@ -74,7 +76,7 @@ test('5x is the most, and pinching back to 1x resets', async ({ page }) => {
   expect(await box(page).evaluate((b) => b.style.touchAction)).toBe('');
 });
 
-test('live: the <video> zooms, the LIVE badge does not; going to a recording resets it', async ({ page }) => {
+test('live: the <video> zooms, the LIVE badge does not; stepping into a recording keeps it, ⇥ back to live resets it', async ({ page }) => {
   await page.goto('/app/video?cam=cam1');
   await expect(badge(page)).toHaveText('● LIVE', { timeout: 15_000 });
   const video = page.getByTestId('live-video');
@@ -88,16 +90,57 @@ test('live: the <video> zooms, the LIVE badge does not; going to a recording res
   // Both of the stream's elements, whichever plays next.
   for (const v of await page.locator('[data-testid="player-box"] .stage video').all()) expect((await viewOf(v)).s).toBeGreaterThan(2);
 
+  // A step out of live keeps the zoom (Klaus, 2026-11-05): the same camera's picture.
   await page.getByTestId('back-10').click();
   await expect(badge(page)).toHaveAttribute('data-mode', 'rec');
-  await expect.poll(async () => (await viewOf(video)).s).toBe(1);
+  await page.waitForTimeout(300);
+  expect(await zoomOf(page)).not.toBe('');
+  // Back to live by ⇥ is a picked moment: 1x.
+  await page.getByTestId('strip-now').click();
+  await expect(badge(page)).toHaveAttribute('data-mode', 'live');
+  await expect.poll(() => zoomOf(page)).toBe('');
 });
 
-test('another clip resets the zoom, a step inside the clip does not', async ({ page }) => {
+// Klaus, 2026-11-05: the zoom stays while playback runs into the next clip or
+// the video gives way to other pictures; a picked moment (a thumbnail under
+// the timeline, an event card) starts at 1x.
+test('playing into the next clip and past it keeps the zoom; a thumbnail under the timeline resets it', async ({ page }) => {
+  const date = YESTERDAY();
+  const a = event(date, '10:00:00', '10:00:25', 'person');
+  const b = event(date, '10:00:25', '10:00:31', 'vehicle');
+  await stubDay(page, date, [a, b]);
+  await page.goto(`/app/video?cam=cam1&date=${date}&at=${chicagoMs(date, '10:00:22') / 1000}`);
+  await expect(badge(page)).toHaveAttribute('data-mode', 'rec');
+  await expect.poll(() => clip(page).evaluate((v: HTMLVideoElement) => v.readyState >= 2), { timeout: 15_000 }).toBe(true);
+  await pinch(page, await centreOf(box(page)), 60, 180);
+  const zoomed = await zoomOf(page);
+  expect(zoomed).not.toBe('');
+  const current = page.locator('[data-testid="event-card"][aria-current="true"]');
+  await expect(current).toHaveAttribute('data-clip-id', a.id);
+  await page.getByTestId('play-toggle').click();
+  await expect(current).toHaveAttribute('data-clip-id', b.id, { timeout: 10_000 });
+  expect(await zoomOf(page)).toBe(zoomed);
+  // Past B's end: no video any more, the same zoom.
+  await expect(page.getByTestId('source-badge')).not.toHaveText('SD 10 FPS', { timeout: 15_000 });
+  expect(await zoomOf(page)).toBe(zoomed);
+  await page.getByTestId('play-toggle').click();
+  // A step keeps it too.
+  await page.getByTestId('back-10').click();
+  await page.waitForTimeout(300);
+  expect(await zoomOf(page)).toBe(zoomed);
+  // A thumbnail under the timeline: 1x.
+  const frame = page.getByTestId('strip-film-frame').first();
+  await frame.scrollIntoViewIfNeeded();
+  const f = await centreOf(frame);
+  await page.touchscreen.tap(f.x, f.y);
+  await expect.poll(() => zoomOf(page)).toBe('');
+});
+
+test('an event card resets the zoom, a step inside the clip does not', async ({ page }) => {
   await openClip(page);
   await pinch(page, await centreOf(box(page)), 60, 180);
   await page.getByTestId('fwd-1').click();
-  await expect.poll(() => urlAt(page) - atClip(), { timeout: 5000 }).toBeGreaterThan(500);
+  await expect.poll(() => urlAt(page) - atClip(), { timeout: 5000 }).toBeGreaterThanOrEqual(1000);
   expect((await viewOf(clip(page))).s).toBeGreaterThan(2);
   const other = page.locator('[data-testid="event-card"]:not([aria-current="true"])').first();
   await other.click();
