@@ -5,6 +5,7 @@
 import { parseCameras, type FileCameraConfig } from '../cameraRegistry';
 import { ACCOUNT_ID_RE, CAMS_ID_RE, type AccountRef, type FleetUser } from '../fleet';
 import { verifySigned } from './sign';
+import { VIEWER_TOKEN_FINGERPRINT_RE, VIEWER_TOKEN_ID_RE, type ViewerTokenGrant } from '../viewerTokens';
 
 export interface SnapToken { id: string; kind: 'client' | 'admin'; state: string; retireAt: number | null }
 export interface SnapProxy { id: string; name: string; displayName: string; url: string | null; adminUiUrl: string | null; tlsServername: string | null; caFingerprints: string[]; site: string | null; tokens: SnapToken[] }
@@ -14,7 +15,7 @@ export interface SnapCamera {
   tlsServername: string | null; cameraUser: string | null; webUiUrl: string | null; webUiNote: string | null; moveId: string | null;
   move: SnapMove | null;
 }
-export interface SnapAccount { id: string; name: string; displayName: string; revision: number; users: FleetUser[]; proxies: SnapProxy[]; cameras: SnapCamera[] }
+export interface SnapAccount { id: string; name: string; displayName: string; revision: number; users: FleetUser[]; proxies: SnapProxy[]; cameras: SnapCamera[]; viewerTokens?: ViewerTokenGrant[] }
 export interface Snapshot { v: 1; type: 'cams-config'; instance: { id: string; name: string; rotateBefore: number | null }; revision: string; generatedAt: number; accounts: SnapAccount[]; sig: string }
 
 const obj = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
@@ -29,7 +30,7 @@ export function verifySnapshot(raw: unknown, serverKeys: string[], instanceId: s
   return { ok: true, snapshot: raw as unknown as Snapshot };
 }
 
-export interface AccountPart { account: AccountRef; revision: number; users: FleetUser[]; proxies: SnapProxy[]; cameras: SnapCamera[] }
+export interface AccountPart { account: AccountRef; revision: number; users: FleetUser[]; proxies: SnapProxy[]; cameras: SnapCamera[]; viewerTokens?: ViewerTokenGrant[] }
 
 const str = (v: unknown, max = 256): v is string => typeof v === 'string' && v.length > 0 && v.length <= max;
 const strOrNull = (v: unknown, max = 2048) => v === null || (typeof v === 'string' && v.length <= max);
@@ -63,6 +64,7 @@ function checkAccount(a: Record<string, unknown>): AccountPart {
     const x = u as Record<string, unknown>;
     return { email: (x.email as string).toLowerCase(), role: x.role as 'admin' | 'viewer', disabled: x.disabled as boolean };
   });
+  const viewerTokens = parseViewerTokens(a.viewerTokens);
   if (!Array.isArray(a.proxies) || a.proxies.length > 64) fail('proxies');
   const proxies = (a.proxies as unknown[]).map((p0, i) => {
     const p = (obj(p0) ? p0 : {}) as Record<string, unknown>;
@@ -105,7 +107,24 @@ function checkAccount(a: Record<string, unknown>): AccountPart {
   } catch (err) {
     fail((err as Error).message.replace(/^camera registry /, ''));
   }
-  return { account: { id: a.id as string, name: a.name as string, displayName: a.displayName as string }, revision: a.revision as number, users, proxies, cameras };
+  return { account: { id: a.id as string, name: a.name as string, displayName: a.displayName as string }, revision: a.revision as number, users, proxies, cameras, viewerTokens };
+}
+
+// Viewer tokens (snapshot format 4): absent (an older snapshot) is none; each
+// entry copied field by field, a bad one fails the account like a bad user.
+// The fingerprint is never part of a detail.
+const CONTROL = /[\u0000-\u001f\u007f]/;
+function parseViewerTokens(v: unknown): ViewerTokenGrant[] {
+  if (v === undefined) return [];
+  if (!Array.isArray(v) || v.length > 64) fail('viewer tokens');
+  const seen = new Set<string>();
+  return (v as unknown[]).map((t0, i) => {
+    const t = (obj(t0) ? t0 : {}) as Record<string, unknown>;
+    if (!obj(t0) || typeof t.id !== 'string' || !VIEWER_TOKEN_ID_RE.test(t.id) || seen.has(t.id) || !str(t.name, 64) || CONTROL.test(t.name)
+      || typeof t.fingerprint !== 'string' || !VIEWER_TOKEN_FINGERPRINT_RE.test(t.fingerprint) || !Number.isSafeInteger(t.expiresAt) || (t.expiresAt as number) < 0) fail(`viewer token ${i}`);
+    seen.add(t.id as string);
+    return { id: t.id as string, name: t.name as string, fingerprint: t.fingerprint as string, expiresAt: t.expiresAt as number };
+  });
 }
 
 export function accountParts(s: Snapshot): { ok: AccountPart[]; failed: { accountId: string; detail: string }[] } {

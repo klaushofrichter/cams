@@ -4,6 +4,7 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { existsSync, mkdtempSync, readFileSync, utimesSync, writeFileSync } from 'fs';
 import { tmpdir } from 'os';
+import { createHash } from 'crypto';
 import { join, resolve } from 'path';
 import request from 'supertest';
 import { writeCache } from '../server/admin/cache';
@@ -514,5 +515,40 @@ describe('file and shadow mode', () => {
     await expect(startConfig(FAST)).rejects.toThrow(/admin-enroll/);
     process.env.CONFIG_SOURCE = 'cams-admin';
     await expect(startConfig(FAST)).rejects.toThrow(/admin-enroll/);
+  });
+});
+
+// Viewer tokens through the real pull (cams-admin design 2026-11-05 §9): a
+// token in the pulled snapshot signs in; the next pull without it (a revoke
+// in cams-admin) ends the session; the use goes into a report.
+describe('viewer tokens through the pull', () => {
+  const TOKEN = 'cav_PullTestFakeTokenNo001';
+  const fp = 'sha256:' + createHash('sha256').update(`cams-viewer-token v1\n${TOKEN}`).digest('hex');
+  const withToken = (revision: string, tokens: unknown[]) => {
+    const s = twoAccountsSnapshot({ revision });
+    (s.accounts as Record<string, unknown>[])[0].viewerTokens = tokens;
+    return s;
+  };
+
+  it('signs in from the pulled snapshot, reports the use, and a pull without the token ends the session', async () => {
+    await enrolled();
+    fake.setSnapshot(withToken('r:00000000000000d1', [{ id: 'vtk_00000000000000000001', name: 'Tablet', fingerprint: fp, expiresAt: Date.now() + 86_400_000 }]));
+    process.env.CONFIG_SOURCE = 'cams-admin';
+    let t = Date.now();
+    await startConfig({ ...FAST, now: () => t });
+    await expect.poll(() => configStatus().appliedRevision).toBe('r:00000000000000d1');
+    await expect.poll(() => fake.reports.length).toBeGreaterThan(0);
+    t += 61_000; // a report may go again (at most one per 60 s)
+    const post = (path: string, body: unknown) => request(createApp()).post(path).set('Origin', 'http://127.0.0.1').set('Host', '127.0.0.1').send(body as object);
+    const signIn = await post('/auth/viewer-token', { token: TOKEN });
+    expect(signIn.status).toBe(200);
+    const cookie = (signIn.get('Set-Cookie') ?? []).find((c) => c.startsWith('session='))!.split(';')[0];
+    const me = await request(createApp()).get('/api/me').set('Cookie', cookie);
+    expect(me.body).toMatchObject({ via: 'viewer-token', name: 'Tablet', role: 'viewer', account: { id: ALPHA } });
+    await expect.poll(() => fake.reports.some((r) => JSON.stringify(r.viewerTokens ?? []).includes('vtk_00000000000000000001')), { timeout: 3000 }).toBe(true);
+    expect(JSON.stringify(fake.reports)).not.toContain(TOKEN);
+    fake.setSnapshot(withToken('r:00000000000000d2', [])); // revoked in cams-admin
+    await pullNow();
+    expect((await request(createApp()).get('/api/me').set('Cookie', cookie)).status).toBe(401);
   });
 });

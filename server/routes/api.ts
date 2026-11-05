@@ -22,6 +22,7 @@ import { archiveRouter } from './archive';
 import { sessionAccount } from './common';
 import { mcpTokensRouter } from './mcpTokens';
 import { mcpEnabled, mcpPlainHttp } from '../mcp/config';
+import { viewerTokens } from '../viewerTokens';
 
 export const apiRouter = Router();
 
@@ -31,13 +32,18 @@ apiRouter.get('/api/me', (_req: Request, res: Response) => {
   const s = res.locals.auth as AuthState;
   const p = s.kind === 'ok' ? s.principal : null;
   const email = p ? p.email : s.kind === 'choose' ? s.email : '';
+  const viewerTokenInfo = p?.viewerToken ?? (s.kind === 'choose' ? s.viewerToken : undefined);
   res.json({
     email,
     version: appVersion(),
     buildDate: buildDate(),
     account: p ? { id: p.account.id, name: p.account.name, displayName: p.account.displayName } : null,
     role: p ? p.role : null,
-    accounts: p?.via === 'token' ? 1 : membershipsOf(email).length,
+    accounts: p?.via === 'token' ? 1 : viewerTokenInfo ? (viewerTokens().byId.get(viewerTokenInfo.id)?.accounts.length ?? 1) : membershipsOf(email).length,
+    // How this person signed in (About's "Signed in as"): Google, the Pi's
+    // login token, or a viewer token with its name and expiry (never the token).
+    via: p ? p.via : s.kind === 'choose' ? (s.viewerToken ? 'viewer-token' : 'google') : null,
+    ...(viewerTokenInfo && { name: viewerTokenInfo.name, validUntil: viewerTokenInfo.expiresAt }),
     configSource: configMode(),
     // "configuration not refreshed since …": admins only.
     staleSince: p?.role === 'admin' ? configStatus().staleSince : null,

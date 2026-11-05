@@ -9,6 +9,7 @@
 // (ALLOWED_EMAILS decides, everyone admin) — exactly as before P4.
 import { EventEmitter } from 'events';
 import type { CameraConfig } from './cameraRegistry';
+import type { ViewerTokenGrant } from './viewerTokens';
 
 export type CamKey = string & { readonly __camKey: unique symbol };
 export type Role = 'admin' | 'viewer';
@@ -17,6 +18,7 @@ export interface FleetUser { email: string; role: Role; disabled: boolean }
 export interface FleetAccount extends AccountRef {
   users: FleetUser[] | null; // null: file mode, ALLOWED_EMAILS and everyone admin
   cameras: CameraConfig[];
+  viewerTokens?: ViewerTokenGrant[]; // cams-admin mode: the snapshot's viewer tokens (fingerprints, never a token)
 }
 
 export const ACCOUNT_ID_RE = /^acc_[A-Za-z0-9]{1,40}$/;

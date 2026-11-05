@@ -67,6 +67,28 @@ export function createTokenFailureLimit(): RateLimitRequestHandler {
   });
 }
 
+// Viewer tokens (cams-admin design 2026-11-05, "Brute force"): besides the
+// per-address limit above, one bucket for every address together, 100 failed
+// token sign-ins per 15 minutes. 131 random bits leave nothing to guess; this
+// caps a spread-out attempt. Signed-in sessions are not affected, and the
+// Pi's own token login (POST /auth/token) doesn't use this bucket. Read per
+// request, so tests can set it.
+export function createViewerTokenGlobalLimit(): RateLimitRequestHandler {
+  const store = new MemoryStore();
+  stores.push(store);
+  return rateLimit({
+    windowMs: 15 * 60 * 1000,
+    limit: () => fromEnv('RATE_LIMIT_VIEWER_TOKEN_FAILURES', 100),
+    standardHeaders: true,
+    legacyHeaders: false,
+    store,
+    keyGenerator: () => 'viewer-tokens',
+    skipSuccessfulRequests: true,
+    requestWasSuccessful: (_req, res) => res.locals.tokenOk === true,
+    message: { error: 'too_many_attempts' },
+  });
+}
+
 // MCP tools' internal calls skip the per-address limits below: they all come
 // from loopback, and the MCP layer has its own per-token and per-account ones.
 // Skips clip media requests: they get their own, much higher budget below,

@@ -155,3 +155,54 @@ describe('buildFleet', () => {
     expect(accounts.find((x) => x.id === BETA)!.users).toEqual([{ email: 'both@example.org', role: 'viewer', disabled: false }]);
   });
 });
+
+// Viewer tokens (snapshot format 4, cams-admin design 2026-11-05 §9.1):
+// absent reads as none, valid entries are kept field by field, a bad entry
+// fails its account like a bad user; buildFleet carries them.
+describe('accountParts: viewerTokens', () => {
+  const FP = 'sha256:' + 'ab'.repeat(32);
+  const vt = (o: Record<string, unknown> = {}) => ({ id: 'vtk_00000000000000000001', name: 'Kitchen tablet', fingerprint: FP, expiresAt: 1_791_878_400_000, ...o });
+  const parts = (alphaTokens: unknown) => {
+    const raw = twoAccountsSnapshot();
+    const accounts = raw.accounts as Record<string, unknown>[];
+    if (alphaTokens !== undefined) accounts[0].viewerTokens = alphaTokens;
+    const v = verifySnapshot(signSnapshot(raw), KEYS, INSTANCE);
+    if (!v.ok) throw new Error(v.reason);
+    return accountParts(v.snapshot);
+  };
+
+  it('absent: none (a format-3 snapshot); the vectors snapshot: its one token', () => {
+    expect(parts(undefined).ok[0].viewerTokens).toEqual([]);
+    const s = { ...vectors.snapshots[0].snapshot, sig: vectors.snapshots[0].sig };
+    const v = verifySnapshot(s, KEYS, (s.instance as { id: string }).id);
+    if (!v.ok) throw new Error(v.reason);
+    const home = accountParts(v.snapshot).ok.find((p) => p.account.name === 'home')!;
+    expect(home.viewerTokens).toEqual([{ id: 'vtk_00000000000000000001', name: 'Kitchen tablet', fingerprint: vectors.viewerTokens[0].fingerprint, expiresAt: 1791878400000 }]);
+  });
+
+  it('valid entries are copied field by field (an unknown field is dropped)', () => {
+    const p = parts([vt({ extra: 'x' }), vt({ id: 'vtk_00000000000000000002', fingerprint: 'sha256:' + 'cd'.repeat(32) })]);
+    expect(p.failed).toEqual([]);
+    expect(p.ok[0].viewerTokens).toEqual([vt(), vt({ id: 'vtk_00000000000000000002', fingerprint: 'sha256:' + 'cd'.repeat(32) })]);
+  });
+
+  it('a bad entry fails its account only (last good part kept by the caller)', () => {
+    const bad = [
+      'x', [vt({ id: 'tok_00000000000000000001' })], [vt({ fingerprint: 'sha256:' + 'AB'.repeat(32) })], [vt({ fingerprint: 'ab'.repeat(32) })],
+      [vt({ name: '' })], [vt({ name: 'n'.repeat(65) })], [vt({ name: 'a\nb' })], [vt({ expiresAt: -1 })], [vt({ expiresAt: 1.5 })], [vt({ expiresAt: '1' })],
+      [vt(), vt()], Array.from({ length: 65 }, (_, i) => vt({ id: `vtk_${String(i).padStart(20, '0')}` })),
+    ];
+    for (const b of bad) {
+      const p = parts(b);
+      expect(p.failed.map((f) => f.accountId), JSON.stringify(b).slice(0, 80)).toEqual([ALPHA]);
+      expect(p.failed[0].detail).not.toContain('ab'.repeat(8));
+    }
+  });
+
+  it('buildFleet carries an account\'s viewer tokens', () => {
+    const p = parts([vt()]);
+    const built = buildFleet(p.ok, { credentials: () => ({ ok: true, user: 'u', password: 'p' }) });
+    expect(built.accounts[0].viewerTokens).toEqual([vt()]);
+    expect(built.accounts[1].viewerTokens).toEqual([]);
+  });
+});

@@ -33,6 +33,9 @@
       {#if none}<p class="notice" data-testid="no-configuration">No cameras are configured yet.</p>{/if}
       {#if unavailable}<p class="notice" role="alert" data-testid="login-unavailable">{UNAVAILABLE_MESSAGE}</p>{/if}
       <LoginOptions {methods} {failed} />
+      {#if methods.includes('viewer-token')}
+        <p class="token-link"><a href="/token" data-testid="viewer-token-link">Sign in with a token</a></p>
+      {/if}
     </section>
   </main>
   <footer>© {new Date().getFullYear()} <a class="company" href="https://skylar.technology">Skylar Technology LLC</a></footer>
@@ -65,4 +68,6 @@
   .notice { margin: 0 0 16px; padding: 10px 14px; border-radius: 10px; background: var(--surface-2); border: 1px solid var(--border); }
   footer { padding: 14px 24px; font-size: 12px; color: var(--muted); border-top: 1px solid var(--border); }
   .company { color: inherit; }
+  .token-link { margin: 18px 0 0; font-size: 14px; }
+  .token-link a { color: var(--accent); }
 </style>

@@ -45,6 +45,18 @@ describe('buildReport: heldProxies (camera move)', () => {
   });
 });
 
+describe('buildReport: viewerTokens (last used)', () => {
+  it('ids and times only, at most 200, strict schema; none: the field is left out', () => {
+    const uses = Array.from({ length: 250 }, (_, i) => ({ id: `vtk_${String(i).padStart(20, '0')}`, lastUsedAt: 1_791_273_540_000 }));
+    const r = buildReport(STATUS, { held: [], shadow: null, tokens: { managed: 0, pending: 0, legacy: 0 }, version: 'v', viewerTokens: uses });
+    expect(r.viewerTokens).toHaveLength(200);
+    expect(r.viewerTokens![0]).toEqual({ id: 'vtk_00000000000000000000', lastUsedAt: 1_791_273_540_000 });
+    expect([camsValidator('report-request', 'strict')(r), camsErrors()]).toEqual([true, 'null']);
+    const none = buildReport(STATUS, { held: [], shadow: null, tokens: { managed: 0, pending: 0, legacy: 0 }, version: 'v', viewerTokens: [] });
+    expect('viewerTokens' in none).toBe(false);
+  });
+});
+
 describe('Reporter', () => {
   let fake: FakeAdmin;
   beforeEach(async () => {
@@ -59,8 +71,8 @@ describe('Reporter', () => {
     let pulls = 0;
     const rep = new Reporter(client, () => t, () => pulls++);
     const r = buildReport({ ...STATUS, appliedRevision: 'r:0000000000000000' }, { held: [], shadow: null, tokens: { managed: 0, pending: 0, legacy: 0 }, version: 'v' });
-    await rep.send(r);
-    await rep.send(r);
+    expect(await rep.send(r)).toBe(true);
+    expect(await rep.send(r)).toBe(false); // not sent: within 60 s
     expect(fake.reports).toHaveLength(1);
     expect(pulls).toBe(1); // the fake's revision differs: changed
     t += 30_000;

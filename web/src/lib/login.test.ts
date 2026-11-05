@@ -10,6 +10,8 @@ describe('loginMethods', () => {
     expect(loginMethods(doc('google'))).toEqual(['google']);
     expect(loginMethods(doc('token'))).toEqual(['token']);
     expect(loginMethods(doc('google token'))).toEqual(['google', 'token']);
+    expect(loginMethods(doc('google viewer-token'))).toEqual(['google', 'viewer-token']);
+    expect(loginMethods(doc('token viewer-token'))).toEqual(['token', 'viewer-token']);
   });
   it('falls back to Google without a usable tag', () => {
     expect(loginMethods(doc(null))).toEqual(['google']);

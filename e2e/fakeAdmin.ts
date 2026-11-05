@@ -4,9 +4,11 @@
 // E2E_ADMIN_DATA before cams starts) and two accounts that both have "cam1".
 // Test hooks on FAKE_ADMIN_HOOKS (127.0.0.1): POST /snapshot {homeHost,
 // extraProxyId (a second Home proxy, no cameras: a held new proxy)},
-// POST /reset. Never a real cams-admin.
+// POST /viewer-tokens {revoked: [token ids]} (viewer tokens: those leave the
+// snapshot, as a revoke in cams-admin does; [] brings them back). Each hook
+// keeps the other's last state. Never a real cams-admin.
 import express from 'express';
-import { generateKeyPairSync } from 'crypto';
+import { createHash, generateKeyPairSync } from 'crypto';
 import { mkdirSync, rmSync, writeFileSync, chmodSync } from 'fs';
 import { join } from 'path';
 import { startFakeAdmin, signSnapshot, SERVER_KEY } from '../test/admin/fakeAdmin';
@@ -17,6 +19,26 @@ export const E2E_ACCOUNTS = { home: 'acc_00000000000000000HME', beta: 'acc_00000
 const PRX = 'prx_00000000000000000FKP';
 let revision = 1;
 
+// Viewer tokens (cams-admin design 2026-11-05 §9), test-only and obviously
+// fake: the token is what a person pastes, scans or opens as a link; the
+// snapshot carries only its fingerprint. `expired` is listed with an expiry
+// already past, as a snapshot pulled before it ran out would have it.
+export const E2E_VIEWER_TOKENS = {
+  paste: { id: 'vtk_0000000000000000PAST', token: 'cav_E2ePasteTokenNotReal01', name: 'E2E paste', accounts: ['home'] },
+  link: { id: 'vtk_0000000000000000HREF', token: 'cav_E2eLinkTokenNotReal001', name: 'E2E link', accounts: ['home'] },
+  revokeDesktop: { id: 'vtk_000000000000000RVKD1', token: 'cav_E2eRevokeDeskNotReal01', name: 'E2E revoke desktop', accounts: ['home'] },
+  revokePhone: { id: 'vtk_000000000000000RVKP1', token: 'cav_E2eRevokePhoneNotReal1', name: 'E2E revoke phone', accounts: ['home'] },
+  expired: { id: 'vtk_00000000000000EXP1RD', token: 'cav_E2eExpiredTokenNotReal', name: 'E2E expired', accounts: ['home'] },
+  scan: { id: 'vtk_0000000000000000SCAN', token: 'cav_E2eScanTokenNotReal001', name: 'E2E scan', accounts: ['home'] },
+  two: { id: 'vtk_00000000000000000TW0', token: 'cav_E2eTwoAccountsNotReal1', name: 'E2E two accounts', accounts: ['home', 'beta'] },
+} as const;
+const DAY = 86_400_000;
+let revokedTokens = new Set<string>();
+const viewerTokensOf = (account: 'home' | 'beta') => Object.values(E2E_VIEWER_TOKENS)
+  .filter((t) => (t.accounts as readonly string[]).includes(account) && !revokedTokens.has(t.id))
+  .map((t) => ({ id: t.id, name: t.name, fingerprint: 'sha256:' + createHash('sha256').update(`cams-viewer-token v1\n${t.token}`).digest('hex'), expiresAt: t.id === E2E_VIEWER_TOKENS.expired.id ? Date.now() - DAY : Date.now() + 7 * DAY }))
+  .sort((a, b) => (a.id < b.id ? -1 : 1));
+
 type SnapHooks = { homeHost?: string; extraProxyId?: string };
 export function snapshot(o: SnapHooks = {}): Record<string, unknown> {
   const cam = (id: string, camsId: string, name: string, host: string, proxyId: string | null) => ({
@@ -26,10 +48,11 @@ export function snapshot(o: SnapHooks = {}): Record<string, unknown> {
     v: 1, type: 'cams-config', instance: { id: 'cms_00000000000000000001', name: 'e2e', rotateBefore: null },
     revision: `r:${String(revision).padStart(16, '0')}`, generatedAt: 1_791_273_600_000 + revision,
     accounts: [
-      { id: E2E_ACCOUNTS.beta, name: 'beta', displayName: 'Beta', revision, users: [{ email: ADMIN_USERS.both, role: 'viewer', disabled: false }],
+      { id: E2E_ACCOUNTS.beta, name: 'beta', displayName: 'Beta', revision, users: [{ email: ADMIN_USERS.both, role: 'viewer', disabled: false }], viewerTokens: viewerTokensOf('beta'),
         proxies: [], cameras: [cam('cam_000000000000000000B1', 'cam1', 'Porch', '127.0.0.1:8097', null)] },
       { id: E2E_ACCOUNTS.home, name: 'home', displayName: 'Home', revision,
         users: [{ email: ADMIN_USERS.both, role: 'admin', disabled: false }, { email: ADMIN_USERS.alpha, role: 'admin', disabled: false }],
+        viewerTokens: viewerTokensOf('home'),
         proxies: [{ id: PRX, name: 'fake', displayName: 'Fake proxy', url: `http://127.0.0.1:${FAKE_PROXY_PORT}`, adminUiUrl: null, tlsServername: null, caFingerprints: [], tokens: [] },
           ...(o.extraProxyId ? [{ id: o.extraProxyId, name: 'shed', displayName: 'Shed proxy', url: 'https://192.0.2.20:8443', adminUiUrl: null, tlsServername: 'proxy.shed.internal', caFingerprints: ['0123abcd'.padEnd(64, 'e')], site: 'shed', tokens: [] }] : [])],
         cameras: [cam('cam_000000000000000000H1', 'cam1', 'Den', o.homeHost ?? '127.0.0.1:8098', PRX)] },
@@ -59,9 +82,17 @@ if (require.main === module) {
     writeFileSync(join(E2E_ADMIN_DATA, 'admin/config-cache.json'), JSON.stringify(signSnapshot(snapshot())), { mode: 0o600 });
     const hooks = express();
     hooks.use(express.json());
+    let last: SnapHooks = {};
     hooks.post('/snapshot', (req, res) => {
       revision++;
-      fake.setSnapshot(snapshot(req.body as SnapHooks));
+      last = req.body as SnapHooks;
+      fake.setSnapshot(snapshot(last));
+      res.json({ revision });
+    });
+    hooks.post('/viewer-tokens', (req, res) => {
+      revision++;
+      revokedTokens = new Set(((req.body as { revoked?: string[] }).revoked ?? []).map(String));
+      fake.setSnapshot(snapshot(last));
       res.json({ revision });
     });
     hooks.listen(FAKE_ADMIN_HOOKS, '127.0.0.1');
