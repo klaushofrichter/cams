@@ -12,6 +12,7 @@
   import { liveQualityLabel, liveUi } from '../lib/liveUi';
   import FullscreenOverlay from './FullscreenOverlay.svelte';
   import { enterPlayerFullscreen, exitPlayerFullscreen, playerFs, type FsAction } from '../lib/playerFullscreen';
+  import { pinchZoom, type ZoomState } from '../lib/pinchZoom';
   import { clipShown, liveBadge, modeBadge, modeOf, registerPlayer, type PlayerFrame, type RecShown } from '../lib/videoMode';
   import { enterClip, IDLE_SEEKER, seekRequest, seekSettled, showClipVideo, SWAP_DWELL_MS, SWAP_TOLERANCE_S, type Entered, type Seeker } from '../lib/clipSwap';
 
@@ -422,6 +423,10 @@
   // Gone (another camera remounts the player): no fullscreen left behind.
   $effect(() => () => exitPlayerFullscreen());
   const mode = $derived(modeOf(glued));
+  // The picture's zoom (lib/pinchZoom.ts): another camera, live or another
+  // clip starts at 1x. Stills are one picture a second: not per still.
+  const zoomKey = $derived(`${cam}|${glued ? 'live' : source.kind === 'clip' ? source.clip.id : source.kind}`);
+  let zoomState: ZoomState = { zoomed: false, strokeTaken: false };
   // REC adds what it shows (Klaus, 2026-10-04): SD or 4K for a clip, Still for the stills.
   const shown = $derived<RecShown | null>(source.kind === 'clip' ? clipShown(clipStream) : source.kind === 'still' ? 'Still' : null);
   const badge = $derived(mode === 'live' ? liveBadge($liveUi) : modeBadge(mode, at, now, shown));
@@ -482,7 +487,8 @@
 
 <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
 <div class="player" data-testid="strip-player" tabindex="0" onkeydown={keydown}>
-  <div class="box" class:fill={$playerFs === 'fill'} bind:clientWidth={boxW} bind:this={boxEl}
+  <div class="box" class:fill={$playerFs === 'fill'} bind:clientWidth={boxW} bind:this={boxEl} data-testid="player-box"
+    use:pinchZoom={{ key: zoomKey, onchange: (z) => (zoomState = z) }}
     data-showing={glued ? 'live' : source.kind !== 'clip' ? 'pictures' : videoShown ? 'video' : 'cover'}>
     {#each [0, 1] as i (i)}
       <video
@@ -536,7 +542,7 @@
       <button class="mode rec" data-testid="mode-badge" data-mode="rec" title="Back to live" aria-label={`${badge}, back to live`} onclick={() => onglue?.()}>{badge}</button>
     {/if}
     {#if $playerFs !== 'off'}
-      <FullscreenOverlay {mode} {playing} kind={$playerFs} canPlay={source.kind !== 'future'} canPrev={stepAvail.prev} canNext={stepAvail.next} onaction={fsAction} onlive={() => onglue?.()} onexit={exitPlayerFullscreen} />
+      <FullscreenOverlay {mode} {playing} kind={$playerFs} canPlay={source.kind !== 'future'} canPrev={stepAvail.prev} canNext={stepAvail.next} zoom={() => zoomState} onaction={fsAction} onlive={() => onglue?.()} onexit={exitPlayerFullscreen} />
     {/if}
   </div>
   <div class="controls">
@@ -581,6 +587,8 @@
   .player { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
   .box { position: relative; width: 100%; aspect-ratio: 16 / 9; background: #000; border-radius: 12px; overflow: hidden; }
   video, .layer { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; }
+  /* The pictures zoom (lib/pinchZoom.ts); the badge and the controls don't. */
+  video, img.layer, .tile-wrap { transform: var(--media-zoom, none); transform-origin: 0 0; transition: transform var(--media-zoom-t, 0s); }
   video.hidden { visibility: hidden; }
   /* Loading or seeking under the still (2026-10-09): transparent, not
      display: none or visibility: hidden, so it decodes and presents frames. */

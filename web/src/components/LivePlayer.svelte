@@ -81,7 +81,7 @@
 
 <style>
   .stage { position: relative; width: 100%; aspect-ratio: 16 / 9; background: #000; border-radius: 12px; overflow: hidden; }
-  video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; opacity: 0; transition: opacity 0.2s ease; }
+  video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; opacity: 0; transform: var(--media-zoom, none); transform-origin: 0 0; transition: opacity 0.2s ease, transform var(--media-zoom-t, 0s); }
   video.on { opacity: 1; }
   .unsupported { position: absolute; inset: 0; z-index: 1; display: grid; place-items: center; margin: 0; padding: 16px; text-align: center; color: var(--muted); }
 </style>

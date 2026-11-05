@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { pinchZoom } from '../lib/pinchZoom';
   import { boxLabel, capital, pct, type Box, type StillObject, type SummaryEntry } from '../lib/vision';
 
   // The Timeline's large still (spec 2026-09-30-analytics-in-cams-design): for
@@ -91,7 +92,9 @@
 </script>
 
 <figure>
-  <div class="frame">
+  <div class="frame" data-testid="timeline-still-frame" use:pinchZoom={{ key: src }}>
+    <!-- The still with its boxes: they zoom together. -->
+    <div class="zoomed">
     <img {src} {alt} data-testid="timeline-still" />
     {#if boxes.length}
       <svg viewBox="0 0 1 1" preserveAspectRatio="none" data-testid="timeline-boxes">
@@ -99,6 +102,7 @@
       </svg>
       {#each boxes as b, i (i)}<span class="label" class:inside={b.box.y0 < TOP} data-testid="timeline-box-label" style={labelAt(b.box)}>{b.label}</span>{/each}
     {/if}
+    </div>
   </div>
   {#if summary && (loadAll || objectList)}
     <div class="small">
@@ -136,11 +140,13 @@
      caps the image, the frame narrows with it, so the box overlay and the %-placed
      labels always cover exactly the drawn image and never a letterbox. */
   .frame { position: relative; line-height: 0; width: fit-content; max-width: 100%; }
+  .zoomed { position: relative; transform: var(--media-zoom, none); transform-origin: 0 0; transition: transform var(--media-zoom-t, 0s); }
   img { display: block; max-width: 100%; max-height: 60vh; width: auto; height: auto; background: var(--bg); border-radius: 8px; }
   svg { position: absolute; inset: 0; width: 100%; height: 100%; }
-  rect { fill: none; stroke: var(--vision-mark); stroke-width: 3; }
-  .label { position: absolute; transform: translateY(-100%); background: var(--vision-mark); color: var(--on-vision-mark); font-size: 12px; line-height: 1.4; padding: 0 4px; border-radius: 3px; white-space: nowrap; }
-  .label.inside { transform: none; }
+  /* Marks keep their size on screen while the still zooms. */
+  rect { fill: none; stroke: var(--vision-mark); stroke-width: calc(3px / var(--media-zoom-scale, 1)); }
+  .label { position: absolute; transform-origin: 0 0; transform: scale(calc(1 / var(--media-zoom-scale, 1))) translateY(-100%); background: var(--vision-mark); color: var(--on-vision-mark); font-size: 12px; line-height: 1.4; padding: 0 4px; border-radius: 3px; white-space: nowrap; }
+  .label.inside { transform: scale(calc(1 / var(--media-zoom-scale, 1))); }
   .small { font-size: 13px; display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
   .muted { color: var(--muted); }
   .view { border: 0; padding: 0; margin: 0; display: flex; gap: 12px; align-items: center; }

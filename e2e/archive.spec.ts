@@ -9,6 +9,7 @@ import { readFileSync } from 'fs';
 import { expect, test, type Page, type TestInfo } from '@playwright/test';
 import { zipNames } from '../test/proxy/fakeArchive';
 import { signIn } from './session';
+import { centreOf, doubleTap, pageScale, pinch, viewOf } from './touch';
 
 const SHOTS = process.env.ARCHIVE_SHOTS; // a folder: screenshots (desktop/phone, light/dark)
 
@@ -89,6 +90,19 @@ test('archive a composed clip from Save, play it, edit its labels, download a ZI
   await expect(player).toBeVisible();
   await expect(player.getByTestId('archive-source')).toHaveText(/^Composed: SD, pre-roll 0 s, post-roll 10 s/);
   await expect(player.getByTestId('archive-meta-labels')).toHaveText('Person, SD, Fox');
+  if (info.project.name === 'phone') {
+    // Pinch: the picture zooms inside its frame, the buttons stay (lib/pinchZoom.ts).
+    const video = player.getByTestId('archive-video');
+    const frame = player.getByTestId('archive-frame');
+    const play = player.getByTestId('archive-play');
+    const before = [await frame.boundingBox(), await play.boundingBox()];
+    await pinch(page, await centreOf(frame), 40, 120);
+    expect((await viewOf(video)).s).toBeCloseTo(3, 0);
+    expect(await pageScale(page)).toBe(1);
+    expect([await frame.boundingBox(), await play.boundingBox()]).toEqual(before);
+    await doubleTap(page, await centreOf(frame));
+    await expect.poll(async () => (await viewOf(video)).s).toBe(1);
+  }
   await player.getByTestId('archive-play').click();
   await expect.poll(() => page.getByTestId('archive-video').evaluate((v: HTMLVideoElement) => v.currentTime), { timeout: 10_000 }).toBeGreaterThan(0.2);
   await player.getByTestId('archive-play').click(); // pause

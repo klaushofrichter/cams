@@ -4,6 +4,7 @@
   import Modal from './Modal.svelte';
   import { dateTime, durationText, expiresText, formatBytes, getMetadata, moveNoteText, qualityText, type ArchiveItem, type ArchiveMetadata } from '../lib/archive';
   import { formatClock, pad2, TRIGGER_LABELS, type Trigger } from '../lib/recordings';
+  import { pinchZoom } from '../lib/pinchZoom';
   import { cameraById } from '../lib/stores';
 
   // An archived clip (cams spec 2026-10-05-archive-design): its video through
@@ -66,6 +67,7 @@
 <Modal title={item.name} testid="archive-player" {onclose} width={880}>
   <!-- svelte-ignore a11y_no_static_element_interactions -->
   <div class="player" onkeydown={keys}>
+    <div class="frame" data-testid="archive-frame" use:pinchZoom={{ key: item.id }}>
     <!-- svelte-ignore a11y_media_has_caption -->
     <video
       bind:this={video}
@@ -83,6 +85,7 @@
       onerror={() => (failed = true)}
       onclick={toggle}
     ></video>
+    </div>
     {#if failed}<p class="err" role="alert" data-testid="archive-video-error">The video could not be loaded from the cam-proxy.</p>{/if}
     <div class="controls">
       <button data-testid="archive-back10" aria-label="Back 10 seconds" onclick={() => step(-10)}><Icon name="back10" /></button>
@@ -141,7 +144,8 @@
 
 <style>
   .player { display: grid; gap: 8px; }
-  video { width: 100%; max-height: 60dvh; border-radius: 8px; background: var(--player-bg); }
+  .frame { position: relative; min-width: 0; border-radius: 8px; }
+  video { display: block; width: 100%; max-height: 60dvh; border-radius: 8px; background: var(--player-bg); transform: var(--media-zoom, none); transform-origin: 0 0; transition: transform var(--media-zoom-t, 0s); }
   .controls { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
   .controls button { width: 36px; height: 36px; display: grid; place-items: center; border-radius: 8px; border: 1px solid var(--border); background: var(--surface-2); color: var(--text); cursor: pointer; }
   .controls .play { background: var(--grad); color: var(--on-grad); border: 0; }

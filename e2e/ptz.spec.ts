@@ -7,6 +7,7 @@
 import { expect, test, type Page } from '@playwright/test';
 import { signIn } from './session';
 import { FAKE_PROXY_PORT } from './fakeProxyData';
+import { centreOf, pageScale, pinch, viewOf } from './touch';
 
 const HOOKS = `http://127.0.0.1:${FAKE_PROXY_PORT - 2}`;
 interface Call { cam: string; op: string; body: Record<string, unknown> }
@@ -37,6 +38,24 @@ async function savePosition(page: Page, name?: string) {
   await input.press('Enter');
   await expect(input).toHaveCount(0);
 }
+
+test('the picture\'s pinch-zoom leaves the panel alone: it asks the camera for nothing, and a hold still moves the camera', async ({ page }) => {
+  test.skip(!test.info().project.name.includes('phone'), 'touch: the phone');
+  await openPanel(page);
+  const box = page.getByTestId('player-box');
+  await pinch(page, await centreOf(box), 60, 180);
+  expect(await pageScale(page)).toBe(1);
+  expect((await viewOf(page.getByTestId('live-video'))).s).toBeGreaterThan(2);
+  expect(await calls(page)).toEqual([]);
+  // A pinch on the panel itself zooms nothing.
+  const zoom = await viewOf(page.getByTestId('live-video'));
+  await pinch(page, await centreOf(page.getByTestId('ptz-body')), 60, 180);
+  expect(await viewOf(page.getByTestId('live-video'))).toEqual(zoom);
+  expect(await pageScale(page)).toBe(1);
+  // A tap on a direction: start and stop, as without the zoom.
+  await page.getByRole('group', { name: 'Direction' }).getByRole('button').first().tap();
+  await expect.poll(async () => (await calls(page)).length).toBeGreaterThan(0);
+});
 
 test('no panel for a camera without PTZ, nor in a recording', async ({ page }) => {
   await page.goto('/app/video?cam=cam1');

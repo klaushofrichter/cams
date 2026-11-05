@@ -106,7 +106,7 @@
   .still.overlay { position: absolute; inset: 0; z-index: 2; display: block; background: var(--player-bg); }
   .still.overlay img { position: absolute; inset: 0; height: 100%; max-height: none; background: var(--player-bg); border-radius: 0; }
   .still.overlay figcaption { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
-  img { width: 100%; max-height: 70vh; object-fit: contain; background: var(--bg); border-radius: var(--radius); }
+  img { width: 100%; max-height: 70vh; object-fit: contain; background: var(--bg); border-radius: var(--radius); transform: var(--media-zoom, none); transform-origin: 0 0; transition: transform var(--media-zoom-t, 0s); }
   .badge {
     position: absolute; top: 14px; left: 14px; padding: 3px 10px; border-radius: 999px;
     font-size: 12px; font-weight: 700; letter-spacing: 0.04em;

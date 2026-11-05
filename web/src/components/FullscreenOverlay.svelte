@@ -4,6 +4,7 @@
   import Icon from './Icon.svelte';
   import { focusBeforeFullscreen, fsKey, hintFor, type FsAction } from '../lib/playerFullscreen';
   import { classifyStroke, gestureAction } from '../lib/gestures';
+  import type { ZoomState } from '../lib/pinchZoom';
   import type { Mode } from '../lib/videoMode';
 
   // The player's controls in fullscreen (#182, spec
@@ -11,13 +12,14 @@
   // input, the keys, the phone gestures and a short hint. Mounted only while
   // the player is fullscreen; the player does what `onaction` asks and says
   // whether it did anything (nothing after now in live).
-  let { mode, playing, kind, canPlay = true, canPrev = true, canNext = true, onaction, onlive, onexit }: {
+  let { mode, playing, kind, canPlay = true, canPrev = true, canNext = true, zoom, onaction, onlive, onexit }: {
     mode: Mode;
     playing: boolean;
     kind: 'element' | 'fill';
     canPlay?: boolean; // false: "Later than now", nothing to play
     canPrev?: boolean; // false: at the first (shown) event
     canNext?: boolean; // false: at the last (shown) event
+    zoom?: () => ZoomState; // the picture's pinch-zoom, which has its own strokes
     onaction: (a: FsAction) => boolean;
     onlive: () => void;
     onexit: () => void;
@@ -117,6 +119,12 @@
     const s = start;
     start = null;
     if (!s || s.id !== e.pointerId || !layer) return;
+    // A pinch or a pan isn't a swipe. While zoomed a tap only shows the
+    // controls, wherever it lands: what the picture shows isn't to jump away,
+    // and the second tap of a double tap (back to 1x) comes through here too.
+    const z = e.pointerType === 'mouse' ? undefined : zoom?.();
+    if (z?.strokeTaken) return;
+    if (z?.zoomed) return show();
     const r = layer.getBoundingClientRect();
     const g = classifyStroke({ x0: s.x, y0: s.y, x1: e.clientX, y1: e.clientY, ms: Date.now() - s.t, boxLeft: r.left, boxWidth: r.width, viewWidth: window.innerWidth });
     if (!g) return;
@@ -145,7 +153,7 @@
   <div class="gestures" data-testid="fs-gestures" bind:this={layer} onpointerdown={down} onpointerup={up} onpointercancel={() => (start = null)}></div>
   <!-- Always mounted (only its text changes), so screen readers announce each hint. -->
   <div class="hint" class:on={hint !== ''} data-testid="fs-hint" role="status">{hint}</div>
-  <div class="bar" data-testid="fs-bar" aria-hidden={!shown}>
+  <div class="bar" data-testid="fs-bar" data-no-zoom aria-hidden={!shown}>
     <button data-testid="fs-prev-event" title="Previous event" aria-label="Previous event" tabindex={shown ? 0 : -1} disabled={!canPrev} onclick={() => act({ kind: 'event', dir: -1 })}><Icon name="prev" size={18} /></button>
     <button data-testid="fs-back-10" title="Back 10 seconds" aria-label="Back 10 seconds" tabindex={shown ? 0 : -1} onclick={() => act({ kind: 'skip', ms: -10_000 })}><Icon name="back10" size={18} /></button>
     <button data-testid="fs-back-1" title="Back 1 second" aria-label="Back 1 second" tabindex={shown ? 0 : -1} onclick={() => act({ kind: 'skip', ms: -1000 })}><Icon name="back1" size={18} /></button>
