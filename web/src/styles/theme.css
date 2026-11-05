@@ -165,6 +165,7 @@
 }
 
 html {
+  touch-action: pan-x pan-y; /* scrolling, no pinch; see lib/noPinch.ts */
   scrollbar-width: thin;
   scrollbar-color: var(--scroll-thumb) var(--scroll-track);
 }
