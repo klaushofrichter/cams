@@ -136,13 +136,15 @@ export function parseAt(raw: string): number | null {
 }
 
 // The Video page's query (spec 2026-10-04): no `panel` any more. `at` in
-// whole seconds (shareable links, 2026-11-05) and play=1 while playing.
-export function cursorSearch(c: string, cursor: Cursor): string {
+// whole seconds (shareable links, 2026-11-05), the timeline's zoom
+// (`zoom`, lib/strip.ts zoomParam) and play=1 while playing.
+export function cursorSearch(c: string, cursor: Cursor, zoom?: string): string {
   const p = new URLSearchParams({ cam: c, date: cursor.date });
   if (cursor.at !== null) p.set('at', String(Math.floor(cursor.at / 1000)));
   if (cursor.clipId) p.set('clip', cursor.clipId);
   if (cursor.at === null) p.set('t', String(Math.floor(cursor.offsetSec)));
-  else if (cursor.play) p.set('play', '1');
+  if (zoom) p.set('zoom', zoom);
+  if (cursor.at !== null && cursor.play) p.set('play', '1');
   return `?${p.toString()}`;
 }
 

@@ -216,6 +216,16 @@ describe('the strip position in the URL', () => {
     expect(back.cursor.at).toBe(at);
   });
 
+  // The interval (Klaus, 2026-11-05): before play=1, only when the page gives one.
+  it('writes the zoom when given, and old links have none', () => {
+    const c = { date: '2026-09-27', clipId: null, offsetSec: 0, at: 1790552160000 };
+    expect(cursorSearch('den', { ...c, play: true }, '1h')).toBe('?cam=den&date=2026-09-27&at=1790552160&zoom=1h&play=1');
+    expect(cursorSearch('den', c, '10m')).toBe('?cam=den&date=2026-09-27&at=1790552160&zoom=10m');
+    expect(cursorSearch('den', c)).toBe('?cam=den&date=2026-09-27&at=1790552160');
+    // Reading a link: the zoom doesn't change the position.
+    expect(parseCursor(new URLSearchParams('cam=den&at=1790552160&zoom=1h&play=1'), '2026-09-27').cursor).toEqual({ ...c, play: true });
+  });
+
   it('a stored cursor never plays by itself', () => {
     saveCursor('den', { date: '2026-09-27', clipId: null, offsetSec: 0, at: 1790552160000, play: true });
     expect(loadCursor()?.cursor.play).toBeFalsy();

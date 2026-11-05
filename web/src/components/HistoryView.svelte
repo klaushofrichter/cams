@@ -274,6 +274,22 @@
   export function position(): number {
     return at;
   }
+  // Where the player is right now (reports may be up to a second behind).
+  export function snapshot(): { at: number; clipId: string | null; playing: boolean } {
+    return { at, clipId: current, playing };
+  }
+  // The page went behind another one (kept for the live stream's keep-alive):
+  // a recording waits there, paused. Whether it was playing.
+  export function pause(): boolean {
+    const was = playing && !glued;
+    playing = false;
+    return was;
+  }
+  // And back: playing on from where it stopped (a browser that refuses to
+  // start shows it paused, StripPlayer).
+  export function resume(): void {
+    if (!glued) playing = true;
+  }
   // `play`: play from there (a card, a link with play=1); a position from
   // outside (a link such as "Open in History", back/forward) lands paused.
   // `why`: a picked moment, which starts the picture's zoom over.

@@ -1,7 +1,7 @@
 // web/src/lib/strip.test.ts
 import { describe, expect, it } from 'vitest';
 import {
-  STRIP_ZOOMS, normalizeZoom, zoomKey, zoomLabel, tickStep, stripTicks, TICK_CHAR_PX, clipRuns, clipStartFromId, eventsAt, eventStep, inRuns, localDaysBetween, mergeRuns, nextChange, previewRuns, sourceAt, stillRuns, stripSpans, windowAround,
+  STRIP_ZOOMS, normalizeZoom, parseZoomParam, zoomParam, zoomKey, zoomLabel, tickStep, stripTicks, TICK_CHAR_PX, clipRuns, clipStartFromId, eventsAt, eventStep, inRuns, localDaysBetween, mergeRuns, nextChange, previewRuns, sourceAt, stillRuns, stripSpans, windowAround,
   type Coverage,
 } from './strip';
 import type { EventClip } from './recordings';
@@ -254,5 +254,21 @@ describe('eventStep', () => {
   it('skips the events the filter hides', () => {
     expect(eventStep(runs, new Set(['a', 'b']), 205_000, 1)).toBeUndefined();
     expect(eventStep(runs, new Set(['a', 'c']), 250_000, -1)?.clip.id).toBe('a'); // b hidden
+  });
+});
+
+// The interval in a link (Klaus, 2026-11-05): `zoom=` in hours or minutes.
+describe('the zoom in a link', () => {
+  it('writes each zoom the strip offers in hours or minutes', () => {
+    expect(STRIP_ZOOMS.map(zoomParam)).toEqual(['24h', '6h', '3h', '1h', '30m', '10m', '1m']);
+  });
+
+  it('reads them back', () => {
+    for (const z of STRIP_ZOOMS) expect(parseZoomParam(zoomParam(z))).toBe(z);
+    expect(parseZoomParam('60m')).toBe(1);
+  });
+
+  it('ignores a missing zoom, one the strip doesn\'t offer, and junk', () => {
+    for (const bad of [null, undefined, '', '12h', '2h', '0m', '5m', '1', 'h', '1H', '1.5h', ' 1h', 'abc']) expect(parseZoomParam(bad)).toBeNull();
   });
 });

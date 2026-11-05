@@ -45,7 +45,7 @@ describe('session', () => {
   });
 
   it('clearCameraSessionState covers the keys of recordings.ts and timeline.ts', () => {
-    expect([...CAMERA_SESSION_KEYS].sort()).toEqual(['cams-cursor', 'cams.viewPoint']);
+    expect([...CAMERA_SESSION_KEYS].sort()).toEqual(['cams-cursor', 'cams-video-href', 'cams.viewPoint']);
     store.set('cams-cursor', 'x');
     clearCameraSessionState();
     expect(store.size).toBe(0);

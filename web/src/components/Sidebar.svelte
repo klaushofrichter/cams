@@ -2,18 +2,26 @@
   import Icon from './Icon.svelte';
   import ThemeToggle from './ThemeToggle.svelte';
   import AccountMenu from './AccountMenu.svelte';
-  import { NAV_ITEMS, isActive, navigate, route } from '../lib/router';
-  import { sidebarCollapsed, drawerOpen, cameras } from '../lib/stores';
+  import { NAV_ITEMS, isActive, lastVideoHref, navigate, route, videoNavHref, type NavItem } from '../lib/router';
+  import { sidebarCollapsed, drawerOpen, cameras, selectedCameraId } from '../lib/stores';
+  import { zoom } from '../lib/zoomPref';
+  import { zoomParam } from '../lib/strip';
 
   // `drawer` renders the same menu inside the phone drawer, always expanded,
   // with theme and logout added (the top bar hides them on phones).
   let { drawer = false }: { drawer?: boolean } = $props();
   const collapsed = $derived($sidebarCollapsed && !drawer);
 
-  function go(event: MouseEvent, href: string) {
+  // Video goes back to the tab's last Video state (Klaus, 2026-11-05): the
+  // camera, the moment, the zoom, play or pause, or live.
+  const videoHref = $derived(videoNavHref($lastVideoHref, $selectedCameraId, zoomParam($zoom)));
+  const hrefOf = (item: NavItem) => (item.page === 'video' ? videoHref : item.href);
+
+  function go(event: MouseEvent, item: NavItem) {
     if (event.metaKey || event.ctrlKey || event.shiftKey || event.button !== 0) return;
     event.preventDefault();
-    navigate(href);
+    // Video while on it: it stays as it is (its link may be a second behind).
+    if (!(item.page === 'video' && $route.page === 'video')) navigate(hrefOf(item));
     drawerOpen.set(false);
   }
 </script>
@@ -22,13 +30,13 @@
   {#each NAV_ITEMS.filter((i) => !i.needsProxy || $cameras.some((c) => c.proxy)) as item (item.id)}
     {@const active = isActive(item, $route)}
     <a
-      href={item.href}
+      href={hrefOf(item)}
       class="item"
       class:active
       data-testid={`nav-${item.id}`}
       aria-current={active ? 'page' : undefined}
       title={collapsed ? item.label : undefined}
-      onclick={(e) => go(e, item.href)}
+      onclick={(e) => go(e, item)}
     >
       <Icon name={item.icon} />
       <span class="label">{item.label}</span>
