@@ -8,3 +8,4 @@ published as [GitHub releases](https://github.com/klaushofrichter/cams/releases)
 
 ## [Unreleased]
 
+- On a phone the app opens at 100% and no longer zooms: not by a pinch, and not when you tap a field on an iPhone.
