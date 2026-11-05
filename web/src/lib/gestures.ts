@@ -44,3 +44,38 @@ export function gestureAction(g: Gesture): FsAction {
   if (g.zone === 'middle') return { kind: 'toggle' };
   return { kind: 'skip', ms: g.zone === 'left' ? -10_000 : 10_000 };
 }
+
+// A double tap: the second tap this soon after the first and this near it.
+// One window for the picture's zoom (back to 1x), fullscreen and the middle
+// third (Klaus, 2026-11-05: short).
+export const DOUBLE_TAP_MS = 300;
+export const DOUBLE_TAP_PX = 30;
+
+// The fullscreen picture's middle third: its single tap (play/pause) would
+// fire twice, or flicker, under a double tap (leave fullscreen), so it waits
+// for the window to pass; a second tap within it is the double tap instead.
+export interface TapGate {
+  tap(x: number, y: number, single: () => void, double: () => void): void;
+  cancel(): void;
+}
+export function createTapGate(ms = DOUBLE_TAP_MS, px = DOUBLE_TAP_PX): TapGate {
+  let waiting: { x: number; y: number; timer: ReturnType<typeof setTimeout>; single: () => void } | null = null;
+  const cancel = () => {
+    if (waiting) clearTimeout(waiting.timer);
+    waiting = null;
+  };
+  return {
+    tap(x, y, single, double) {
+      const w = waiting;
+      cancel();
+      if (w && Math.hypot(x - w.x, y - w.y) <= px) return double();
+      w?.single(); // a tap elsewhere: the waiting one was a single tap
+      const timer = setTimeout(() => {
+        waiting = null;
+        single();
+      }, ms);
+      waiting = { x, y, timer, single };
+    },
+    cancel,
+  };
+}

@@ -13,7 +13,7 @@
   // History's strip (spec 2026-09-27): the playhead stays in the centre and
   // time moves under it. Drag, sideways wheel, click and ←/→ move it.
   let {
-    coverage, events, visibleIds, failedIds, at, now, currentId, previews, thumbFor, onseek, ondrag, onstep, oldest = null, pending = [], onglue, filmWidth, barWidth, outages = [],
+    coverage, events, visibleIds, failedIds, at, now, currentId, previews, thumbFor, onseek, onpick, ondrag, onstep, oldest = null, pending = [], onglue, filmWidth, barWidth, outages = [],
   }: {
     coverage: Coverage;
     events: EventClip[];
@@ -25,6 +25,7 @@
     previews: PreviewMinute[];
     thumbFor?: (clipId: string) => string;
     onseek: (at: number) => void;
+    onpick?: (at: number) => void; // a thumbnail under the timeline: a picked moment (else onseek)
     onglue?: () => void; // the Live panel: ⇥ goes back to live
     ondrag?: (active: boolean) => void;
     onstep?: (dir: -1 | 1) => void;
@@ -311,7 +312,7 @@
           style={`left:calc(${f.left}% - ${FILM_W / 2}px);width:${FILM_W}px;height:${FILM_H}px`} onclick={() => {
             if (why) showNote(f.left, `${localClock(f.t)}: ${why}`);
             else filmNote = null;
-            seekTo(f.t);
+            (onpick ?? onseek)(clampT(f.t));
           }}>
           {#if f.tile}<span class="tile" style={tileStyle(f.tile.minute, f.tile.index, (FILM_W - 2) / f.tile.minute.tileW)}></span>{/if}
         </button>

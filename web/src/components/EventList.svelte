@@ -278,11 +278,15 @@
     {#each groups as g (g.hour)}
       {@const open = groupOpen[keyOf(g.hour)] ?? openFor(g, selectedId)}
       {@const holds = !open && g.events.some((e) => e.id === selectedId)}
+      {@const hereHour = g.events.some((e) => atPlayhead.has(e.id))}
       {@const count = `${g.events.length} ${g.events.length === 1 ? 'event' : 'events'}`}
       <section class="group" data-testid="hour-group" data-hour={g.hour}>
-        <!-- A collapsed hour holding the playing clip says so (review of #175). -->
-        <button class="group-head" class:holds data-anchor={`hour-${g.hour}`} data-testid="hour-toggle" aria-expanded={open}
-          aria-label={holds ? `${g.label}, ${count}, playing` : undefined} onclick={() => toggle(g.hour)}>
+        <!-- A collapsed hour holding the playing clip says so (review of #175);
+             the hour of an event at the playhead is tinted, open or collapsed
+             (Klaus, 2026-11-05). -->
+        <button class="group-head" class:holds class:at-playhead={hereHour} data-anchor={`hour-${g.hour}`} data-testid="hour-toggle" aria-expanded={open}
+          data-at-playhead={hereHour ? 'true' : undefined}
+          aria-label={holds || hereHour ? [g.label, count, ...(holds ? ['playing'] : []), ...(hereHour ? ['at the playhead'] : [])].join(', ') : undefined} onclick={() => toggle(g.hour)}>
           <span class="label">{#if holds}<span class="playing" data-testid="hour-playing" aria-hidden="true">▶</span>{/if}{g.label}</span>
           <span class="count" data-testid="hour-count">{g.events.length} {g.events.length === 1 ? 'event' : 'events'}</span>
         </button>
@@ -349,6 +353,9 @@
   /* A collapsed hour holding the playing clip. */
   .group-head.holds { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 12%, var(--surface)); }
   .group-head.holds .label { font-weight: 800; color: var(--accent); }
+  /* The hour of an event at the playhead: the cards' tint and bar, quieter. */
+  .group-head.at-playhead { background: color-mix(in srgb, var(--accent) 10%, var(--surface)); box-shadow: inset 3px 0 0 color-mix(in srgb, var(--accent) 70%, transparent); }
+  .group-head.holds.at-playhead { background: color-mix(in srgb, var(--accent) 14%, var(--surface)); }
   .playing { margin-right: 6px; font-size: 10px; }
   .group-head .count { color: var(--muted); }
   .list { list-style: none; margin: 6px 0 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }

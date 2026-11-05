@@ -2,6 +2,7 @@ import { expect, test, type Page } from '@playwright/test';
 import { FAKE_PROXY_PORT } from './fakeProxyData';
 import { expandAllHours } from './hours';
 import { signIn } from './session';
+import { urlAt } from './stubDay';
 
 // Vision in cams (spec 2026-09-30-analytics-in-cams-design, in cam-proxy).
 // Den (cam1) has cam-sim's demo recordings (today 08:15:10 person, …) and the
@@ -88,7 +89,7 @@ test('the Timeline marks the analysed second and shows its boxes; "Open in Histo
   await page.getByTestId('timeline-show-all').check();
   await expect(page.locator('[data-testid="timeline-boxes"] rect')).toHaveCount(2);
   await page.getByTestId('timeline-open-history').click();
-  await expect.poll(() => new URL(page.url()).searchParams.get('at')).toBe(String(stillTs));
+  await expect.poll(() => urlAt(page.url())).toBe(stillTs);
   await expect(page.getByTestId('source-badge')).toBeVisible();
   await expect(page.getByTestId('play-toggle')).toHaveAttribute('aria-pressed', 'false');
 });
@@ -232,7 +233,7 @@ test('the dialog’s "Open in Video" opens the recording at the analysed second,
   await expect(dialog.getByTestId('vision-dialog-history')).toHaveText('Open in Video');
   await dialog.getByTestId('vision-dialog-history').click();
   await expect(page.getByTestId('vision-dialog')).toHaveCount(0);
-  await expect.poll(() => new URL(page.url()).searchParams.get('at')).toBe(String(stillTs));
+  await expect.poll(() => urlAt(page.url())).toBe(stillTs);
   await expect(page.getByTestId('source-badge')).toBeVisible();
   await expect(page.getByTestId('play-toggle')).toHaveAttribute('aria-pressed', 'false');
   // From the list in a recording too, while it plays: it lands paused at the second (review fix).
@@ -244,10 +245,10 @@ test('the dialog’s "Open in Video" opens the recording at the analysed second,
   await expect(page.getByTestId('vision-dialog')).toHaveCount(0);
   await expect(page.getByTestId('play-toggle')).toHaveAttribute('aria-pressed', 'false');
   // At that second (the player may settle a few ms into it), and it stays there.
-  const second = () => Math.floor(Number(new URL(page.url()).searchParams.get('at')) / 1000) * 1000;
+  const second = () => Math.floor(urlAt(page.url()) / 1000) * 1000;
   await expect.poll(second).toBe(stillTs);
   // The paused video's frame lands a few ms on and is reported once (reports
-  // come at most every 2 s); after that it doesn't move.
+  // come at most every second); after that it doesn't move.
   await page.waitForTimeout(3000);
   const settled = new URL(page.url()).searchParams.get('at');
   await page.waitForTimeout(2500);

@@ -2,6 +2,7 @@ import { type Page } from '@playwright/test';
 import { expect, test } from './clock';
 import { signIn } from './session';
 import { chicagoIso, chicagoMs } from './fakeProxyData';
+import { urlAt } from './stubDay';
 
 // Video page stage 2 (spec docs/superpowers/specs/2026-10-04-video-page-design.md):
 // hours more than 6 h from the viewed time collapse when the viewer lands on
@@ -45,7 +46,7 @@ test('a landing collapses far hours; dragging does not; a day pick does; hand to
   await page.mouse.down();
   for (let dx = 10; dx <= 200; dx += 10) await page.mouse.move(bar.x + bar.width / 2 + dx, bar.y + bar.height / 2);
   await page.mouse.up();
-  await expect.poll(async () => Number(new URL(page.url()).searchParams.get('at'))).toBeLessThan(at - 3_600_000);
+  await expect.poll(async () => urlAt(page.url())).toBeLessThan(at - 3_600_000);
   expect(await openHours(page)).toEqual(range(6, 18));
 
   // Hand toggles, then a landing (a card): they stay; the card's hour opens.
