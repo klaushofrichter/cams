@@ -16,6 +16,6 @@
   .card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 18px; display: flex; flex-direction: column; gap: 14px; }
   header h2 { margin: 0; font-size: 16px; }
   header p { margin: 4px 0 0; color: var(--muted); font-size: 13px; }
-  .body { display: grid; gap: 12px; }
+  .body { display: grid; grid-template-columns: minmax(0, 1fr); gap: 12px; }
   footer { display: flex; align-items: center; gap: 12px; justify-content: flex-end; border-top: 1px solid var(--border); padding-top: 12px; }
 </style>

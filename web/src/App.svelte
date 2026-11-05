@@ -148,7 +148,7 @@
     --app-max-w: calc(var(--sidebar-w) + 1px + 56px + var(--player-max-w) + 18px + 340px);
     max-width: var(--app-max-w); margin: 0 auto; box-shadow: 0 0 0 1px var(--border);
     height: 100vh; display: grid;
-    grid-template-columns: auto 1fr; grid-template-rows: auto 1fr;
+    grid-template-columns: auto minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr);
     grid-template-areas: 'top top' 'side main';
   }
   .side { grid-area: side; min-height: 0; }
@@ -163,7 +163,7 @@
   .drawer-panel { position: fixed; top: 0; bottom: 0; left: 0; z-index: 31; background: var(--chrome); box-shadow: var(--shadow); padding-top: 48px; }
   .close { position: absolute; top: 10px; right: 10px; width: 36px; height: 36px; display: grid; place-items: center; border: 0; background: transparent; cursor: pointer; }
   @media (max-width: 767px) {
-    .shell { max-width: none; box-shadow: none; grid-template-columns: 1fr; grid-template-areas: 'top' 'main'; }
+    .shell { max-width: none; box-shadow: none; grid-template-columns: minmax(0, 1fr); grid-template-areas: 'top' 'main'; }
     .side { display: none; }
     .main { padding: 16px; }
   }
