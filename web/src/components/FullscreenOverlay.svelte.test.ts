@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import FullscreenOverlay from './FullscreenOverlay.svelte';
 import type { FsAction } from '../lib/playerFullscreen';
 import type { Mode } from '../lib/videoMode';
+import { DOUBLE_TAP_MS } from '../lib/gestures';
 
 // The fullscreen overlay (#182, spec 2026-10-04-fullscreen-recorded):
 // controls that hide after 3 s, keys, phone gestures, a hint.
@@ -112,6 +113,7 @@ describe('FullscreenOverlay and the picture\'s zoom', () => {
   it('the mouse is not touch: a click still plays or pauses', () => {
     const { acts, layer } = act({ zoomed: true, strokeTaken: false });
     stroke(layer, 800, 800, 100, 'mouse');
+    tick(DOUBLE_TAP_MS);
     expect(acts).toEqual([{ kind: 'toggle' }]);
   });
 });
@@ -184,6 +186,7 @@ describe('FullscreenOverlay', () => {
     expect(shown()).toBe('true');
     stroke(layer, 100, 100);
     stroke(layer, 450, 451);
+    tick(DOUBLE_TAP_MS); // the middle waits for a second tap
     stroke(layer, 800, 800);
     expect(acts).toEqual([{ kind: 'skip', ms: -10_000 }, { kind: 'toggle' }, { kind: 'skip', ms: 10_000 }]);
     expect(q('fs-hint')!.textContent).toBe('+10 s');
@@ -213,8 +216,99 @@ describe('FullscreenOverlay', () => {
     const { acts } = render();
     const layer = sized(900);
     stroke(layer, 100, 100, 80, 'mouse');
+    tick(DOUBLE_TAP_MS);
     expect(acts).toEqual([{ kind: 'toggle' }]);
     expect(q('fs-hint')!.textContent).toBe('▶');
+  });
+
+  // Double tap (Klaus, 2026-11-05): the middle third leaves fullscreen, and
+  // its single tap waits for the window so it never plays or pauses twice.
+  it('touch: one tap in the middle plays or pauses once, after the double-tap window', () => {
+    const { acts, props } = render();
+    const layer = sized(900);
+    stroke(layer, 450, 450);
+    expect(acts).toEqual([]);
+    tick(DOUBLE_TAP_MS);
+    expect(acts).toEqual([{ kind: 'toggle' }]);
+    tick(1000);
+    expect(acts).toEqual([{ kind: 'toggle' }]);
+    expect(props.onexit).not.toHaveBeenCalled();
+  });
+
+  it('touch: a double tap in the middle leaves fullscreen, without playing or pausing', () => {
+    const { acts, props } = render();
+    const layer = sized(900);
+    stroke(layer, 450, 450);
+    stroke(layer, 455, 455);
+    expect(props.onexit).toHaveBeenCalledTimes(1);
+    tick(1000);
+    expect(acts).toEqual([]);
+  });
+
+  it('touch: a double tap while the controls were hidden leaves too', () => {
+    const { acts, props } = render();
+    const layer = sized(900);
+    tick(3500);
+    stroke(layer, 450, 450);
+    stroke(layer, 450, 450);
+    expect(props.onexit).toHaveBeenCalledTimes(1);
+    tick(1000);
+    expect(acts).toEqual([]);
+  });
+
+  it('touch: the sides step on every tap at once, fast taps too, and never leave', () => {
+    const { acts, props } = render();
+    const layer = sized(900);
+    stroke(layer, 800, 800, 50);
+    stroke(layer, 800, 800, 50);
+    stroke(layer, 800, 800, 50);
+    expect(acts).toEqual([{ kind: 'skip', ms: 10_000 }, { kind: 'skip', ms: 10_000 }, { kind: 'skip', ms: 10_000 }]);
+    stroke(layer, 100, 100, 50);
+    stroke(layer, 100, 100, 50);
+    expect(acts.slice(3)).toEqual([{ kind: 'skip', ms: -10_000 }, { kind: 'skip', ms: -10_000 }]);
+    expect(props.onexit).not.toHaveBeenCalled();
+  });
+
+  it('live: a double tap in the middle leaves too; one tap only shows the controls', () => {
+    const { acts, props } = render({ mode: 'live' });
+    const layer = sized(900);
+    stroke(layer, 450, 450);
+    tick(DOUBLE_TAP_MS);
+    expect(acts).toEqual([]);
+    expect(props.onexit).not.toHaveBeenCalled();
+    stroke(layer, 450, 450);
+    stroke(layer, 450, 450);
+    expect(props.onexit).toHaveBeenCalledTimes(1);
+  });
+
+  it('zoomed: a double tap is the zoom\'s (back to 1x), never leaving', () => {
+    const { acts, props } = render({ zoom: () => ({ zoomed: true, strokeTaken: false }) });
+    const layer = sized(900);
+    stroke(layer, 450, 450);
+    stroke(layer, 450, 450);
+    tick(1000);
+    expect(props.onexit).not.toHaveBeenCalled();
+    expect(acts).toEqual([]);
+  });
+
+  it('the mouse: a double click anywhere on the picture leaves, without playing or pausing', () => {
+    const { acts, props } = render();
+    const layer = sized(900);
+    stroke(layer, 100, 100, 60, 'mouse');
+    stroke(layer, 102, 100, 60, 'mouse');
+    expect(props.onexit).toHaveBeenCalledTimes(1);
+    tick(1000);
+    expect(acts).toEqual([]);
+  });
+
+  it('leaving with a tap still waiting: it never fires', () => {
+    const { acts } = render();
+    const layer = sized(900);
+    stroke(layer, 450, 450);
+    unmount(component!);
+    component = undefined;
+    tick(1000);
+    expect(acts).toEqual([]);
   });
 
   // Review of #185.

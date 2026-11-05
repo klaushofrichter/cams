@@ -6,24 +6,26 @@
   import StripPlayer from './StripPlayer.svelte';
   import { createStripData, type StripData } from '../lib/stripData';
   import { clipRuns, EMPTY_COVERAGE, eventsAt, eventStep, windowAround, type Coverage } from '../lib/strip';
-  import { filterEvents, localDate, thumbUrl, VIDEO_STREAM, type EventClip, type Filter } from '../lib/recordings';
+  import { filterEvents, localDate, REPORT_MS, thumbUrl, VIDEO_STREAM, type EventClip, type Filter } from '../lib/recordings';
   import type { PreviewMinute } from '../lib/timeline';
   import { zoom } from '../lib/zoomPref';
   import { createOutages, type Outage } from '../lib/outages';
+  import { resetsZoom, type PlayerMove } from '../lib/zoomReset';
 
   // History's strip and player (spec 2026-09-27). Owns the position `at`;
   // the page only hears about it (onposition) and can jump it (jump()).
   let {
-    cam, proxy, date, initialAt, filter, unavailable, onposition, onatevents, pending = [],
+    cam, proxy, date, initialAt, initialPlay = false, filter, unavailable, onposition, onatevents, pending = [],
     live = false, glued = $bindable(untrack(() => live)), liveBox, onlive,
   }: {
     cam: string;
     proxy: boolean;
     date: string;
     initialAt: number | null;
+    initialPlay?: boolean; // a reload while playing, or a link with play=1: playing from initialAt
     filter: Filter; // the page's event filter: dims the strip, and ←/→ and previous/next skip hidden events
     unavailable: boolean;
-    onposition: (at: number, clipId: string | null) => void;
+    onposition: (at: number, clipId: string | null, playing: boolean) => void;
     onatevents?: (ids: ReadonlySet<string>) => void; // the events whose span holds the playhead, when that changes; none while live
     pending?: { kind: string; ts: number }[]; // live events not listed yet: marked on the strip
     live?: boolean; // the Live panel: the strip's right end is the live stream (spec 2026-09-28)
@@ -104,7 +106,7 @@
   // The Live panel without an `at` opens glued, at now.
   const openLive = untrack(() => glued && initialAt === null);
   let at = $state(untrack(() => initialAt) ?? (openLive ? Date.now() - 2000 : new Date(untrack(() => date).replace(/-/g, '/')).getTime()));
-  let playing = $state(false);
+  let playing = $state(untrack(() => initialAt !== null && initialPlay));
   let placed = openLive || untrack(() => initialAt) !== null; // false: move to the day's first event once it loads
   let dragResume = false;
   let scrubbing = $state(false); // the strip is being dragged: the player keeps its still until a clip is ready
@@ -181,6 +183,7 @@
     untrack(() => {
       if (localDate(new Date(at)) === d) return;
       playing = false;
+      moved('day');
       const list = data.eventsOn(d);
       placed = list !== null; // already loaded: place now; else once it arrives
       at = list && list.length ? Date.parse(list[0].start) : dayStart(d);
@@ -193,23 +196,25 @@
     return new Date(y, m - 1, dd).getTime();
   }
 
-  // Position reports: at once for jumps, else at most every 2 s, with a
-  // trailing report so the last position of a drag, scroll or play is sent.
+  // Position reports: at once for jumps and play/pause, else at most once a
+  // second (the URL follows, so a reload is never more than a second behind,
+  // Klaus 2026-11-05), with a trailing report so the last position of a drag,
+  // scroll or play is sent.
   let lastReport = 0;
   let trailing: ReturnType<typeof setTimeout> | undefined;
   function report(force = false) {
     const t = Date.now();
-    if (!force && t - lastReport < 2000) {
+    if (!force && t - lastReport < REPORT_MS) {
       trailing ??= setTimeout(() => {
         trailing = undefined;
         report(true);
-      }, lastReport + 2000 - t);
+      }, lastReport + REPORT_MS - t);
       return;
     }
     clearTimeout(trailing);
     trailing = undefined;
     lastReport = t;
-    onposition(at, current);
+    onposition(at, current, playing);
   }
   onDestroy(() => clearTimeout(trailing));
   $effect(() => {
@@ -218,6 +223,7 @@
   });
   $effect(() => {
     void current;
+    void playing;
     untrack(() => report(true));
   });
 
@@ -249,8 +255,15 @@
       }
     }
   });
+  // The picture's zoom starts over at a picked moment (lib/zoomReset.ts).
+  let picks = $state(0);
+  function moved(m: PlayerMove) {
+    if (resetsZoom(m)) picks++;
+  }
+
   function glue() {
     if (!live) return;
+    moved('live');
     playing = false;
     placed = true;
     glued = true;
@@ -261,16 +274,21 @@
   export function position(): number {
     return at;
   }
-  // `play`: play from there (a card, prev/next while playing); a position
-  // from outside (a link such as "Open in History", back/forward) lands paused.
-  export function jump(t: number, play = false) {
+  // `play`: play from there (a card, a link with play=1); a position from
+  // outside (a link such as "Open in History", back/forward) lands paused.
+  // `why`: a picked moment, which starts the picture's zoom over.
+  export function jump(t: number, play = false, why: PlayerMove = 'link') {
+    moved(why);
+    place(t, play);
+  }
+  function place(t: number, play: boolean) {
     glued = false;
     at = t;
     placed = true;
     playing = play;
     report(true);
   }
-  // Drag and wheel: many small moves; reported at most every 2 s.
+  // Drag and wheel: many small moves; reported at most once a second.
   function seek(t: number) {
     // The strip's right end is live; recordings after now (a camera clock
     // ahead) stay browseable up to it (one Video page, spec 2026-10-04).
@@ -283,7 +301,7 @@
   // Whether it jumped: the fullscreen overlay hints only a real jump.
   function step(dir: -1 | 1): boolean {
     const target = eventStep(coverage.clips, visibleIds, at, dir);
-    if (target) jump(target.start, playing);
+    if (target) place(target.start, playing);
     return !!target;
   }
   // ⏮ / ⏭ in fullscreen are off at the first / last shown event.
@@ -291,7 +309,7 @@
 </script>
 
 <div class="history">
-  <StripPlayer {cam} {coverage} {previews} {now} bind:at bind:playing {unavailable} {glued} clipStream={VIDEO_STREAM} {scrubbing} live={liveBox} onglue={live ? glue : undefined}
+  <StripPlayer {cam} zoomPicks={picks} {coverage} {previews} {now} bind:at bind:playing {unavailable} {glued} clipStream={VIDEO_STREAM} {scrubbing} live={liveBox} onglue={live ? glue : undefined}
     onclipfail={(id) => {
       data.markFailed(id);
       failed = new Set(failed).add(id);
@@ -300,6 +318,10 @@
   <Strip {oldest} {pending} {coverage} events={allEvents} {visibleIds} failedIds={failed} {at} {now} currentId={current} {previews} {outages}
     thumbFor={unavailable ? undefined : (id) => thumbUrl(cam, id, allEvents.find((e) => e.id === id)?.thumb)}
     onseek={(t) => seek(t)}
+    onpick={(t) => {
+      moved('thumbnail');
+      seek(t);
+    }}
     onglue={live ? glue : playing && onlive ? () => { playing = false; onlive(); } : undefined}
     ondrag={(active) => {
       scrubbing = active;

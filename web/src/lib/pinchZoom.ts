@@ -1,4 +1,4 @@
-import { TAP_MAX_MS, TAP_MAX_PX } from './gestures';
+import { DOUBLE_TAP_MS, DOUBLE_TAP_PX, TAP_MAX_MS, TAP_MAX_PX } from './gestures';
 import { clampView, containRect, IDENTITY, panBy, pinchStep, settled, viewTransform, type Point, type Rect, type View } from './mediaZoom';
 import { duration } from './motion';
 
@@ -27,12 +27,13 @@ export interface ZoomState {
 export interface PinchZoomOptions {
   key?: unknown; // a new value resets to 1x (another clip, camera, still)
   onchange?: (s: ZoomState) => void;
+  // A double tap on the picture at 1x (zoomed, a double tap is back to 1x):
+  // the Video player's fullscreen (Klaus, 2026-11-05). Without it, nothing.
+  ondoubletap?: () => void;
 }
 
 const touch = { passive: false } as const;
 const SNAP_MS = 160;
-const DOUBLE_TAP_MS = 350;
-const DOUBLE_TAP_PX = 30;
 // A touch on these is theirs. data-no-zoom: a bar of controls, gaps included.
 const NOT_THE_PICTURE = 'button, a, input, select, textarea, label, [data-no-zoom]';
 
@@ -236,12 +237,14 @@ export function pinchZoom(node: HTMLElement, options: PinchZoomOptions = {}) {
     finger = null;
     const near = settled(view);
     if (near !== view) set(near, true);
-    if (e.type !== 'touchend' || !s.tap || Date.now() - s.t > TAP_MAX_MS || view.s === 1) return;
+    if (e.type !== 'touchend' || !s.tap || Date.now() - s.t > TAP_MAX_MS || (view.s === 1 && !opts.ondoubletap)) return;
     const t = Date.now();
     if (lastTap && t - lastTap.t <= DOUBLE_TAP_MS && Math.hypot(s.x - lastTap.x, s.y - lastTap.y) <= DOUBLE_TAP_PX) {
-      // Back to 1x. No click from this tap, and not a tap for anybody else.
+      // No click from this tap, and not a tap for anybody else.
       lastTap = null;
       if (e.cancelable) e.preventDefault();
+      if (view.s === 1) return opts.ondoubletap?.();
+      // Back to 1x.
       taken = true;
       set(IDENTITY, true);
       return;

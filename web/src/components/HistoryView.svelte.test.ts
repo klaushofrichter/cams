@@ -49,7 +49,7 @@ async function render(extra: Record<string, unknown> = {}) {
 describe('HistoryView', () => {
   it('opens on the day’s first event when the URL has no position', async () => {
     const { onposition } = await render();
-    expect(onposition).toHaveBeenLastCalledWith(Date.parse(E1.start), E1.id);
+    expect(onposition).toHaveBeenLastCalledWith(Date.parse(E1.start), E1.id, false);
   });
 
   // Review of #183: the REC badge names the stream the page plays (the clip
@@ -63,7 +63,7 @@ describe('HistoryView', () => {
   it('opens at the URL position', async () => {
     const at = Date.parse('2026-09-27T10:00:00-05:00');
     const { onposition } = await render({ initialAt: at });
-    expect(onposition).toHaveBeenLastCalledWith(at, null);
+    expect(onposition).toHaveBeenLastCalledWith(at, null, false);
   });
 
   it('jumps when the page’s date changes to another day, to 00:00 without events', async () => {
@@ -71,17 +71,32 @@ describe('HistoryView', () => {
     props.date = '2026-09-25';
     await vi.advanceTimersByTimeAsync(10);
     flushSync();
-    expect(onposition).toHaveBeenLastCalledWith(new Date(2026, 8, 25).getTime(), null);
+    expect(onposition).toHaveBeenLastCalledWith(new Date(2026, 8, 25).getTime(), null, false);
   });
 
-  it('reports the position at most every 2 s while playing', async () => {
+  // Once a second (Klaus, 2026-11-05: a reload is a second behind at most),
+  // and at once on play and pause, which the URL says too.
+  it('reports the position about once a second while playing, and play/pause at once', async () => {
     const at = Date.parse('2026-09-27T10:00:00-05:00');
     const { onposition } = await render({ initialAt: at });
     onposition.mockClear();
     (target!.querySelector('[data-testid="play-toggle"]') as HTMLElement).click();
+    flushSync();
+    expect(onposition).toHaveBeenLastCalledWith(at, null, true);
     await vi.advanceTimersByTimeAsync(5000);
-    expect(onposition.mock.calls.length).toBeLessThanOrEqual(3);
-    expect(onposition.mock.calls.length).toBeGreaterThanOrEqual(2);
+    expect(onposition.mock.calls.length).toBeLessThanOrEqual(7);
+    expect(onposition.mock.calls.length).toBeGreaterThanOrEqual(5);
+    expect(onposition.mock.calls.at(-1)![2]).toBe(true);
+    (target!.querySelector('[data-testid="play-toggle"]') as HTMLElement).click();
+    flushSync();
+    expect(onposition.mock.calls.at(-1)![2]).toBe(false);
+  });
+
+  it('starts playing with initialPlay (a reload while playing, a link with play=1), paused without', async () => {
+    const at = Date.parse('2026-09-27T10:00:00-05:00');
+    const { onposition } = await render({ initialAt: at, initialPlay: true });
+    expect(target!.querySelector('[data-testid="play-toggle"]')!.getAttribute('aria-pressed')).toBe('true');
+    expect(onposition.mock.calls.at(-1)![2]).toBe(true);
   });
 
   // Review fix: a position from outside ("Open in History" while playing) lands paused;
@@ -111,7 +126,7 @@ describe('HistoryView', () => {
     expect(seg!.classList.contains('failed')).toBe(true);
   });
 
-  it('reports at most every 2 s while scrolling the strip, and once more when it stops (review #8, #12)', async () => {
+  it('reports at most once a second while scrolling the strip, and once more when it stops (review #8, #12)', async () => {
     const { onposition } = await render({ initialAt: Date.parse(E1.start) });
     onposition.mockClear();
     const bar = target!.querySelector('[data-testid="timeline"]') as HTMLElement;
@@ -132,14 +147,14 @@ describe('HistoryView', () => {
     await vi.advanceTimersByTimeAsync(10);
     props.date = '2026-09-27';
     flushSync();
-    expect(onposition).toHaveBeenLastCalledWith(Date.parse(E1.start), E1.id);
+    expect(onposition).toHaveBeenLastCalledWith(Date.parse(E1.start), E1.id, false);
   });
 
   it('steps to the next event the filter shows, on any day (review #14)', async () => {
     const { onposition } = await render({ initialAt: Date.parse(E1.start), filter: ['person'] as Filter });
     (target!.querySelector('[data-testid="next-clip"]') as HTMLElement).click();
     flushSync();
-    expect(onposition).toHaveBeenLastCalledWith(Date.parse(E3.start), E3.id);
+    expect(onposition).toHaveBeenLastCalledWith(Date.parse(E3.start), E3.id, false);
   });
 
   it('asks again for today\'s stills while paused, so they keep up (review #6)', async () => {
@@ -155,10 +170,10 @@ describe('HistoryView', () => {
     const { onposition } = await render({ initialAt: Date.parse(E1.start) });
     (target!.querySelector('[data-testid="strip-oldest"]') as HTMLElement).click();
     await vi.advanceTimersByTimeAsync(2100);
-    expect(onposition).toHaveBeenLastCalledWith(oldest, null);
+    expect(onposition).toHaveBeenLastCalledWith(oldest, null, false);
     (target!.querySelector('[data-testid="back-10"]') as HTMLElement).click();
     await vi.advanceTimersByTimeAsync(2100);
-    expect(onposition).toHaveBeenLastCalledWith(oldest, null);
+    expect(onposition).toHaveBeenLastCalledWith(oldest, null, false);
   });
 });
 

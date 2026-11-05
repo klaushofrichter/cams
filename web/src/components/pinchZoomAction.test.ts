@@ -129,6 +129,62 @@ describe('pinchZoom', () => {
     touch('touchend', picture, []);
   });
 
+  // Double tap at 1x (Klaus, 2026-11-05): the player's fullscreen, when asked for.
+  it('a double tap at 1x calls ondoubletap once, takes the tap from the page, and keeps 1x', () => {
+    const calls = vi.fn();
+    action.update({ key: 'a', onchange: (z) => (state = z), ondoubletap: calls });
+    const first = tap([200, 100]);
+    expect(first.defaultPrevented).toBe(false); // a single tap stays the page's
+    vi.advanceTimersByTime(200);
+    const second = tap([205, 104]);
+    expect(calls).toHaveBeenCalledTimes(1);
+    expect(second.defaultPrevented).toBe(true);
+    expect(transform()).toBe('');
+    // A third tap starts over: no second call.
+    vi.advanceTimersByTime(100);
+    tap([200, 100]);
+    expect(calls).toHaveBeenCalledTimes(1);
+  });
+
+  it('at 1x: two slow taps, two far apart, a drag or a button are no double tap', () => {
+    const calls = vi.fn();
+    action.update({ key: 'a', ondoubletap: calls });
+    tap([200, 100]);
+    vi.advanceTimersByTime(500);
+    tap([200, 100]);
+    vi.advanceTimersByTime(500);
+    tap([20, 20]);
+    vi.advanceTimersByTime(100);
+    tap([300, 200]);
+    vi.advanceTimersByTime(500);
+    tap([200, 100], button);
+    vi.advanceTimersByTime(100);
+    tap([200, 100], button);
+    vi.advanceTimersByTime(500);
+    touch('touchstart', picture, [[200, 100]]);
+    touch('touchmove', picture, [[200, 160]]);
+    touch('touchend', picture, []);
+    vi.advanceTimersByTime(100);
+    tap([200, 160]);
+    expect(calls).not.toHaveBeenCalled();
+  });
+
+  it('zoomed, a double tap returns to 1x and is not ondoubletap', () => {
+    const calls = vi.fn();
+    action.update({ key: 'a', onchange: (z) => (state = z), ondoubletap: calls });
+    zoomIn();
+    vi.advanceTimersByTime(1000);
+    tap([200, 100]);
+    vi.advanceTimersByTime(150);
+    tap([200, 100]);
+    expect(transform()).toBe('');
+    expect(calls).not.toHaveBeenCalled();
+    // And a tap right after it is a first tap, not the second of another double.
+    vi.advanceTimersByTime(100);
+    tap([200, 100]);
+    expect(calls).not.toHaveBeenCalled();
+  });
+
   it('with reduced motion the snap is instant', () => {
     vi.stubGlobal('matchMedia', (q: string) => ({ matches: q.includes('reduce') }));
     zoomIn();

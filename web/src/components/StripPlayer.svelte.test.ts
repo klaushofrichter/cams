@@ -751,3 +751,118 @@ describe('StripPlayer: the preview tile until the first still is there', () => {
     expect(q('strip-preview')).toBeNull();
   });
 });
+
+// Klaus, 2026-11-05: a double tap or a double click on the picture enters
+// fullscreen (the Fullscreen button's way); the zoom stays through the next
+// clip and the stills, and starts over at a picked moment.
+describe('StripPlayer: double tap, double click and the zoom', () => {
+  const fsEnabled = (on: boolean) => Object.defineProperty(document, 'fullscreenEnabled', { configurable: true, value: on });
+  afterEach(() => exitPlayerFullscreen());
+  // Not right after an earlier test left fullscreen (at the same fake time).
+  let minutes = 0;
+  beforeEach(() => vi.setSystemTime(T + 60_000 * ++minutes));
+  const box = () => q('player-box')!;
+  function sized() {
+    box().getBoundingClientRect = () => ({ left: 0, top: 0, width: 400, height: 225, right: 400, bottom: 225, x: 0, y: 0, toJSON: () => ({}) });
+  }
+  type Pt = [number, number];
+  function touch(type: string, on: Element, fingers: Pt[]) {
+    const e = new Event(type, { bubbles: true, cancelable: true });
+    Object.defineProperty(e, 'touches', { value: fingers.map(([clientX, clientY], identifier) => ({ identifier, clientX, clientY, target: on })) });
+    on.dispatchEvent(e);
+  }
+  const picture = () => box().querySelector('video')!;
+  function tapTwice() {
+    for (let i = 0; i < 2; i++) {
+      touch('touchstart', picture(), [[200, 100]]);
+      touch('touchend', picture(), []);
+      vi.advanceTimersByTime(80);
+    }
+    flushSync();
+  }
+  function zoomIn() {
+    touch('touchstart', picture(), [[150, 100]]);
+    touch('touchstart', picture(), [[150, 100], [250, 100]]);
+    touch('touchmove', picture(), [[50, 100], [350, 100]]);
+    touch('touchend', picture(), [[50, 100]]);
+    touch('touchend', picture(), []);
+    flushSync();
+  }
+  const zoom = () => box().style.getPropertyValue('--media-zoom');
+
+  it('a double click on the picture fills the screen; on the badge it does not', async () => {
+    fsEnabled(false);
+    render();
+    q('mode-badge')!.dispatchEvent(new MouseEvent('dblclick', { bubbles: true }));
+    await tick(0);
+    expect(get(playerFs)).toBe('off');
+    picture().dispatchEvent(new MouseEvent('dblclick', { bubbles: true }));
+    await tick(0);
+    expect(get(playerFs)).toBe('fill');
+    expect(q('fs-overlay')).not.toBeNull();
+  });
+
+  it('a double tap at 1x enters fullscreen; the browser\'s double click after it is no second one', async () => {
+    fsEnabled(false);
+    render();
+    sized();
+    tapTwice();
+    await tick(0);
+    expect(get(playerFs)).toBe('fill');
+    exitPlayerFullscreen();
+    flushSync();
+    await tick(700);
+    tapTwice();
+    picture().dispatchEvent(new MouseEvent('dblclick', { bubbles: true }));
+    await tick(0);
+    expect(get(playerFs)).toBe('fill');
+  });
+
+  it('a double click right after leaving fullscreen does not enter it again', async () => {
+    fsEnabled(false);
+    render();
+    picture().dispatchEvent(new MouseEvent('dblclick', { bubbles: true }));
+    await tick(0);
+    expect(get(playerFs)).toBe('fill');
+    exitPlayerFullscreen();
+    flushSync();
+    picture().dispatchEvent(new MouseEvent('dblclick', { bubbles: true }));
+    await tick(0);
+    expect(get(playerFs)).toBe('off');
+  });
+
+  it('zoomed, a double tap is back to 1x, not fullscreen', async () => {
+    fsEnabled(false);
+    render();
+    sized();
+    zoomIn();
+    expect(zoom()).not.toBe('');
+    vi.advanceTimersByTime(1000);
+    tapTwice();
+    await tick(0);
+    expect(zoom()).toBe('');
+    expect(get(playerFs)).toBe('off');
+  });
+
+  it('keeps the zoom into a clip and out of it; a pick (zoomPicks) or another camera resets it', async () => {
+    const p = render({ at: T + 5000 }) as unknown as { at: number; zoomPicks: number; cam: string };
+    sized();
+    zoomIn();
+    const z = zoom();
+    expect(z).not.toBe('');
+    p.at = T + 12_000; // into the clip
+    flushSync();
+    expect(zoom()).toBe(z);
+    p.at = T + 25_000; // stills after it
+    flushSync();
+    expect(zoom()).toBe(z);
+    p.zoomPicks = 1;
+    flushSync();
+    expect(zoom()).toBe('');
+    zoomIn();
+    expect(zoom()).not.toBe('');
+    p.cam = 'barn';
+    flushSync();
+    expect(zoom()).toBe('');
+  });
+});

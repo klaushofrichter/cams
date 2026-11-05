@@ -11,8 +11,9 @@
   import { previewAt, tileStyle, type PreviewMinute } from '../lib/timeline';
   import { liveQualityLabel, liveUi } from '../lib/liveUi';
   import FullscreenOverlay from './FullscreenOverlay.svelte';
-  import { enterPlayerFullscreen, exitPlayerFullscreen, playerFs, type FsAction } from '../lib/playerFullscreen';
+  import { enterPlayerFullscreen, exitPlayerFullscreen, leftFullscreenWithin, playerFs, type FsAction } from '../lib/playerFullscreen';
   import { pinchZoom, type ZoomState } from '../lib/pinchZoom';
+  import { zoomKey as zoomKeyOf } from '../lib/zoomReset';
   import { clipShown, liveBadge, modeBadge, modeOf, registerPlayer, type PlayerFrame, type RecShown } from '../lib/videoMode';
   import { enterClip, IDLE_SEEKER, seekRequest, seekSettled, showClipVideo, SWAP_DWELL_MS, SWAP_TOLERANCE_S, type Entered, type Seeker } from '../lib/clipSwap';
 
@@ -21,10 +22,11 @@
   // stills, preview tiles or "No recording". Two <video> elements take turns
   // so the next clip is loaded 3 s before it starts.
   let {
-    cam, coverage, previews, now, at = $bindable(), playing = $bindable(), unavailable = false, onclipfail, onstep,
+    cam, zoomPicks = 0, coverage, previews, now, at = $bindable(), playing = $bindable(), unavailable = false, onclipfail, onstep,
     glued = false, live: liveSnippet, onglue, clipStream = 'sub', stepAvail = { prev: true, next: true }, scrubbing = false,
   }: {
     cam: string;
+    zoomPicks?: number; // counts the moments the viewer picked: each starts the zoom over (lib/zoomReset.ts)
     coverage: Coverage;
     previews: PreviewMinute[];
     now: number;
@@ -420,12 +422,26 @@
       if (boxEl) void enterPlayerFullscreen(boxEl);
     },
   }));
+  // A double tap (at 1x: zoomed it is back to 1x) or a double click on the
+  // picture enters fullscreen the Fullscreen button's way (Klaus, 2026-11-05);
+  // in fullscreen the overlay's middle third leaves it. A double click that
+  // only follows a touch, or whose second click just left, is no new one.
+  function enterFullscreen() {
+    if (boxEl && $playerFs === 'off' && !leftFullscreenWithin(600)) void enterPlayerFullscreen(boxEl);
+  }
+  let touchedAt = -Infinity;
+  function dblclick(e: MouseEvent) {
+    if (Date.now() - touchedAt < 1000) return;
+    if (e.target instanceof Element && e.target.closest('button, a, input, select, textarea, label, [data-no-zoom]')) return;
+    enterFullscreen();
+  }
   // Gone (another camera remounts the player): no fullscreen left behind.
   $effect(() => () => exitPlayerFullscreen());
   const mode = $derived(modeOf(glued));
-  // The picture's zoom (lib/pinchZoom.ts): another camera, live or another
-  // clip starts at 1x. Stills are one picture a second: not per still.
-  const zoomKey = $derived(`${cam}|${glued ? 'live' : source.kind === 'clip' ? source.clip.id : source.kind}`);
+  // The picture's zoom (lib/pinchZoom.ts): kept through playback, steps and
+  // scrubbing, the next clip, stills or live; another camera or a picked
+  // moment starts at 1x (Klaus, 2026-11-05, lib/zoomReset.ts).
+  const zoomKey = $derived(zoomKeyOf(cam, zoomPicks));
   let zoomState: ZoomState = { zoomed: false, strokeTaken: false };
   // REC adds what it shows (Klaus, 2026-10-04): SD or 4K for a clip, Still for the stills.
   const shown = $derived<RecShown | null>(source.kind === 'clip' ? clipShown(clipStream) : source.kind === 'still' ? 'Still' : null);
@@ -488,7 +504,8 @@
 <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
 <div class="player" data-testid="strip-player" tabindex="0" onkeydown={keydown}>
   <div class="box" class:fill={$playerFs === 'fill'} bind:clientWidth={boxW} bind:this={boxEl} data-testid="player-box"
-    use:pinchZoom={{ key: zoomKey, onchange: (z) => (zoomState = z) }}
+    use:pinchZoom={{ key: zoomKey, onchange: (z) => (zoomState = z), ondoubletap: $playerFs === 'off' ? enterFullscreen : undefined }}
+    ondblclick={dblclick} ontouchstart={() => (touchedAt = Date.now())}
     data-showing={glued ? 'live' : source.kind !== 'clip' ? 'pictures' : videoShown ? 'video' : 'cover'}>
     {#each [0, 1] as i (i)}
       <video
@@ -585,7 +602,8 @@
 
 <style>
   .player { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
-  .box { position: relative; width: 100%; aspect-ratio: 16 / 9; background: #000; border-radius: 12px; overflow: hidden; }
+  /* No text selection from a double click (it enters fullscreen). */
+  .box { position: relative; width: 100%; aspect-ratio: 16 / 9; background: #000; border-radius: 12px; overflow: hidden; user-select: none; -webkit-user-select: none; }
   video, .layer { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; }
   /* The pictures zoom (lib/pinchZoom.ts); the badge and the controls don't. */
   video, img.layer, .tile-wrap { transform: var(--media-zoom, none); transform-origin: 0 0; transition: transform var(--media-zoom-t, 0s); }

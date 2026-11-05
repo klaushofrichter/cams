@@ -27,6 +27,7 @@
   import { checkLiveStatus, liveStreamHeld, liveUi } from '../lib/liveUi';
   import { modeOf } from '../lib/videoMode';
   import { exitPlayerFullscreen } from '../lib/playerFullscreen';
+  import type { PlayerMove } from '../lib/zoomReset';
 
   // The Video page (spec 2026-10-04; before it, Live and History as two
   // panels, spec 2026-09-28): one player, one strip, one sidebar. The mode
@@ -112,7 +113,7 @@
     if (r.page === 'video') vroute = r;
   });
 
-  let historyView: { jump: (at: number, play?: boolean) => void; position: () => number } | undefined = $state();
+  let historyView: { jump: (at: number, play?: boolean, why?: PlayerMove) => void; position: () => number } | undefined = $state();
   // History's hour groups: "Collapse hours" / "Expand hours" (Klaus, 2026-09-29).
   let eventList: { setAllHours: (open: boolean) => void } | undefined = $state();
   let hoursOpen = $state(true);
@@ -254,7 +255,7 @@
   // across page switches and reloads. URLs carry no filter; an old link's
   // `filter=` is ignored. All until the preferences have loaded.
   // A string first: the list only changes when the kinds do, not on every
-  // URL update (every 2 s while playing), so lists and the strip don't
+  // URL update (every second while playing), so lists and the strip don't
   // recompute (issue #69).
   const filterKey = $derived(filterParam($eventFilter ?? ALL_KINDS));
   const setFilter = (f: Filter) => void pickEventFilter(f);
@@ -291,7 +292,7 @@
   const initialAt = $derived(cursor.at ?? (cursor.clipId ? (clipStartFromId(cursor.clipId) ?? 0) + cursor.offsetSec * 1000 || null : null));
   // The strip reports where the playhead is: the URL (date, at, the clip
   // under it) follows, as a replace so the history isn't flooded.
-  function onPosition(at: number, clipId: string | null) {
+  function onPosition(at: number, clipId: string | null, playing: boolean) {
     playheadClip = clipId;
     reportedAt = at;
     // A switch between live and a recording: the effects above push the URL.
@@ -303,7 +304,7 @@
     saveViewPoint(cam, glued ? null : at);
     // Live keeps its plain URL.
     if (glued) return;
-    const c: Cursor = { date: localDate(new Date(at)), clipId, offsetSec: 0, at };
+    const c: Cursor = { date: localDate(new Date(at)), clipId, offsetSec: 0, at, play: playing };
     saveCursor(cam, c);
     replaceRoute(hrefFor(cam, c));
   }
@@ -413,7 +414,7 @@
       firstPosition = false;
       if (t === null) return;
       if (reportedAt === null || Math.abs(t - reportedAt) >= 1000) {
-        historyView?.jump(t);
+        historyView?.jump(t, untrack(() => cursor.play === true));
         land(t);
       } else if (first) land(t);
     });
@@ -562,7 +563,7 @@
       <div class="main" bind:this={mainEl}>
         {#key cam}
           <HistoryView bind:this={historyView} {cam} proxy={camProxy}
-            date={cursor.date} {initialAt} {filter}
+            date={cursor.date} {initialAt} initialPlay={cursor.play === true} {filter}
             unavailable={downloads === 'unavailable'} onposition={onPosition} onatevents={(ids) => (atPlayhead = ids)} {pending}
             live bind:glued liveBox={liveWanted ? liveBoxSnippet : undefined} />
         {/key}
@@ -597,7 +598,7 @@
           onreveal={revealPlayer} onhours={(o) => (hoursOpen = o)}
           onfilter={setFilter}
           {landing}
-          onselect={(e) => { historyView?.jump(Date.parse(e.start), true); land(Date.parse(e.start)); }} onthumberror={recheckDownloads} downloadsOk={downloads !== 'unavailable'}>
+          onselect={(e) => { historyView?.jump(Date.parse(e.start), true, 'event'); land(Date.parse(e.start)); }} onthumberror={recheckDownloads} downloadsOk={downloads !== 'unavailable'}>
           {#snippet tools()}
             <div class="listhead">
               <span class="day" data-testid="events-day">{isToday ? "Today's events" : `Events on ${cursor.date}`}</span>

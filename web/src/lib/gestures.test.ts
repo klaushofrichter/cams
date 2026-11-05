@@ -1,5 +1,5 @@
-import { describe, expect, it } from 'vitest';
-import { classifyStroke, gestureAction, EDGE_PX, SWIPE_MIN_PX, TAP_MAX_PX, type Stroke } from './gestures';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { classifyStroke, createTapGate, gestureAction, DOUBLE_TAP_MS, DOUBLE_TAP_PX, EDGE_PX, SWIPE_MIN_PX, TAP_MAX_PX, type Stroke } from './gestures';
 
 // Phone gestures in fullscreen (#182, spec 2026-10-04-fullscreen-recorded):
 // one stroke is a swipe, a tap in a third, or nothing.
@@ -58,3 +58,78 @@ describe('gestureAction', () => {
   });
 });
 
+
+// The middle of the fullscreen picture (Klaus, 2026-11-05): one tap plays or
+// pauses once the double-tap window has passed; two are a double tap, and the
+// single one never happens. Short: the window is the double tap's.
+describe('createTapGate', () => {
+  beforeEach(() => vi.useFakeTimers());
+  afterEach(() => vi.useRealTimers());
+
+  it('a single tap acts once, after the window', () => {
+    const gate = createTapGate();
+    const single = vi.fn();
+    const double = vi.fn();
+    gate.tap(100, 100, single, double);
+    vi.advanceTimersByTime(DOUBLE_TAP_MS - 1);
+    expect(single).not.toHaveBeenCalled();
+    vi.advanceTimersByTime(1);
+    expect(single).toHaveBeenCalledTimes(1);
+    expect(double).not.toHaveBeenCalled();
+  });
+
+  it('two taps within the window and near each other are a double tap, and no single', () => {
+    const gate = createTapGate();
+    const single = vi.fn();
+    const double = vi.fn();
+    gate.tap(100, 100, single, double);
+    vi.advanceTimersByTime(200);
+    gate.tap(110, 95, single, double);
+    expect(double).toHaveBeenCalledTimes(1);
+    vi.advanceTimersByTime(1000);
+    expect(single).not.toHaveBeenCalled();
+  });
+
+  it('two slow taps are two singles; a far second tap acts the first at once and waits itself', () => {
+    const gate = createTapGate();
+    const single = vi.fn();
+    const double = vi.fn();
+    gate.tap(100, 100, single, double);
+    vi.advanceTimersByTime(DOUBLE_TAP_MS + 50);
+    gate.tap(100, 100, single, double);
+    vi.advanceTimersByTime(DOUBLE_TAP_MS);
+    expect(single).toHaveBeenCalledTimes(2);
+    gate.tap(100, 100, single, double);
+    vi.advanceTimersByTime(50);
+    gate.tap(100 + DOUBLE_TAP_PX + 1, 100, single, double);
+    expect(single).toHaveBeenCalledTimes(3);
+    vi.advanceTimersByTime(DOUBLE_TAP_MS);
+    expect(single).toHaveBeenCalledTimes(4);
+    expect(double).not.toHaveBeenCalled();
+  });
+
+  it('a third tap after a double starts over', () => {
+    const gate = createTapGate();
+    const single = vi.fn();
+    const double = vi.fn();
+    gate.tap(100, 100, single, double);
+    gate.tap(100, 100, single, double);
+    gate.tap(100, 100, single, double);
+    expect(double).toHaveBeenCalledTimes(1);
+    vi.advanceTimersByTime(DOUBLE_TAP_MS);
+    expect(single).toHaveBeenCalledTimes(1);
+  });
+
+  it('cancel drops a waiting tap', () => {
+    const gate = createTapGate();
+    const single = vi.fn();
+    gate.tap(100, 100, single, vi.fn());
+    gate.cancel();
+    vi.advanceTimersByTime(1000);
+    expect(single).not.toHaveBeenCalled();
+  });
+
+  it('keeps the window short', () => {
+    expect(DOUBLE_TAP_MS).toBeLessThanOrEqual(300);
+  });
+});

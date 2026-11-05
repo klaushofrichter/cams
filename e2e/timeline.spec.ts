@@ -1,5 +1,6 @@
 import { expect, test } from '@playwright/test';
 import { signIn } from './session';
+import { urlAt } from './stubDay';
 
 // Plan 6: Den (cam1) has a fake cam-proxy (e2e/fakeProxyData.ts) with the
 // last ten minutes of stills; Porch has none.
@@ -27,7 +28,7 @@ test('a minute opens its seconds under its hour; a second opens the still; "Open
   await expect(still).toBeVisible();
   const ts = /stills\/(\d+)\.jpg/.exec((await still.getAttribute('src'))!)![1];
   await page.getByTestId('timeline-open-history').click();
-  await expect.poll(() => new URL(page.url()).searchParams.get('at')).toBe(ts);
+  await expect.poll(() => urlAt(page.url())).toBe(Number(ts));
   await expect(page.getByTestId('source-badge')).toBeVisible();
   await expect(page.getByTestId('play-toggle')).toHaveAttribute('aria-pressed', 'false');
 });

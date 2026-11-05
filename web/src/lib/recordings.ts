@@ -26,6 +26,7 @@ export interface Cursor {
   clipId: string | null;
   offsetSec: number;
   at: number | null; // the strip position (UTC ms); null: from clipId/offsetSec, or the day's first event
+  play?: boolean; // playing (the URL's play=1): a reload goes on playing, a link with it starts playing
 }
 
 export const TRIGGER_LABELS: Record<Trigger, string> = {
@@ -109,24 +110,39 @@ export function parseCursor(params: URLSearchParams, today: string): { cam: stri
   const date = params.get('date') ?? '';
   const clip = params.get('clip') ?? '';
   const t = Number(params.get('t'));
-  const atRaw = params.get('at') ?? '';
+  const at = parseAt(params.get('at') ?? '');
   return {
     cam: params.get('cam'),
     cursor: {
       date: DATE.test(date) ? date : today,
       clipId: CLIP.test(clip) ? clip : null,
       offsetSec: Number.isFinite(t) && t > 0 ? Math.floor(t) : 0,
-      at: /^\d{12,14}$/.test(atRaw) ? Number(atRaw) : null,
+      at,
+      ...(at !== null && params.get('play') === '1' ? { play: true } : {}),
     },
   };
 }
 
-// The Video page's query (spec 2026-10-04): no `panel` any more.
+// How often, at most, the player's position goes to the URL (replaced, not
+// pushed): a reload is never more than this behind (Klaus, 2026-11-05).
+export const REPORT_MS = 1000;
+
+// `at` in a link (Klaus, 2026-11-05): epoch seconds (10 digits today; 9 to 11
+// allowed), or the older links' ms (12 to 14 digits). In ms either way.
+export function parseAt(raw: string): number | null {
+  if (/^\d{9,11}$/.test(raw)) return Number(raw) * 1000;
+  if (/^\d{12,14}$/.test(raw)) return Number(raw);
+  return null;
+}
+
+// The Video page's query (spec 2026-10-04): no `panel` any more. `at` in
+// whole seconds (shareable links, 2026-11-05) and play=1 while playing.
 export function cursorSearch(c: string, cursor: Cursor): string {
   const p = new URLSearchParams({ cam: c, date: cursor.date });
-  if (cursor.at !== null) p.set('at', String(Math.floor(cursor.at)));
+  if (cursor.at !== null) p.set('at', String(Math.floor(cursor.at / 1000)));
   if (cursor.clipId) p.set('clip', cursor.clipId);
   if (cursor.at === null) p.set('t', String(Math.floor(cursor.offsetSec)));
+  else if (cursor.play) p.set('play', '1');
   return `?${p.toString()}`;
 }
 
