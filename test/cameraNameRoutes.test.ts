@@ -105,6 +105,23 @@ describe('the shown name', () => {
     expect(cameraName(k('shed'))).toBe('Shed');
   });
 
+  // The list read when the stream comes up can be answered after a rename's
+  // message: what it holds is older, and the next read is 15 minutes away.
+  it('a list read under way does not undo a `camera` message', async () => {
+    const fake = await fakeProxy();
+    fake.camerasDelayMs = 200;
+    cameras(fake);
+    const base = await serve();
+    const b = browser(base);
+    await until(() => fake.requests.some((r) => r.path === '/api/cameras')); // asked, the answer still says Den
+    fake.cameraNames.set('cam1', 'Porch Light');
+    fake.push({ cam: 'cam1', type: 'camera', data: { name: 'Porch Light' } });
+    await until(() => shown('den') === 'Porch Light');
+    await new Promise((r) => setTimeout(r, 400)); // the read's answer has come
+    expect(shown('den')).toBe('Porch Light');
+    expect(b.named()).toEqual([{ cam: 'den', name: 'Porch Light' }]);
+  });
+
   // A proxy restart or a network blip must not flash the registry name in
   // every browser (review of #169): the last name stays for a grace period.
   it('keeps the name through a short outage, without telling browsers anything', async () => {

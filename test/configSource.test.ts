@@ -10,7 +10,7 @@ import { writeCache } from '../server/admin/cache';
 import { enroll } from '../server/admin/enroll';
 import { writeKeyFile } from '../server/admin/keyfile';
 import type { Snapshot } from '../server/admin/snapshot';
-import { configStatus, nextDelayMs, pullNow, pullSoon, startConfig, stopConfig } from '../server/configSource';
+import { configStatus, nextDelayMs, pullNow, pullSoon, startConfig, stopConfig, tokensSettled } from '../server/configSource';
 import { createApp } from '../server/app';
 import { listCameras, setCameras } from '../server/cameraRegistry';
 import { fileAccount, fleetAccounts, setFileAccountId, DEFAULT_FILE_ACCOUNT_ID } from '../server/fleet';
@@ -309,7 +309,8 @@ describe('tokens in cams-admin mode (R4-12)', () => {
     writeFileSync(process.env.CAMERAS_FILE, JSON.stringify([{ id: 'cam1', name: 'Den', host: '127.0.0.1:9', protocol: 'http', user: 'cams', password: 'p', proxy: { url: 'http://127.0.0.1:1/alpha', token: 'L'.repeat(40) } }]));
     fake.setSnapshot(twoAccountsSnapshot({ homeName: 'home' }));
     await startConfig(FAST);
-    await expect.poll(() => fake.registered.length).toBe(4);
+    await tokensSettled();
+    expect(fake.registered.length).toBe(4);
     const { getCamera } = await import('../server/cameraRegistry.js');
     expect(getCamera(camKey(ALPHA, 'cam1'))?.proxy?.token).toBe('L'.repeat(40)); // legacy, the file account's
     expect(getCamera(camKey(BETA, 'cam1'))?.proxy).toBeUndefined(); // new here: held, no token
@@ -385,7 +386,8 @@ describe('proxy tokens follow the URL in use', () => {
   const bound = async (secret: string, url: string) => (await lib()).secretAllowed(secret, (await lib()).proxyEndpoint({ url, pins: null, tlsServername: null }));
   // cams's own tokens, registered and then listed active on their proxies.
   async function activate(o: { revision: string; cameras: Record<string, unknown>[]; alphaUrl?: string; cUrl?: string }) {
-    await expect.poll(() => fake.registered.length).toBe(6);
+    await tokensSettled();
+    expect(fake.registered.length).toBe(6);
     for (const t of fake.tokens) t.state = 'active';
     const rows = (proxyId: string) => fake.tokens.filter((t) => t.proxyId === proxyId).map((t) => ({ id: t.tokenId, kind: t.kind, state: t.state, retireAt: null }));
     fake.setSnapshot(twoAccountsSnapshot({ homeName: 'home', revision: o.revision, tokens: { a: rows(PRX_A) }, alphaMoreProxies: [proxyC(rows(PRX_C), o.cUrl)], alphaCameras: o.cameras, ...(o.alphaUrl && { alphaUrl: o.alphaUrl }) }));

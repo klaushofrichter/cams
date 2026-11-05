@@ -87,6 +87,7 @@ export interface FakeProxy {
   camerasBody?: unknown; // tests: answer /api/cameras with this instead
   loginLinks: number; // one-time admin UI links minted (POST /control/login-links)
   cameraNames: Map<string, string>; // proxy camera id → the camera's name (in /api/cameras; PUT /control/camera/name)
+  camerasDelayMs: number; // tests: /api/cameras answers this late, with the list as it was when asked
   cameraAddresses: Map<string, string>; // proxy camera id → its camera.host (`address` in /api/cameras; cam-proxy pi-config spec §2)
   nameOverride: { status: number; body: unknown } | null; // tests: PUT /control/camera/name answers this (after checking the name)
   nameRequests: { cam: string; name: unknown }[]; // PUT /control/camera/name bodies (its control API is cam1's, like a one-camera proxy)
@@ -218,6 +219,7 @@ export async function startFakeProxy(opts: { port?: number; token?: string; tls?
     publicUrl: null,
     loginLinks: 0,
     cameraNames: new Map([['cam1', 'Den']]),
+    camerasDelayMs: 0,
     cameraAddresses: new Map([['cam1', '192.0.2.10']]),
     nameOverride: null,
     nameRequests: [],
@@ -492,7 +494,9 @@ export async function startFakeProxy(opts: { port?: number; token?: string; tls?
   };
   // The camera list, as the real one reports it (only what cams reads).
   app.get('/api/cameras', (_req, res) => {
-    res.json(fake.camerasBody !== undefined ? fake.camerasBody : [...fake.cameraNames].map(([id, name]) => ({ id, name, online: true, lastEventTs: null, stream: null, publicUrl: fake.publicUrl, address: fake.cameraAddresses.get(id) ?? null, ...(fake.features && { features: fake.features }), ...(fake.cameraTls.has(id) && { tls: fake.cameraTls.get(id) }), capabilities: fake.capabilities.get(id) ?? null, error: null })));
+    const list = fake.camerasBody !== undefined ? fake.camerasBody : [...fake.cameraNames].map(([id, name]) => ({ id, name, online: true, lastEventTs: null, stream: null, publicUrl: fake.publicUrl, address: fake.cameraAddresses.get(id) ?? null, ...(fake.features && { features: fake.features }), ...(fake.cameraTls.has(id) && { tls: fake.cameraTls.get(id) }), capabilities: fake.capabilities.get(id) ?? null, error: null }));
+    if (fake.camerasDelayMs) setTimeout(() => res.json(list), fake.camerasDelayMs);
+    else res.json(list);
   });
   // Like the real one: the oldest clip, still and preview it holds.
   // PTZ (cam-proxy's src/api/ptz-api.ts, spec 2026-10-30-ptz-capabilities-design

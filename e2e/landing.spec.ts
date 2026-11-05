@@ -431,8 +431,16 @@ test.describe('landing page', () => {
     const pages = cycle.getByTestId('epaper-page');
     await expect(pages).toHaveCount(4);
     const opacities = () => pages.evaluateAll((ims) => ims.map((i) => getComputedStyle(i).opacity));
-    // Into a fade (page 2 of 4), then idle while it runs.
-    await page.clock.fastForward(30_100);
+    // Into a fade (page 2 of 4), then idle while it runs (idle counts from the
+    // last input, the scroll above).
+    const screen = page.locator('#hardware').getByTestId('epaper-screen');
+    await expect.poll(async () => {
+      await page.clock.fastForward(30_100);
+      return screen.evaluate((el) => el.classList.contains('motion-paused'));
+    }).toBe(true);
+    // The fade runs on real time, whatever the page's clock does; read at its
+    // very start, the pages still look like a whole one (the outgoing one at 1).
+    await pages.evaluateAll((ims) => Promise.all(ims.flatMap((i) => i.getAnimations()).map((a) => a.finished)));
     await expect.poll(async () => (await opacities()).sort().join(' ')).toBe('0 0 0 1');
     const rest = (await opacities()).indexOf('1');
     await page.clock.fastForward(30_000);
