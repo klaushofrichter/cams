@@ -3,6 +3,8 @@
 // link's fragment, and the two requests. The token goes to the server in a
 // JSON body only, never in a URL.
 
+import { readable } from 'svelte/store';
+
 export const VIEWER_TOKEN_RE = /^cav_[0-9A-Za-z]{22}$/;
 
 // The link's fragment, "#t=<token>" (also "t=<token>"): the token, or null.
@@ -88,3 +90,37 @@ export async function signInWithViewerToken(token: string, fetchFn: typeof fetch
 export function validUntilText(ms: number, locale?: string): string {
   return new Date(ms).toLocaleString(locale, { dateStyle: 'medium', timeStyle: 'short' });
 }
+
+// The time left until `expiresAt`, rounded down so it never promises more:
+// minutes under 120 minutes, hours under 48 hours, days after; "one" for a
+// single unit. (With these limits one hour reads "60 minutes" and one day
+// "24 hours".)
+export function remainingText(expiresAt: number, now: number): string {
+  const ms = expiresAt - now;
+  if (ms <= 0) return 'expired';
+  const minutes = Math.floor(ms / 60_000);
+  if (minutes < 1) return 'less than one minute left';
+  const [n, unit] = minutes < 120 ? [minutes, 'minute'] : minutes < 48 * 60 ? [Math.floor(minutes / 60), 'hour'] : [Math.floor(minutes / 1440), 'day'];
+  return n === 1 ? `one ${unit} left` : `${n} ${unit}s left`;
+}
+
+// "Now", ticking once a minute while someone listens (the timer stops with
+// the last subscriber) and paused while the tab is hidden.
+export const minuteNow = readable(Date.now(), (set) => {
+  let timer: ReturnType<typeof setInterval> | null = null;
+  const start = () => {
+    set(Date.now());
+    if (!timer) timer = setInterval(() => set(Date.now()), 60_000);
+  };
+  const stop = () => {
+    if (timer) clearInterval(timer);
+    timer = null;
+  };
+  const visibility = () => (document.hidden ? stop() : start());
+  document.addEventListener('visibilitychange', visibility);
+  if (!document.hidden) start();
+  return () => {
+    stop();
+    document.removeEventListener('visibilitychange', visibility);
+  };
+});
