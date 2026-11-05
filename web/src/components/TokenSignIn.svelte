@@ -6,7 +6,7 @@
   // a scan never signs in by itself: "Sign in as '<name>'?" and one button.
   // The same on every platform; the scanner only on a secure page.
   import { onDestroy, tick, untrack } from 'svelte';
-  import { checkViewerToken, signInWithViewerToken, tokenFromFragment, tokenFromPaste, tokenFromScan, validUntilText } from '../lib/viewerToken';
+  import { checkViewerToken, signInWithViewerToken, tokenFromFragment, tokenFromPaste, tokenFromScan, minuteNow, remainingText, validUntilText } from '../lib/viewerToken';
   import { scannerAvailable, startScan, type Scan } from '../lib/qrScan';
 
   let { fragment = null, origin = location.origin, scanner = scannerAvailable() }: { fragment?: string | null; origin?: string; scanner?: boolean } = $props();
@@ -108,7 +108,7 @@
   {#if confirm}
     <div class="confirm" data-testid="vt-confirm">
       <p class="question" data-testid="vt-confirm-text">Sign in as '{confirm.name}'?</p>
-      <p class="muted" data-testid="vt-confirm-valid">Valid until {validUntilText(confirm.expiresAt)}</p>
+      <p class="muted" data-testid="vt-confirm-valid">Valid until {validUntilText(confirm.expiresAt)} ({remainingText(confirm.expiresAt, $minuteNow)})</p>
       <div class="row">
         <button type="button" class="primary" disabled={busy} onclick={() => confirm && void signIn(confirm.token)} data-testid="vt-signin">{busy ? 'Signing in…' : 'Sign in'}</button>
         <button type="button" class="secondary" disabled={busy} onclick={another} data-testid="vt-another">Use another token</button>

@@ -63,14 +63,16 @@ describe('About: Signed in as', () => {
     expect(await render({ email: 'klaus@example.org', via: 'google', version: 'v', buildDate: null })).toBe('klaus@example.org');
   });
 
-  it('a viewer token: its name and "valid until"', async () => {
+  it('a viewer token: its name, "valid until" and the time left', async () => {
     const until = Date.UTC(2026, 10, 12, 18, 30);
+    vi.useFakeTimers({ toFake: ['Date'], now: until - 6 * 86_400_000 - 5 * 3_600_000 });
     const text = await render({ email: 'viewer-token:vtk_00000000000000000001', via: 'viewer-token', name: 'Kitchen tablet', validUntil: until, version: 'v', buildDate: null });
-    expect(text).toBe(`Kitchen tablet, valid until ${new Date(until).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })}`);
+    expect(text).toBe(`Kitchen tablet, valid until ${new Date(until).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })} (6 days left)`);
     expect(text).not.toContain('vtk_');
+    vi.useRealTimers();
   });
 
   it('the Pi\'s login token: its user', async () => {
-    expect(await render({ email: 'local', via: 'token', version: 'v', buildDate: null })).toBe('local');
+    expect(await render({ email: 'local', via: 'token', version: 'v', buildDate: null })).toBe('local'); // no expiry, no time left
   });
 });

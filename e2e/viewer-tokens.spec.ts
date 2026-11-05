@@ -86,10 +86,24 @@ test('the link: the fragment leaves the address at once, then "Sign in as \'<nam
   await expect(page.getByTestId('vt-confirm-text')).toHaveText(`Sign in as '${T.link.name}'?`);
   expect(new URL(page.url()).hash).toBe('');
   expect(page.url()).not.toContain(T.link.token);
-  await expect(page.getByTestId('vt-confirm-valid')).toHaveText(/^Valid until /);
+  await expect(page.getByTestId('vt-confirm-valid')).toHaveText(/^Valid until .+ \(6 days left\)$/); // the fake's tokens last 7 days, rounded down
   expect(await meStatus(page)).toBe(401); // nothing signed in before the click
   await page.getByTestId('vt-signin').click();
   await expectSignedInAs(page, T.link.name);
+});
+
+test('About shows the time left, and it moves with the clock', async ({ page }) => {
+  await page.clock.install();
+  await page.goto('/token');
+  await page.getByTestId('vt-input').fill(T.paste.token);
+  await page.getByTestId('vt-submit').click();
+  await expectSignedInAs(page, T.paste.name);
+  const line = page.getByTestId('about-signed-in');
+  await expect(line).toHaveText(/, valid until .+ \(6 days left\)$/);
+  await page.clock.fastForward(25 * 3_600_000);
+  await expect(line).toHaveText(/ \(5 days left\)$/);
+  await page.clock.fastForward(119.5 * 3_600_000);
+  await expect(line).toHaveText(/ \(\d+ hours left\)$/);
 });
 
 test('an expired token is refused, by link and by paste', async ({ page, context }) => {

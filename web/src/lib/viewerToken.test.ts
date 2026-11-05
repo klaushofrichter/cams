@@ -1,7 +1,7 @@
 // The /token page's parsing and requests (cams-admin design 2026-11-05 §9.2).
 import { describe, expect, it, vi } from 'vitest';
 import vectors from '../../../contract/cams-v1/vectors.json';
-import { checkViewerToken, signInWithViewerToken, tokenFromFragment, tokenFromPaste, tokenFromScan } from './viewerToken';
+import { checkViewerToken, remainingText, signInWithViewerToken, tokenFromFragment, tokenFromPaste, tokenFromScan } from './viewerToken';
 
 const T = 'cav_WebTestFakeTokenNo0001';
 const ORIGIN = 'https://cams.example.test';
@@ -53,5 +53,29 @@ describe('the requests', () => {
     expect(await signInWithViewerToken(T, answer(200, { redirect: '/app/accounts' }) as unknown as typeof fetch)).toEqual({ redirect: '/app/accounts' });
     expect(await signInWithViewerToken(T, answer(200, { redirect: 'https://evil.example/app' }) as unknown as typeof fetch)).toEqual({ redirect: '/app/video' });
     expect(await signInWithViewerToken(T, vi.fn(async () => { throw new Error('offline'); }) as unknown as typeof fetch)).toEqual({ error: 'Sign-in failed. Try again.' });
+  });
+});
+
+describe('the time left', () => {
+  const M = 60_000, H = 60 * M, D = 24 * H, NOW = 1_800_000_000_000;
+  const left = (ms: number) => remainingText(NOW + ms, NOW);
+  it('minutes under 120 min, hours under 48 h, days after; rounded down', () => {
+    expect(left(119 * M)).toBe('119 minutes left');
+    expect(left(120 * M)).toBe('2 hours left');
+    expect(left(47 * H + 59 * M)).toBe('47 hours left');
+    expect(left(48 * H)).toBe('2 days left');
+    expect(left(6 * D + 23 * H)).toBe('6 days left');
+    expect(left(2 * M + 59_000)).toBe('2 minutes left');
+  });
+  it('"one" for exactly one unit', () => {
+    expect(left(M)).toBe('one minute left');
+    expect(left(H)).toBe('60 minutes left');
+    expect(left(D)).toBe('24 hours left');
+    expect(left(M + 59_000)).toBe('one minute left');
+  });
+  it('under a minute, and expired', () => {
+    expect(left(59_999)).toBe('less than one minute left');
+    expect(left(0)).toBe('expired');
+    expect(left(-5 * M)).toBe('expired');
   });
 });
