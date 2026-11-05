@@ -175,6 +175,11 @@ html {
 ::-webkit-scrollbar-thumb:hover { background: var(--scroll-thumb-hover); }
 
 *, *::before, *::after { box-sizing: border-box; }
+/* A select is as wide as its longest option: never wider than its place. */
+select { max-width: 100%; text-overflow: ellipsis; }
+/* A fieldset is at least as wide as its content, a legend included: let both wrap. */
+fieldset { min-width: 0; }
+legend { max-width: 100%; }
 html, body { margin: 0; height: 100%; }
 body {
   background: var(--bg);

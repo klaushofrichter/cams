@@ -173,4 +173,34 @@ test.describe('phone layout', () => {
     const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
     expect(overflow).toBeLessThanOrEqual(0);
   });
+
+  // A select is as wide as its longest option, and real cameras have longer
+  // names than these: the page must fit anyway (Klaus's iPhone, 2026-11-05).
+  for (const path of ['/app/video', '/app/timeline', '/app/settings', '/app/archive', '/app/about']) {
+    test(`${path} fits the screen with a long camera name`, async ({ page }) => {
+      await page.setViewportSize({ width: 320, height: 800 }); // the smallest phones, and room for wider fonts
+      await page.goto(path);
+      await expect(page.getByTestId('camera-picker')).toBeEnabled();
+      await page.waitForTimeout(1500); // a page's own selects come with its data
+      const fit = await page.evaluate(async () => {
+        for (const select of document.querySelectorAll('select')) {
+          const o = document.createElement('option');
+          o.text = 'Backyard Middle Camera Over The Garage Door';
+          select.appendChild(o);
+        }
+        await new Promise((r) => requestAnimationFrame(r));
+        const vw = document.documentElement.clientWidth;
+        const main = document.querySelector('main')!;
+        return {
+          wide: [...main.querySelectorAll('*')].filter((e) => e.getBoundingClientRect().right > vw).map((e) => e.tagName + ' ' + (e.getAttribute('data-testid') ?? '')).slice(0, 5),
+          page: document.documentElement.scrollWidth - vw,
+          main: main.scrollWidth - main.clientWidth,
+          clock: document.querySelector('[data-testid="top-clock"]')!.getBoundingClientRect().right - vw,
+        };
+      });
+      expect(fit.page).toBeLessThanOrEqual(0);
+      expect(fit.main, fit.wide.join(', ')).toBeLessThanOrEqual(0);
+      expect(fit.clock).toBeLessThanOrEqual(0);
+    });
+  }
 });

@@ -59,9 +59,9 @@
   .cards { display: grid; gap: 18px; grid-template-columns: repeat(auto-fit, minmax(min(100%, 380px), 1fr)); align-items: start; }
   .card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 18px; }
   h2 { margin: 0 0 10px; font-size: 16px; }
-  dl { display: grid; grid-template-columns: max-content 1fr; gap: 6px 14px; margin: 12px 0 0; }
+  dl { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 6px 14px; margin: 12px 0 0; }
   dt { color: var(--muted); }
-  dd { margin: 0; }
+  dd { margin: 0; overflow-wrap: anywhere; }
   ul { margin: 0; padding-left: 18px; display: grid; gap: 6px; }
   .muted { color: var(--muted); font-size: 13px; }
   a { color: var(--accent); }

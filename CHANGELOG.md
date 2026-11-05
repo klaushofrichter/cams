@@ -8,3 +8,4 @@ published as [GitHub releases](https://github.com/klaushofrichter/cams/releases)
 
 ## [Unreleased]
 
+- On a phone, a long camera name no longer makes every page wider than the screen, which cut off the clock, the video's right edge and buttons.
