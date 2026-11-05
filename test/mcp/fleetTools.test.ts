@@ -2,7 +2,7 @@
 // client against the app, with the real signed client and the fake cams-admin:
 // admins only, this account only, read only, and cams-admin's absence is an
 // answer, not an outage.
-import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { mkdtempSync, readFileSync, writeFileSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
@@ -249,13 +249,27 @@ describe('when cams-admin does not answer', () => {
 describe('what cams keeps', () => {
   it('one request for calls within the short keep, a new one after it', async () => {
     const { token } = issue(ALPHA, 'owner@example.org');
-    resetFleetAnswers(50);
-    await call(token, 'list_proxies');
-    await call(token, 'list_moves');
-    expect(fleetRequests()).toHaveLength(1);
-    await new Promise((r) => setTimeout(r, 120));
-    await call(token, 'list_proxies');
-    expect(fleetRequests()).toHaveLength(2);
+    // The keep's end by hand: with a real 50 ms keep, two calls on a busy
+    // machine took longer and this asked twice.
+    const KEEP = 987_654;
+    resetFleetAnswers(KEEP);
+    let end: (() => void) | undefined;
+    const realTimeout = globalThis.setTimeout;
+    const timers = vi.spyOn(globalThis, 'setTimeout').mockImplementation(((fn: () => void, ms?: number, ...rest: unknown[]) => {
+      if (ms !== KEEP) return realTimeout(fn, ms, ...rest);
+      end = fn;
+      return { unref() {} };
+    }) as typeof setTimeout);
+    try {
+      await call(token, 'list_proxies');
+      await call(token, 'list_moves');
+      expect(fleetRequests()).toHaveLength(1);
+      end!();
+      await call(token, 'list_proxies');
+      expect(fleetRequests()).toHaveLength(2);
+    } finally {
+      timers.mockRestore();
+    }
   });
 
   it('an account answer is kept apart from the other account, and a failure is not kept', async () => {
