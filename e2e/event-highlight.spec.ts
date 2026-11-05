@@ -168,14 +168,21 @@ test('the hour title of the event at the playhead is tinted too, collapsed or op
   await open(page, '10:00:05'); // inside A (10:00)
   await expect(markedHours(page)).toHaveCount(1);
   await expect(hourHead(page, 10)).toHaveAttribute('data-at-playhead', 'true');
-  // The accent's family, quieter than the card: a thinner bar, a lighter tint.
+  // The accent's family, by colour only: the same font as the other hours, so
+  // nothing moves (Klaus, 2026-11-05).
   const look = await hourHead(page, 10).evaluate((el) => {
     const card = document.querySelector('[data-testid="event-card"][data-at-playhead="true"]')!.closest('li')!;
-    return { head: getComputedStyle(el).backgroundColor, card: getComputedStyle(card).backgroundColor, plain: getComputedStyle(document.querySelector('[data-testid="hour-toggle"]:not([data-at-playhead])')!).backgroundColor, shadow: getComputedStyle(el).boxShadow };
+    const plain = document.querySelector('[data-testid="hour-toggle"]:not([data-at-playhead])')!;
+    const label = (e: Element) => getComputedStyle(e.querySelector('.label')!);
+    return {
+      head: getComputedStyle(el).backgroundColor, card: getComputedStyle(card).backgroundColor, plain: getComputedStyle(plain).backgroundColor,
+      text: label(el).color, plainText: label(plain).color, weight: label(el).fontWeight, plainWeight: label(plain).fontWeight,
+    };
   });
   expect(look.head).not.toBe(look.plain);
   expect(look.head).not.toBe(look.card);
-  expect(look.shadow).toMatch(/inset/);
+  expect(look.text).not.toBe(look.plainText);
+  expect(look.weight).toBe(look.plainWeight);
   // Collapsed: still tinted.
   await hourHead(page, 10).click();
   await expect(hourHead(page, 10)).toHaveAttribute('aria-expanded', 'false');
