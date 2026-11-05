@@ -8,4 +8,3 @@ published as [GitHub releases](https://github.com/klaushofrichter/cams/releases)
 
 ## [Unreleased]
 
-- Event list: the hour of the event being played is tinted turquoise whether it is open or collapsed, in the same font as the other hours; the ▶ of a collapsed hour now follows the hour, so its text no longer moves.
