@@ -1,4 +1,5 @@
-// The app doesn't zoom. iOS ignores `user-scalable=no` in the viewport tag, so
+// The page doesn't zoom (a camera picture does, inside its frame: pinchZoom.ts,
+// by touch events, which this doesn't stop). iOS ignores `user-scalable=no` in the viewport tag, so
 // its browsers (Chrome on an iPhone is one) need this to refuse a pinch; theme.css
 // has `touch-action` for the same. `maximum-scale=1` keeps iOS from zooming
 // in when a field smaller than 16px gets the focus.

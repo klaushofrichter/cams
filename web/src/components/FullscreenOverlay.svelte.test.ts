@@ -72,6 +72,50 @@ const key = (k: string, mods: KeyboardEventInit = {}) => {
   flushSync();
 };
 
+describe('FullscreenOverlay and the picture\'s zoom', () => {
+  const act = (zoom: { zoomed: boolean; strokeTaken: boolean }) => {
+    const { acts } = render({ zoom: () => zoom });
+    return { acts, layer: sized() };
+  };
+
+  it('a pinch or a pan is no swipe, no tap', () => {
+    const { acts, layer } = act({ zoomed: true, strokeTaken: true });
+    stroke(layer, 500, 200);
+    stroke(layer, 800, 800);
+    expect(acts).toEqual([]);
+  });
+
+  it('the stroke that pinched back to 1x is no gesture either', () => {
+    const { acts, layer } = act({ zoomed: false, strokeTaken: true });
+    stroke(layer, 500, 200);
+    expect(acts).toEqual([]);
+  });
+
+  it('a tap while zoomed only shows the controls', () => {
+    const { acts, layer } = act({ zoomed: true, strokeTaken: false });
+    tick(3100);
+    expect(shown()).toBe('false');
+    stroke(layer, 800, 800);
+    expect(shown()).toBe('true');
+    tick(100);
+    stroke(layer, 800, 800); // shown already: still no step
+    expect(acts).toEqual([]);
+  });
+
+  it('at 1x the gestures are as ever', () => {
+    const { acts, layer } = act({ zoomed: false, strokeTaken: false });
+    stroke(layer, 500, 200);
+    stroke(layer, 800, 800);
+    expect(acts).toEqual([{ kind: 'skip', ms: 1000 }, { kind: 'skip', ms: 10_000 }]);
+  });
+
+  it('the mouse is not touch: a click still plays or pauses', () => {
+    const { acts, layer } = act({ zoomed: true, strokeTaken: false });
+    stroke(layer, 800, 800, 100, 'mouse');
+    expect(acts).toEqual([{ kind: 'toggle' }]);
+  });
+});
+
 describe('FullscreenOverlay', () => {
   it('shows the controls, then hides them after 3 s without input', () => {
     render();
