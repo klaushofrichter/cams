@@ -2,13 +2,14 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { get } from 'svelte/store';
-import { pickZoom, withValidZoom, zoom } from './zoomPref';
+import { pickZoom, setLinkZoom, withValidZoom, zoom } from './zoomPref';
 import { preferences, type Preferences } from './preferences';
 
 const PREFS: Preferences = { defaultCamera: null, liveQuality: 'sub', eventFilter: ['person', 'vehicle', 'pet', 'motion'], timelineZoom: 24, liveKeepAlive: 60 };
 afterEach(() => {
   vi.unstubAllGlobals();
   preferences.set(null);
+  setLinkZoom(null);
 });
 
 describe('zoomPref', () => {
@@ -47,5 +48,46 @@ describe('zoomPref', () => {
     await b;
     expect(sent).toEqual([12, 3]);
     expect(get(zoom)).toBe(3);
+  });
+
+  // A link's interval wins over the preference (Klaus, 2026-11-05).
+  it('shows a link\'s zoom over the preference, without saving it', () => {
+    preferences.set({ ...PREFS, timelineZoom: 24 });
+    setLinkZoom(1);
+    expect(get(zoom)).toBe(1);
+    expect(get(preferences)?.timelineZoom).toBe(24);
+    setLinkZoom(null);
+    expect(get(zoom)).toBe(24);
+  });
+
+  it('keeps the link\'s zoom while the preferences load and other preferences change', () => {
+    setLinkZoom(1 / 6);
+    preferences.set({ ...PREFS, timelineZoom: 24 });
+    expect(get(zoom)).toBe(1 / 6);
+    preferences.set({ ...PREFS, timelineZoom: 24, liveKeepAlive: 30 });
+    expect(get(zoom)).toBe(1 / 6);
+  });
+
+  it('a changed zoom preference (Settings, a zoom button) replaces the link\'s', () => {
+    preferences.set({ ...PREFS, timelineZoom: 24 });
+    setLinkZoom(1);
+    preferences.set({ ...PREFS, timelineZoom: 3 });
+    expect(get(zoom)).toBe(3);
+  });
+
+  it('a zoom picked while a link\'s is shown is the one shown', () => {
+    vi.stubGlobal('fetch', () => Promise.resolve(new Response(JSON.stringify({ ...PREFS, timelineZoom: 0.5 }), { status: 200 })));
+    preferences.set({ ...PREFS, timelineZoom: 24 });
+    setLinkZoom(1);
+    void pickZoom(0.5);
+    expect(get(zoom)).toBe(0.5);
+  });
+
+  it('a pick of the preference\'s own zoom still replaces the link\'s', () => {
+    vi.stubGlobal('fetch', () => Promise.resolve(new Response(JSON.stringify(PREFS), { status: 200 })));
+    preferences.set({ ...PREFS, timelineZoom: 24 });
+    setLinkZoom(1);
+    void pickZoom(24);
+    expect(get(zoom)).toBe(24);
   });
 });

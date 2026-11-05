@@ -1,5 +1,6 @@
 <script lang="ts">
   import { untrack } from 'svelte';
+  import { get } from 'svelte/store';
   import DayPicker from '../components/DayPicker.svelte';
   import HistoryView from '../components/HistoryView.svelte';
   import EventList from '../components/EventList.svelte';
@@ -10,7 +11,7 @@
   import PtzPanel from '../components/PtzPanel.svelte';
   import { reveal } from '../lib/motion';
   import { cameras, cameraById, selectedCameraId } from '../lib/stores';
-  import { VIDEO_PATH, navigate, replaceRoute, route } from '../lib/router';
+  import { VIDEO_PATH, navigate, onBeforeNavigate, replaceRoute, route } from '../lib/router';
   import { getJson } from '../lib/api';
   import { loadDay, onDayInvalidated, sourceNote, type Downloads } from '../lib/dayCache';
   import { clipStartFromId } from '../lib/strip';
@@ -28,6 +29,8 @@
   import { modeOf } from '../lib/videoMode';
   import { exitPlayerFullscreen } from '../lib/playerFullscreen';
   import type { PlayerMove } from '../lib/zoomReset';
+  import { setLinkZoom, zoom } from '../lib/zoomPref';
+  import { parseZoomParam, zoomParam } from '../lib/strip';
 
   // The Video page (spec 2026-10-04; before it, Live and History as two
   // panels, spec 2026-09-28): one player, one strip, one sidebar. The mode
@@ -112,8 +115,23 @@
     const r = $route;
     if (r.page === 'video') vroute = r;
   });
+  // A link's zoom (Klaus, 2026-11-05) wins over the saved preference; a URL
+  // without one keeps the zoom shown. Before the effects that write the URL,
+  // the player's first report included (a child's effect runs first).
+  $effect.pre(() => {
+    const z = parseZoomParam(vroute.params.get('zoom'));
+    if (z !== null) untrack(() => setLinkZoom(z));
+  });
 
-  let historyView: { jump: (at: number, play?: boolean, why?: PlayerMove) => void; position: () => number } | undefined = $state();
+  let historyView:
+    | {
+        jump: (at: number, play?: boolean, why?: PlayerMove) => void;
+        position: () => number;
+        snapshot: () => { at: number; clipId: string | null; playing: boolean };
+        pause: () => boolean;
+        resume: () => void;
+      }
+    | undefined = $state();
   // History's hour groups: "Collapse hours" / "Expand hours" (Klaus, 2026-09-29).
   let eventList: { setAllHours: (open: boolean) => void } | undefined = $state();
   let hoursOpen = $state(true);
@@ -308,10 +326,53 @@
     saveCursor(cam, c);
     replaceRoute(hrefFor(cam, c));
   }
-  // A recording's URL: /app/video with the camera, the day and the time.
+  // A recording's URL: /app/video with the camera, the day, the time and the zoom.
   function hrefFor(c0: string, c: Cursor) {
-    return `${VIDEO_PATH}${cursorSearch(c0, c)}`;
+    return `${VIDEO_PATH}${cursorSearch(c0, c, zoomParam(get(zoom)))}`;
   }
+  // Another zoom picked (or set in Settings): the recording's URL says so,
+  // replaced (Klaus, 2026-11-05). Live keeps its plain URL.
+  const zoomNow = $derived(zoomParam($zoom));
+  $effect(() => {
+    const z = zoomNow;
+    if (!pageVisible || glued || panel !== 'history') return;
+    untrack(() => {
+      if (!cam || location.pathname !== VIDEO_PATH || vroute.params.get('zoom') === z) return;
+      if (!vroute.params.has('at') && !vroute.params.has('date') && !vroute.params.has('clip')) return;
+      const p = new URLSearchParams(location.search);
+      const play = p.get('play');
+      p.delete('play');
+      p.set('zoom', z);
+      if (play !== null) p.set('play', play);
+      replaceRoute(`${VIDEO_PATH}?${p.toString()}`);
+    });
+  });
+  // Off to another page: this entry (and the menu's Video link) gets the
+  // exact moment and play state first; the URL may be up to a second behind.
+  $effect(() =>
+    onBeforeNavigate((target) => {
+      if (target.page === 'video' || !pageVisible || glued || panel !== 'history' || !cam || !historyView) return;
+      const s = historyView.snapshot();
+      const c: Cursor = { date: localDate(new Date(s.at)), clipId: s.clipId, offsetSec: 0, at: s.at, play: s.playing };
+      reportedAt = s.at;
+      saveCursor(cam, c);
+      replaceRoute(hrefFor(cam, c));
+    }),
+  );
+  // Behind another page (kept for the live stream's keep-alive), a recording
+  // waits paused; back on the page it plays on if it was playing and the URL
+  // still says so (Klaus, 2026-11-05: the menu brings back play or pause).
+  let heldPlay = false;
+  $effect(() => {
+    const v = pageVisible;
+    untrack(() => {
+      if (!v) heldPlay = historyView?.pause() ?? false;
+      else if (heldPlay) {
+        heldPlay = false;
+        if (!glued && cursor.play) historyView?.resume();
+      }
+    });
+  });
 
   // A recording at `next` (a day picked; the URL put in its /app/video form).
   function go(next: Partial<Cursor>, how: 'push' | 'replace' = 'push') {

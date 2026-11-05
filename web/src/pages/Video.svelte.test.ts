@@ -118,14 +118,14 @@ describe('Video page wiring', () => {
   it('rewrites an old History link to /app/video at its day and time, a recording', async () => {
     const at = Date.parse('2026-09-27T10:00:00-05:00');
     await open(`/app/recordings?cam=den&date=2026-09-27&panel=history&at=${at}`);
-    expect(here()).toBe(`/app/video?cam=den&date=2026-09-27&at=${at / 1000}`); // seconds now (2026-11-05)
+    expect(here()).toBe(`/app/video?cam=den&date=2026-09-27&at=${at / 1000}&zoom=24h`); // seconds now, and the zoom (2026-11-05)
     expect(badge().dataset.mode).toBe('rec');
   });
 
   it('turns an old /app/live?at= link into the recording', async () => {
     const at = Date.parse('2026-09-27T10:00:00-05:00');
     await open(`/app/live?at=${at}`);
-    expect(here()).toMatch(new RegExp(`^/app/video\\?cam=den&date=2026-09-27&at=${at / 1000}$`));
+    expect(here()).toMatch(new RegExp(`^/app/video\\?cam=den&date=2026-09-27&at=${at / 1000}&zoom=24h$`));
     expect(badge().dataset.mode).toBe('rec');
   });
 
@@ -155,7 +155,7 @@ describe('Video page wiring', () => {
     click('back-10');
     await settle();
     expect(badge().dataset.mode).toBe('rec');
-    expect(here()).toMatch(/^\/app\/video\?cam=den&date=\d{4}-\d{2}-\d{2}&at=\d+$/);
+    expect(here()).toMatch(/^\/app\/video\?cam=den&date=\d{4}-\d{2}-\d{2}&at=\d+&zoom=24h$/);
     expect(history.length).toBe(before + 1);
     const rec = here();
     click('strip-now');

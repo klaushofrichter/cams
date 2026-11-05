@@ -8,8 +8,9 @@ import type { Me } from './stores';
 // An older server (or file mode) has no role: everyone is admin there.
 export const isAdmin = (me: Me | null | undefined): boolean => !!me && (me.role === undefined || me.role === null ? true : me.role === 'admin');
 
-// The camera state pages keep per tab (lib/recordings.ts, lib/timeline.ts).
-export const CAMERA_SESSION_KEYS = ['cams-cursor', 'cams.viewPoint'] as const;
+// The camera state pages keep per tab (lib/recordings.ts, lib/timeline.ts,
+// lib/router.ts: the last Video URL).
+export const CAMERA_SESSION_KEYS = ['cams-cursor', 'cams.viewPoint', 'cams-video-href'] as const;
 
 export function clearCameraSessionState(): void {
   for (const k of CAMERA_SESSION_KEYS) {
