@@ -311,13 +311,18 @@ test('another page’s URL doesn’t move the kept-alive live view; the Video me
   await expect(page.getByTestId('live-badge')).toHaveText('● LIVE');
 });
 
-test('from a recording, the Video menu goes back to live', async ({ page }) => {
+// Klaus, 2026-11-05: the Video menu entry keeps the recording (the tab's
+// last Video state, e2e/video-nav.spec.ts); the brand link goes live.
+test('from a recording, the brand link goes back to live; the Video menu keeps the recording', async ({ page }) => {
   await setKeepAlive(page, 60);
   await page.goto('/app/video');
   await expect(page.getByTestId('live-badge')).toHaveText('● LIVE', { timeout: 15_000 });
   await page.getByTestId('back-10').click();
   await expect(page).toHaveURL(/\/app\/video\?.*at=/);
   await page.getByTestId('sidebar').getByTestId('nav-video').click();
+  await expect(page).toHaveURL(/\/app\/video\?.*at=/);
+  await expect(page.getByTestId('mode-badge')).toHaveAttribute('data-mode', 'rec');
+  await page.getByTestId('brand-link').click();
   await expect(page.getByTestId('live-badge')).toHaveText('● LIVE');
   await expect(page).toHaveURL(/\/app\/video$/);
 });

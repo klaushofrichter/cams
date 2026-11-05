@@ -8,20 +8,30 @@
   import AccountMenu from './AccountMenu.svelte';
   import { cameraById, me, drawerOpen, selectedCameraId } from '../lib/stores';
   import { liveStatus } from '../lib/liveStatus';
+  import { VIDEO_PATH, navigate } from '../lib/router';
 
   const REPO_URL = 'https://github.com/klaushofrichter/cams';
   const selected = $derived($cameraById($selectedCameraId));
+
+  // The brand (Klaus, 2026-11-05): the Video page live, on the camera picked,
+  // the zoom kept; the menu's Video entry is live from then on (lib/router).
+  function goLive(event: MouseEvent) {
+    if (event.metaKey || event.ctrlKey || event.shiftKey || event.button !== 0) return;
+    event.preventDefault();
+    navigate(VIDEO_PATH);
+    drawerOpen.set(false);
+  }
 </script>
 
 <header class="topbar" data-testid="topbar">
   <button class="hamburger" data-testid="hamburger" aria-label="Open menu" aria-expanded={$drawerOpen} onclick={() => drawerOpen.set(true)}>
     <Icon name="menu" />
   </button>
-  <a class="brand" href="/app/video" aria-label="cams home">
+  <a class="brand" data-testid="brand-link" href={VIDEO_PATH} aria-label="cams home" onclick={goLive}>
     <span class="indicator" data-testid="stream-indicator" data-state={$liveStatus.state} title={$liveStatus.detail}>
       <Logo size={28} />
     </span>
-    <span>cams</span>
+    <span class="word">cams</span>
     <span class="sr-only">{$liveStatus.detail}</span>
   </a>
   <CameraPicker />
@@ -80,7 +90,7 @@
   @media (max-width: 767px) {
     .hamburger { display: grid; }
     .desktop-only { display: none; }
-    .brand span { display: none; }
+    .brand .word { display: none; }
   }
   @media (max-width: 479px) {
     .version { display: none; }

@@ -23,6 +23,16 @@ const minutesOf = (z: StripZoom) => Math.round(z * 60);
 export const zoomKey = (z: StripZoom) => (z >= 1 ? `${z}` : `${minutesOf(z)}m`);
 export const zoomLabel = (z: StripZoom) => (z >= 1 ? `${z} h` : `${minutesOf(z)} min`);
 export const zoomWords = (z: StripZoom) => (z >= 1 ? `${z} hour${z === 1 ? '' : 's'}` : `${minutesOf(z)} minute${minutesOf(z) === 1 ? '' : 's'}`);
+// The zoom in a Video link (Klaus, 2026-11-05): `zoom=24h` … `zoom=1m`.
+export const zoomParam = (z: StripZoom) => (z >= 1 ? `${z}h` : `${minutesOf(z)}m`);
+// A link's zoom, or null: none, or one the strip doesn't offer (an old link
+// then shows the saved preference, as before).
+export function parseZoomParam(raw: string | null | undefined): StripZoom | null {
+  const m = /^([1-9]\d{0,3})([hm])$/.exec(raw ?? '');
+  if (!m) return null;
+  const hours = m[2] === 'h' ? Number(m[1]) : Number(m[1]) / 60;
+  return STRIP_ZOOMS.find((x) => Math.abs(x - hours) < 1e-6) ?? null;
+}
 
 export interface Run { start: number; end: number }
 export interface ClipRun extends Run { clip: EventClip }
