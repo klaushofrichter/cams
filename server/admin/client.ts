@@ -35,6 +35,7 @@ export interface CamsReport {
   shadow: { accountId: string; differences: number; items: string[] } | null;
   tokens: { managed: number; pending: number; legacy: number };
   problems: { code: string; accountId?: string; detail?: string }[];
+  viewerTokens?: { id: string; lastUsedAt: number }[]; // viewer tokens used since the last report
 }
 
 const MAX_ANSWER = 1024 * 1024;

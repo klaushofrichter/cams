@@ -16,7 +16,8 @@ const LOGIN_META = /<meta name="cams-login" content="[^"]*"\s*\/?>/;
 function sendLanding(file: string, res: Response): void {
   readFile(file, 'utf8')
     .then((html) => {
-      const methods = loginMethods().join(' ');
+      // "viewer-token": cams-admin mode takes cams-admin's viewer tokens (/token).
+      const methods = [...loginMethods(), ...(configMode() === 'cams-admin' ? ['viewer-token'] : [])].join(' ');
       // cams-admin mode without any configuration yet (never enrolled and
       // pulled, or no cache): the start page says so.
       const none = configMode() === 'cams-admin' && fleetAccounts().length === 0 ? '<meta name="cams-config" content="none" />' : '';
@@ -67,6 +68,20 @@ export function pagesRouter(dir: string): Router {
       return;
     }
     rememberReturn(res, req.query.returnTo);
+    sendLanding(join(dir, 'index.html'), res);
+  });
+
+  // The viewer token sign-in page (cams-admin design 2026-11-05 §9.2), the
+  // same bundle. Its link carries the token in the fragment, which never
+  // reaches a server; a token in the query (logs, history) is refused and
+  // never read. No referrer, no cache. Served signed in too: a token may
+  // replace the session, after the page's confirm step.
+  router.get('/token', (req: Request, res: Response) => {
+    res.set({ 'Cache-Control': 'no-store', 'Referrer-Policy': 'no-referrer' });
+    if (req.query.t !== undefined || req.query.token !== undefined) {
+      res.status(400).type('text/plain').send('token_in_url: a sign-in token never goes in the address query. Open the link as it was given, or paste the token at /token.');
+      return;
+    }
     sendLanding(join(dir, 'index.html'), res);
   });
 

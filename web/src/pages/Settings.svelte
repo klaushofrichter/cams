@@ -355,7 +355,8 @@
       {/snippet}
     </SettingsCard>
 
-    {#if $me?.mcp?.enabled}<McpTokensCard admin={isAdmin($me)} />{/if}
+    <!-- A viewer token's session makes no MCP tokens (viewer tokens design §9.4). -->
+    {#if $me?.mcp?.enabled && $me.via !== 'viewer-token'}<McpTokensCard admin={isAdmin($me)} />{/if}
 
     {#if $selectedCameraId}<CameraLogin cameraId={$selectedCameraId} {authFailed} missing={loginMissing} />{/if}
     {#if $selectedCameraId && offlineFix}<div class="card"><OfflineFix cameraId={$selectedCameraId} fix={offlineFix} /></div>{/if}

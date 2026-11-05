@@ -1,10 +1,11 @@
 import { NextFunction, Request, Response } from 'express';
-import { SESSION_COOKIE, verifySession } from '../session';
-import { configMode } from '../configSource';
+import { expiredSessionKind, SESSION_COOKIE, verifySession } from '../session';
+import { configMode, reportSoon } from '../configSource';
 import type { AccountRef, Role } from '../fleet';
 import { membershipsOf, tokenAccount, type Membership } from '../membership';
 import { internalPrincipal, isInternal } from '../mcp/internal';
 import { cookieOptions, loginToken, tokenFingerprint, tokenLoginEnabled, tokenUser } from '../loginConfig';
+import { noteViewerTokenUse, viewerTokenForSession, type ViewerToken } from '../viewerTokens';
 
 export const RETURN_COOKIE = 'return_to';
 const RETURN_MAX_AGE_MS = 10 * 60 * 1000;
@@ -13,8 +14,14 @@ const RETURN_MAX_AGE_MS = 10 * 60 * 1000;
 // up on every request (migration P4, M §9.5): never from the cookie.
 // `mcp`: an MCP token's internal /api call (spec 2026-10-27-mcp-server-design
 // §6), acting as its issuer (`email`) with the issuer's current role.
-export interface Principal { email: string; via: 'google' | 'token' | 'mcp'; account: AccountRef; role: Role; mcpTokenId?: string }
-export type AuthState = { kind: 'none' } | { kind: 'choose'; email: string; memberships: Membership[] } | { kind: 'ok'; principal: Principal };
+// `viewer-token`: a cams-admin viewer token's session (design 2026-11-05
+// §9.4), always role viewer, `viewerToken` its id, name and expiry.
+export interface ViewerTokenInfo { id: string; name: string; expiresAt: number }
+export interface Principal { email: string; via: 'google' | 'token' | 'viewer-token' | 'mcp'; account: AccountRef; role: Role; mcpTokenId?: string; viewerToken?: ViewerTokenInfo }
+export type AuthState = { kind: 'none' } | { kind: 'choose'; email: string; memberships: Membership[]; viewerToken?: ViewerTokenInfo } | { kind: 'ok'; principal: Principal };
+
+// A viewer token's accounts, as memberships with role viewer (by name, like membershipsOf).
+export const viewerTokenMemberships = (t: ViewerToken): Membership[] => t.accounts.map((account) => ({ account, role: 'viewer' as const }));
 
 // The single definition of "signed in". Memberships (the allow-list in file
 // mode) are re-checked on every request, so removing an address locks that
@@ -34,6 +41,20 @@ export function authState(req: Request): AuthState {
   const session = verifySession(token);
   if (!session) return { kind: 'none' };
   const multi = configMode() === 'cams-admin';
+  // A viewer token (cams-admin mode only): looked up in the current fleet on
+  // every request, so a revoke, a shorter validity, the expiry or 24 h
+  // without cams-admin ends the session (viewerTokenForSession).
+  if (session.via === 'viewer-token') {
+    const t = session.vt && session.tf ? viewerTokenForSession(session.vt, session.tf) : null;
+    if (!t) return { kind: 'none' };
+    if (noteViewerTokenUse(t.id)) reportSoon();
+    const info = { id: t.id, name: t.name, expiresAt: t.expiresAt };
+    const memberships = viewerTokenMemberships(t);
+    const chosen = session.acc !== undefined ? memberships.find((m) => m.account.id === session.acc) : memberships.length === 1 ? memberships[0] : undefined;
+    if (chosen) return { kind: 'ok', principal: { email: session.email, via: 'viewer-token', account: chosen.account, role: 'viewer', viewerToken: info } };
+    if (session.acc !== undefined) return { kind: 'none' }; // the token no longer has that account
+    return { kind: 'choose', email: session.email, memberships, viewerToken: info };
+  }
   if (session.via === 'token') {
     const configured = loginToken();
     if (!configured || !tokenLoginEnabled()) return { kind: 'none' };
@@ -101,7 +122,8 @@ export function requireAuthPage(req: Request, res: Response, next: NextFunction)
   if (authState(req).kind === 'none') {
     // Remember where the visitor was going, so sign-in can bring them back.
     rememberReturn(res, req.originalUrl);
-    res.redirect(302, '/');
+    // A viewer token's session that ended (revoked, expired): its own sign-in page.
+    res.redirect(302, expiredSessionKind(req.cookies?.[SESSION_COOKIE]) === 'viewer-token' ? '/token' : '/');
     return;
   }
   next();

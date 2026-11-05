@@ -18,12 +18,12 @@ export default defineConfig({
   projects: [
     {
       name: 'desktop',
-      testIgnore: /live-teardown\.spec\.ts|camera-name\.spec\.ts|token-login\.spec\.ts|accounts\.spec\.ts|viewer\.spec\.ts|held\.spec\.ts|offline-start\.spec\.ts|ptz\.spec\.ts|through-proxy\.spec\.ts/,
+      testIgnore: /live-teardown\.spec\.ts|camera-name\.spec\.ts|token-login\.spec\.ts|accounts\.spec\.ts|viewer\.spec\.ts|held\.spec\.ts|offline-start\.spec\.ts|viewer-tokens\.spec\.ts|ptz\.spec\.ts|through-proxy\.spec\.ts/,
       use: { ...devices['Desktop Chrome'], channel: 'chrome', viewport: { width: 1440, height: 900 } },
     },
     {
       name: 'phone',
-      testIgnore: /live-teardown\.spec\.ts|camera-name\.spec\.ts|token-login\.spec\.ts|accounts\.spec\.ts|viewer\.spec\.ts|held\.spec\.ts|offline-start\.spec\.ts|ptz\.spec\.ts|through-proxy\.spec\.ts/,
+      testIgnore: /live-teardown\.spec\.ts|camera-name\.spec\.ts|token-login\.spec\.ts|accounts\.spec\.ts|viewer\.spec\.ts|held\.spec\.ts|offline-start\.spec\.ts|viewer-tokens\.spec\.ts|ptz\.spec\.ts|through-proxy\.spec\.ts/,
       use: { ...devices['Desktop Chrome'], channel: 'chrome', viewport: { width: 390, height: 844 }, hasTouch: true },
     },
     // e2e/token-login.spec.ts: the second server (E2E_TOKEN_ENV, the Pi's
@@ -43,13 +43,13 @@ export default defineConfig({
     // configuration, which the other specs of this server read.
     {
       name: 'admin-desktop',
-      testMatch: /accounts\.spec\.ts|viewer\.spec\.ts|held\.spec\.ts|offline-start\.spec\.ts/,
+      testMatch: /accounts\.spec\.ts|viewer\.spec\.ts|held\.spec\.ts|offline-start\.spec\.ts|viewer-tokens\.spec\.ts/,
       fullyParallel: false,
       use: { ...devices['Desktop Chrome'], channel: 'chrome', viewport: { width: 1440, height: 900 }, baseURL: `http://localhost:${E2E_ADMIN_PORT}` },
     },
     {
       name: 'admin-phone',
-      testMatch: /accounts\.spec\.ts|viewer\.spec\.ts|held\.spec\.ts|offline-start\.spec\.ts/,
+      testMatch: /accounts\.spec\.ts|viewer\.spec\.ts|held\.spec\.ts|offline-start\.spec\.ts|viewer-tokens\.spec\.ts/,
       fullyParallel: false,
       dependencies: ['admin-desktop'],
       use: { ...devices['Desktop Chrome'], channel: 'chrome', viewport: { width: 390, height: 844 }, hasTouch: true, baseURL: `http://localhost:${E2E_ADMIN_PORT}` },

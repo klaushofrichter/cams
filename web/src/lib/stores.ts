@@ -15,6 +15,11 @@ export interface Me {
   configProblem?: 'revoked' | 'unknown_key' | 'snapshot_older' | 'file_account_changed' | null; // admins: cams-admin refuses this instance, an older snapshot, the home account under another id
   held?: number; // admins: held connection changes and held proxies (camera move) waiting
   mcp?: { enabled: boolean; plainHttp: boolean }; // /mcp on this viewer (spec 2026-10-27-mcp-server-design)
+  // How this person signed in: Google, the Pi's login token, or a cams-admin
+  // viewer token (with its name and expiry, ms).
+  via?: 'google' | 'token' | 'viewer-token' | null;
+  name?: string;
+  validUntil?: number;
 }
 
 export interface CameraSummary {

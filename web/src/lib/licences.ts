@@ -2,6 +2,7 @@
 // against each package's package.json when this list was written.
 export const LICENCES = [
   { name: 'Svelte', url: 'https://svelte.dev', licence: 'MIT', use: 'web interface' },
+  { name: 'jsQR', url: 'https://github.com/cozmo/jsQR', licence: 'Apache-2.0', use: 'scanning a sign-in QR code where the browser has no reader' },
   { name: 'mpegts.js', url: 'https://github.com/xqq/mpegts.js', licence: 'Apache-2.0', use: 'live video playback' },
   { name: 'Express', url: 'https://expressjs.com', licence: 'MIT', use: 'web server' },
   { name: 'pino', url: 'https://getpino.io', licence: 'MIT', use: 'logging' },
