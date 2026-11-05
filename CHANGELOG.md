@@ -8,6 +8,5 @@ published as [GitHub releases](https://github.com/klaushofrichter/cams/releases)
 
 ## [Unreleased]
 
-- Sign in with a token: a token made in cams-admin lets someone watch the cameras of its accounts without a Google account, until it expires. The sign-in page has "Sign in with a token": paste the token, scan its QR code with the phone's or laptop's camera, or open its link, which asks "Sign in as '<name>'?" before signing in. Revoking the token in cams-admin, or making it shorter, signs its sessions out within about a minute; a viewer that hasn't reached cams-admin for 24 hours stops taking these tokens. The Pi's own sign-in token keeps working as before.
-- About shows who is signed in: the Google address, or the token's name and how long it is valid.
+- Signed in with a viewer token: About and the token sign-in page now also show how long the token is still valid, for example "valid until Nov 12, 2026, 2:30 PM (6 days left)", in minutes, hours or days, updated every minute.
 

@@ -3,7 +3,7 @@
   import { getJson } from '../lib/api';
   import { LICENCES } from '../lib/licences';
   import type { DeviceInfo } from '../lib/settings';
-  import { validUntilText } from '../lib/viewerToken';
+  import { minuteNow, remainingText, validUntilText } from '../lib/viewerToken';
 
   let devices: Record<string, DeviceInfo | 'offline'> = $state({});
   // Plain, not $state: the effect must not re-run (and re-request every
@@ -21,7 +21,7 @@
   const built = $derived($me?.buildDate ? new Date($me.buildDate).toLocaleString() : 'not recorded (local build)');
   const version = $derived($me?.version ?? '…');
   // "Signed in as": the Google address, the viewer token's name and expiry, or the Pi token's user.
-  const signedInAs = $derived(!$me ? '…' : $me.via === 'viewer-token' ? `${$me.name ?? 'a token'}, valid until ${$me.validUntil ? validUntilText($me.validUntil) : '…'}` : $me.email);
+  const signedInAs = $derived(!$me ? '…' : $me.via === 'viewer-token' ? `${$me.name ?? 'a token'}, valid until ${$me.validUntil ? `${validUntilText($me.validUntil)} (${remainingText($me.validUntil, $minuteNow)})` : '…'}` : $me.email);
   const release = $derived(/^\d{4}\.\d{2}\.\d{2}\.\d+$/.test(version) ? `https://github.com/klaushofrichter/cams/releases/tag/v${version}` : 'https://github.com/klaushofrichter/cams');
 </script>
 

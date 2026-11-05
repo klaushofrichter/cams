@@ -89,7 +89,7 @@ describe('the link (fragment)', () => {
     await settle();
     expect(calls.map((c) => c.url)).toEqual(['/auth/viewer-token/check']);
     expect(q('vt-confirm-text')?.textContent).toBe("Sign in as 'Kitchen tablet'?");
-    expect(q('vt-confirm-valid')?.textContent).toMatch(/^Valid until /);
+    expect(q('vt-confirm-valid')?.textContent).toMatch(/^Valid until .+ \((\d+ (days|hours|minutes)|one \w+|less than one minute) left|expired\)$/);
     expect(assign).not.toHaveBeenCalled();
     q('vt-signin')!.click();
     await settle();
