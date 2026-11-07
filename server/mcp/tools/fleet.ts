@@ -4,7 +4,7 @@
 // again here, so no path runs them for a viewer.
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
-import { fleetOf, MOVE, POWER, PROXY, SWITCH, VIEWER, type Fleet } from '../fleet';
+import { fleetOf, MOVE, POWER, problemText, PROXY, SWITCH, SWITCH_PROBLEM, VIEWER, type Fleet } from '../fleet';
 import { ok, ToolFailure } from '../result';
 import { addTool, type ToolCtx } from '../server';
 
@@ -46,10 +46,10 @@ export function registerFleetTools(server: McpServer, ctx: ToolCtx): void {
   addTool(server, ctx, {
     name: 'switch_list',
     title: 'List PoE switches',
-    description: "This account's PoE switches (they power and can power-cycle cameras), from cams-admin: name, model, address (with a note when it is only reachable on a local network), the proxy that operates it, state (pending, active), readAt (when its ports were last read, unix ms) and its port count. Read-only; for this account's admins.",
+    description: "This account's PoE switches (they power and can power-cycle cameras), from cams-admin: name, model, address (with a note when it is only reachable on a local network), the proxy that operates it, state (pending, active; unknown for a value this viewer doesn't know), readAt (when its ports were last read, unix ms), its port count and problems (code, port, number of cameras, and text in words, e.g. another switch is chained on a port). Read-only; for this account's admins.",
     input: NO_INPUT,
-    output: z.object({ switches: z.array(SWITCH) }),
-    run: async (_args, c) => ok({ switches: (await fleet(c)).switches }),
+    output: z.object({ switches: z.array(SWITCH.extend({ problems: z.array(SWITCH_PROBLEM.extend({ text: z.string() })) })) }),
+    run: async (_args, c) => ok({ switches: (await fleet(c)).switches.map((sw) => ({ ...sw, problems: sw.problems.map((p) => ({ ...p, text: problemText(p) })) })) }),
   });
   addTool(server, ctx, {
     name: 'camera_power',

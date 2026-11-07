@@ -42,6 +42,7 @@ const answer = (accountId: string, marker: string) => ({
   }],
   switches: [{
     name: `${marker}-sw`, model: 'sscpoe-web', address: { url: 'http://192.168.1.217/', scope: 'private', note: 'Local network address: only reachable from inside that network.' }, proxy: 'Pi', state: 'active', readAt: 5, ports: 8,
+    problems: [{ code: 'chained_switch', port: 3, cameras: 2 }],
     password: 'SMUGGLED',
   }],
   cameraPower: [
@@ -174,6 +175,7 @@ describe('what each tool returns', () => {
     const sw = (await call(token, 'switch_list')).structuredContent as any;
     expect(sw).toEqual({ switches: [{
       name: 'alpha-sw', model: 'sscpoe-web', address: { url: 'http://192.168.1.217/', scope: 'private', note: 'Local network address: only reachable from inside that network.' }, proxy: 'Pi', state: 'active', readAt: 5, ports: 8,
+      problems: [{ code: 'chained_switch', port: 3, cameras: 2, text: 'configuration issue: another switch is chained on port 3 (2 cameras)' }],
     }] });
     const pw = (await call(token, 'camera_power')).structuredContent as any;
     expect(pw).toEqual({ power: { camera: 'cam1', cameraName: 'Yard', kind: 'poe', switch: 'alpha-sw', port: 8, watts: 4.5, verifiedAt: 7, notSeen: false, lastCycle: { state: 'ok', requestedAt: 8, finishedAt: 9, code: null, reason: null } } });
@@ -183,6 +185,19 @@ describe('what each tool returns', () => {
     expect(none.structuredContent).toMatchObject({ error: 'unknown_camera' });
     const extra = await call(token, 'camera_power', { camera: 'cam1', accountId: BETA });
     expect(extra.isError).toBe(true);
+  });
+
+  it('a state or kind this viewer does not know reads as unknown; an unknown problem code still shows', async () => {
+    const odd: any = answer(ALPHA, 'alpha');
+    odd.switches[0].state = 'retired';
+    odd.switches[0].problems = [{ code: 'new_thing', port: 4, cameras: 1 }];
+    odd.cameraPower[0].kind = 'solar';
+    fake.fleet = { [ALPHA]: odd };
+    const { token } = issue(ALPHA, 'owner@example.org');
+    const sw = (await call(token, 'switch_list')).structuredContent as any;
+    expect(sw.switches[0].state).toBe('unknown');
+    expect(sw.switches[0].problems[0].text).toBe('configuration issue: new_thing on port 4 (1 camera)');
+    expect(((await call(token, 'camera_power')).structuredContent as any).power.kind).toBe('unknown');
   });
 
   it('an older cams-admin without switches or power gives empty lists', async () => {
