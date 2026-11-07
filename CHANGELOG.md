@@ -8,5 +8,5 @@ published as [GitHub releases](https://github.com/klaushofrichter/cams/releases)
 
 ## [Unreleased]
 
-- Signed in with a viewer token: About and the token sign-in page now also show how long the token is still valid, for example "valid until Nov 12, 2026, 2:30 PM (6 days left)", in minutes, hours or days, updated every minute.
+- MCP: two read-only tools for an account's admins, `switch_list` (PoE switches) and `camera_power` (how a camera is powered and its last power-cycle); `switch_list` also reports a switch's configuration issues (e.g. another switch chained on a port).
 
