@@ -98,7 +98,7 @@ export function addTool<I extends z.ZodTypeAny>(server: McpServer, ctx: ToolCtx,
 
 export function buildServer(ctx: ToolCtx): McpServer {
   const admin = ctx.principal.role === 'admin';
-  const server = new McpServer({ name: 'cams', version: appVersion() }, { capabilities: { tools: {} }, instructions: `Read-only access to the cameras of one cams account: events with AI labels, stills, recordings, the archive, and short clips. Times are ISO 8601 with an offset, or unix ms. Videos come back as links valid for 15 minutes.${admin ? " For this account's admin also its fleet: list_proxies, list_viewers, list_moves." : ''}` });
+  const server = new McpServer({ name: 'cams', version: appVersion() }, { capabilities: { tools: {} }, instructions: `Read-only access to the cameras of one cams account: events with AI labels, stills, recordings, the archive, and short clips. Times are ISO 8601 with an offset, or unix ms. Videos come back as links valid for 15 minutes.${admin ? " For this account's admin also its fleet: list_proxies, list_viewers, list_moves, switch_list, camera_power." : ''}` });
   registerCameraTools(server, ctx);
   registerSnapshotTool(server, ctx);
   registerEventTools(server, ctx);

@@ -28,7 +28,20 @@ export const MOVE = z.object({
   chunks: z.object({ pending: z.number(), copied: z.number(), verified: z.number(), skipped: z.number(), failed: z.number(), abandoned: z.number() }),
   createdAt: z.number(), updatedAt: z.number(), endedAt: z.number().nullable(),
 });
-const ANSWER = z.object({ accountId: z.string(), proxies: z.array(PROXY), notRouted: z.number(), viewers: z.array(VIEWER), moves: z.array(MOVE) });
+// PoE switches (spec 2026-11-07-poe-switches-design): the address is shown like a proxy's gui, with its note.
+export const SWITCH = z.object({
+  name: z.string(), model: z.string(), address: PLACE, proxy: z.string().nullable(), state: z.string(), readAt: z.number().nullable(), ports: z.number(),
+});
+const CYCLE = z.object({ state: z.string(), requestedAt: z.number().nullable(), finishedAt: z.number().nullable(), code: z.string().nullable(), reason: z.string().nullable() });
+export const POWER = z.object({
+  camera: z.string(), cameraName: z.string().nullable(), kind: z.string(), switch: z.string().nullable(), port: z.number().nullable(), watts: z.number().nullable(),
+  verifiedAt: z.number().nullable(), notSeen: z.boolean(), lastCycle: CYCLE.nullable(),
+});
+// switches and cameraPower are new in cams-admin: an older one leaves them out (nothing to list).
+const ANSWER = z.object({
+  accountId: z.string(), proxies: z.array(PROXY), notRouted: z.number(), viewers: z.array(VIEWER), moves: z.array(MOVE),
+  switches: z.array(SWITCH).default([]), cameraPower: z.array(POWER).default([]),
+});
 export type Fleet = z.infer<typeof ANSWER>;
 
 export const readFleet = (body: unknown): Fleet => ANSWER.parse(body);
