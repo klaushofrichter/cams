@@ -22,7 +22,8 @@ import { camsFixtures, camsValidator } from '../helpers/contract';
 import { ALPHA, BETA } from '../helpers/fleet';
 import { freshTokens, issue, mcpClient, startApp, type Running } from './helpers';
 
-const FLEET_TOOLS = ['list_proxies', 'list_viewers', 'list_moves'];
+const FLEET_TOOLS = ['list_proxies', 'list_viewers', 'list_moves', 'switch_list', 'camera_power'];
+const ARGS: Record<string, Record<string, unknown>> = { camera_power: { camera: 'cam1' } };
 const answer = (accountId: string, marker: string) => ({
   v: 1, type: 'cams-fleet', accountId, generatedAt: 1, notRouted: 2,
   proxies: [{
@@ -39,6 +40,15 @@ const answer = (accountId: string, marker: string) => ({
     id: 'mv_0123456789ABCDEFGHJK', camera: 'cam1', cameraName: 'Yard', source: 'Pi', target: 'Spare', phase: 'copying', reason: null, bytesTotal: 1000, bytesDone: 400, rateBps: 100, etaS: 6,
     chunks: { pending: 1, copied: 0, verified: 2, skipped: 0, failed: 0, abandoned: 0 }, createdAt: 1, updatedAt: 2, endedAt: null, tokenHash: 'sha256:SMUGGLED',
   }],
+  switches: [{
+    name: `${marker}-sw`, model: 'sscpoe-web', address: { url: 'http://192.168.1.217/', scope: 'private', note: 'Local network address: only reachable from inside that network.' }, proxy: 'Pi', state: 'active', readAt: 5, ports: 8,
+    problems: [{ code: 'chained_switch', port: 3, cameras: 2 }],
+    password: 'SMUGGLED',
+  }],
+  cameraPower: [
+    { camera: 'cam1', cameraName: 'Yard', kind: 'poe', switch: `${marker}-sw`, port: 8, watts: 4.5, verifiedAt: 7, notSeen: false, lastCycle: { state: 'ok', requestedAt: 8, finishedAt: 9, code: null, reason: null, commandIds: ['SMUGGLED'] }, token: 'SMUGGLED' },
+    { camera: 'cam2', cameraName: 'Gate', kind: 'adapter', switch: null, port: null, watts: null, verifiedAt: null, notSeen: false, lastCycle: null },
+  ],
   audit: ['SMUGGLED'],
 });
 
@@ -50,10 +60,10 @@ const USERS = {
 };
 let app: Running, fake: FakeAdmin, dir: string;
 
-const call = async (token: string, name: string) => {
+const call = async (token: string, name: string, args: Record<string, unknown> = ARGS[name] ?? {}) => {
   const c = await mcpClient(app.url, token);
   try {
-    return await c.callTool({ name, arguments: {} });
+    return await c.callTool({ name, arguments: args });
   } finally {
     await c.close();
   }
@@ -158,6 +168,46 @@ describe('what each tool returns', () => {
     const m = (await call(token, 'list_moves')).structuredContent as any;
     expect(Object.keys(m)).toEqual(['moves']);
     expect(m.moves[0]).toMatchObject({ camera: 'cam1', phase: 'copying', bytesDone: 400, bytesTotal: 1000, createdAt: 1, endedAt: null });
+  });
+
+  it('switch_list and camera_power return only their parts', async () => {
+    const { token } = issue(ALPHA, 'owner@example.org');
+    const sw = (await call(token, 'switch_list')).structuredContent as any;
+    expect(sw).toEqual({ switches: [{
+      name: 'alpha-sw', model: 'sscpoe-web', address: { url: 'http://192.168.1.217/', scope: 'private', note: 'Local network address: only reachable from inside that network.' }, proxy: 'Pi', state: 'active', readAt: 5, ports: 8,
+      problems: [{ code: 'chained_switch', port: 3, cameras: 2, text: 'configuration issue: another switch is chained on port 3 (2 cameras)' }],
+    }] });
+    const pw = (await call(token, 'camera_power')).structuredContent as any;
+    expect(pw).toEqual({ power: { camera: 'cam1', cameraName: 'Yard', kind: 'poe', switch: 'alpha-sw', port: 8, watts: 4.5, verifiedAt: 7, notSeen: false, lastCycle: { state: 'ok', requestedAt: 8, finishedAt: 9, code: null, reason: null } } });
+    const byName = (await call(token, 'camera_power', { camera: 'gate' })).structuredContent as any;
+    expect(byName.power).toMatchObject({ camera: 'cam2', kind: 'adapter', lastCycle: null });
+    const none = await call(token, 'camera_power', { camera: 'nope' });
+    expect(none.structuredContent).toMatchObject({ error: 'unknown_camera' });
+    const extra = await call(token, 'camera_power', { camera: 'cam1', accountId: BETA });
+    expect(extra.isError).toBe(true);
+  });
+
+  it('a state or kind this viewer does not know reads as unknown; an unknown problem code still shows', async () => {
+    const odd: any = answer(ALPHA, 'alpha');
+    odd.switches[0].state = 'retired';
+    odd.switches[0].problems = [{ code: 'new_thing', port: 4, cameras: 1 }];
+    odd.cameraPower[0].kind = 'solar';
+    fake.fleet = { [ALPHA]: odd };
+    const { token } = issue(ALPHA, 'owner@example.org');
+    const sw = (await call(token, 'switch_list')).structuredContent as any;
+    expect(sw.switches[0].state).toBe('unknown');
+    expect(sw.switches[0].problems[0].text).toBe('configuration issue: new_thing on port 4 (1 camera)');
+    expect(((await call(token, 'camera_power')).structuredContent as any).power.kind).toBe('unknown');
+  });
+
+  it('an older cams-admin without switches or power gives empty lists', async () => {
+    const old: any = answer(ALPHA, 'alpha');
+    delete old.switches;
+    delete old.cameraPower;
+    fake.fleet = { [ALPHA]: old };
+    const { token } = issue(ALPHA, 'owner@example.org');
+    expect((await call(token, 'switch_list')).structuredContent).toEqual({ switches: [] });
+    expect((await call(token, 'camera_power')).structuredContent).toMatchObject({ error: 'unknown_camera' });
   });
 
   it('asks only for the token account, whose answer is the only one seen; a field cams-admin adds never reaches the assistant', async () => {

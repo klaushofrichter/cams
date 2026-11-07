@@ -8,3 +8,5 @@ published as [GitHub releases](https://github.com/klaushofrichter/cams/releases)
 
 ## [Unreleased]
 
+- MCP: two read-only tools for an account's admins, `switch_list` (PoE switches) and `camera_power` (how a camera is powered and its last power-cycle); `switch_list` also reports a switch's configuration issues (e.g. another switch chained on a port).
+

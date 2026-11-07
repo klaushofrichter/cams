@@ -4,7 +4,7 @@
 // again here, so no path runs them for a viewer.
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
-import { fleetOf, MOVE, PROXY, VIEWER, type Fleet } from '../fleet';
+import { fleetOf, MOVE, POWER, problemText, PROXY, SWITCH, SWITCH_PROBLEM, VIEWER, type Fleet } from '../fleet';
 import { ok, ToolFailure } from '../result';
 import { addTool, type ToolCtx } from '../server';
 
@@ -42,5 +42,27 @@ export function registerFleetTools(server: McpServer, ctx: ToolCtx): void {
     input: NO_INPUT,
     output: z.object({ moves: z.array(MOVE) }),
     run: async (_args, c) => ok({ moves: (await fleet(c)).moves }),
+  });
+  addTool(server, ctx, {
+    name: 'switch_list',
+    title: 'List PoE switches',
+    description: "This account's PoE switches (they power and can power-cycle cameras), from cams-admin: name, model, address (with a note when it is only reachable on a local network), the proxy that operates it, state (pending, active; unknown for a value this viewer doesn't know), readAt (when its ports were last read, unix ms), its port count and problems (code, port, number of cameras, and text in words, e.g. another switch is chained on a port). Read-only; for this account's admins.",
+    input: NO_INPUT,
+    output: z.object({ switches: z.array(SWITCH.extend({ problems: z.array(SWITCH_PROBLEM.extend({ text: z.string() })) })) }),
+    run: async (_args, c) => ok({ switches: (await fleet(c)).switches.map((sw) => ({ ...sw, problems: sw.problems.map((p) => ({ ...p, text: problemText(p) })) })) }),
+  });
+  addTool(server, ctx, {
+    name: 'camera_power',
+    title: 'Camera power',
+    description: "How one camera is powered, from cams-admin: kind (poe, data-only, adapter, unknown), the switch's name and port, watts, verifiedAt (unix ms, when the port was last confirmed), notSeen (the port did not show the camera at the last check) and a summary of its last power-cycle (state, requestedAt, finishedAt, code, reason). Input: camera, an id or name from list_cameras. Read-only; power-cycles can't be started here. For this account's admins.",
+    input: z.object({ camera: z.string().min(1).max(128) }).strict(),
+    output: z.object({ power: POWER }),
+    run: async (args, c) => {
+      const f = await fleet(c);
+      const want = args.camera.trim().toLowerCase();
+      const hit = f.cameraPower.find((p) => p.camera.toLowerCase() === want) ?? f.cameraPower.find((p) => (p.cameraName ?? '').toLowerCase() === want);
+      if (!hit) throw new ToolFailure('unknown_camera');
+      return ok({ power: hit });
+    },
   });
 }
