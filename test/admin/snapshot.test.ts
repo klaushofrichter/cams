@@ -177,7 +177,10 @@ describe('accountParts: viewerTokens', () => {
     const v = verifySnapshot(s, KEYS, (s.instance as { id: string }).id);
     if (!v.ok) throw new Error(v.reason);
     const home = accountParts(v.snapshot).ok.find((p) => p.account.name === 'home')!;
-    expect(home.viewerTokens).toEqual([{ id: 'vtk_00000000000000000001', name: 'Kitchen tablet', fingerprint: vectors.viewerTokens[0].fingerprint, expiresAt: 1791878400000 }]);
+    expect(home.viewerTokens![0]).toEqual({ id: 'vtk_00000000000000000001', name: 'Kitchen tablet', fingerprint: vectors.viewerTokens[0].fingerprint, expiresAt: 1791878400000 });
+    // every listed entry, field by field; role kept only when admin (snapshot format 5 lists both roles)
+    const listed = ((s.accounts as { name: string; viewerTokens: Record<string, unknown>[] }[]).find((a) => a.name === 'home')!.viewerTokens);
+    expect(home.viewerTokens).toEqual(listed.map((t) => ({ id: t.id, name: t.name, fingerprint: t.fingerprint, expiresAt: t.expiresAt, ...(t.role === 'admin' && { role: 'admin' }) })));
   });
 
   it('valid entries are copied field by field (an unknown field is dropped)', () => {
@@ -197,6 +200,15 @@ describe('accountParts: viewerTokens', () => {
       expect(p.failed.map((f) => f.accountId), JSON.stringify(b).slice(0, 80)).toEqual([ALPHA]);
       expect(p.failed[0].detail).not.toContain('ab'.repeat(8));
     }
+  });
+
+  // Spec A4 (cams-v1): role "viewer" | "admin", absent = viewer. Kept only
+  // when admin, so a viewer entry reads exactly as before.
+  it('role: "admin" kept; "viewer" and absent read as viewer (no field); anything else fails the account', () => {
+    const p = parts([vt({ role: 'admin' }), vt({ id: 'vtk_00000000000000000002', fingerprint: 'sha256:' + 'cd'.repeat(32), role: 'viewer' }), vt({ id: 'vtk_00000000000000000003', fingerprint: 'sha256:' + 'ef'.repeat(32) })]);
+    expect(p.failed).toEqual([]);
+    expect(p.ok[0].viewerTokens).toEqual([vt({ role: 'admin' }), vt({ id: 'vtk_00000000000000000002', fingerprint: 'sha256:' + 'cd'.repeat(32) }), vt({ id: 'vtk_00000000000000000003', fingerprint: 'sha256:' + 'ef'.repeat(32) })]);
+    for (const role of ['owner', 'Admin', '', null, 1, true]) expect(parts([vt({ role })]).failed.map((f) => f.accountId), String(role)).toEqual([ALPHA]);
   });
 
   it('buildFleet carries an account\'s viewer tokens', () => {

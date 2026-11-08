@@ -47,6 +47,29 @@ describe('About', () => {
   });
 });
 
+// Spec D2: About shows the role in the account (an admin viewer token too).
+describe('About: Role', () => {
+  async function role(me: Record<string, unknown>) {
+    const { me: meStore } = await import('../lib/stores');
+    vi.stubGlobal('fetch', () => new Promise<Response>(() => undefined));
+    meStore.set(me as never);
+    target = document.createElement('div');
+    document.body.appendChild(target);
+    component = mount(About, { target });
+    flushSync();
+    return target.querySelector('[data-testid="about-role"]')?.textContent ?? null;
+  }
+  it('admin or viewer, viewer tokens included', async () => {
+    expect(await role({ email: 'viewer-token:vtk_00000000000000000001', via: 'viewer-token', name: 'Ops', role: 'admin', version: 'v', buildDate: null })).toBe('Admin');
+  });
+  it('a viewer', async () => {
+    expect(await role({ email: 'a@example.org', via: 'google', role: 'viewer', version: 'v', buildDate: null })).toBe('Viewer');
+  });
+  it('no account chosen yet: no row', async () => {
+    expect(await role({ email: 'a@example.org', via: 'google', role: null, version: 'v', buildDate: null })).toBeNull();
+  });
+});
+
 describe('About: Signed in as', () => {
   async function render(me: Record<string, unknown>) {
     const { me: meStore } = await import('../lib/stores');

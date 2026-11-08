@@ -31,12 +31,14 @@ export const E2E_VIEWER_TOKENS = {
   expired: { id: 'vtk_00000000000000EXP1RD', token: 'cav_E2eExpiredTokenNotReal', name: 'E2E expired', accounts: ['home'] },
   scan: { id: 'vtk_0000000000000000SCAN', token: 'cav_E2eScanTokenNotReal001', name: 'E2E scan', accounts: ['home'] },
   two: { id: 'vtk_00000000000000000TW0', token: 'cav_E2eTwoAccountsNotReal1', name: 'E2E two accounts', accounts: ['home', 'beta'] },
+  // role "admin" (cams-v1 A4): an admin of its account in cams.
+  admin: { id: 'vtk_00000000000000ADM1N0', token: 'cav_E2eAdminTokenNotReal01', name: 'E2E admin', accounts: ['home'], role: 'admin' },
 } as const;
 const DAY = 86_400_000;
 let revokedTokens = new Set<string>();
 const viewerTokensOf = (account: 'home' | 'beta') => Object.values(E2E_VIEWER_TOKENS)
   .filter((t) => (t.accounts as readonly string[]).includes(account) && !revokedTokens.has(t.id))
-  .map((t) => ({ id: t.id, name: t.name, fingerprint: 'sha256:' + createHash('sha256').update(`cams-viewer-token v1\n${t.token}`).digest('hex'), expiresAt: t.id === E2E_VIEWER_TOKENS.expired.id ? Date.now() - DAY : Date.now() + 7 * DAY }))
+  .map((t) => ({ id: t.id, name: t.name, fingerprint: 'sha256:' + createHash('sha256').update(`cams-viewer-token v1\n${t.token}`).digest('hex'), expiresAt: t.id === E2E_VIEWER_TOKENS.expired.id ? Date.now() - DAY : Date.now() + 7 * DAY, ...('role' in t && { role: t.role }) }))
   .sort((a, b) => (a.id < b.id ? -1 : 1));
 
 type SnapHooks = { homeHost?: string; extraProxyId?: string };

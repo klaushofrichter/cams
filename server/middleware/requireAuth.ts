@@ -15,13 +15,15 @@ const RETURN_MAX_AGE_MS = 10 * 60 * 1000;
 // `mcp`: an MCP token's internal /api call (spec 2026-10-27-mcp-server-design
 // §6), acting as its issuer (`email`) with the issuer's current role.
 // `viewer-token`: a cams-admin viewer token's session (design 2026-11-05
-// §9.4), always role viewer, `viewerToken` its id, name and expiry.
+// §9.4), role viewer, or admin in the accounts whose entry says so (cams-v1
+// A4), `viewerToken` its id, name and expiry.
 export interface ViewerTokenInfo { id: string; name: string; expiresAt: number }
 export interface Principal { email: string; via: 'google' | 'token' | 'viewer-token' | 'mcp'; account: AccountRef; role: Role; mcpTokenId?: string; viewerToken?: ViewerTokenInfo }
 export type AuthState = { kind: 'none' } | { kind: 'choose'; email: string; memberships: Membership[]; viewerToken?: ViewerTokenInfo } | { kind: 'ok'; principal: Principal };
 
-// A viewer token's accounts, as memberships with role viewer (by name, like membershipsOf).
-export const viewerTokenMemberships = (t: ViewerToken): Membership[] => t.accounts.map((account) => ({ account, role: 'viewer' as const }));
+// A viewer token's accounts, as memberships (by name, like membershipsOf):
+// admin where the account's entry says so, else viewer.
+export const viewerTokenMemberships = (t: ViewerToken): Membership[] => t.accounts.map((account) => ({ account, role: t.adminIn.includes(account.id) ? 'admin' as const : 'viewer' as const }));
 
 // The single definition of "signed in". Memberships (the allow-list in file
 // mode) are re-checked on every request, so removing an address locks that
@@ -51,7 +53,7 @@ export function authState(req: Request): AuthState {
     const info = { id: t.id, name: t.name, expiresAt: t.expiresAt };
     const memberships = viewerTokenMemberships(t);
     const chosen = session.acc !== undefined ? memberships.find((m) => m.account.id === session.acc) : memberships.length === 1 ? memberships[0] : undefined;
-    if (chosen) return { kind: 'ok', principal: { email: session.email, via: 'viewer-token', account: chosen.account, role: 'viewer', viewerToken: info } };
+    if (chosen) return { kind: 'ok', principal: { email: session.email, via: 'viewer-token', account: chosen.account, role: chosen.role, viewerToken: info } };
     if (session.acc !== undefined) return { kind: 'none' }; // the token no longer has that account
     return { kind: 'choose', email: session.email, memberships, viewerToken: info };
   }
