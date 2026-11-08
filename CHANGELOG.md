@@ -8,3 +8,6 @@ published as [GitHub releases](https://github.com/klaushofrichter/cams/releases)
 
 ## [Unreleased]
 
+### Fixed
+- Token sign-in: the pasted token is hidden like a password, with a Show/Hide button.
+
