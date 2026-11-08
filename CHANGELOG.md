@@ -8,6 +8,3 @@ published as [GitHub releases](https://github.com/klaushofrichter/cams/releases)
 
 ## [Unreleased]
 
-
-### Fixed
-- Video page: when an admin confirms a held camera (on this page or anywhere else), an open page now leaves the "waiting for an admin to confirm" message and the stills, and starts live video without a reload.
