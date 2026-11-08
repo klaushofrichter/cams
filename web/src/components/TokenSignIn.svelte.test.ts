@@ -46,6 +46,19 @@ function server(answers: Record<string, { status: number; body: unknown }>) {
 }
 
 describe('paste', () => {
+  it('hides the pasted token; Show reveals it and Hide masks it again', () => {
+    render();
+    const input = q('vt-input') as HTMLInputElement;
+    expect(input.type).toBe('password');
+    (q('vt-show') as HTMLButtonElement).click();
+    flushSync();
+    expect(input.type).toBe('text');
+    expect(q('vt-show')?.textContent).toContain('Hide');
+    (q('vt-show') as HTMLButtonElement).click();
+    flushSync();
+    expect(input.type).toBe('password');
+  });
+
   it('signs in straight away with the trimmed token, in the body', async () => {
     const { calls, assign } = server({ '/auth/viewer-token': { status: 200, body: { redirect: '/app/video' } } });
     render();

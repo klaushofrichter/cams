@@ -82,6 +82,28 @@ describe('LoginOptions', () => {
     expect(assign).toHaveBeenCalledWith('/app/timeline');
   });
 
+  it('a cams-admin viewer token (or its link) pasted here signs in as a viewer token', async () => {
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify({ redirect: '/app/video' }), { status: 200 }));
+    vi.stubGlobal('fetch', fetchMock);
+    const assign = vi.fn();
+    vi.stubGlobal('location', { ...location, assign });
+    const el = render(['token', 'viewer-token']);
+    await submit(el, ' https://cams.example.test/token#t=cav_CompTestFakeTokenNo001 ');
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const [url, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+    expect(url).toBe('/auth/viewer-token');
+    expect(JSON.parse(init.body as string)).toEqual({ token: 'cav_CompTestFakeTokenNo001' });
+    expect(assign).toHaveBeenCalledWith('/app/video');
+  });
+
+  it('without viewer tokens on this server, a cav_ text still goes to /auth/token', async () => {
+    const fetchMock = vi.fn(async () => new Response('{"error":"invalid_token"}', { status: 401 }));
+    vi.stubGlobal('fetch', fetchMock);
+    const el = render(['token']);
+    await submit(el, 'cav_CompTestFakeTokenNo001');
+    expect((fetchMock.mock.calls[0] as unknown as [string])[0]).toBe('/auth/token');
+  });
+
   it('shows the error for a wrong token, and for too many attempts', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => new Response('{"error":"invalid_token"}', { status: 401 })));
     const el = render(['token']);

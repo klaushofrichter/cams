@@ -12,6 +12,8 @@
   let { fragment = null, origin = location.origin, scanner = scannerAvailable() }: { fragment?: string | null; origin?: string; scanner?: boolean } = $props();
 
   let input = $state('');
+  // A token is a secret: masked by default, like a password (Klaus 2026-11-08).
+  let shown = $state(false);
   let busy = $state(false);
   let error = $state<string | null>(null);
   let confirm = $state<{ token: string; name: string; expiresAt: number } | null>(null);
@@ -52,6 +54,7 @@
       return;
     }
     input = '';
+    shown = false;
     void signIn(token);
   }
 
@@ -120,7 +123,7 @@
       <div class="row">
         <input
           id="vt-input"
-          type="text"
+          type={shown ? 'text' : 'password'}
           autocomplete="off"
           autocapitalize="off"
           spellcheck="false"
@@ -128,6 +131,7 @@
           bind:value={input}
           data-testid="vt-input"
         />
+        <button type="button" class="secondary" aria-pressed={shown} onclick={() => (shown = !shown)} data-testid="vt-show">{shown ? 'Hide' : 'Show'}</button>
         <button type="submit" class="primary" disabled={busy || input.trim().length === 0} data-testid="vt-submit">{busy ? 'Signing in…' : 'Sign in'}</button>
       </div>
     </form>
