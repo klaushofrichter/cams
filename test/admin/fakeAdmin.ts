@@ -60,7 +60,7 @@ export interface FakeAdmin {
   wrongKey: boolean;
   oversize: boolean;
   slowMs: number;
-  tokenAnswer: { status: number; body: Record<string, unknown> } | null; // the next POST /tokens answers this
+  tokenAnswer: { status: number; body: Record<string, unknown>; kind?: string } | null; // the next POST /tokens (of that kind, if given) answers this
   // GET /accounts/:id/fleet: the account's answer, else 403 not_served; null: an older cams-admin (404).
   fleet: Record<string, unknown> | null;
   revoked: boolean; // the instance is blocked: 403 revoked (contract step 7)
@@ -214,7 +214,7 @@ export async function startFakeAdmin(o: { port?: number; instanceId?: string; in
   app.post('/cams/v1/tokens', (req, res) => {
     const b = JSON.parse((req.body as Buffer).toString('utf8') || '{}') as { proxyId?: string; kind?: 'client' | 'admin'; hash?: string };
     fake.registered.push({ proxyId: String(b.proxyId), kind: String(b.kind), hash: String(b.hash) });
-    if (fake.tokenAnswer) {
+    if (fake.tokenAnswer && (!fake.tokenAnswer.kind || fake.tokenAnswer.kind === b.kind)) {
       const a = fake.tokenAnswer;
       fake.tokenAnswer = null;
       return answer(req, res, a.status, a.body);

@@ -8,5 +8,4 @@ published as [GitHub releases](https://github.com/klaushofrichter/cams/releases)
 
 ## [Unreleased]
 
-- MCP: two read-only tools for an account's admins, `switch_list` (PoE switches) and `camera_power` (how a camera is powered and its last power-cycle); `switch_list` also reports a switch's configuration issues (e.g. another switch chained on a port).
-
+- A proxy token that cams-admin refused to register (for example `token_proxy_ahead`) is now tried again every 1, 2, 5, then 10 minutes until it succeeds, instead of waiting for the next configuration change or a day.
