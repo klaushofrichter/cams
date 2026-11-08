@@ -52,6 +52,8 @@ export interface ConfigStatus {
 
 const STALE_MS = 24 * 3_600_000;
 const REPORT_REFRESH_MS = 10 * 60_000; // a report at least this often, also when nothing changed
+// Waits before a failed token registration is tried again (the last one repeats).
+const TOKEN_RETRY_MS = [60_000, 120_000, 300_000, 600_000];
 
 interface State {
   mode: ConfigMode;
@@ -85,11 +87,14 @@ interface State {
   lastEnsureAt: number;
   legacyProxies: Set<string>;
   reportTimer: NodeJS.Timeout | null;
+  ensureRetryTimer: NodeJS.Timeout | null;
+  ensureRetryStep: number;
+  ensureRetryMs: number[];
   lastReportAt: number;
 }
 let st: State = fresh();
 function fresh(): State {
-  return { mode: 'file', key: null, client: null, puller: null, applied: null, goodParts: new Map(), legacy: [], cacheVerifiedAt: null, lastGoodAt: null, lastPullAt: null, lastPullOkAt: null, startProblems: [], snapProblems: [], now: Date.now, moved: false, buildProblems: [], trust: null, tokens: null, tokenProblems: [], ensuring: null, ensureAgain: false, reportedOnce: false, recordedHome: null, homeProblem: null, adminRefusal: null, reporter: null, shadow: null, shadowKey: '', lastEnsureAt: 0, legacyProxies: new Set(), reportTimer: null, lastReportAt: 0 };
+  return { mode: 'file', key: null, client: null, puller: null, applied: null, goodParts: new Map(), legacy: [], cacheVerifiedAt: null, lastGoodAt: null, lastPullAt: null, lastPullOkAt: null, startProblems: [], snapProblems: [], now: Date.now, moved: false, buildProblems: [], trust: null, tokens: null, tokenProblems: [], ensuring: null, ensureAgain: false, reportedOnce: false, recordedHome: null, homeProblem: null, adminRefusal: null, reporter: null, shadow: null, shadowKey: '', lastEnsureAt: 0, legacyProxies: new Set(), reportTimer: null, lastReportAt: 0, ensureRetryTimer: null, ensureRetryStep: 0, ensureRetryMs: TOKEN_RETRY_MS };
 }
 
 
@@ -231,11 +236,28 @@ function ensureTokens(): Promise<void> {
   mine.ensuring = (async () => {
     mine.lastEnsureAt = mine.now();
     const parts = mine.applied!.accounts.map((a) => mine.goodParts.get(a.id)).filter((p): p is AccountPart => !!p);
+    if (mine.ensureRetryTimer) clearTimeout(mine.ensureRetryTimer);
+    mine.ensureRetryTimer = null;
+    let failed = false;
     try {
       const r = await mine.tokens!.ensure(parts, mine.client!, mine.now(), mine.applied!.instance.rotateBefore ?? null);
       mine.tokenProblems = r.problems;
+      // The admin back-off (admin_token_not_allowed) keeps its one-day refusal.
+      failed = r.problems.some((p) => p.code !== 'admin_token_not_allowed');
     } catch (err) {
+      failed = true;
       logger.warn({ message: (err as Error).message }, 'proxy_tokens_failed');
+    }
+    if (!failed) mine.ensureRetryStep = 0;
+    else if (mine === st) {
+      // A registration that failed (cams-admin said proxy_ahead, an admin then
+      // fixed it there): try again on a growing wait, until a run is clean.
+      const wait = mine.ensureRetryMs[Math.min(mine.ensureRetryStep++, mine.ensureRetryMs.length - 1)];
+      mine.ensureRetryTimer = setTimeout(() => {
+        mine.ensureRetryTimer = null;
+        if (mine === st) void ensureTokens();
+      }, wait);
+      mine.ensureRetryTimer.unref();
     }
   })().finally(() => {
     mine.ensuring = null;
@@ -362,12 +384,13 @@ async function moveStateOnce(s: Snapshot): Promise<void> {
   loadTlsState();
 }
 
-export interface StartOptions { pullIntervalMs?: number; debounceMs?: number; now?: () => number }
+export interface StartOptions { pullIntervalMs?: number; debounceMs?: number; now?: () => number; tokenRetryMs?: number[] }
 
 export async function startConfig(o: StartOptions = {}): Promise<void> {
   stopConfig();
   st = fresh();
   st.now = o.now ?? Date.now;
+  st.ensureRetryMs = o.tokenRetryMs?.length ? o.tokenRetryMs : TOKEN_RETRY_MS;
   st.mode = configMode();
   st.legacy = loadCameras();
   setLegacyCredentials(st.legacy);
@@ -435,6 +458,8 @@ export function stopConfig(): void {
   st.puller = null;
   if (st.reportTimer) clearTimeout(st.reportTimer);
   st.reportTimer = null;
+  if (st.ensureRetryTimer) clearTimeout(st.ensureRetryTimer);
+  st.ensureRetryTimer = null;
 }
 
 export const trustStore = (): TrustStore | null => st.trust;

@@ -327,6 +327,50 @@ describe('tokens in cams-admin mode (R4-12)', () => {
   });
 });
 
+// A registration that failed is tried again on a short schedule, without a
+// new snapshot, until a run is clean (an admin may have fixed the cause in
+// cams-admin); the admin-token refusal keeps its one-day back-off.
+describe('token registration retries', () => {
+  const RETRY = { ...FAST, tokenRetryMs: [40, 40] };
+  const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
+  async function start() {
+    await enrolled();
+    process.env.CONFIG_SOURCE = 'cams-admin';
+    fake.setSnapshot(twoAccountsSnapshot({ homeName: 'home' }));
+  }
+
+  it('registers after proxy_ahead once cams-admin accepts, with no new snapshot', async () => {
+    await start();
+    fake.tokenAnswer = { status: 409, body: { error: 'proxy_ahead' } };
+    await startConfig(RETRY);
+    await expect.poll(() => configStatus().appliedRevision).not.toBeNull();
+    await expect.poll(() => configStatus().problems.map((p) => p.code)).toContain('token_proxy_ahead');
+    await expect.poll(() => fake.tokens.length, { timeout: 3000 }).toBe(4);
+    await expect.poll(() => configStatus().problems.map((p) => p.code)).not.toContain('token_proxy_ahead');
+  });
+
+  it('does not retry when a run has no problems', async () => {
+    await start();
+    await startConfig(RETRY);
+    await tokensSettled();
+    const n = fake.registered.length;
+    expect(n).toBe(4);
+    await wait(300);
+    expect(fake.registered.length).toBe(n);
+  });
+
+  it('does not retry the admin-token refusal', async () => {
+    await start();
+    fake.tokenAnswer = { status: 409, body: { error: 'not_allowed_on_proxy' }, kind: 'admin' };
+    await startConfig(RETRY);
+    await tokensSettled();
+    expect(configStatus().problems.map((p) => p.code)).toContain('admin_token_not_allowed');
+    const n = fake.registered.length;
+    await wait(300);
+    expect(fake.registered.length).toBe(n);
+  });
+});
+
 // A legacy cameras.json token belongs to the proxy its entry names: never
 // sent to another proxy (a moved camera, or a confirmed new proxy URL); the
 // camera then waits for cams's own token, as on any new proxy.
