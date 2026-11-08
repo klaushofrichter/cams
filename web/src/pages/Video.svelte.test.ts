@@ -13,7 +13,11 @@ import { liveUi } from '../lib/liveUi';
 
 // No event stream in jsdom: the page polls instead.
 vi.mock('../lib/eventStream', async (orig) => ({ ...(await orig<typeof import('../lib/eventStream')>()), eventStream: () => undefined }));
+// jsdom has no MediaSource: players that never play.
+vi.mock('../lib/mpegtsPlayer', () => ({ mpegtsPlayer: () => ({ attach() {}, load() {}, play() {}, destroy() {}, onFailure() {} }) }));
+vi.mock('../lib/fmp4Player', () => ({ fmp4Player: () => ({ attach() {}, load() {}, play() {}, destroy() {}, onFailure() {} }) }));
 const Video = (await import('./Video.svelte')).default;
+const { createEventStream, reloadCameras } = await import('../lib/eventStream');
 
 const json = (v: unknown) => new Response(JSON.stringify(v), { status: 200, headers: { 'Content-Type': 'application/json' } });
 let component: Record<string, unknown> | undefined;
@@ -213,3 +217,74 @@ describe('Video page wiring', () => {
     expect(openHours()).toEqual(range(6, 18));
   });
 });
+
+// Finding 23 (2026-11-08): a page open on a camera held as new (offline:
+// camera_unconfirmed, stills) stayed offline and on stills after an admin's
+// Confirm; only a reload brought live video. The list was re-read (#360), but
+// the camera's status, which decides player or stills, was not.
+describe('Video page after a held camera is confirmed', () => {
+  let confirmed = false;
+  let statusReads = 0;
+  beforeEach(() => {
+    confirmed = false;
+    statusReads = 0;
+    vi.stubGlobal('fetch', async (url: string) => {
+      if (url.includes('/status')) {
+        statusReads++;
+        return json(confirmed ? { id: 'den', online: true } : { id: 'den', online: false, error: 'camera_unconfirmed' });
+      }
+      if (url === '/api/cameras') return json([{ id: 'den', name: 'Den', webUiUrl: null, proxy: true, proxyConfigured: true, ...(confirmed ? {} : { credentials: 'unconfirmed' }) }]);
+      if (url.includes('/extent')) return json({ oldest: null });
+      if (url.includes('/events?')) return json({ events: [], downloads: 'ok' });
+      return json([]);
+    });
+    cameras.set([{ id: 'den', name: 'Den', webUiUrl: null, proxy: true, proxyConfigured: true, credentials: 'unconfirmed' }]);
+  });
+  afterEach(() => liveUi.update((u) => ({ ...u, status: null, playerState: 'connecting', stillsShowing: false })));
+
+  const offline = () => target!.querySelector('[data-testid="offline-reason"]')?.textContent ?? null;
+  const player = () => target!.querySelector('[data-testid="live-video"]');
+
+  async function openHeld() {
+    await open('/app/video?cam=den');
+    expect(offline()).toBe("A change to the camera's connection data is waiting for an admin to confirm it.");
+    expect(player()).toBeNull(); // stills only
+  }
+
+  it('confirmed on this page (the banner re-reads the list): the offline card goes and the player starts', async () => {
+    await openHeld();
+    const before = statusReads;
+    confirmed = true;
+    await reloadCameras(); // what HeldBanner does after a Confirm
+    await settle();
+    expect(statusReads).toBe(before + 1);
+    expect(offline()).toBeNull();
+    expect(player()).not.toBeNull();
+  });
+
+  it('confirmed elsewhere (another tab or session; the event stream says so): the same', async () => {
+    await openHeld();
+    type Fn = (e: { data: string }) => void;
+    const listeners = new Map<string, Fn>();
+    const source = { readyState: 1, onopen: null, onerror: null, addEventListener: (t: string, fn: Fn) => void listeners.set(t, fn), close() {} };
+    const stream = createEventStream({ factory: () => source });
+    confirmed = true;
+    listeners.get('cameras')!({ data: '{}' }); // the server's `cameras` event once the new configuration is in use
+    await settle();
+    expect(offline()).toBeNull();
+    expect(player()).not.toBeNull();
+    stream.close();
+  });
+
+  it('a list re-read that changes nothing for a live camera keeps it live', async () => {
+    confirmed = true;
+    cameras.set([{ id: 'den', name: 'Den', webUiUrl: null, proxy: true, proxyConfigured: true }]);
+    await open('/app/video?cam=den');
+    expect(player()).not.toBeNull();
+    const v = player();
+    await reloadCameras();
+    await settle();
+    expect(player()).toBe(v); // same player, no restart
+  });
+});
+

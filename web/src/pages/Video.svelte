@@ -291,8 +291,15 @@
   // itself is `glued`; the two differ only while a switch is under way.
   const panel = $derived(vroute.panel);
   // The camera card's status: checked on showing the page and on another
-  // camera, whether or not the stream is open.
+  // camera, whether or not the stream is open. And each time the camera's
+  // entry in the list is new: the list is re-read when a new configuration
+  // is in use (a held camera confirmed, here or elsewhere: the `cameras`
+  // event), its proxy is switched or its capabilities change. The status
+  // decides player or stills (LiveBox), so without this a camera confirmed
+  // while the page was open stayed offline, on stills (finding 23).
+  const camEntry = $derived($cameraById(cam));
   $effect(() => {
+    void camEntry;
     if (cam && pageVisible) untrack(() => void checkLiveStatus(cam));
   });
   // And each time the live stream starts playing: a camera that restarted
