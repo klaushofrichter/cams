@@ -204,6 +204,56 @@ describe('POST /auth/viewer-token', () => {
   });
 });
 
+// Spec A4: a viewer token with role "admin" is an admin of its accounts
+// (Confirm held items, settings), like a Google admin there; absent = viewer.
+describe('an admin viewer token', () => {
+  const ADMIN = 'cav_RouteTestFakeToken0004';
+  const ID_ADMIN = 'vtk_0000000000000000000D';
+  const withAdmin = (alphaRole: 'admin' | 'viewer' | undefined, betaRole?: 'admin' | 'viewer') => {
+    const [alpha, beta] = fleet();
+    const g = grant(ID_ADMIN, ADMIN, now + 24 * HOUR, 'Ops tablet');
+    alpha.viewerTokens = [...alpha.viewerTokens!, { ...g, ...(alphaRole && { role: alphaRole }) }];
+    if (betaRole) beta.viewerTokens = [...beta.viewerTokens!, { ...g, role: betaRole }];
+    return [alpha, beta];
+  };
+
+  it('signs in as an admin: /api/me says so, admin routes answer; still no MCP token', async () => {
+    applyFleet(withAdmin('admin'));
+    const c = cookieOf(await post('/auth/viewer-token', { token: ADMIN }));
+    const me = await request(createApp()).get('/api/me').set('Cookie', c);
+    expect(me.body).toMatchObject({ via: 'viewer-token', name: 'Ops tablet', role: 'admin', account: { id: ALPHA } });
+    expect((await request(createApp()).get('/api/admin/held').set('Cookie', c)).status).toBe(200);
+    const mcp = await post('/api/mcp-tokens', { name: 'x', days: 7 }, c);
+    expect([mcp.status, mcp.body]).toEqual([403, { error: 'forbidden_viewer_token' }]);
+  });
+
+  it('role "viewer" or absent: a viewer (admin routes refused)', async () => {
+    for (const role of ['viewer', undefined] as const) {
+      applyFleet(withAdmin(role));
+      const c = cookieOf(await post('/auth/viewer-token', { token: ADMIN }));
+      expect((await request(createApp()).get('/api/me').set('Cookie', c)).body.role).toBe('viewer');
+      expect((await request(createApp()).get('/api/admin/held').set('Cookie', c)).status).toBe(403);
+    }
+  });
+
+  it('per account: admin in one, viewer in the other (the picker shows each)', async () => {
+    applyFleet(withAdmin('admin', 'viewer'));
+    const c = cookieOf(await post('/auth/viewer-token', { token: ADMIN }));
+    const list = await request(createApp()).get('/api/accounts').set('Cookie', c);
+    expect(list.body.items.map((i: { id: string; role: string }) => [i.id, i.role])).toEqual([[ALPHA, 'admin'], [BETA, 'viewer']]);
+    const beta = cookieOf(await post('/api/session/account', { accountId: BETA }, c));
+    expect((await request(createApp()).get('/api/me').set('Cookie', beta)).body.role).toBe('viewer');
+  });
+
+  it('follows the fleet on every request: admin taken away, the next request is a viewer', async () => {
+    applyFleet(withAdmin('admin'));
+    const c = cookieOf(await post('/auth/viewer-token', { token: ADMIN }));
+    expect((await request(createApp()).get('/api/admin/held').set('Cookie', c)).status).toBe(200);
+    applyFleet(withAdmin('viewer'));
+    expect((await request(createApp()).get('/api/admin/held').set('Cookie', c)).status).toBe(403);
+  });
+});
+
 describe('limits', () => {
   it('per address: failures count (10 by default), a success doesn\'t; then 429 too_many_attempts for the right token too', async () => {
     process.env.RATE_LIMIT_TOKEN_FAILURES = '3';

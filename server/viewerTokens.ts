@@ -1,7 +1,8 @@
 // Viewer tokens, the cams side (cams-admin design
 // docs/superpowers/specs/2026-11-05-viewer-tokens-design.md §9): a token
 // (`cav_` + 22 base62) made in cams-admin signs a person in as a viewer of
-// its accounts until it expires. The snapshot (contract cams-v1, format 4)
+// its accounts until it expires (or as an admin of the accounts whose entry
+// says `role: "admin"`, cams-v1 A4). The snapshot (contract cams-v1, format 4)
 // lists per account the tokens valid at its time, by fingerprint only; cams
 // joins them across accounts by id and checks them on every request:
 // listed, fingerprint the same, not expired by cams-admin's clock, and a good
@@ -21,10 +22,12 @@ export const OFFLINE_LIMIT_MS = 24 * 3_600_000;
 // The report's viewerTokens (contract: ≤ 200).
 export const MAX_REPORTED_USES = 200;
 
-// One account's entry in the snapshot.
-export interface ViewerTokenGrant { id: string; name: string; fingerprint: string; expiresAt: number }
-// A token as cams knows it: joined across the accounts listing it.
-export interface ViewerToken extends ViewerTokenGrant { accounts: AccountRef[] }
+// One account's entry in the snapshot. `role` absent = viewer (the parser
+// keeps it only when admin).
+export interface ViewerTokenGrant { id: string; name: string; fingerprint: string; expiresAt: number; role?: 'viewer' | 'admin' }
+// A token as cams knows it: joined across the accounts listing it; `adminIn`
+// the ids of the accounts whose entry makes it an admin there.
+export interface ViewerToken extends Omit<ViewerTokenGrant, 'role'> { accounts: AccountRef[]; adminIn: string[] }
 
 // "sha256:" + hex(SHA-256(UTF-8("cams-viewer-token v1\n" + token))), the
 // contract's rule (vectors.json viewerTokens).
@@ -85,10 +88,12 @@ export function indexViewerTokens(accounts: readonly FleetAccount[]): Index {
     for (const g of a.viewerTokens ?? []) {
       const ref = { id: a.id, name: a.name, displayName: a.displayName };
       const t = byId.get(g.id);
-      if (!t) byId.set(g.id, { id: g.id, name: g.name, fingerprint: g.fingerprint, expiresAt: g.expiresAt, accounts: [ref] });
+      const admin = g.role === 'admin' ? [a.id] : [];
+      if (!t) byId.set(g.id, { id: g.id, name: g.name, fingerprint: g.fingerprint, expiresAt: g.expiresAt, accounts: [ref], adminIn: admin });
       else if (t.fingerprint !== g.fingerprint) bad.add(g.id);
       else if (!t.accounts.some((x) => x.id === a.id)) {
         t.accounts.push(ref);
+        t.adminIn.push(...admin);
         t.expiresAt = Math.min(t.expiresAt, g.expiresAt);
       }
     }

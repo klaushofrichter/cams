@@ -112,6 +112,7 @@ function checkAccount(a: Record<string, unknown>): AccountPart {
 
 // Viewer tokens (snapshot format 4): absent (an older snapshot) is none; each
 // entry copied field by field, a bad one fails the account like a bad user.
+// `role` (cams-v1 A4) "viewer" | "admin", absent = viewer.
 // The fingerprint is never part of a detail.
 const CONTROL = /[\u0000-\u001f\u007f]/;
 function parseViewerTokens(v: unknown): ViewerTokenGrant[] {
@@ -121,9 +122,11 @@ function parseViewerTokens(v: unknown): ViewerTokenGrant[] {
   return (v as unknown[]).map((t0, i) => {
     const t = (obj(t0) ? t0 : {}) as Record<string, unknown>;
     if (!obj(t0) || typeof t.id !== 'string' || !VIEWER_TOKEN_ID_RE.test(t.id) || seen.has(t.id) || !str(t.name, 64) || CONTROL.test(t.name)
-      || typeof t.fingerprint !== 'string' || !VIEWER_TOKEN_FINGERPRINT_RE.test(t.fingerprint) || !Number.isSafeInteger(t.expiresAt) || (t.expiresAt as number) < 0) fail(`viewer token ${i}`);
+      || typeof t.fingerprint !== 'string' || !VIEWER_TOKEN_FINGERPRINT_RE.test(t.fingerprint) || !Number.isSafeInteger(t.expiresAt) || (t.expiresAt as number) < 0
+      || (t.role !== undefined && t.role !== 'viewer' && t.role !== 'admin')) fail(`viewer token ${i}`);
     seen.add(t.id as string);
-    return { id: t.id as string, name: t.name as string, fingerprint: t.fingerprint as string, expiresAt: t.expiresAt as number };
+    // role (cams-v1 A4): "admin" kept; "viewer" or absent is a viewer, no field.
+    return { id: t.id as string, name: t.name as string, fingerprint: t.fingerprint as string, expiresAt: t.expiresAt as number, ...(t.role === 'admin' && { role: 'admin' as const }) };
   });
 }
 
