@@ -5,6 +5,7 @@
   import { apiFetch, getJson } from '../lib/api';
   import { isAdmin } from '../lib/session';
   import { me } from '../lib/stores';
+  import { reloadCameras } from '../lib/eventStream';
 
   interface Held { camsId: string; fields: string[]; from: Record<string, unknown>; to: Record<string, unknown>; keptOld: boolean; isNew?: boolean; digest: string }
   const LABELS: Record<string, string> = { proxyUrl: 'proxy address', caFingerprints: 'proxy CA', proxyTlsServername: 'proxy TLS name', host: 'camera address', protocol: 'protocol', tlsServername: 'camera TLS name' };
@@ -51,7 +52,11 @@
     try {
       const r = await apiFetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ items: [item] }) });
       changed = r.status === 409;
-      await load();
+      // Something confirmed or kept: a new configuration is in use. Re-read the
+      // camera list now, so live (through the proxy or not) follows without a
+      // reload of the page (finding 14); the event stream says so too, later.
+      if (r.ok) await Promise.all([load(), reloadCameras()]);
+      else await load();
     } finally {
       busy = false;
     }

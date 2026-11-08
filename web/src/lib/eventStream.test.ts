@@ -2,7 +2,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { resetSessionState } from './api';
 import { get } from 'svelte/store';
-import { createEventStream, groupPending, prunePending, type EventSourceLike } from './eventStream';
+import { createEventStream, groupPending, prunePending, wantsEventStream, type EventSourceLike } from './eventStream';
 import { cameras } from './stores';
 
 afterEach(() => vi.useRealTimers());
@@ -319,5 +319,24 @@ describe('groupPending (one row per recording in progress)', () => {
 
   it('is empty for no events', () => {
     expect(groupPending([])).toEqual([]);
+  });
+});
+
+// Finding 14: a held new camera has no proxy yet, but confirming it may give
+// it one; the page must hear the configuration change ('cameras') to re-read
+// its list, so the stream opens for it too.
+describe('wantsEventStream (when the app opens its stream)', () => {
+  const cam = (o: Record<string, unknown>) => ({ id: 'c', name: 'C', webUiUrl: null, ...o });
+  it('a camera with a cam-proxy (on or switched off): yes', () => {
+    expect(wantsEventStream([cam({ proxyConfigured: true, proxy: false })])).toBe(true);
+    expect(wantsEventStream([cam({ proxy: true })])).toBe(true);
+  });
+  it('a camera held as new (unconfirmed): yes', () => {
+    expect(wantsEventStream([cam({ proxyConfigured: false, proxy: false, credentials: 'unconfirmed' })])).toBe(true);
+  });
+  it('only direct cameras, or none: no', () => {
+    expect(wantsEventStream([cam({ proxyConfigured: false, proxy: false })])).toBe(false);
+    expect(wantsEventStream([cam({ proxyConfigured: false, credentials: 'missing' })])).toBe(false);
+    expect(wantsEventStream([])).toBe(false);
   });
 });

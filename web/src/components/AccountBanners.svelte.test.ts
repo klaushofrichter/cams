@@ -9,6 +9,7 @@ import AccountMenu from './AccountMenu.svelte';
 import HeldBanner from './HeldBanner.svelte';
 import StaleBanner from './StaleBanner.svelte';
 import CameraLogin from './CameraLogin.svelte';
+import { get } from 'svelte/store';
 import { cameras, me, type Me } from '../lib/stores';
 
 const BASE: Me = { email: 'a@example.org', version: 'v', buildDate: null, account: { id: 'acc_A', name: 'alpha', displayName: 'Alpha' }, role: 'admin', accounts: 2, configSource: 'cams-admin', staleSince: null, configProblem: null, held: 0 };
@@ -123,6 +124,48 @@ describe('HeldBanner: new cameras and changed offers', () => {
     await settle();
     expect(q('held-cam1')!.textContent).toContain('c');
     expect(q('held-changed')!.textContent).toMatch(/changed/i);
+  });
+});
+
+// Finding 14 (account-move exercise): a page open while a held new camera
+// was confirmed kept its old camera list (no proxy, not through the proxy), so
+// live played the wrong format until a reload. Confirm re-reads the list.
+describe('HeldBanner: Confirm re-reads the camera list', () => {
+  it('a confirmed new camera: /api/cameras again, and the store follows', async () => {
+    me.set({ ...BASE, held: 1 });
+    cameras.set([{ id: 'cam2', name: 'Two', webUiUrl: null, proxy: false, proxyConfigured: false, credentials: 'unconfirmed', throughProxy: false }]);
+    answers['GET /api/admin/held'] = { status: 200, body: { items: [{ camsId: 'cam2', fields: ['proxyUrl'], from: {}, to: { proxyUrl: 'https://192.0.2.20:8443' }, keptOld: false, isNew: true, digest: 'f'.repeat(64) }] } };
+    answers['POST /api/admin/held/confirm'] = { status: 200, body: { confirmed: ['cam2'] } };
+    render(HeldBanner);
+    await settle();
+    answers['GET /api/admin/held'] = { status: 200, body: { items: [] } };
+    answers['GET /api/cameras'] = { status: 200, body: [{ id: 'cam2', name: 'Two', webUiUrl: null, proxy: true, proxyConfigured: true, throughProxy: true }] };
+    q('held-confirm-cam2')!.click();
+    await settle();
+    expect(calls.some((c) => c.url === '/api/cameras')).toBe(true);
+    expect(get(cameras)[0].throughProxy).toBe(true);
+  });
+  it('a confirmed proxy: the same', async () => {
+    const PRX = 'prx_CCCCCCCCCCCCCCCCCCCC';
+    me.set({ ...BASE, held: 1 });
+    answers['GET /api/admin/held'] = { status: 200, body: { items: [], proxies: [{ proxyId: PRX, name: 'Shed', fields: ['proxyUrl'], from: null, to: { proxyUrl: 'https://192.0.2.20:8443' }, digest: '3'.repeat(64) }] } };
+    answers['POST /api/admin/held/proxies/confirm'] = { status: 200, body: { confirmed: [PRX] } };
+    render(HeldBanner);
+    await settle();
+    answers['GET /api/admin/held'] = { status: 200, body: { items: [], proxies: [] } };
+    q(`held-proxy-confirm-${PRX}`)!.click();
+    await settle();
+    expect(calls.some((c) => c.url === '/api/cameras')).toBe(true);
+  });
+  it('an offer that changed meanwhile (409) changed nothing: no re-read', async () => {
+    me.set({ ...BASE, held: 1 });
+    answers['GET /api/admin/held'] = { status: 200, body: { items: [{ camsId: 'cam1', fields: ['host'], from: { host: 'a' }, to: { host: 'b' }, keptOld: false, isNew: false, digest: '1'.repeat(64) }] } };
+    answers['POST /api/admin/held/confirm'] = { status: 409, body: { error: 'offer_changed', changed: ['cam1'] } };
+    render(HeldBanner);
+    await settle();
+    q('held-confirm-cam1')!.click();
+    await settle();
+    expect(calls.some((c) => c.url === '/api/cameras')).toBe(false);
   });
 });
 
