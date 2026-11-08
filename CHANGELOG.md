@@ -9,5 +9,8 @@ published as [GitHub releases](https://github.com/klaushofrichter/cams/releases)
 ## [Unreleased]
 
 ### Fixed
+- Sign-in page: a cams-admin viewer token (or its sign-in link) pasted into the token field signs in, as on the token page.
+
+### Fixed
 - Token sign-in: the pasted token is hidden like a password, with a Show/Hide button.
 

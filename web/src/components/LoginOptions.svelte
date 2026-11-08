@@ -5,6 +5,7 @@
   // (Google first; the token form behind a secondary button).
   import { untrack } from 'svelte';
   import { loginErrorMessage, signInWithToken, type LoginMethod } from '../lib/login';
+  import { signInWithViewerToken, tokenFromPaste } from '../lib/viewerToken';
 
   let { methods, failed = false }: { methods: LoginMethod[]; failed?: boolean } = $props();
 
@@ -22,7 +23,9 @@
     if (busy || token.length === 0) return;
     busy = true;
     error = null;
-    const result = await signInWithToken(token);
+    // A cams-admin viewer token (or its sign-in link) pasted here: the same as on /token (Klaus 2026-11-08).
+    const viewer = methods.includes('viewer-token') ? tokenFromPaste(token) : null;
+    const result = viewer ? await signInWithViewerToken(viewer) : await signInWithToken(token);
     if ('redirect' in result) {
       location.assign(result.redirect);
       return;
