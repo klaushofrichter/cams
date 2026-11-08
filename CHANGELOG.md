@@ -8,4 +8,11 @@ published as [GitHub releases](https://github.com/klaushofrichter/cams/releases)
 
 ## [Unreleased]
 
-- A proxy token that cams-admin refused to register (for example `token_proxy_ahead`) is now tried again every 1, 2, 5, then 10 minutes until it succeeds, instead of waiting for the next configuration change or a day.
+### Added
+
+- Admin tokens: a token made as "admin" in cams-admin signs you in as an admin of its accounts (confirm changes, change settings). Other tokens stay viewer tokens. About now shows your role.
+
+### Fixed
+
+- Live works right after an admin confirms a new camera or proxy on the banner: the open page re-reads its camera list (and hears the new configuration when a camera is still waiting to be confirmed), so it no longer stays "Connecting…" until a page reload.
+

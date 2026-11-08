@@ -79,6 +79,18 @@ test('paste: signed in as a viewer of the token\'s account; About says who', asy
   expect(session.value).not.toContain(T.paste.token);
   const me = await page.evaluate(async () => (await (await fetch('/api/me')).json()) as { role: string; via: string });
   expect(me).toMatchObject({ role: 'viewer', via: 'viewer-token' });
+  await expect(page.getByTestId('about-role')).toHaveText('Viewer');
+});
+
+test('an admin token (role "admin"): an admin of its account; About says so', async ({ page }) => {
+  await page.goto('/token');
+  await page.getByTestId('vt-input').fill(T.admin.token);
+  await page.getByTestId('vt-submit').click();
+  await expectSignedInAs(page, T.admin.name);
+  await expect(page.getByTestId('about-role')).toHaveText('Admin');
+  const me = await page.evaluate(async () => (await (await fetch('/api/me')).json()) as { role: string; via: string });
+  expect(me).toMatchObject({ role: 'admin', via: 'viewer-token' });
+  expect(await page.evaluate(async () => (await fetch('/api/admin/held')).status)).toBe(200);
 });
 
 test('the link: the fragment leaves the address at once, then "Sign in as \'<name>\'?" and one button', async ({ page }) => {

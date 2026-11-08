@@ -71,9 +71,11 @@ const REOPEN_MAX_MS = 60_000;
 // A recording still being written when its event ends isn't listed yet.
 const AFTER_EVENT_MS = 60_000;
 
-// A camera's proxy was switched on or off (Settings, any user): re-read the list.
-const reloadCameras = () =>
-  void getJson<CameraSummary[]>('/api/cameras')
+// A camera's proxy was switched on or off (Settings, any user), or a new
+// configuration is in use (a held change confirmed): re-read the list. The
+// live player follows it (through the proxy or not).
+export const reloadCameras = (): Promise<void> =>
+  getJson<CameraSummary[]>('/api/cameras')
     .then((list) => cameras.set(list))
     .catch(() => undefined);
 
@@ -102,7 +104,7 @@ export function createEventStream(opts: { url?: string; factory?: (url: string) 
         for (const w of watchers) w.fire();
         for (const fn of reconnectListeners) fn();
         // A camera renamed meanwhile: its name comes with the list.
-        (opts.onCameras ?? reloadCameras)();
+        void (opts.onCameras ?? reloadCameras)();
       }
       missed = false;
     };
@@ -124,7 +126,7 @@ export function createEventStream(opts: { url?: string; factory?: (url: string) 
       if (!p || typeof p.cam !== 'string' || typeof p.up !== 'boolean') return;
       state.update((s) => ({ ...s, up: { ...s.up, [p.cam as string]: p.up as boolean } }));
     });
-    source.addEventListener('cameras', () => (opts.onCameras ?? reloadCameras)());
+    source.addEventListener('cameras', () => void (opts.onCameras ?? reloadCameras)());
     // A camera's name changed (design camera-name-design.md): {cam, name}.
     // The id never changes; the picker, titles and cards show the new name.
     source.addEventListener('camera', (e) => {
@@ -222,8 +224,13 @@ export function createEventStream(opts: { url?: string; factory?: (url: string) 
 }
 
 // The app's one stream, opened when a camera has a cam-proxy (even one
-// switched off, so the page hears when it is switched on again), unless live
-// events are off in Settings: then pages poll as before.
+// switched off, so the page hears when it is switched on again) or is held as
+// new (confirming it may give it one: the page hears the new configuration and
+// re-reads its list, finding 14), unless live events are off in Settings:
+// then pages poll as before.
+export const wantsEventStream = (list: readonly CameraSummary[]): boolean =>
+  list.some((c) => (c.proxyConfigured ?? c.proxy) || c.credentials === 'unconfirmed');
+
 let shared: EventStream | undefined;
 function closeEventStream(): void {
   shared?.close();
@@ -235,7 +242,7 @@ export function eventStream(): EventStream | undefined {
     return undefined;
   }
   if (shared) return shared;
-  if (!get(cameras).some((c) => c.proxyConfigured ?? c.proxy) || typeof EventSource === 'undefined') return undefined;
+  if (!wantsEventStream(get(cameras)) || typeof EventSource === 'undefined') return undefined;
   shared = createEventStream();
   // A new analysis or still check: the day's cards, wherever they are kept.
   followDayChanges(shared);

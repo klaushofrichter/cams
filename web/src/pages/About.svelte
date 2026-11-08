@@ -32,6 +32,7 @@
       <p><strong>cams</strong> by <a href="https://skylar.technology" target="_blank" rel="noopener noreferrer">Skylar Technology LLC</a>: a private viewer for our Reolink security cameras.</p>
       <dl>
         <dt>Signed in as</dt><dd data-testid="about-signed-in">{signedInAs}</dd>
+        {#if $me?.role}<dt>Role</dt><dd data-testid="about-role">{$me.role === 'admin' ? 'Admin' : 'Viewer'}</dd>{/if}
         <dt>Version</dt><dd><a data-testid="about-version" href={release} target="_blank" rel="noopener noreferrer">{version}</a></dd>
         <dt>Built</dt><dd data-testid="about-build">{built}</dd>
         <dt>Source</dt><dd><a href="https://github.com/klaushofrichter/cams" target="_blank" rel="noopener noreferrer">github.com/klaushofrichter/cams</a></dd>

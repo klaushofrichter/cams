@@ -7,9 +7,10 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import vectors from '../contract/cams-v1/vectors.json';
 import { setFleet, type FleetAccount } from '../server/fleet';
+import { viewerTokenMemberships } from '../server/middleware/requireAuth';
 import {
   checkViewerToken, noteViewerTokenUse, returnViewerTokenUses, sessionTag, setViewerTokenClock, takeViewerTokenUses,
-  viewerTokenFingerprint, viewerTokenForSession, viewerTokenLink, viewerTokens, VIEWER_TOKEN_RE,
+  viewerTokenFingerprint, viewerTokenForSession, viewerTokenLink, viewerTokens, VIEWER_TOKEN_RE, type ViewerTokenGrant,
 } from '../server/viewerTokens';
 
 const NOW = 1_800_000_000_000;
@@ -20,7 +21,7 @@ const T3 = 'cav_UnitTestFakeTokenNo003';
 const ID1 = 'vtk_00000000000000000001';
 const ID2 = 'vtk_00000000000000000002';
 const ID3 = 'vtk_00000000000000000003';
-const grant = (id: string, token: string, expiresAt = NOW + 7 * 24 * HOUR, name = `name ${id.slice(-1)}`) => ({ id, name, fingerprint: viewerTokenFingerprint(token), expiresAt });
+const grant = (id: string, token: string, expiresAt = NOW + 7 * 24 * HOUR, name = `name ${id.slice(-1)}`): ViewerTokenGrant => ({ id, name, fingerprint: viewerTokenFingerprint(token), expiresAt });
 const acc = (id: string, name: string, viewerTokens: ReturnType<typeof grant>[]): FleetAccount => ({ id, name, displayName: name.toUpperCase(), users: [], cameras: [], viewerTokens });
 const ALPHA = 'acc_ALPHAALPHAALPHAALPHA';
 const BETA = 'acc_BETABETABETABETABE';
@@ -84,6 +85,18 @@ describe('the fleet index', () => {
     expect(checkViewerToken(T1).ok).toBe(true);
     setFleet([acc(ALPHA, 'alpha', [])]);
     expect(checkViewerToken(T1)).toEqual({ ok: false, reason: 'unknown' });
+  });
+});
+
+// Spec A4: an admin token is an admin of the accounts whose entry says so.
+describe('the role per account', () => {
+  it('admin where the account lists it as admin, viewer elsewhere and by default', () => {
+    setFleet([
+      acc(ALPHA, 'alpha', [{ ...grant(ID1, T1), role: 'admin' }, grant(ID2, T2)]),
+      acc(BETA, 'beta', [grant(ID1, T1)]),
+    ]);
+    expect(viewerTokenMemberships(viewerTokens().byId.get(ID1)!).map((m) => [m.account.id, m.role])).toEqual([[ALPHA, 'admin'], [BETA, 'viewer']]);
+    expect(viewerTokenMemberships(viewerTokens().byId.get(ID2)!).map((m) => [m.account.id, m.role])).toEqual([[ALPHA, 'viewer']]);
   });
 });
 
