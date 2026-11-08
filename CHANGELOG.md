@@ -8,3 +8,7 @@ published as [GitHub releases](https://github.com/klaushofrichter/cams/releases)
 
 ## [Unreleased]
 
+### Fixed
+
+- Live works right after an admin confirms a new camera or proxy on the banner: the open page re-reads its camera list (and hears the new configuration when a camera is still waiting to be confirmed), so it no longer stays "Connecting…" until a page reload.
+

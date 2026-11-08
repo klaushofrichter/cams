@@ -31,7 +31,10 @@ test('a changed camera address is held until an admin confirms; viewers see no b
   await expect(vp.getByTestId('camera-picker')).toBeVisible();
   await expect(vp.getByTestId('held-banner')).toHaveCount(0);
   await other.close();
+  // Confirm re-reads the camera list (finding 14: live follows without a page reload).
+  const reread = page.waitForRequest((r) => new URL(r.url()).pathname === '/api/cameras');
   await page.getByTestId('held-confirm-cam1').click();
+  await reread;
   await expect(page.getByTestId('held-banner')).toHaveCount(0);
   await expect.poll(() => osdName(page)).toBe('Shed');
   // back, for the next project
