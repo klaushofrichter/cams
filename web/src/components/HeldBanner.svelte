@@ -9,7 +9,7 @@
 
   interface Held { camsId: string; fields: string[]; from: Record<string, unknown>; to: Record<string, unknown>; keptOld: boolean; isNew?: boolean; digest: string }
   const LABELS: Record<string, string> = { proxyUrl: 'proxy address', caFingerprints: 'proxy CA', proxyTlsServername: 'proxy TLS name', host: 'camera address', protocol: 'protocol', tlsServername: 'camera TLS name' };
-  // A held proxy (camera move, M5): new (`from` null) or changed; Confirm only.
+  // A held proxy (camera move, M5): new (`from` null) or changed; Confirm or Ignore (#266).
   interface HeldProxy { proxyId: string; name: string; fields: string[]; from: Record<string, unknown> | null; to: Record<string, unknown>; digest: string }
   let items: Held[] = $state([]);
   let proxies: HeldProxy[] = $state([]);
@@ -46,6 +46,8 @@
     await post(`/api/admin/held/${action}`, { camsId: h.camsId, digest: h.digest });
   }
   const confirmProxy = (p: HeldProxy) => post('/api/admin/held/proxies/confirm', { proxyId: p.proxyId, digest: p.digest });
+  // Ignore: the proxy stays untrusted (no camera moves to it); this offer isn't shown again.
+  const ignoreProxy = (p: HeldProxy) => post('/api/admin/held/proxies/ignore', { proxyId: p.proxyId, digest: p.digest });
   async function post(url: string, item: Record<string, string>) {
     busy = true;
     changed = false;
@@ -81,11 +83,12 @@
             {/if}
             <span class="actions">
               <button class="primary" data-testid={`held-proxy-confirm-${p.proxyId}`} disabled={busy} onclick={() => confirmProxy(p)}>Confirm</button>
+              <button data-testid={`held-proxy-ignore-${p.proxyId}`} disabled={busy} onclick={() => ignoreProxy(p)}>Ignore</button>
             </span>
           </li>
         {/each}
       </ul>
-      <p class="help" data-testid="held-proxy-help">Confirm a proxy once; cameras can then move to it without asking again.</p>
+      <p class="help" data-testid="held-proxy-help">Confirm a proxy once; cameras can then move to it without asking again. Ignore hides it here; no camera moves to it.</p>
     {/if}
     {#if shown.length}<ul>
       {#each shown as h (h.camsId)}

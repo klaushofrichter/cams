@@ -246,6 +246,43 @@ describe('TrustStore: trusted proxies', () => {
     expect(t.confirmProxies('admin@example.org', ALPHA, [{ proxyId: PRX, digest: h.digest }])).toEqual({ confirmed: [], changed: [PRX] });
   });
 
+  // #266: Ignore on the proxy banner (spec §9.2: Confirm / Ignore). The
+  // proxy stays untrusted and held; only that exact offer is hidden.
+  it('ignores exactly the offer shown: still held and untrusted, hidden until the offer changes; kept across a restart', () => {
+    const dir = dirOf();
+    const t = TrustStore.load(dir);
+    t.proxyOffer(ALPHA, sp(), REV);
+    const h = t.heldProxies(ALPHA)[0];
+    expect(t.proxyIgnored(h)).toBe(false);
+    expect(t.ignoreProxies('admin@example.org', ALPHA, [{ proxyId: PRX, digest: h.digest }])).toEqual({ ignored: [PRX], changed: [] });
+    expect(t.heldProxies(ALPHA)).toHaveLength(1); // still held: no camera moves to it
+    expect(t.isTrusted(ALPHA, PRX, PT())).toBe(false);
+    expect(t.proxyIgnored(t.heldProxies(ALPHA)[0])).toBe(true);
+    expect(trustFile(dir).log.at(-1)).toEqual({ at: expect.any(Number), email: 'admin@example.org', accountId: ALPHA, camsIds: [], proxyIds: [PRX], action: 'ignore-proxy' });
+    const t2 = TrustStore.load(dir);
+    t2.proxyOffer(ALPHA, sp(), REV);
+    expect(t2.proxyIgnored(t2.heldProxies(ALPHA)[0])).toBe(true);
+    // Another offer (a new pin): shown again.
+    t2.proxyOffer(ALPHA, sp({ caFingerprints: [PIN2] }), REV);
+    expect(t2.proxyIgnored(t2.heldProxies(ALPHA)[0])).toBe(false);
+    // Confirmed later: trusted, and the ignore is gone.
+    confirmProxy(t2, ALPHA, PRX);
+    expect(t2.isTrusted(ALPHA, PRX, PT({ caFingerprints: [PIN2] }))).toBe(true);
+    expect(trustFile(dir).ignoredProxies ?? {}).toEqual({});
+  });
+
+  it('ignoreProxies with a stale digest or another account\'s changes nothing', () => {
+    const t = TrustStore.load(dirOf());
+    t.proxyOffer(ALPHA, sp(), REV);
+    t.proxyOffer(BETA, sp(), REV);
+    const a = t.heldProxies(ALPHA)[0];
+    expect(t.ignoreProxies('admin@example.org', BETA, [{ proxyId: PRX, digest: a.digest }])).toEqual({ ignored: [], changed: [PRX] });
+    t.proxyOffer(ALPHA, sp({ caFingerprints: [PIN2] }), REV);
+    expect(t.ignoreProxies('admin@example.org', ALPHA, [{ proxyId: PRX, digest: a.digest }])).toEqual({ ignored: [], changed: [PRX] });
+    expect(t.heldProxies().some((h) => t.proxyIgnored(h))).toBe(false);
+    expect(t.exists()).toBe(false); // nothing saved
+  });
+
   it('a new proxy is held with trusted null', () => {
     const t = TrustStore.load(dirOf());
     t.proxyOffer(ALPHA, sp(), REV);

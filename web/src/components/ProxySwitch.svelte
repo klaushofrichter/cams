@@ -13,14 +13,15 @@
   const camera = $derived($cameraById(cameraId));
   let saving = $state(false);
   // The proxy's own web page, while it answers (Klaus, 2026-09-28).
-  let info = $state<{ reachable: boolean; webUrl: string | null } | null>(null);
+  // adminWaiting (admins, #249): cams's admin token waits for the proxy to allow admin tokens.
+  let info = $state<{ reachable: boolean; webUrl: string | null; adminWaiting?: boolean } | null>(null);
   const configured = $derived(!!camera?.proxyConfigured); // a plain value: camera-list reloads don't refetch
   $effect(() => {
     const id = cameraId;
     info = null;
     if (!configured) return;
     let stale = false;
-    getJson<{ reachable: boolean; webUrl: string | null }>(`/api/cameras/${encodeURIComponent(id)}/proxy/info`)
+    getJson<{ reachable: boolean; webUrl: string | null; adminWaiting?: boolean }>(`/api/cameras/${encodeURIComponent(id)}/proxy/info`)
       .then((r) => { if (!stale) info = r; })
       .catch(() => { if (!stale) info = { reachable: false, webUrl: null }; });
     return () => (stale = true);
@@ -80,6 +81,9 @@
     </p>
   {:else if info && !info.reachable}
     <p class="muted" data-testid="proxy-unreachable">The cam-proxy isn't answering right now.</p>
+  {/if}
+  {#if info?.adminWaiting && showsAdminControls($me)}
+    <p class="muted" data-testid="proxy-admin-waiting">Waiting for this cam-proxy to allow admin tokens; cams asks again on its own. Until then, opening the cam-proxy asks for its sign-in.</p>
   {/if}
   {#if error}<p class="err" role="alert" data-testid="proxy-error">{error}</p>{/if}
 {/if}

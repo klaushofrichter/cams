@@ -1,4 +1,5 @@
 import { Router, type Request, type Response } from 'express';
+import { isSnapProxyId } from '../admin/snapshot';
 import { cookieOptions } from '../loginConfig';
 import { logger } from '../logger';
 import { REMEMBER_COOKIE, membershipsOf } from '../membership';
@@ -147,7 +148,8 @@ accountsRouter.get('/api/admin/held', (req: Request, res: Response) => {
     camsId: h.camsId, fields: h.fields, from: pick(h.confirmed, h.fields), to: pick(h.offered, h.fields), keptOld: h.keptOld, isNew: !!h.isNew,
     digest: store!.offerDigest(account, h.camsId, revision()),
   }));
-  res.json({ items, proxies: (store?.heldProxies(account) ?? []).map(proxyView) });
+  // An ignored proxy offer (#266) is not shown; it stays held.
+  res.json({ items, proxies: (store?.heldProxies(account) ?? []).filter((h) => !store!.proxyIgnored(h)).map(proxyView) });
 });
 
 function heldAction(action: 'confirm' | 'keep') {
@@ -181,20 +183,26 @@ function heldAction(action: 'confirm' | 'keep') {
 accountsRouter.post('/api/admin/held/confirm', heldAction('confirm'));
 accountsRouter.post('/api/admin/held/keep', heldAction('keep'));
 
-// Confirm a proxy once (camera move, S §9.2, M5): the session's account
-// only, exactly the offers shown (digest), all or nothing. Cameras then
-// move to it by the move rule; the rebuild applies a move waiting on it.
-const PROXY_ID = /^prx_[0-9A-HJKMNP-TV-Z]{20}$/;
-accountsRouter.post('/api/admin/held/proxies/confirm', (req: Request, res: Response) => {
+// Confirm a proxy once, or Ignore it (camera move, S §9.2, M5; Ignore #266):
+// the session's account only, exactly the offers shown (digest), all or
+// nothing. A confirmed proxy: cameras then move to it by the move rule, and
+// the rebuild applies a move waiting on it. An ignored one stays untrusted
+// and held; the banner stops showing that offer.
+function proxyItems(req: Request, res: Response): { proxyId: string; digest: string }[] | null {
   const items = (req.body as { items?: unknown } | undefined)?.items;
   if (!Array.isArray(items) || !items.length || items.length > 64
-    || !items.every((i) => i && typeof i === 'object' && typeof i.proxyId === 'string' && PROXY_ID.test(i.proxyId) && typeof i.digest === 'string' && /^[0-9a-f]{64}$/.test(i.digest))
+    || !items.every((i) => i && typeof i === 'object' && isSnapProxyId(i.proxyId) && typeof i.digest === 'string' && /^[0-9a-f]{64}$/.test(i.digest))
     || new Set(items.map((i: { proxyId: string }) => i.proxyId)).size !== items.length) {
-    return void res.status(400).json({ error: 'invalid', detail: 'items is a list of 1 to 64 {proxyId, digest}, each proxy once' });
+    res.status(400).json({ error: 'invalid', detail: 'items is a list of 1 to 64 {proxyId, digest}, each proxy once' });
+    return null;
   }
+  return (items as { proxyId: string; digest: string }[]).map((i) => ({ proxyId: i.proxyId, digest: i.digest }));
+}
+accountsRouter.post('/api/admin/held/proxies/confirm', (req: Request, res: Response) => {
+  const list = proxyItems(req, res);
+  if (!list) return;
   const account = sessionAccount(req, res).id;
   const store = trustStore();
-  const list = (items as { proxyId: string; digest: string }[]).map((i) => ({ proxyId: i.proxyId, digest: i.digest }));
   if (!store) return void res.status(409).json({ error: 'offer_changed', changed: list.map((i) => i.proxyId) });
   const r = store.confirmProxies(currentUser(req)!.email, account, list);
   if (!r.confirmed.length) return void res.status(409).json({ error: 'offer_changed', changed: r.changed });
@@ -203,4 +211,15 @@ accountsRouter.post('/api/admin/held/proxies/confirm', (req: Request, res: Respo
   logger.info({ accountId: account, proxyIds: r.confirmed }, 'held_proxy_confirmed');
   reportSoon(true);
   res.json({ confirmed: r.confirmed });
+});
+accountsRouter.post('/api/admin/held/proxies/ignore', (req: Request, res: Response) => {
+  const list = proxyItems(req, res);
+  if (!list) return;
+  const account = sessionAccount(req, res).id;
+  const store = trustStore();
+  if (!store) return void res.status(409).json({ error: 'offer_changed', changed: list.map((i) => i.proxyId) });
+  const r = store.ignoreProxies(currentUser(req)!.email, account, list);
+  if (!r.ignored.length) return void res.status(409).json({ error: 'offer_changed', changed: r.changed });
+  logger.info({ accountId: account, proxyIds: r.ignored }, 'held_proxy_ignored');
+  res.json({ ignored: r.ignored });
 });

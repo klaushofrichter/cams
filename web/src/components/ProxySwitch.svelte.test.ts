@@ -115,6 +115,23 @@ describe('ProxySwitch', () => {
     expect(a.getAttribute('target')).toBe('_blank');
   });
 
+  // #249: cams's admin token waits for the proxy to allow admin tokens.
+  it('says when cams\'s admin token waits for the proxy to allow it, next to the link', async () => {
+    vi.stubGlobal('fetch', async (url: string) =>
+      new Response(JSON.stringify(url.endsWith('/proxy/info') ? { reachable: true, webUrl: 'https://proxy.example', adminWaiting: true } : {}), { status: 200 }));
+    render('den');
+    await settle();
+    expect(target!.querySelector('[data-testid="proxy-admin-waiting"]')!.textContent).toBe('Waiting for this cam-proxy to allow admin tokens; cams asks again on its own. Until then, opening the cam-proxy asks for its sign-in.');
+  });
+
+  it('says nothing about the admin token when it doesn\'t wait', async () => {
+    vi.stubGlobal('fetch', async (url: string) =>
+      new Response(JSON.stringify(url.endsWith('/proxy/info') ? { reachable: true, webUrl: 'https://proxy.example' } : {}), { status: 200 }));
+    render('den');
+    await settle();
+    expect(target!.querySelector('[data-testid="proxy-admin-waiting"]')).toBeNull();
+  });
+
   it('shows no link when the proxy is unreachable', async () => {
     vi.stubGlobal('fetch', async () => new Response(JSON.stringify({ reachable: false, webUrl: null }), { status: 200 }));
     render('den');

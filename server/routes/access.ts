@@ -64,6 +64,11 @@ export const ACCESS: Readonly<Record<string, Need>> = {
   'GET /api/cameras/:id/compositions/available': 'viewer',
   'GET /api/cameras/:id/compositions/:job': 'viewer',
   'GET /api/cameras/:id/compositions/:job/video': 'viewer',
+  // Viewers read the camera's settings, device info, light state and proxy
+  // info too, beyond M §9.5's list: the Settings page shows them read-only
+  // and the light button its state. No password or token is in them; the
+  // camera's and the proxy's web addresses are (the links Settings shows).
+  // Recorded exception (#243 M3, the least disruptive of its two options).
   'GET /api/cameras/:id/settings': 'viewer',
   'GET /api/cameras/:id/device': 'viewer',
   'GET /api/cameras/:id/light': 'viewer',
@@ -114,6 +119,7 @@ export const ACCESS: Readonly<Record<string, Need>> = {
   'POST /api/admin/held/confirm': 'admin',
   'POST /api/admin/held/keep': 'admin',
   'POST /api/admin/held/proxies/confirm': 'admin',
+  'POST /api/admin/held/proxies/ignore': 'admin',
 };
 
 interface Layer { route?: { path: unknown; methods: Record<string, boolean> }; handle?: { stack?: Layer[] } }
