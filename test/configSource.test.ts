@@ -329,7 +329,7 @@ describe('tokens in cams-admin mode (R4-12)', () => {
 
 // A registration that failed is tried again on a short schedule, without a
 // new snapshot, until a run is clean (an admin may have fixed the cause in
-// cams-admin); the admin-token refusal keeps its one-day back-off.
+// cams-admin); the admin-token refusal has its own back-off (5 min to 1 h).
 describe('token registration retries', () => {
   const RETRY = { ...FAST, tokenRetryMs: [40, 40] };
   const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -359,15 +359,15 @@ describe('token registration retries', () => {
     expect(fake.registered.length).toBe(n);
   });
 
-  it('does not retry the admin-token refusal', async () => {
+  it('tries the admin-token refusal again on its own back-off, with no new snapshot (#249)', async () => {
     await start();
     fake.tokenAnswer = { status: 409, body: { error: 'not_allowed_on_proxy' }, kind: 'admin' };
-    await startConfig(RETRY);
-    await tokensSettled();
-    expect(configStatus().problems.map((p) => p.code)).toContain('admin_token_not_allowed');
-    const n = fake.registered.length;
-    await wait(300);
-    expect(fake.registered.length).toBe(n);
+    await startConfig({ ...RETRY, adminTokenRetryMs: [60] });
+    await expect.poll(() => configStatus().problems.map((p) => p.code)).toContain('admin_token_not_allowed');
+    // The proxy allows admin tokens now (the fake answers normally): registered without a pull.
+    await expect.poll(() => fake.tokens.filter((t) => t.kind === 'admin').length, { timeout: 3000 }).toBe(2);
+    expect(fake.registered.filter((r) => r.kind === 'admin').length).toBe(3); // refused once, then both proxies
+    await expect.poll(() => configStatus().problems.map((p) => p.code)).not.toContain('admin_token_not_allowed');
   });
 });
 

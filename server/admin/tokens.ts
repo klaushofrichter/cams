@@ -21,6 +21,10 @@ export interface LocalToken { id: string | null; accountId: string; proxyId: str
 type Kind = 'client' | 'admin';
 const KINDS: Kind[] = ['client', 'admin'];
 const DAY = 86_400_000;
+// After a proxy refuses an admin token (not_allowed_on_proxy, its allow-list
+// lacks tokens.apply.admin), the next tries wait 5 min, 15 min, 30 min, then
+// every hour: an admin who fixes the allow-list sees it work soon (#249).
+export const ADMIN_RETRY_MS = [5, 15, 30, 60].map((m) => m * 60_000);
 
 const intEnv = (name: string, def: number, min: number, max: number) => {
   const v = Number(process.env[name]);
@@ -35,12 +39,12 @@ const newToken = () => randomBytes(32).toString('base64url');
 export class LocalTokens {
   private list: LocalToken[] = [];
   private seen = new Map<string, string>(); // token id → last state the snapshot listed
-  private refusedAt = new Map<string, number>(); // `${account}/${proxy}` → when an admin token was refused
+  private refused = new Map<string, { at: number; step: number }>(); // `${account}/${proxy}` → the last admin-token refusal
 
-  private constructor(private readonly file: string) {}
+  private constructor(private readonly file: string, private readonly adminRetryMs: number[]) {}
 
-  static load(dir: string = dataDir()): LocalTokens {
-    const t = new LocalTokens(join(adminDir(dir), 'tokens.json'));
+  static load(dir: string = dataDir(), opts: { adminRetryMs?: number[] } = {}): LocalTokens {
+    const t = new LocalTokens(join(adminDir(dir), 'tokens.json'), opts.adminRetryMs?.length ? opts.adminRetryMs : ADMIN_RETRY_MS);
     t.list = t.read();
     return t;
   }
@@ -76,6 +80,17 @@ export class LocalTokens {
     return (listed.find((t) => snapshotStates.get(t.id!) === 'active') ?? listed.find((t) => snapshotStates.get(t.id!) === 'retiring'))?.token;
   }
 
+  private retryAt(r: { at: number; step: number }): number {
+    return r.at + this.adminRetryMs[Math.min(r.step, this.adminRetryMs.length - 1)];
+  }
+
+  // When the earliest refused admin token may be tried again (null: none waits).
+  adminRetryAt(): number | null {
+    let min: number | null = null;
+    for (const r of this.refused.values()) min = Math.min(min ?? Infinity, this.retryAt(r));
+    return min;
+  }
+
   counts(): { managed: number; pending: number } {
     let managed = 0, pending = 0;
     for (const t of this.list) {
@@ -90,6 +105,9 @@ export class LocalTokens {
   // tokens, rotation and retirement move on, gone tokens are dropped.
   async ensure(parts: AccountPart[], client: AdminClient, now: number, rotateBefore: number | null = null): Promise<{ registered: number; problems: Problem[] }> {
     this.list = this.read();
+    // A proxy no longer served keeps no admin-token back-off.
+    const served = new Set(parts.flatMap((p) => p.proxies.map((x) => `${p.account.id}/${x.id}`)));
+    for (const key of this.refused.keys()) if (!served.has(key)) this.refused.delete(key);
     let registered = 0;
     const problems: Problem[] = [];
     for (const part of parts) {
@@ -110,7 +128,9 @@ export class LocalTokens {
     const retireAt = new Map(proxy.tokens.map((t) => [t.id, t.retireAt]));
     const problems: Problem[] = [];
     const refusedKey = `${accountId}/${proxy.id}`;
-    if (kind === 'admin' && now - (this.refusedAt.get(refusedKey) ?? -Infinity) < DAY) return { registered: 0, problems };
+    const refused = kind === 'admin' ? this.refused.get(refusedKey) : undefined;
+    // Still waiting to try again: the problem stays listed.
+    if (refused && now < this.retryAt(refused)) return { registered: 0, problems: [{ code: 'admin_token_not_allowed', accountId, detail: `proxy ${proxy.id}` }] };
     // Drop what is gone: revoked, or no longer listed after its retirement.
     const gone = (t: LocalToken) => !!t.id && (states.get(t.id) === 'revoked' || (!states.has(t.id) && t.retiringAt !== null && now > t.retiringAt));
     if (this.mine(accountId, proxy.id, kind).some(gone)) {
@@ -136,6 +156,7 @@ export class LocalTokens {
     const newest = active[0];
     const due = !!newest && (now - newest.createdAt > rotateDays() * DAY || (rotateBefore !== null && newest.createdAt < rotateBefore));
     const pending = live.find((t) => states.get(t.id!) === 'pending');
+    if (kind === 'admin' && live.length) this.refused.delete(refusedKey); // a live admin token: no longer refused
     if (live.length && !(due && !pending)) {
       // A leftover never registered (another revision won): dropped.
       if (mine.some((t) => !t.id)) {
@@ -158,6 +179,7 @@ export class LocalTokens {
       this.list = this.read().map((t) => (t.hash === tok!.hash ? { ...t, id: r.tokenId, registeredAt: now } : t));
       this.write();
       this.seen.set(r.tokenId, r.state);
+      if (kind === 'admin') this.refused.delete(refusedKey);
       logger.info({ tokenId: r.tokenId, proxyId: proxy.id, kind }, 'proxy_token_registered');
       return { registered: 1, problems };
     } catch (err) {
@@ -173,7 +195,7 @@ export class LocalTokens {
         return { registered: 0, problems };
       }
       if (e?.error === 'not_allowed_on_proxy' && kind === 'admin') {
-        this.refusedAt.set(refusedKey, now);
+        this.refused.set(refusedKey, { at: now, step: refused ? refused.step + 1 : 0 });
         this.list = this.read().filter((t) => t.hash !== tok!.hash);
         this.write();
         return { registered: 0, problems: [{ code: 'admin_token_not_allowed', accountId, detail: `proxy ${proxy.id}` }] };

@@ -10,4 +10,5 @@ published as [GitHub releases](https://github.com/klaushofrichter/cams/releases)
 
 ### Fixed
 - Video page: after leaving the page while the player fills the screen (phones without fullscreen), one Back now returns to the recording at the moment last shown; it used to take an extra Back.
+- cams-admin mode: when a cam-proxy refuses cams's admin token because its allow-list doesn't include admin tokens yet, cams tries again after 5 minutes, then 15, 30 and every hour (it used to wait a day or a restart), so the proxy sign-in link and camera renames work soon after the proxy allows it.
 
