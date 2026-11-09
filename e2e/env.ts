@@ -40,6 +40,9 @@ export const E2E_ENV: Record<string, string> = {
   RATE_LIMIT_CHECKS_PER_DAY: '10000',
   RATE_LIMIT_ARCHIVE_PER_MIN: '1000',
   RATE_LIMIT_ARCHIVE_ZIP_PER_MIN: '1000',
+  // Every worker's browser is the same person: the event streams' per-person
+  // cap (6) would refuse the later workers' pages their updates.
+  EVENT_STREAMS_PER_PERSON: '20',
   // /mcp (spec 2026-10-27-mcp-server-design): on, with the run's own token
   // file, emptied whenever Playwright starts the server (playwright.config.ts).
   MCP_ENABLED: 'true',

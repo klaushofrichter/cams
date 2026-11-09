@@ -13,8 +13,16 @@ import '../proxy/stillChecks'; // drops a camera's cached checks on a new one
 export const eventsRouter = Router();
 
 const MAX_CLIENTS = 20;
+// Per person (signed-in email; a viewer token's own), so one can't take all
+// 20: a few tabs and devices each (code review 2026-11-09). EVENT_STREAMS_PER_PERSON
+// changes it (e2e: every worker's browser is the same person).
+const perPersonMax = (): number => {
+  const n = Number(process.env.EVENT_STREAMS_PER_PERSON);
+  return Number.isSafeInteger(n) && n > 0 ? n : 6;
+};
 const PING_MS = 25_000;
 let clients = 0;
+const perPerson = new Map<string, number>();
 const open = new Set<Response>();
 
 // On shutdown (SIGTERM): end every relay, so the old revision isn't held
@@ -45,11 +53,13 @@ proxyHub.on('message', (m: ProxyMessage) => {
 });
 
 eventsRouter.get('/api/events/stream', (req: Request, res: Response) => {
-  if (clients >= MAX_CLIENTS) {
+  const person = (res.locals.principal as { email: string }).email;
+  if (clients >= MAX_CLIENTS || (perPerson.get(person) ?? 0) >= perPersonMax()) {
     res.status(503).json({ error: 'too_many_streams' });
     return;
   }
   clients++;
+  perPerson.set(person, (perPerson.get(person) ?? 0) + 1);
   open.add(res);
   res.status(200).set({ 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-store', 'X-Accel-Buffering': 'no' });
   res.flushHeaders();
@@ -129,6 +139,9 @@ eventsRouter.get('/api/events/stream', (req: Request, res: Response) => {
     if (done) return;
     done = true;
     clients--;
+    const n = (perPerson.get(person) ?? 1) - 1;
+    if (n > 0) perPerson.set(person, n);
+    else perPerson.delete(person);
     open.delete(res);
     clearInterval(ping);
     proxyHub.off('state', onState);

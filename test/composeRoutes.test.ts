@@ -4,12 +4,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import request from 'supertest';
 import { createApp } from '../server/app';
 import { setCameras } from '../server/cameraRegistry';
-import { ProxyError, resetProxyClients } from '../server/proxy/client';
+import { getProxyClient, ProxyError, resetProxyClients } from '../server/proxy/client';
 import { getRecordings } from '../server/recordings/service';
 import { getClient } from '../server/reolink/clients';
 import { SESSION_COOKIE, signSession } from '../server/session';
 import { FAKE_TOKEN, startFakeProxy, type FakeProxy } from './proxy/fakeProxy';
-import { k } from './helpers/fleet';
+import { BETA, applyFleet, cookieFor, k, restoreMode, twoAccounts } from './helpers/fleet';
 
 const auth = `${SESSION_COOKIE}=${signSession('klaus@klaushofrichter.net')}`;
 const EVENT = '20260928-140000-140020';
@@ -313,5 +313,79 @@ describe('compositions around a second', () => {
     expect(await send({ at: AT, preS: -1 })).toEqual([400, { error: 'invalid', detail: 'around a second, pre-roll and post-roll are whole seconds from 0 to 3600' }]);
     expect(await send({ at: AT, span: { start: AT, end: AT + 1000 } })).toEqual([400, { error: 'invalid', detail: 'span goes with clipId, not with at' }]);
     expect(await send({ at: AT, clipId: 7 })).toEqual([400, { error: 'invalid', detail: 'exactly one of clipId (a clip) or at (a second, unix ms)' }]);
+  });
+});
+
+// Code review 2026-11-09, items 5, 7 and 8.
+describe('compositions: who may cancel, malformed answers, every field checked', () => {
+  // One account with two viewers and an admin, its camera on the fake proxy.
+  function useAccount() {
+    const [alpha, beta] = twoAccounts({ betaUrl: fake.url, betaToken: FAKE_TOKEN });
+    beta.users = [
+      { email: 'starter@example.org', role: 'viewer', disabled: false },
+      { email: 'other@example.org', role: 'viewer', disabled: false },
+      { email: 'boss@example.org', role: 'admin', disabled: false },
+    ];
+    applyFleet([alpha, beta]);
+    resetProxyClients();
+  }
+  const as = (email: string) => cookieFor(email, BETA);
+  const start = (email: string) => request(createApp()).post('/api/cameras/cam1/compositions').set('Cookie', as(email)).send({ eventId: EVENT, preS: 0, postS: 5, size: 'sd', badge: false });
+  const del = (email: string, job: string) => request(createApp()).delete(`/api/cameras/cam1/compositions/${job}`).set('Cookie', as(email));
+  afterEach(() => {
+    restoreMode();
+  });
+
+  it('only the viewer who started a job, or an account admin, cancels it; the other viewers still poll it', async () => {
+    useAccount();
+    const { body } = await start('starter@example.org');
+    expect((await del('other@example.org', body.id)).status).toBe(403);
+    expect(fake.compositions.has(body.id)).toBe(true);
+    expect((await request(createApp()).get(`/api/cameras/cam1/compositions/${body.id}`).set('Cookie', as('other@example.org'))).status).toBe(200);
+    expect((await del('starter@example.org', body.id)).status).toBe(204);
+    const second = (await start('starter@example.org')).body;
+    expect((await del('boss@example.org', second.id)).status).toBe(204);
+    expect(fake.compositions.has(second.id)).toBe(false);
+  });
+
+  it('a 201 from the proxy that is not JSON: 502 with a clear error, not a 500', async () => {
+    vi.spyOn(getProxyClient(k('den'))!, 'open').mockResolvedValue(new Response('{"id": "abc', { status: 201 }));
+    const r = await post('den', { eventId: EVENT, preS: 0, postS: 5, size: 'sd', badge: false });
+    expect([r.status, r.body]).toEqual([502, { error: 'proxy_unavailable', detail: 'the proxy started a job but its answer is unreadable' }]);
+  });
+
+  it('the same around a second', async () => {
+    vi.spyOn(getProxyClient(k('den'))!, 'open').mockResolvedValue(new Response('not json', { status: 201 }));
+    const r = await post('den', { at: Math.floor(Date.now() / 1000) * 1000 - 60_000, preS: 1, postS: 1, size: 'sd', badge: false });
+    expect([r.status, r.body]).toEqual([502, { error: 'proxy_unavailable', detail: 'the proxy started a job but its answer is unreadable' }]);
+  });
+
+  it('a 201 whose job id is readable is remembered, even when the rest is odd', async () => {
+    const id = 'J'.repeat(22);
+    const open = vi.spyOn(getProxyClient(k('den'))!, 'open').mockResolvedValueOnce(new Response(JSON.stringify({ id, state: 42 }), { status: 201 }));
+    expect((await post('den', { eventId: EVENT, preS: 0, postS: 5, size: 'sd', badge: false })).status).toBe(201);
+    open.mockResolvedValueOnce(new Response(JSON.stringify({ id, state: 'running' }), { status: 200 }));
+    expect((await request(createApp()).get(`/api/cameras/den/compositions/${id}`).set('Cookie', auth)).status).toBe(200);
+  });
+
+  it('checks every field of an event composition, as around a second', async () => {
+    const before = fake.composeRequests.length;
+    const good = { eventId: EVENT, preS: 0, postS: 5, size: 'sd', badge: false };
+    for (const [bad, detail] of [
+      [{ preS: undefined }, /Whole seconds/],
+      [{ postS: '5' }, /Whole seconds/],
+      [{ preS: 1.5 }, /Whole seconds/],
+      [{ size: undefined }, /size/],
+      [{ size: '4k' }, /size/],
+      [{ badge: 'yes' }, /badge/],
+      [{ badge: undefined }, /badge/],
+      [{ timeZone: 5 }, /timeZone/],
+    ] as const) {
+      const r = await post('den', { ...good, ...bad });
+      expect([r.status, r.body.error]).toEqual([400, 'invalid']);
+      expect(r.body.detail).toMatch(detail);
+    }
+    expect(fake.composeRequests.length).toBe(before);
+    expect((await post('den', good)).status).toBe(201);
   });
 });
