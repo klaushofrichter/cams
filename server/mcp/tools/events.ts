@@ -11,6 +11,9 @@ import { WIDTH } from './snapshot';
 import { eventsOfDay, kindsOf, toEvent, utcDate, type Card } from './common';
 
 const DAY = 86_400_000;
+// search_recordings' overall deadline (#297): it asks camera by camera and
+// day by day; past this it answers with what it found, marked truncated.
+export const searchLimits = { deadlineMs: 40_000 };
 export const TIME = z.union([z.string().max(40), z.number().int().nonnegative()]);
 const KIND = z.enum(['person', 'vehicle', 'pet', 'motion', 'timer']);
 const CLIP_ID = /^\d{8}-\d{6}-\d{6}$/;
@@ -45,11 +48,22 @@ const inRange = (c: Card, [f, t]: [number, number]) => {
 const hasKind = (c: Card, kinds?: string[]) => !kinds?.length || c.triggers.some((k) => kinds.includes(k));
 const confirmed = (c: Card) => Object.keys(c.analysis?.best ?? {}).filter((k) => c.triggers.includes(k));
 
-async function cardsIn(ctx: ToolCtx, camera: string, range: [number, number], dates: string[]): Promise<Card[]> {
+// The cards of those days in the range; past `deadline` no new day is asked
+// (`late`), and `days` counts the days asked.
+async function cardsIn(ctx: ToolCtx, camera: string, range: [number, number], dates: string[], deadline = Infinity): Promise<{ cards: Card[]; days: number; late: boolean }> {
   const out: Card[] = [];
-  for (const d of dates) out.push(...(await eventsOfDay(ctx, camera, d)).filter((c) => inRange(c, range)));
+  let days = 0, late = false;
+  for (const d of dates) {
+    if (Date.now() >= deadline) {
+      late = true;
+      break;
+    }
+    out.push(...(await eventsOfDay(ctx, camera, d)).filter((c) => inRange(c, range)));
+    days++;
+  }
   // A card listed on two days (a clip across midnight) once.
-  return [...new Map(out.map((c) => [c.id, c])).values()].sort((a, b) => Date.parse(b.start) - Date.parse(a.start));
+  const cards = [...new Map(out.map((c) => [c.id, c])).values()].sort((a, b) => Date.parse(b.start) - Date.parse(a.start));
+  return { cards, days, late };
 }
 
 export function registerEventTools(server: McpServer, ctx: ToolCtx): void {
@@ -61,7 +75,7 @@ export function registerEventTools(server: McpServer, ctx: ToolCtx): void {
     output: z.object({ camera: z.string(), events: z.array(EVENT), truncated: z.boolean() }),
     run: async ({ camera, from, to, kinds, limit }, c) => {
       const range = rangeOf(from, to, 7);
-      const cards = (await cardsIn(c, camera, range, datesCovering(...range))).filter((x) => hasKind(x, kinds));
+      const cards = (await cardsIn(c, camera, range, datesCovering(...range))).cards.filter((x) => hasKind(x, kinds));
       const max = limit ?? 100;
       return ok({ camera, events: cards.slice(0, max).map(toEvent), truncated: cards.length > max });
     },
@@ -121,16 +135,24 @@ export function registerEventTools(server: McpServer, ctx: ToolCtx): void {
       const covering = datesCovering(...range);
       const months = [...new Set(covering.map((d) => d.slice(0, 7)))];
       let daysSearched = 0;
+      const deadline = Date.now() + searchLimits.deadlineMs;
+      let late = false;
       const hits: { camera: string; id: string; startMs: number; durationS: number; kinds: string[]; visionConfirmed: string[] }[] = [];
       for (const camera of pick) {
+        if (Date.now() >= deadline) {
+          late = true;
+          break;
+        }
         const days = new Set<string>();
         for (const m of months) {
           const r = await c.json<{ days?: unknown }>(`/api/cameras/${encodeURIComponent(camera)}/days?month=${m}`);
           for (const d of Array.isArray(r.days) ? r.days : []) if (typeof d === 'string' && covering.includes(d)) days.add(d);
         }
         const list = [...days].sort().reverse();
-        daysSearched += list.length;
-        for (const card of await cardsIn(c, camera, range, list)) {
+        const cards = await cardsIn(c, camera, range, list, deadline);
+        if (cards.late) late = true;
+        daysSearched += cards.days;
+        for (const card of cards.cards) {
           if (!hasKind(card, kinds) || (minDurationS !== undefined && card.durationSec < minDurationS)) continue;
           const conf = confirmed(card);
           if (visionConfirmed === true && !conf.length) continue;
@@ -140,7 +162,7 @@ export function registerEventTools(server: McpServer, ctx: ToolCtx): void {
       }
       hits.sort((a, b) => b.startMs - a.startMs);
       const max = limit ?? 50;
-      return ok({ hits: hits.slice(0, max), daysSearched, truncated: hits.length > max });
+      return ok({ hits: hits.slice(0, max), daysSearched, truncated: late || hits.length > max });
     },
   });
 }

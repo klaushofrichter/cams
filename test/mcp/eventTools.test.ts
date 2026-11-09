@@ -11,6 +11,7 @@ import { createSimCamera } from '../camera/sim';
 import { FAKE_TOKEN, startFakeProxy, type FakeProxy } from '../proxy/fakeProxy';
 import { freshTokens, issue, mcpClient, startApp, type Running } from './helpers';
 import { jpegSize, testJpeg } from './media';
+import { searchLimits } from '../../server/mcp/tools/events';
 
 type Client = Awaited<ReturnType<typeof mcpClient>>;
 let app: Running, cam: Server, proxy: FakeProxy, client: Client;
@@ -139,6 +140,19 @@ describe('search_recordings', () => {
     expect(hits.every((h) => h.camera === 'cam1' && h.kinds.includes('person'))).toBe(true);
     expect(hits[0].startMs).toBeGreaterThan(hits[1].startMs);
     expect(r.structuredContent.daysSearched).toBeLessThanOrEqual(3);
+  });
+
+  // #297: an overall deadline; what was found by then, marked truncated.
+  it('stops at its deadline and says the list is cut', async () => {
+    const now = Date.now();
+    const saved = searchLimits.deadlineMs;
+    searchLimits.deadlineMs = 0;
+    try {
+      const r = await call('search_recordings', { from: now - 20 * DAY, to: now + DAY, cameras: ['cam1'] });
+      expect(r.structuredContent).toMatchObject({ hits: [], truncated: true });
+    } finally {
+      searchLimits.deadlineMs = saved;
+    }
   });
 
   it('refuses more than 31 days and an unknown camera', async () => {
