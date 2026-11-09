@@ -1,15 +1,15 @@
 // Images for the model (spec 2026-10-27-mcp-server-design §4): ffmpeg scales
 // to a width (never up), JPEG -q:v 5; over 400 KB it tries once at -q:v 12,
-// else image_too_large. Two ffmpeg processes at a time, one thread each.
+// else image_too_large. ffmpeg runs behind the gate it shares with the
+// thumbnails (two at a time in all, #297), one thread each.
 import { spawn } from 'child_process';
-import { Semaphore } from '../reolink/semaphore';
+import { ffmpegGate } from '../ffmpegGate';
 import { ToolFailure } from './result';
 
 export const MAX_IMAGE_BYTES = 400 * 1024;
 export const MAX_RESULT_IMAGE_BYTES = 1200 * 1024;
 export const MAX_IMAGES = 4;
-const MAX_INPUT = 32 * 1024 * 1024;
-const gate = new Semaphore(2);
+export const MAX_INPUT = 32 * 1024 * 1024;
 
 function run(input: Buffer, width: number, q: number): Promise<Buffer> {
   return new Promise((resolve, reject) => {
@@ -52,7 +52,7 @@ export function jpegWidth(b: Buffer): number | null {
 
 export async function scaleJpeg(input: Buffer, maxWidth: number): Promise<{ data: Buffer; width: number }> {
   if (input.length > MAX_INPUT) throw new ToolFailure('image_too_large');
-  return gate.run(async () => {
+  return ffmpegGate.run(async () => {
     let data: Buffer;
     try {
       data = await run(input, maxWidth, 5);

@@ -1,10 +1,5 @@
 import { spawn } from 'child_process';
-import { Semaphore } from '../reolink/semaphore';
-
-// Caps how many ffmpeg processes run at once: each is also pinned to one
-// thread (below), but a burst of thumbnail requests could otherwise still
-// spawn dozens of them and starve the box.
-const gate = new Semaphore(2);
+import { ffmpegGate } from '../ffmpegGate';
 
 function spawnThumbnail(input: string, output: string): Promise<void> {
   return new Promise((resolve, reject) => {
@@ -29,5 +24,5 @@ function spawnThumbnail(input: string, output: string): Promise<void> {
 // One frame, one second in, scaled to 320 px wide. ffmpeg's stderr is
 // discarded (it can echo file paths); only the exit status matters.
 export function makeThumbnail(input: string, output: string): Promise<void> {
-  return gate.run(() => spawnThumbnail(input, output));
+  return ffmpegGate.run(() => spawnThumbnail(input, output)); // shared with the MCP's pictures
 }
