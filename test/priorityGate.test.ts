@@ -47,4 +47,22 @@ describe('PriorityGate', () => {
     expect(peak).toBeLessThanOrEqual(2);
     expect(await gate.run(async () => 'ok')).toBe('ok');
   });
+
+  it('frees the slot when fn throws synchronously, also for a queued entry (#279)', async () => {
+    const gate = new PriorityGate(1);
+    const boom = (): Promise<string> => { throw new Error('sync'); };
+    await expect(gate.run(boom)).rejects.toThrow('sync');
+    // A queued entry whose fn throws synchronously when its turn comes.
+    const first = deferred();
+    const running = gate.run(() => first.promise);
+    const queued = gate.run(boom);
+    first.resolve();
+    await running;
+    await expect(queued).rejects.toThrow('sync');
+    // The one slot is free again: this would hang if a slot had leaked.
+    expect(gate.queued).toBe(0);
+    const next = gate.run(async () => 'ok');
+    expect(gate.queued).toBe(0);
+    expect(await next).toBe('ok');
+  });
 });
