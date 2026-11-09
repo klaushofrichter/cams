@@ -11,4 +11,6 @@ published as [GitHub releases](https://github.com/klaushofrichter/cams/releases)
 ### Fixed
 - Video page: after leaving the page while the player fills the screen (phones without fullscreen), one Back now returns to the recording at the moment last shown; it used to take an extra Back.
 - cams-admin mode: when a cam-proxy refuses cams's admin token because its allow-list doesn't include admin tokens yet, cams tries again after 5 minutes, then 15, 30 and every hour (it used to wait a day or a restart), so the proxy sign-in link and camera renames work soon after the proxy allows it.
+- Video page: a camera that was offline (for example after a power cut) returns to live video by itself once it is back: at once when its cam-proxy reports it, otherwise within 30 seconds. It used to need a reload or Retry.
+- Video page: the pan/tilt/zoom panel is hidden while the camera shows offline (its moves could only fail then), and comes back with the camera.
 

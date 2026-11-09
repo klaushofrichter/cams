@@ -98,6 +98,25 @@ test('Settings reads and saves an image setting through the proxy-admin token', 
   await expect(page.getByTestId('settings-card-image').getByTestId('save-state')).toHaveAttribute('data-state', 'saved');
 });
 
+// A camera offline for another reason (a power cut) comes back without a
+// reload: the proxy's camera-status message makes the page read its status.
+test('an offline camera returns to live when its proxy reports it online again', async ({ page }) => {
+  await page.request.post(`${HOOKS}/camera-status`, { data: { cam: 'mill', status: { online: false, error: 'camera_offline', streams: { main: null, sub: null } } } });
+  await openMill(page);
+  await expect(page.getByTestId('offline-reason')).toHaveText('The camera could not be reached.');
+  await page.request.post(`${HOOKS}/camera-status`, { data: { cam: 'mill', status: null } });
+  // The message reaches the page only once cams's stream from the proxy and
+  // the page's event stream are both open (later under load): sent again
+  // until the page reads the status, which then is online.
+  await expect(async () => {
+    const read = page.waitForRequest(/\/api\/cameras\/mill\/status/, { timeout: 2000 });
+    await page.request.post(`${HOOKS}/push`, { data: { cam: 'mill', type: 'camera-status', data: { online: true, reason: null } } });
+    await read;
+  }).toPass({ timeout: 20_000 });
+  await expect(page.getByTestId('offline-banner')).toBeHidden({ timeout: 10_000 });
+  await expect(page.getByTestId('live-video')).toBeVisible();
+});
+
 test('a refused camera password is entered in the offline box and relayed to the proxy', async ({ page }) => {
   await page.request.post(`${HOOKS}/camera-status`, { data: { cam: 'mill', status: { online: false, error: 'camera_offline', streams: { main: null, sub: null }, credentials: { source: 'store', authOk: false, checkedAt: Date.now() } } } });
   await openMill(page);
