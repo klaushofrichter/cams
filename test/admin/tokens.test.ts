@@ -124,29 +124,64 @@ describe('LocalTokens', () => {
     expect(readLocal().every((t) => t.id)).toBe(true);
   });
 
-  it('an admin token the proxy refuses: legacy admin token kept, one problem a day', async () => {
+  it('an admin token the proxy refuses: legacy admin token kept, tried again on a growing back-off (5 min, 15 min, …, 1 h), not after a day (#249)', async () => {
     const tokens = LocalTokens.load(dir);
-    const realAnswer = fake.tokenAnswer;
-    void realAnswer;
-    // client registers, admin is refused
-    const parts = current().parts.filter((p) => p.account.id === ALPHA);
+    const parts = () => current().parts.filter((p) => p.account.id === ALPHA);
     const orig = client.registerToken.bind(client);
-    let calls = 0;
+    const adminCalls: number[] = [];
+    let refuse = true;
+    let at = NOW;
     (client as unknown as { registerToken: typeof orig }).registerToken = async (proxyId, kind, hash) => {
-      calls++;
       if (kind === 'admin') {
-        fake.tokenAnswer = { status: 409, body: { error: 'not_allowed_on_proxy' } };
+        adminCalls.push(at);
+        if (refuse) fake.tokenAnswer = { status: 409, body: { error: 'not_allowed_on_proxy' } };
       }
       return orig(proxyId, kind, hash);
     };
-    const r1 = await tokens.ensure(parts, client, NOW);
+    const MIN = 60_000;
+    const run = async (t: number) => { at = t; return tokens.ensure(parts(), client, t); };
+    const r1 = await run(NOW);
     expect(r1.problems.map((p) => p.code)).toEqual(['admin_token_not_allowed']);
-    const r2 = await tokens.ensure(parts, client, NOW + 3_600_000);
-    expect(r2.problems).toEqual([]);
+    expect(tokens.adminRetryAt()).toBe(NOW + 5 * MIN);
+    // Within the wait: not asked again, and the problem stays listed (still waiting).
+    const r2 = await run(NOW + 4 * MIN);
+    expect(r2.problems.map((p) => p.code)).toEqual(['admin_token_not_allowed']);
+    expect(adminCalls).toEqual([NOW]);
+    // After 5 min: asked again; refused again → the next wait is 15 min.
+    await run(NOW + 5 * MIN);
+    expect(adminCalls).toEqual([NOW, NOW + 5 * MIN]);
+    expect(tokens.adminRetryAt()).toBe(NOW + 20 * MIN);
     expect(readLocal().filter((t) => t.kind === 'admin')).toEqual([]);
-    expect(calls).toBeGreaterThan(0);
     const a = current().parts.find((p) => p.account.id === ALPHA)!;
     expect(tokens.tokenFor(ALPHA, PRX_A, 'admin', statesOf(a, PRX_A))).toBeUndefined();
-    void writeFileSync;
+    // The proxy now allows admin tokens: the next try registers, the back-off is cleared.
+    refuse = false;
+    const r3 = await run(NOW + 20 * MIN);
+    expect(r3.problems).toEqual([]);
+    expect(r3.registered).toBe(1);
+    expect(tokens.adminRetryAt()).toBeNull();
+    expect(readLocal().filter((t) => t.kind === 'admin' && t.proxyId === PRX_A).every((t) => t.id)).toBe(true);
+  });
+
+  it('the admin-token back-off grows to at most an hour', async () => {
+    const tokens = LocalTokens.load(dir);
+    const parts = current().parts.filter((p) => p.account.id === ALPHA);
+    const orig = client.registerToken.bind(client);
+    (client as unknown as { registerToken: typeof orig }).registerToken = async (proxyId, kind, hash) => {
+      if (kind === 'admin') fake.tokenAnswer = { status: 409, body: { error: 'not_allowed_on_proxy' } };
+      return orig(proxyId, kind, hash);
+    };
+    let t = NOW;
+    const waits: number[] = [];
+    for (let i = 0; i < 6; i++) {
+      await tokens.ensure(parts, client, t);
+      const next = tokens.adminRetryAt()!;
+      waits.push((next - t) / 60_000);
+      t = next;
+    }
+    expect(waits).toEqual([5, 15, 30, 60, 60, 60]);
+    // A proxy no longer served: its back-off is forgotten.
+    await tokens.ensure([], client, t);
+    expect(tokens.adminRetryAt()).toBeNull();
   });
 });
