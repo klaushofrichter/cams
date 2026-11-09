@@ -315,7 +315,7 @@ describe('TrustStore: trusted proxies', () => {
 describe('TrustStore: the move rule', () => {
   const PRX = 'prx_PPPPPPPPPPPPPPPPPPPP', PRX2 = 'prx_QQQQQQQQQQQQQQQQQQQQ';
   const PIN = 'a'.repeat(64), PIN2 = 'b'.repeat(64), PIN3 = 'c'.repeat(64);
-  const MOVE = 'mov_MMMMMMMMMMMMMMMMMMMM';
+  const MOVE = 'mv_MMMMMMMMMMMMMMMMMMMM';
   const PT = (o: Partial<ProxyTrust> = {}): ProxyTrust => ({ proxyUrl: 'https://192.0.2.10:8443', caFingerprints: [PIN], proxyTlsServername: 'proxy.home.internal', ...o });
   const camV = (o: Partial<TrustValues> = {}) => V({ ...PT(), host: '192.0.2.5', protocol: 'https', tlsServername: 'cam1.home.internal', ...o });
   // The target proxy, site "shed".
@@ -423,6 +423,16 @@ describe('TrustStore: the move rule', () => {
     expect(d.held).toMatchObject({ fields: ['host'] });
     expect(TrustStore.load(dir).decide(ALPHA, 'cam1', moved()).held).toBeNull();
     expect(trustFile(dir).log.filter((e: { action: string }) => e.action === 'move')).toHaveLength(1);
+  });
+
+  // #266 (T3): a lingering moveId let cams-admin change only the TLS name
+  // (to the pattern) on the camera's current proxy without a Confirm.
+  it('a move must change the proxy: a TLS name change on the same proxy is held', () => {
+    const { t } = setup();
+    t.decide(ALPHA, 'cam1', moved(), mv());
+    const d = t.decide(ALPHA, 'cam1', moved({ tlsServername: 'cam1.barn.internal' }), mv({ site: 'barn' }));
+    expect(d.use).toEqual(moved());
+    expect(d.held).toMatchObject({ camsId: 'cam1', fields: ['tlsServername'] });
   });
 
   it('without a move context a proxy change onto a trusted proxy is held as before', () => {

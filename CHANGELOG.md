@@ -16,4 +16,5 @@ published as [GitHub releases](https://github.com/klaushofrichter/cams/releases)
 - Settings → Assistant access (MCP): a token that couldn't be revoked now says so instead of failing silently.
 - `admin-enroll` prompts for the enrollment code ("Enrollment code (input hidden):") instead of waiting silently, and says when it reads the code from piped input.
 - MCP: a request body over 64 KiB is refused also when it is sent without a length, and only after the token is checked; malformed JSON gets a JSON error.
+- cams-admin mode, camera moves: a move is accepted without Confirm only when the camera's proxy actually changes; a change on the same proxy (for example only its TLS name, while cams-admin still lists a finished move) waits for Confirm like any other change. Confirm requests that list a camera or proxy twice are refused.
 

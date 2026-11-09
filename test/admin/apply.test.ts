@@ -15,7 +15,7 @@ import { ALPHA, ALPHA_REF } from '../helpers/fleet';
 const REV = 'r:00000000000000a1';
 const PRX = 'prx_PPPPPPPPPPPPPPPPPPPP', PRX2 = 'prx_QQQQQQQQQQQQQQQQQQQQ', PRX3 = 'prx_RRRRRRRRRRRRRRRRRRRR';
 const PIN = 'a'.repeat(64), PIN2 = 'b'.repeat(64);
-const MOVE = 'mov_MMMMMMMMMMMMMMMMMMMM';
+const MOVE = 'mv_MMMMMMMMMMMMMMMMMMMM';
 const TOKEN = 'T'.repeat(40);
 const home: SnapProxy = { id: PRX, name: 'home', displayName: 'Home', url: 'https://192.0.2.10:8443', adminUiUrl: null, tlsServername: 'proxy.home.internal', caFingerprints: [PIN], site: 'home', tokens: [] };
 const shed: SnapProxy = { id: PRX2, name: 'shed', displayName: 'Shed', url: 'https://192.0.2.20:8443', adminUiUrl: null, tlsServername: 'proxy.shed.internal', caFingerprints: [PIN2], site: 'shed', tokens: [] };

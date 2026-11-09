@@ -115,7 +115,7 @@ describe('held changes', () => {
   });
 
   it('a bad body → 400', async () => {
-    for (const body of [{}, { camsIds: ['cam1'] }, { items: 'cam1' }, { items: [{ camsId: 'cam1' }] }, { items: [{ camsId: 'cam1', digest: 'x' }] }, { items: Array(300).fill({ camsId: 'cam1', digest: 'a'.repeat(64) }) }]) {
+    for (const body of [{}, { camsIds: ['cam1'] }, { items: 'cam1' }, { items: [{ camsId: 'cam1' }] }, { items: [{ camsId: 'cam1', digest: 'x' }] }, { items: Array(300).fill({ camsId: 'cam1', digest: 'a'.repeat(64) }) }, { items: [] }, { items: Array(2).fill({ camsId: 'cam1', digest: 'a'.repeat(64) }) }]) {
       expect((await request(createApp()).post('/api/admin/held/confirm').set('Cookie', ADMIN).set(ORIGIN).send(body)).status).toBe(400);
     }
   });
@@ -220,8 +220,9 @@ describe('held changes', () => {
     expect((await heldProxies()).map((x) => x.proxyId)).toEqual([PRX_C]);
   });
 
+  // #266: a duplicate item (the same camera or proxy twice) is refused too.
   it('a bad proxy confirm body → 400 (an empty list too)', async () => {
-    for (const body of [{}, { items: [] }, { items: 'x' }, { items: [{ proxyId: PRX_C }] }, { items: [{ proxyId: 'prx_short', digest: 'a'.repeat(64) }] }, { items: [{ proxyId: PRX_C, digest: 'A'.repeat(64) }] }, { items: Array(65).fill({ proxyId: PRX_C, digest: 'a'.repeat(64) }) }]) {
+    for (const body of [{}, { items: [] }, { items: 'x' }, { items: [{ proxyId: PRX_C }] }, { items: [{ proxyId: 'prx_short', digest: 'a'.repeat(64) }] }, { items: [{ proxyId: PRX_C, digest: 'A'.repeat(64) }] }, { items: Array(65).fill({ proxyId: PRX_C, digest: 'a'.repeat(64) }) }, { items: Array(2).fill({ proxyId: PRX_C, digest: 'a'.repeat(64) }) }]) {
       expect((await request(createApp()).post('/api/admin/held/proxies/confirm').set('Cookie', ADMIN).set(ORIGIN).send(body)).status).toBe(400);
     }
   });
