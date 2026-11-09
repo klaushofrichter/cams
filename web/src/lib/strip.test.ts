@@ -176,12 +176,23 @@ describe('previews with many missing tiles (production freeze, 2026-09-28)', () 
     expect(previewRuns([m])).toEqual([{ start: m.minute, end: m.minute + 10_000 }, { start: m.minute + 20_000, end: m.minute + 60_000 }]);
   });
 
-  it('draws a day of 20 000 separate runs quickly', () => {
-    const runs = Array.from({ length: 20_000 }, (_, i) => ({ start: T0 + i * 4000, end: T0 + i * 4000 + 1000 }));
-    const cov = { clips: [], stills: [], previews: runs };
-    const t = performance.now();
+  // Counted work, not the clock (#338: a 200 ms budget failed under load):
+  // every point looks its run up by binary search, so the runs are read
+  // about n·log n times; a scan per point would read them ~n² times.
+  it('draws a day of 20 000 separate runs quickly (n log n reads of the runs)', () => {
+    const n = 20_000;
+    const runs = Array.from({ length: n }, (_, i) => ({ start: T0 + i * 4000, end: T0 + i * 4000 + 1000 }));
+    let reads = 0;
+    const limit = 50 * n;
+    const counted = new Proxy(runs, {
+      get(target, key, receiver) {
+        if (typeof key === 'string' && /^\d+$/.test(key) && ++reads > limit) throw new Error(`more than ${limit} reads of ${n} runs`);
+        return Reflect.get(target, key, receiver);
+      },
+    });
+    const cov = { clips: [], stills: [], previews: counted };
     const spans = stripSpans(cov, { start: T0, end: T0 + 86_400_000 }, T0 + 86_400_000, null);
-    expect(performance.now() - t).toBeLessThan(200);
+    expect(reads).toBeGreaterThan(n); // the counter sees the reads
     expect(spans.length).toBeGreaterThan(30_000);
     expect(sourceAt(cov, T0 + 4000 * 500 + 500, T0 + 86_400_000)).toMatchObject({ kind: 'preview' });
     expect(sourceAt(cov, T0 + 4000 * 500 + 2500, T0 + 86_400_000)).toMatchObject({ kind: 'none' });

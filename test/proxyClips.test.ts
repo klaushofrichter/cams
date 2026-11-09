@@ -25,6 +25,9 @@ const OTHER = Buffer.from('another clip '.repeat(50));
 
 let cam: Server;
 let fake: FakeProxy;
+// The day the sim seeded its clips on ("today" when it started). Asked once,
+// so a run across midnight (Chicago) never asks the next, empty day (#228).
+let day = '';
 let cacheDir: string;
 const workerCacheDir = process.env.CACHE_DIR;
 
@@ -32,7 +35,12 @@ beforeEach(async () => {
   cacheDir = mkdtempSync(join(tmpdir(), 'cams-proxyclips-'));
   process.env.CACHE_DIR = cacheDir;
   process.env.RECORDINGS_PROBE_MS = '60000';
-  const sim = await createSimCamera({ user: 'u', password: 'p', dropFirstDownloads: 1000 });
+  // A midnight between the two reads: the sim may have seeded either day, so again.
+  let sim;
+  do {
+    day = today();
+    sim = await createSimCamera({ user: 'u', password: 'p', dropFirstDownloads: 1000 });
+  } while (today() !== day);
   cam = sim.app.listen(0);
   await new Promise((r) => cam.once('listening', r));
   fake = await startFakeProxy();
@@ -60,7 +68,7 @@ const binary = (r: request.Test) =>
   });
 
 async function events(app = createApp()) {
-  const body = (await request(app).get(`/api/cameras/cam1/events?date=${today()}`).set('Cookie', auth)).body as { events: { id: string; start: string; end: string }[]; downloads: string };
+  const body = (await request(app).get(`/api/cameras/cam1/events?date=${day}`).set('Cookie', auth)).body as { events: { id: string; start: string; end: string }[]; downloads: string };
   return body;
 }
 

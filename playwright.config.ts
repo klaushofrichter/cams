@@ -87,7 +87,8 @@ export default defineConfig({
     },
     // e2e/through-proxy.spec.ts: Mill's status, password and trust answers
     // live in the second fake cam-proxy, so one test at a time, one size
-    // after the other.
+    // after the other. Not with --repeat-each on several workers either (the
+    // copies would share that fake, #338).
     {
       name: 'through-desktop',
       testMatch: /through-proxy\.spec\.ts/,
