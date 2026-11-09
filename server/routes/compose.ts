@@ -1,11 +1,12 @@
 import { Router, type Request, type Response } from 'express';
 import { pipeline } from 'stream/promises';
-import { aroundLength, generateMaxS, resultLength } from '../clipLimits';
+import { aroundLength, generateMaxS, resultLength, ROLL_LIMIT_S } from '../clipLimits';
 import { logger } from '../logger';
 import { getProxyClient, proxyPath, ProxyError, type ProxyClient } from '../proxy/client';
 import { CLIP_ID as EVENT, offsetAt, offsetStamp, zoneStamp, type TimeInfo } from '../recordings/clipNames';
 import { getRecordings } from '../recordings/service';
 import { knownCamera, proxyTarget } from './common';
+import type { Principal } from '../middleware/requireAuth';
 import { camsIdOf, type CamKey } from '../fleet';
 import { nodeBody } from '../httpBody';
 
@@ -38,13 +39,32 @@ const jobOk = (req: Request, res: Response) => (JOB.test(String(req.params.job))
 // only those are asked about, and never by the id from the request (CodeQL
 // js/request-forgery). Kept a little longer than the proxy keeps a result,
 // counted from the last question about the job.
-const started = new Map<string, { id: string; at: number }>();
+// `by`: who started it (the signed-in email; a viewer token's own id-based
+// one): only they or an account admin may cancel it (code review 2026-11-09).
+const started = new Map<string, { id: string; at: number; by: string }>();
 const KEEP_MS = 20 * 60_000;
 const keyOf = (cam: CamKey, job: string) => `${cam}\u0000${job}`;
-function remember(cam: CamKey, id: string) {
+const whoOf = (res: Response) => (res.locals.principal as Principal).email;
+function remember(cam: CamKey, id: string, by: string) {
   const t = Date.now();
   for (const [k, v] of started) if (t - v.at > KEEP_MS) started.delete(k);
-  started.set(keyOf(cam, id), { id, at: t });
+  started.set(keyOf(cam, id), { id, at: t, by });
+}
+// The job id in the proxy's 201, or null when the answer is unreadable
+// (not JSON, or no job id): the job may run, but cams can't follow it.
+function startedJobOf(text: string): Record<string, unknown> | null {
+  let job: unknown;
+  try {
+    job = JSON.parse(text);
+  } catch {
+    return null;
+  }
+  const id = (job as { id?: unknown } | null)?.id;
+  return typeof id === 'string' && JOB.test(id) ? (job as Record<string, unknown>) : null;
+}
+function unreadable(cam: CamKey, res: Response) {
+  logger.warn({ cameraId: cam }, 'compose_proxy_bad_answer');
+  res.status(502).json({ error: 'proxy_unavailable', detail: 'the proxy started a job but its answer is unreadable' });
 }
 // A composition cams started for this camera, by cams's own copy of its id
 // (the Archive button stores it, cam-proxy's archive contract §2); asking
@@ -67,8 +87,12 @@ composeRouter.post('/api/cameras/:id/compositions', async (req, res) => {
   const t = target(req, res);
   if (!t) return;
   const b = (req.body ?? {}) as { eventId?: unknown; at?: unknown; preS?: unknown; postS?: unknown; size?: unknown; badge?: unknown; timeZone?: unknown; dryRun?: unknown };
-  if (b.at !== undefined) return void (await around(t, b, res));
+  if (b.at !== undefined) return void (await around(t, b, res, whoOf(res)));
   if (typeof b.eventId !== 'string' || !EVENT.test(b.eventId)) return void res.status(400).json({ error: 'invalid', detail: 'eventId is required' });
+  // Every field checked before the lookup, as around a second; the length
+  // with the event's own below.
+  const shape = fieldsOk(b);
+  if (shape) return void res.status(400).json({ error: 'invalid', detail: shape });
   try {
     let clip: { id: number; event: { start: number; end: number } } | null;
     try {
@@ -79,18 +103,17 @@ composeRouter.post('/api/cameras/:id/compositions', async (req, res) => {
     if (!clip) return void res.status(404).json({ error: 'no_clip' });
     // The dialog's rule and words (server/clipLimits.ts) on the event's own
     // length; the proxy checks again on the same span (its own words).
-    if (typeof b.preS === 'number' && typeof b.postS === 'number' && typeof b.size === 'string') {
-      const len = resultLength(Math.round((clip.event.end - clip.event.start) / 1000), b.preS, b.postS, generateMaxS(b.size));
-      if (!len.ok) return void res.status(400).json({ error: 'invalid', detail: len.error });
-    }
+    const len = resultLength(Math.round((clip.event.end - clip.event.start) / 1000), b.preS as number, b.postS as number, generateMaxS(b.size as string));
+    if (!len.ok) return void res.status(400).json({ error: 'invalid', detail: len.error });
     // span: the rolls apply to the event (the SD recording the dialog shows),
     // not to the proxy's FTP copy, which can be longer (2026-10-04: 114 s,
     // pre -100, post 30 was 44 s here and 175 s on the proxy).
     const up = await t.client.open(t.base, undefined, { method: 'POST', body: JSON.stringify({ clipId: clip.id, span: clip.event, preS: b.preS, postS: b.postS, size: b.size, badge: b.badge, ...(typeof b.timeZone === 'string' ? { timeZone: b.timeZone } : {}) }) });
     const text = await up.text();
     if (up.status === 201) {
-      const id = (JSON.parse(text) as { id?: unknown }).id;
-      if (typeof id === 'string' && JOB.test(id)) remember(t.id, id);
+      const job = startedJobOf(text);
+      if (!job) return void unreadable(t.id, res);
+      remember(t.id, job.id as string, whoOf(res));
     }
     res.status(up.status);
     if (text) res.type('application/json').send(text);
@@ -105,7 +128,16 @@ composeRouter.post('/api/cameras/:id/compositions', async (req, res) => {
 // relayed; the proxy plans it from its clips and stills.
 const SIZES = ['sd', '360p', '720p', '1080p'];
 const AT_MAX_AGE_MS = 8 * 86_400_000; // the proxy keeps 7 days from the start of a UTC day
-async function around(t: { id: CamKey; client: ProxyClient; base: string }, b: { eventId?: unknown; at?: unknown; preS?: unknown; postS?: unknown; size?: unknown; badge?: unknown; timeZone?: unknown; dryRun?: unknown }, res: Response) {
+// An event composition's fields (its length needs the event, checked later).
+function fieldsOk(b: { preS?: unknown; postS?: unknown; size?: unknown; badge?: unknown; timeZone?: unknown }): string | null {
+  const roll = (v: unknown) => typeof v === 'number' && Number.isInteger(v) && Math.abs(v) <= ROLL_LIMIT_S;
+  if (!roll(b.preS) || !roll(b.postS)) return `preS and postS: Whole seconds from -${ROLL_LIMIT_S} to ${ROLL_LIMIT_S}`;
+  if (typeof b.size !== 'string' || !SIZES.includes(b.size)) return 'size is sd, 360p, 720p or 1080p';
+  if (typeof b.badge !== 'boolean') return 'badge is true or false';
+  if (b.timeZone !== undefined && typeof b.timeZone !== 'string') return 'timeZone is an IANA zone name';
+  return null;
+}
+async function around(t: { id: CamKey; client: ProxyClient; base: string }, b: { eventId?: unknown; at?: unknown; preS?: unknown; postS?: unknown; size?: unknown; badge?: unknown; timeZone?: unknown; dryRun?: unknown }, res: Response, by: string) {
   const bad = (detail: string) => void res.status(400).json({ error: 'invalid', detail });
   if (b.eventId !== undefined) return bad('exactly one of eventId or at');
   const at = b.at;
@@ -126,8 +158,9 @@ async function around(t: { id: CamKey; client: ProxyClient; base: string }, b: {
       res.status(up.status);
       return void (text ? res.type('application/json').send(text) : res.end());
     }
-    const job = JSON.parse(text) as { id?: unknown };
-    if (typeof job.id === 'string' && JOB.test(job.id)) remember(t.id, job.id);
+    const job = startedJobOf(text);
+    if (!job) return void unreadable(t.id, res);
+    remember(t.id, job.id as string, by);
     res.status(201).json({ ...job, name: `${camsIdOf(t.id)}-${await stampOf(t.id, at, zone)}-around.mp4` });
   } catch (err) {
     failed(err, res);
@@ -225,6 +258,10 @@ composeRouter.delete('/api/cameras/:id/compositions/:job', async (req, res) => {
   if (!t) return;
   const job = known(t.id, req, res);
   if (!job) return;
+  // Polling and the result stay open to the account's viewers; cancelling is
+  // for whoever started the job, or an account admin.
+  const p = res.locals.principal as Principal;
+  if (started.get(keyOf(t.id, job))?.by !== p.email && p.role !== 'admin') return void res.status(403).json({ error: 'forbidden' });
   started.delete(keyOf(t.id, job));
   try {
     await relay(res, await t.client.open(`${t.base}/${job}`, undefined, { method: 'DELETE' }));

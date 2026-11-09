@@ -18,3 +18,7 @@ published as [GitHub releases](https://github.com/klaushofrichter/cams/releases)
 - An open live-update connection and an open live video now end when their sign-in ends: right away when the person is removed from the account or their viewer token is revoked, otherwise within a minute (an expired session, an address taken off the allow-list).
 - Archive videos and thumbnails are no longer kept in the browser cache, like every other camera image.
 - The viewer-token sign-in reads at most 4 KiB of a request, also when the browser doesn't say the size up front.
+- A clip being made can be cancelled only by the person who started it or an account admin; everyone in the account can still follow it and download the result.
+- One person can keep at most 6 live-update connections open (tabs and devices), so they can't use up the 20 the server allows.
+- A malformed answer from a cam-proxy (stills, previews, a started clip) now shows as "proxy unavailable" instead of a server error, and a started clip is no longer lost then.
+- A clip request with a missing or wrong setting is refused with a clear reason before anything is asked of the cam-proxy.
