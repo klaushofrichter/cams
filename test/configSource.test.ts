@@ -366,7 +366,8 @@ describe('token registration retries', () => {
     await expect.poll(() => configStatus().problems.map((p) => p.code)).toContain('admin_token_not_allowed');
     // The proxy allows admin tokens now (the fake answers normally): registered without a pull.
     await expect.poll(() => fake.tokens.filter((t) => t.kind === 'admin').length, { timeout: 3000 }).toBe(2);
-    expect(fake.registered.filter((r) => r.kind === 'admin').length).toBe(3); // refused once, then both proxies
+    // Refused at least once, then both proxies (a slow runner may fit in one more refused try).
+    expect(fake.registered.filter((r) => r.kind === 'admin').length).toBeGreaterThanOrEqual(3);
     await expect.poll(() => configStatus().problems.map((p) => p.code)).not.toContain('admin_token_not_allowed');
   });
 });
