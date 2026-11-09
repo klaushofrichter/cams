@@ -9,13 +9,13 @@ import { badRequest, knownCamera, outId, sendCameraError, viaProxyFailed } from 
 import { LIVE_CODECS, openProxyLive, type ProxyLive } from '../proxy/live';
 import { throughProxy } from '../proxy/features';
 import { PROXY_FINGERPRINT, proxyAdminClient, readProxyStatus, type ProxyCameraStatus } from '../proxy/cameraCalls';
-import { currentUser } from '../middleware/requireAuth';
+import { authState, currentUser } from '../middleware/requireAuth';
 import { readJson } from './common';
 import { proxyCameraId } from '../proxy/client';
 import { cameraCapabilities, getCamera } from '../cameraRegistry';
 import { ProxyError, proxyPath, requireProxyClient } from '../proxy/client';
 import { nodeBody } from '../httpBody';
-import type { CamKey } from '../fleet';
+import { accountIdOf, fleetEvents, type CamKey } from '../fleet';
 
 export const MAX_LIVE_PER_CAMERA = 4;
 // Per camera: the responses of its open live streams.
@@ -24,6 +24,22 @@ const liveStreams = new Map<CamKey, Set<Response>>();
 export function liveStreamCount(id: CamKey): number {
   return liveStreams.get(id)?.size ?? 0;
 }
+
+// An open live stream is checked against its sign-in after it opened too
+// (code review 2026-11-09, #243 M2): at once on a new configuration (a
+// member removed, a viewer token revoked), else within a minute (expiry, an
+// address taken off the allow-list). One that no longer qualifies is cut.
+const LIVE_RECHECK_MS = 60_000;
+export function recheckLiveStreams(): void {
+  for (const [cam, open] of liveStreams) {
+    for (const res of open) {
+      const s = authState(res.req);
+      if (s.kind !== 'ok' || s.principal.account.id !== accountIdOf(cam)) res.destroy();
+    }
+  }
+}
+fleetEvents.on('applied', recheckLiveStreams);
+setInterval(recheckLiveStreams, LIVE_RECHECK_MS).unref();
 
 export const camerasRouter = Router();
 

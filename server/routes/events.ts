@@ -4,6 +4,7 @@ import { proxyHub, proxyStates } from '../proxy/stream';
 import { capabilityEvents, nameEvents } from '../cameraRegistry';
 import { accountIdOf, camsIdOf, fleetEvents, type CamKey } from '../fleet';
 import { sessionAccount } from './common';
+import { authState, type Principal } from '../middleware/requireAuth';
 import '../proxy/names'; // keeps the cameras' names from their cam-proxies
 import '../proxy/stillChecks'; // drops a camera's cached checks on a new one
 
@@ -57,6 +58,16 @@ eventsRouter.get('/api/events/stream', (req: Request, res: Response) => {
   // Only the session's account, and only camsIds: nothing crosses accounts.
   const account = sessionAccount(req, res).id;
   const mine = (cam: CamKey) => accountIdOf(cam) === account;
+  // The session is checked for as long as the stream is open, not only at
+  // connect: a new configuration (a member removed, a viewer token revoked)
+  // ends it at once, anything else (expiry) at the next keep-alive.
+  const who = (res.locals.principal as Principal).email;
+  const stillSignedIn = (): boolean => {
+    const s = authState(req);
+    if (s.kind === 'ok' && s.principal.email === who && s.principal.account.id === account) return true;
+    res.end();
+    return false;
+  };
   for (const s of proxyStates(account)) send('proxy', { cam: camsIdOf(s.cam), up: s.up });
   const onState = (s: { cam: CamKey; up: boolean }) => {
     if (mine(s.cam)) send('proxy', { cam: camsIdOf(s.cam), up: s.up });
@@ -92,6 +103,7 @@ eventsRouter.get('/api/events/stream', (req: Request, res: Response) => {
   };
   // A new configuration for this account (cams-admin): the same.
   const onApplied = (e: { accountIds: string[] }) => {
+    if (!stillSignedIn()) return;
     if (e.accountIds.includes(account)) send('cameras', {});
   };
   // A camera's shown name changed (renamed here, in the Reolink app or on the
@@ -109,7 +121,9 @@ eventsRouter.get('/api/events/stream', (req: Request, res: Response) => {
   proxyHub.on('state', onState);
   proxyHub.on('message', onMessage);
   proxyHub.on('cameras', onCameras);
-  const ping = setInterval(() => res.write(': ping\n\n'), PING_MS);
+  const ping = setInterval(() => {
+    if (stillSignedIn()) res.write(': ping\n\n');
+  }, PING_MS);
   let done = false;
   const finish = () => {
     if (done) return;

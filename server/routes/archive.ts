@@ -413,7 +413,9 @@ archiveRouter.get('/api/archive/:via/items/:id/video', async (req, res) => {
       return void res.status(416).set(cr ? { 'Content-Range': cr } : {}).end();
     }
     if ((up.status !== 200 && up.status !== 206) || !up.body) return void (await passRefusal(up, res));
-    const headers: Record<string, string> = { 'Content-Type': 'video/mp4', 'Accept-Ranges': 'bytes', 'Cache-Control': 'private, max-age=604800, immutable' };
+    // no-store like every /api answer: camera media must not stay in the
+    // browser cache after logout (seeking works by ranges, not the cache).
+    const headers: Record<string, string> = { 'Content-Type': 'video/mp4', 'Accept-Ranges': 'bytes', 'Cache-Control': 'no-store' };
     const len = header(up, 'content-length', /^\d{1,15}$/);
     if (len) headers['Content-Length'] = len;
     const cr = header(up, 'content-range', /^bytes \d{1,15}-\d{1,15}\/\d{1,15}$/);
@@ -422,7 +424,6 @@ archiveRouter.get('/api/archive/:via/items/:id/video', async (req, res) => {
     if (etag) headers.ETag = etag;
     if (download) {
       headers['Content-Disposition'] = attachment(up)?.header ?? `attachment; filename="archive-${id}.mp4"`;
-      headers['Cache-Control'] = 'no-store'; // the name follows a rename: never a cached download
     }
     res.status(up.status).set(headers);
     await stream(up, req, res);
@@ -436,7 +437,7 @@ archiveRouter.get('/api/archive/:via/items/:id/thumbnail', async (req, res) => {
   const id = p && itemId(req, res);
   if (!p || !id) return;
   try {
-    await relayImage(res, p.client, `/api/archive/${id}/thumbnail`, () => ({ 'Cache-Control': 'private, max-age=604800, immutable' }), viewerGone(res));
+    await relayImage(res, p.client, `/api/archive/${id}/thumbnail`, () => ({ 'Cache-Control': 'no-store' }), viewerGone(res));
   } catch (err) {
     failed(err, res, 'thumbnail');
   }

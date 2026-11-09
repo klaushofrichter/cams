@@ -221,17 +221,31 @@ authRouter.post(
 // link's confirm step: no silent sign-in); the other one signs in.
 const VIEWER_TOKEN_MAX_BODY = 4096;
 const viewerTokenGlobalLimit = createViewerTokenGlobalLimit();
+// The app's JSON parser (100 KB) leaves these two out: their own one below
+// caps the body at 4 KiB while reading it, so a chunked body (no
+// Content-Length) is held to it too.
+export const VIEWER_TOKEN_PATHS = ['/auth/viewer-token', '/auth/viewer-token/check'] as const;
+const viewerTokenJson = express.json({ limit: VIEWER_TOKEN_MAX_BODY });
 
-function presentedViewerToken(req: Request, res: Response): { token: unknown } | null {
+// The body, read only after the checks that need none: a URL with the token
+// refused, a declared or actual size over 4 KiB 413, malformed JSON 400.
+function viewerTokenBody(req: Request, res: Response, next: NextFunction): void {
   // Never in a URL (logs, history, Referer): refused, never read.
   if (req.query.t !== undefined || req.query.token !== undefined) {
     res.status(400).json({ error: 'token_in_url' });
-    return null;
+    return;
   }
   if (Number(req.get('content-length') ?? 0) > VIEWER_TOKEN_MAX_BODY) {
     res.status(413).json({ error: 'too_large' });
-    return null;
+    return;
   }
+  viewerTokenJson(req, res, (err?: unknown) => {
+    if ((err as { type?: unknown } | undefined)?.type === 'entity.too.large') return void res.status(413).json({ error: 'too_large' });
+    next(err);
+  });
+}
+
+function presentedViewerToken(req: Request, res: Response): { token: unknown } | null {
   if (!req.is('application/json')) {
     res.status(415).json({ error: 'json_only' });
     return null;
@@ -244,7 +258,7 @@ function viewerTokenRefused(res: Response, reason: string): void {
   res.status(401).json({ error: 'invalid_token' });
 }
 
-const viewerTokenGuards = [authRateLimit, requireSameOrigin, tokenFailureLimit, viewerTokenGlobalLimit];
+const viewerTokenGuards = [authRateLimit, requireSameOrigin, tokenFailureLimit, viewerTokenGlobalLimit, viewerTokenBody];
 
 authRouter.post('/auth/viewer-token/check', ...viewerTokenGuards, (req: Request, res: Response) => {
   const p = presentedViewerToken(req, res);
