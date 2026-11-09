@@ -11,8 +11,9 @@ import { preferences } from '../lib/preferences';
 import { resetDayCache } from '../lib/dayCache';
 import { liveUi } from '../lib/liveUi';
 
-// No event stream in jsdom: the page polls instead.
-vi.mock('../lib/eventStream', async (orig) => ({ ...(await orig<typeof import('../lib/eventStream')>()), eventStream: () => undefined }));
+// No event stream in jsdom: the page polls instead (a test may hand it one).
+const es = vi.hoisted(() => ({ stream: undefined as unknown }));
+vi.mock('../lib/eventStream', async (orig) => ({ ...(await orig<typeof import('../lib/eventStream')>()), eventStream: () => es.stream }));
 // jsdom has no MediaSource: players that never play.
 vi.mock('../lib/mpegtsPlayer', () => ({ mpegtsPlayer: () => ({ attach() {}, load() {}, play() {}, destroy() {}, onFailure() {} }) }));
 vi.mock('../lib/fmp4Player', () => ({ fmp4Player: () => ({ attach() {}, load() {}, play() {}, destroy() {}, onFailure() {} }) }));
@@ -288,3 +289,100 @@ describe('Video page after a held camera is confirmed', () => {
   });
 });
 
+
+// A camera that went offline for another reason (a power cut, its network:
+// not a held change) came back on screen only with a reload, the Retry
+// button or a change to its list entry. The page now reads its status again
+// when the camera's cam-proxy reports a camera-status change or comes up
+// again, and every 30 s while it is offline without such events.
+describe('Video page: an offline camera comes back by itself', () => {
+  let online = false;
+  let statusReads = 0;
+  type Fn = (e: { data: string }) => void;
+  let listeners: Map<string, Fn>;
+  let source: { readyState: number; onopen: (() => void) | null; onerror: (() => void) | null; addEventListener: (t: string, fn: Fn) => void; close(): void };
+  beforeEach(() => {
+    online = false;
+    statusReads = 0;
+    vi.stubGlobal('fetch', async (url: string) => {
+      if (url.includes('/status')) {
+        statusReads++;
+        return json(online ? { id: 'den', online: true } : { id: 'den', online: false, error: 'camera_offline' });
+      }
+      if (url.includes('/extent')) return json({ oldest: null });
+      if (url.includes('/events?')) return json({ events: [], downloads: 'ok' });
+      return json([]);
+    });
+    cameras.set([{ id: 'den', name: 'Den', webUiUrl: null, proxy: true, proxyConfigured: true }]);
+    listeners = new Map();
+    source = { readyState: 1, onopen: null, onerror: null, addEventListener: (t, fn) => void listeners.set(t, fn), close() {} };
+  });
+  afterEach(() => {
+    (es.stream as { close?: () => void } | undefined)?.close?.();
+    es.stream = undefined;
+    vi.useRealTimers();
+    liveUi.update((u) => ({ ...u, status: null, playerState: 'connecting', stillsShowing: false }));
+  });
+
+  const offline = () => target!.querySelector('[data-testid="offline-reason"]')?.textContent ?? null;
+  const player = () => target!.querySelector('[data-testid="live-video"]');
+  const withStream = () => {
+    es.stream = createEventStream({ factory: () => source });
+    source.onopen?.();
+  };
+
+  it('the proxy reports the camera online again (camera-status): the player starts', async () => {
+    withStream();
+    listeners.get('proxy')!({ data: JSON.stringify({ cam: 'den', up: true }) });
+    await open('/app/video?cam=den');
+    expect(offline()).toBe('The camera could not be reached.');
+    expect(player()).toBeNull();
+    const before = statusReads;
+    online = true;
+    listeners.get('change')!({ data: JSON.stringify({ cam: 'den', type: 'camera-status', ts: null }) });
+    await settle();
+    expect(statusReads).toBe(before + 1);
+    expect(offline()).toBeNull();
+    expect(player()).not.toBeNull();
+  });
+
+  it("another camera's camera-status change reads nothing", async () => {
+    withStream();
+    listeners.get('proxy')!({ data: JSON.stringify({ cam: 'den', up: true }) });
+    await open('/app/video?cam=den');
+    const before = statusReads;
+    listeners.get('change')!({ data: JSON.stringify({ cam: 'loft', type: 'camera-status', ts: null }) });
+    await settle();
+    expect(statusReads).toBe(before);
+  });
+
+  it('the proxy comes up again while the camera shows offline: its status is read again', async () => {
+    withStream();
+    await open('/app/video?cam=den');
+    expect(offline()).not.toBeNull();
+    const before = statusReads;
+    online = true;
+    listeners.get('proxy')!({ data: JSON.stringify({ cam: 'den', up: true }) });
+    await settle();
+    expect(statusReads).toBe(before + 1);
+    expect(player()).not.toBeNull();
+  });
+
+  it('without proxy events: every 30 s while offline, and no more once online', async () => {
+    vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] });
+    await open('/app/video?cam=den');
+    expect(offline()).not.toBeNull();
+    const before = statusReads;
+    vi.advanceTimersByTime(29_000);
+    await settle();
+    expect(statusReads).toBe(before);
+    online = true;
+    vi.advanceTimersByTime(1_000);
+    await settle();
+    expect(statusReads).toBe(before + 1);
+    expect(player()).not.toBeNull();
+    vi.advanceTimersByTime(60_000);
+    await settle();
+    expect(statusReads).toBe(before + 1); // online: no poll
+  });
+});

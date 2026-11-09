@@ -302,6 +302,42 @@
     void camEntry;
     if (cam && pageVisible) untrack(() => void checkLiveStatus(cam));
   });
+  // A camera offline for another reason (a power cut, its network) comes
+  // back by itself: its status is read again when its cam-proxy reports a
+  // camera-status change (online or offline) or comes up again while the
+  // camera shows offline, and, without those events (no proxy, or its event
+  // stream down), every 30 s while it shows offline.
+  const OFFLINE_POLL_MS = 30_000;
+  const camOffline = $derived(!!cam && $liveUi.status?.id === cam && $liveUi.status.online === false);
+  $effect(() => {
+    void $cameras; // the stream opens once the camera list is in
+    void $liveEventsOn;
+    const c = cam;
+    if (!c || !pageVisible) return;
+    const stream = eventStream();
+    if (!stream) return;
+    const offChange = stream.onChange((ch) => {
+      if (ch.cam === c && ch.type === 'camera-status') void checkLiveStatus(c);
+    });
+    let wasUp = stream.streaming(c);
+    const offState = stream.state.subscribe(() => {
+      const up = stream.streaming(c);
+      if (up && !wasUp && untrack(() => camOffline)) void checkLiveStatus(c);
+      wasUp = up;
+    });
+    return () => {
+      offChange();
+      offState();
+    };
+  });
+  $effect(() => {
+    const c = cam;
+    if (!c || !pageVisible || !camOffline) return;
+    const timer = setInterval(() => {
+      if (!eventStream()?.streaming(c)) void checkLiveStatus(c);
+    }, OFFLINE_POLL_MS);
+    return () => clearInterval(timer);
+  });
   // And each time the live stream starts playing: a camera that restarted
   // (an encoding change) may stream another size now, and the info line's
   // label follows the status's streams (2026-11-02).
