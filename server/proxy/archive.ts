@@ -168,8 +168,8 @@ export function parseItem(x: unknown, proxy: Pick<ArchiveProxy, 'via' | 'toCams'
     thumbnail: { from: thumbFrom, at: int(t.at) ? t.at : null },
     createdBy: r.createdBy === 'admin' ? 'admin' : 'client',
     move: parseMove(r.move),
-    // The video and thumbnail are cached as immutable, and an id can name another
-    // item later (a camera move numbers the items anew), so they carry createdAt.
+    // An id can name another item later (a camera move numbers the items
+    // anew), so the video and thumbnail URLs carry createdAt.
     urls: { video: `${base}/video?v=${r.createdAt}`, download: `${base}/video?download=1`, thumbnail: thumbFrom === 'none' ? null : `${base}/thumbnail?v=${r.createdAt}`, metadata: `${base}/metadata` },
   };
 }

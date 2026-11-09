@@ -6,6 +6,7 @@
 // Pi's login token alongside, and no token or fingerprint in any log line.
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import request from 'supertest';
+import http from 'http';
 import { resolve } from 'path';
 import { readFileSync } from 'fs';
 import jwt from 'jsonwebtoken';
@@ -275,6 +276,29 @@ describe('limits', () => {
   it('a body over 4 KiB: 413', async () => {
     const r = await post('/auth/viewer-token', { token: TOKEN, pad: 'x'.repeat(5000) });
     expect(r.status).toBe(413);
+  });
+
+  // The cap holds before parsing, also for a body without Content-Length
+  // (chunked): no 100 KB JSON is parsed on this unauthenticated route.
+  it('a chunked body over 4 KiB: 413 before it is parsed', async () => {
+    for (const path of ['/auth/viewer-token', '/auth/viewer-token/check', '/AUTH/Viewer-Token/']) {
+      const r = await new Promise<{ status: number; body: string }>((resolve, reject) => {
+        const server = createApp().listen(0, '127.0.0.1', () => {
+          const port = (server.address() as import('net').AddressInfo).port;
+          const req = http.request({ host: '127.0.0.1', port, path, method: 'POST', headers: { 'Content-Type': 'application/json', 'Transfer-Encoding': 'chunked', Origin: `http://127.0.0.1:${port}` } }, (res) => {
+            let body = '';
+            res.setEncoding('utf8');
+            res.on('data', (d: string) => (body += d));
+            res.on('end', () => server.close(() => resolve({ status: res.statusCode ?? 0, body })));
+          });
+          req.on('error', reject);
+          req.write(`{"token":"${TOKEN}","pad":"`);
+          for (let i = 0; i < 10; i++) req.write('x'.repeat(1000));
+          req.end('"}');
+        });
+      });
+      expect([r.status, JSON.parse(r.body)]).toEqual([413, { error: 'too_large' }]);
+    }
   });
 });
 
