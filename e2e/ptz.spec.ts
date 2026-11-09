@@ -168,6 +168,8 @@ test('a missing position says so and can be saved again', async ({ page }) => {
   expect((await page.request.post(`${HOOKS}/ptz-missing`, { data: { cam: 'barn', id } })).ok()).toBe(true);
   await page.reload();
   await expect(row(page, 'Gate')).toContainText('Not on the camera — save again');
+  // One row's height like the others, so the list still shows five (#305).
+  expect((await row(page, 'Gate').boundingBox())!.height).toBeLessThanOrEqual(41);
   await expect(row(page, 'Gate').getByTestId('ptz-go')).toHaveCount(0);
   await row(page, 'Gate').getByTestId('ptz-resave').click();
   await expect(row(page, 'Gate')).not.toContainText('Not on the camera');

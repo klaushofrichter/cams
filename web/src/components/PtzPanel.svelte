@@ -340,7 +340,8 @@
                       ondragstart={(e) => { dragging = p.id; e.dataTransfer?.setData('text/plain', p.id); if (e.dataTransfer) e.dataTransfer.effectAllowed = 'move'; }}
                       ondragend={() => (dragging = dropOn = null)}><Icon name="grip" size={16} /></span>
                     {#if p.state === 'missing'}
-                      <span class="name plain">{p.name}</span>
+                      <!-- The note under the name, in the row's own height (#305). -->
+                      <span class="name plain"><span class="pname">{p.name}</span><span class="lost">Not on the camera — save again</span></span>
                       <button class="small" data-testid="ptz-resave" disabled={busy} onclick={() => resave(p)}>Save again</button>
                     {:else}
                       <button class="name go" data-testid="ptz-go" title={`Go to ${p.name}`} onclick={() => go(p)}>{p.name}</button>
@@ -354,7 +355,6 @@
                     <button class="icon" data-testid="ptz-up" aria-label={`Move ${p.name} up`} title="Move up" disabled={i === 0 || busy} onclick={() => reorder(i, i - 1)}><span class="turn up"><Icon name="arrow" size={15} /></span></button>
                     <button class="icon" data-testid="ptz-down" aria-label={`Move ${p.name} down`} title="Move down" disabled={i === positions.length - 1 || busy} onclick={() => reorder(i, i + 1)}><span class="turn down"><Icon name="arrow" size={15} /></span></button>
                     <button class="icon" data-testid="ptz-delete" aria-label={`Delete ${p.name}`} title="Delete" onclick={() => { renaming = null; confirming = p.id; }}><Icon name="trash" size={15} /></button>
-                    {#if p.state === 'missing'}<span class="lost">Not on the camera — save again</span>{/if}
                   {/if}
                 </li>
               {/each}
@@ -427,7 +427,7 @@
   .row.drop { border-color: var(--accent); }
   .grip { flex: none; display: inline-flex; color: var(--muted); cursor: grab; padding: 4px 2px; opacity: 0.7; }
   .grip:active { cursor: grabbing; }
-  @media (pointer: coarse) { .grip { display: none; } .row .lost { padding-left: 8px; } }
+  @media (pointer: coarse) { .grip { display: none; } }
   .name {
     flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
     font: inherit; font-size: 14px; color: var(--text); text-align: left;
@@ -435,10 +435,9 @@
   .go { padding: 6px 6px; border: 0; border-radius: 6px; background: none; cursor: pointer; }
   .go:hover { color: var(--accent); }
   .go:focus-visible, .icon:focus-visible, .small:focus-visible, .savebtn:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
-  .plain { padding: 0 6px; color: var(--muted); }
-  /* A missing row takes a second line for the note. */
-  .row.missing { flex-wrap: wrap; }
-  .lost { flex-basis: 100%; margin: -4px 0 0; padding: 0 0 6px 26px; font-size: 12px; color: var(--warning); }
+  .plain { display: flex; flex-direction: column; justify-content: center; padding: 0 6px; color: var(--muted); }
+  .pname, .lost { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .lost { font-size: 11px; line-height: 1.2; color: var(--warning); }
   .icon {
     flex: none; display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 28px; padding: 0;
     border: 0; border-radius: 7px; background: none; color: var(--muted); cursor: pointer;

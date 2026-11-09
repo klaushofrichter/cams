@@ -33,6 +33,10 @@ export function verifySnapshot(raw: unknown, serverKeys: string[], instanceId: s
 export interface AccountPart { account: AccountRef; revision: number; users: FleetUser[]; proxies: SnapProxy[]; cameras: SnapCamera[]; viewerTokens?: ViewerTokenGrant[] }
 
 const str = (v: unknown, max = 256): v is string => typeof v === 'string' && v.length > 0 && v.length <= max;
+// A proxy id as the snapshot accepts it (prx_…, at most 64): the held-proxy
+// routes accept the same, so the banner can act on every proxy it shows
+// (#266 T5; the contract's ids are prx_ + 20 Crockford, a subset).
+export const isSnapProxyId = (v: unknown): v is string => str(v, 64) && /^prx_/.test(v);
 const strOrNull = (v: unknown, max = 2048) => v === null || (typeof v === 'string' && v.length <= max);
 const SITE_RE = /^[a-z0-9][a-z0-9-]{0,30}$/;
 const MOVE_ID_RE = /^mv_[0-9A-HJKMNP-TV-Z]{20}$/;
@@ -68,7 +72,7 @@ function checkAccount(a: Record<string, unknown>): AccountPart {
   if (!Array.isArray(a.proxies) || a.proxies.length > 64) fail('proxies');
   const proxies = (a.proxies as unknown[]).map((p0, i) => {
     const p = (obj(p0) ? p0 : {}) as Record<string, unknown>;
-    if (!obj(p0) || !str(p.id, 64) || !/^prx_/.test(p.id) || !strOrNull(p.url) || !strOrNull(p.tlsServername, 253) || !Array.isArray(p.caFingerprints) || !p.caFingerprints.every((f) => typeof f === 'string') || !optNull(p.site, SITE_RE)) fail(`proxy ${i}`);
+    if (!obj(p0) || !isSnapProxyId(p.id) || !strOrNull(p.url) || !strOrNull(p.tlsServername, 253) || !Array.isArray(p.caFingerprints) || !p.caFingerprints.every((f) => typeof f === 'string') || !optNull(p.site, SITE_RE)) fail(`proxy ${i}`);
     const tokens = Array.isArray(p.tokens) ? (p.tokens as unknown[]).filter(obj).filter((t) => str(t.id, 64) && (t.kind === 'client' || t.kind === 'admin') && str(t.state, 16)) : [];
     return { id: p.id as string, name: String(p.name ?? ''), displayName: String(p.displayName ?? p.name ?? ''), url: (p.url as string | null) ?? null, adminUiUrl: typeof p.adminUiUrl === 'string' ? p.adminUiUrl : null,
       tlsServername: (p.tlsServername as string | null) ?? null, caFingerprints: p.caFingerprints as string[], site: (p.site as string | null | undefined) ?? null, tokens: tokens.map((t) => ({ id: t.id as string, kind: t.kind as 'client' | 'admin', state: t.state as string, retireAt: typeof t.retireAt === 'number' ? t.retireAt : null })) } as SnapProxy;

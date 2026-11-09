@@ -12,6 +12,8 @@ import { entryOf, readProxyList, type ProxyCameraEntry } from '../proxy/cameraLi
 import { badRequest, knownCamera, outId, proxyFailed, proxyTarget } from './common';
 import { accountIdOf, type CamKey } from '../fleet';
 import { nodeBody } from '../httpBody';
+import { adminTokenWaiting } from '../configSource';
+import type { Principal } from '../middleware/requireAuth';
 
 // Stills and preview sprites from a camera's cam-proxy, for the Timeline
 // page (Plan 6). cams signs the browser in; the proxy's token is added here.
@@ -79,7 +81,12 @@ async function proxyInfo(id: CamKey): Promise<{ reachable: boolean; webUrl: stri
 
 proxyRouter.get('/api/cameras/:id/proxy/info', async (req: Request, res: Response) => {
   const c = configured(req, res);
-  if (c) res.json(await proxyInfo(c.id));
+  if (!c) return;
+  // Admins: cams's admin token for this proxy waits for the proxy to allow
+  // it (#249), so there's no signed-in link to it yet.
+  const admin = (res.locals.principal as Principal).role === 'admin';
+  const adminWaiting = admin && !c.proxy.adminToken && !!c.proxy.proxyId && adminTokenWaiting(accountIdOf(c.id), c.proxy.proxyId);
+  res.json({ ...(await proxyInfo(c.id)), ...(adminWaiting && { adminWaiting: true }) });
 });
 
 // A signed-in cams user opens the proxy's UI without its token (Klaus,

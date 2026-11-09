@@ -494,6 +494,12 @@ export async function tokensSettled(): Promise<void> {
   while (st.ensuring) await st.ensuring;
 }
 
+// Whether cams's admin token for this proxy waits for the proxy to allow
+// admin tokens (refused, on its back-off; #249): Settings says so.
+export function adminTokenWaiting(accountId: string, proxyId: string): boolean {
+  return st.tokenProblems.some((p) => p.code === 'admin_token_not_allowed' && p.accountId === accountId && p.detail === `proxy ${proxyId}`);
+}
+
 export function configStatus(): ConfigStatus {
   const now = st.now();
   // From 24 h without a successful pull (or since the cache was written).

@@ -55,9 +55,11 @@ const isValues = (v: unknown): v is TrustValues => {
 // A log entry carries ids, never values. `proxyIds`: bare proxy ids for
 // confirm-proxy and move-attested (the proxy it trusted, if any),
 // `<accountId>/<proxyId>` keys for seed-proxies (it spans accounts).
-type LogEntry = { at: number; email: string; accountId: string; camsIds: string[]; action: 'confirm' | 'keep' | 'seed' | 'seed-proxies' | 'confirm-proxy' | 'move' | 'move-attested' | 'via-proxy'; moveId?: string; proxyIds?: string[] };
+type LogEntry = { at: number; email: string; accountId: string; camsIds: string[]; action: 'confirm' | 'keep' | 'seed' | 'seed-proxies' | 'confirm-proxy' | 'ignore-proxy' | 'move' | 'move-attested' | 'via-proxy'; moveId?: string; proxyIds?: string[] };
 // `proxies` absent: written before trusted proxies (seeded once, M2).
-interface FileShape { v: 1; confirmed: Record<string, TrustValues>; keptOld: Record<string, TrustValues>; proxies?: Record<string, ProxyTrust>; fileAccountId?: string; log: LogEntry[] }
+// ignoredProxies: held proxy offers an admin chose to Ignore (#266), by
+// `<account>/<proxy id>`: still untrusted, only hidden from the banner.
+interface FileShape { v: 1; confirmed: Record<string, TrustValues>; keptOld: Record<string, TrustValues>; proxies?: Record<string, ProxyTrust>; ignoredProxies?: Record<string, ProxyTrust>; fileAccountId?: string; log: LogEntry[] }
 
 export class TrustStore {
   private offers = new Map<string, TrustValues>(); // the last offered values per camera (this process)
@@ -88,10 +90,11 @@ export class TrustStore {
       throw new Error('admin/trust.json is corrupt: restore it from a backup (cams will not start in cams-admin mode without it)');
     }
     if (d.v !== 1 || typeof d.confirmed !== 'object' || !d.confirmed || !Object.values(d.confirmed).every(isValues) || (d.keptOld && !Object.values(d.keptOld).every(isValues))
-      || (d.proxies !== undefined && (typeof d.proxies !== 'object' || !d.proxies || Array.isArray(d.proxies) || !Object.values(d.proxies).every(isProxyTrust)))) {
+      || (d.proxies !== undefined && (typeof d.proxies !== 'object' || !d.proxies || Array.isArray(d.proxies) || !Object.values(d.proxies).every(isProxyTrust)))
+      || (d.ignoredProxies !== undefined && (typeof d.ignoredProxies !== 'object' || !d.ignoredProxies || Array.isArray(d.ignoredProxies) || !Object.values(d.ignoredProxies).every(isProxyTrust)))) {
       throw new Error('admin/trust.json is corrupt: restore it from a backup (cams will not start in cams-admin mode without it)');
     }
-    return new TrustStore(file, { v: 1, confirmed: d.confirmed, keptOld: d.keptOld ?? {}, ...(d.proxies && { proxies: d.proxies }), ...(typeof d.fileAccountId === 'string' && { fileAccountId: d.fileAccountId }), log: Array.isArray(d.log) ? d.log.slice(-200) : [] }, true);
+    return new TrustStore(file, { v: 1, confirmed: d.confirmed, keptOld: d.keptOld ?? {}, ...(d.proxies && { proxies: d.proxies }), ...(d.ignoredProxies && { ignoredProxies: d.ignoredProxies }), ...(typeof d.fileAccountId === 'string' && { fileAccountId: d.fileAccountId }), log: Array.isArray(d.log) ? d.log.slice(-200) : [] }, true);
   }
 
   exists(): boolean {
@@ -399,8 +402,10 @@ export class TrustStore {
     return !!trusted && !proxyDiffers(trusted, proxyPart(offered)).length;
   }
 
-  private proxyDigest(proxyId: string, offered: ProxyTrust, revision: string): string {
-    return createHash('sha256').update(jcs({ proxyId, offered, revision })).digest('hex');
+  // Bound to the account too (#266 T2): one account's digest never acts on
+  // another account's offer of the same proxy.
+  private proxyDigest(accountId: string, proxyId: string, offered: ProxyTrust, revision: string): string {
+    return createHash('sha256').update(jcs({ accountId, proxyId, offered, revision })).digest('hex');
   }
 
   private heldProxyOf(key: string): HeldProxy | null {
@@ -410,7 +415,7 @@ export class TrustStore {
     const trusted = this.data.proxies?.[key] ?? null;
     const fields = trusted ? proxyDiffers(trusted, o.offered) : [...PROXY_TRUST_FIELDS];
     if (!fields.length) return null;
-    return { accountId, proxyId, name: o.name, fields, trusted, offered: o.offered, digest: this.proxyDigest(proxyId, o.offered, o.revision) };
+    return { accountId, proxyId, name: o.name, fields, trusted, offered: o.offered, digest: this.proxyDigest(accountId, proxyId, o.offered, o.revision) };
   }
 
   // Proxies offered with values no admin trusted (new, or a changed URL, pin
@@ -436,11 +441,41 @@ export class TrustStore {
     }
     if (changed.length || !ok.length) return { confirmed: [], changed };
     this.data.proxies ??= {};
-    for (const h of ok) this.data.proxies[`${accountId}/${h.proxyId}`] = h.offered;
+    for (const h of ok) {
+      this.data.proxies[`${accountId}/${h.proxyId}`] = h.offered;
+      if (this.data.ignoredProxies) delete this.data.ignoredProxies[`${accountId}/${h.proxyId}`];
+    }
     const confirmed = ok.map((h) => h.proxyId);
     this.data.log.push({ at: Date.now(), email, accountId, camsIds: [], proxyIds: confirmed, action: 'confirm-proxy' });
     this.save();
     logger.info({ accountId, proxyIds: confirmed }, 'trust_proxies_confirmed');
     return { confirmed, changed: [] };
+  }
+
+  // Ignore (#266, spec §9.2 "Confirm / Ignore"): the exact offers shown
+  // (digest), all or nothing. The proxy stays untrusted and held (no camera
+  // moves to it, cams-admin still sees it held); the banner no longer shows
+  // that offer. A different offer shows again; a Confirm clears it.
+  ignoreProxies(email: string, accountId: string, items: { proxyId: string; digest: string }[]): { ignored: string[]; changed: string[] } {
+    const ok: HeldProxy[] = [], changed: string[] = [];
+    for (const { proxyId, digest } of items) {
+      const h = this.heldProxyOf(`${accountId}/${proxyId}`);
+      if (h && h.digest === digest) ok.push(h);
+      else changed.push(proxyId);
+    }
+    if (changed.length || !ok.length) return { ignored: [], changed };
+    this.data.ignoredProxies ??= {};
+    for (const h of ok) this.data.ignoredProxies[`${accountId}/${h.proxyId}`] = h.offered;
+    const ignored = ok.map((h) => h.proxyId);
+    this.data.log.push({ at: Date.now(), email, accountId, camsIds: [], proxyIds: ignored, action: 'ignore-proxy' });
+    this.save();
+    logger.info({ accountId, proxyIds: ignored }, 'trust_proxies_ignored');
+    return { ignored, changed: [] };
+  }
+
+  // Whether an admin chose to Ignore exactly this offer.
+  proxyIgnored(h: HeldProxy): boolean {
+    const ignored = this.data.ignoredProxies?.[`${h.accountId}/${h.proxyId}`];
+    return !!ignored && !proxyDiffers(ignored, h.offered).length;
   }
 }
