@@ -28,7 +28,9 @@ export class PriorityGate {
   run<T>(fn: () => Promise<T>, opts: { high?: boolean; key?: string } = {}): Promise<T> {
     return new Promise<T>((resolve, reject) => {
       const start = () => {
-        fn()
+        // new Promise(...) turns a synchronous throw from fn into a
+        // rejection, so the slot is handed off in that case too (#279).
+        new Promise<T>((r) => r(fn()))
           .then(resolve, reject)
           .finally(() => this.handOff());
       };

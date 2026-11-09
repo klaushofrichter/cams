@@ -207,7 +207,12 @@ test('the timeline popup follows playback under a resting pointer', async ({ pag
   const time = page.getByTestId('scrub-preview').getByTestId('strip-cursor-time');
   await expect(time).toBeVisible();
   const first = await time.textContent();
-  await expect.poll(() => time.textContent(), { timeout: 5000 }).not.toBe(first);
+  // Waits on the timeline's move (its position, aria-valuenow), not the
+  // clock: under load playback advances later (#192). Then the popup follows.
+  const timeline = page.getByTestId('timeline');
+  const from = await timeline.getAttribute('aria-valuenow');
+  await expect.poll(() => timeline.getAttribute('aria-valuenow'), { timeout: 20_000 }).not.toBe(from);
+  await expect.poll(() => time.textContent(), { timeout: 2000 }).not.toBe(first);
   await expect(page.getByTestId('scrub-kind')).toHaveAttribute('data-kind', 'still');
   await page.mouse.move(bar.x + bar.width / 2, bar.y - 60); // off the bar: no popup
   await expect(page.getByTestId('scrub-preview')).toHaveCount(0);

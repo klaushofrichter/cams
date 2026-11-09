@@ -184,7 +184,9 @@ unencrypted on your network."
 - **Transport:** stateless Streamable HTTP (`sessionIdGenerator: undefined`,
   JSON responses), so restarts and revisions lose nothing. `POST /mcp` only;
   `GET`/`DELETE` answer 405. A request with an `Origin` other than the
-  server's own is refused 403 (DNS rebinding).
+  server's own is refused 403 (a browser page of another site). It compares
+  with the request's own Host, so it does not stop DNS rebinding; that is
+  harmless as `/mcp` carries no ambient credential (bearer tokens only).
 - **Rate limits** (in memory, as today: the ksvc is one replica): per token
   60 calls a minute and 2000 a day; per account 300 calls a minute;
   `generate_clip` as §3; media links 30 a minute per token; failed bearer

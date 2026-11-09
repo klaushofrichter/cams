@@ -90,11 +90,12 @@ interface State {
   ensureRetryTimer: NodeJS.Timeout | null;
   ensureRetryStep: number;
   ensureRetryMs: number[];
+  adminTokenRetryMs: number[] | undefined;
   lastReportAt: number;
 }
 let st: State = fresh();
 function fresh(): State {
-  return { mode: 'file', key: null, client: null, puller: null, applied: null, goodParts: new Map(), legacy: [], cacheVerifiedAt: null, lastGoodAt: null, lastPullAt: null, lastPullOkAt: null, startProblems: [], snapProblems: [], now: Date.now, moved: false, buildProblems: [], trust: null, tokens: null, tokenProblems: [], ensuring: null, ensureAgain: false, reportedOnce: false, recordedHome: null, homeProblem: null, adminRefusal: null, reporter: null, shadow: null, shadowKey: '', lastEnsureAt: 0, legacyProxies: new Set(), reportTimer: null, lastReportAt: 0, ensureRetryTimer: null, ensureRetryStep: 0, ensureRetryMs: TOKEN_RETRY_MS };
+  return { mode: 'file', key: null, client: null, puller: null, applied: null, goodParts: new Map(), legacy: [], cacheVerifiedAt: null, lastGoodAt: null, lastPullAt: null, lastPullOkAt: null, startProblems: [], snapProblems: [], now: Date.now, moved: false, buildProblems: [], trust: null, tokens: null, tokenProblems: [], ensuring: null, ensureAgain: false, reportedOnce: false, recordedHome: null, homeProblem: null, adminRefusal: null, reporter: null, shadow: null, shadowKey: '', lastEnsureAt: 0, legacyProxies: new Set(), reportTimer: null, lastReportAt: 0, ensureRetryTimer: null, ensureRetryStep: 0, ensureRetryMs: TOKEN_RETRY_MS, adminTokenRetryMs: undefined };
 }
 
 
@@ -242,14 +243,25 @@ function ensureTokens(): Promise<void> {
     try {
       const r = await mine.tokens!.ensure(parts, mine.client!, mine.now(), mine.applied!.instance.rotateBefore ?? null);
       mine.tokenProblems = r.problems;
-      // The admin back-off (admin_token_not_allowed) keeps its one-day refusal.
+      // A refused admin token (admin_token_not_allowed) has its own back-off, below.
       failed = r.problems.some((p) => p.code !== 'admin_token_not_allowed');
     } catch (err) {
       failed = true;
       logger.warn({ message: (err as Error).message }, 'proxy_tokens_failed');
     }
-    if (!failed) mine.ensureRetryStep = 0;
-    else if (mine === st) {
+    if (!failed) {
+      mine.ensureRetryStep = 0;
+      // A proxy refused an admin token: try again when its back-off ends
+      // (the proxy's allow-list may have changed by then, #249).
+      const at = mine.tokens!.adminRetryAt();
+      if (at !== null && mine === st) {
+        mine.ensureRetryTimer = setTimeout(() => {
+          mine.ensureRetryTimer = null;
+          if (mine === st) void ensureTokens();
+        }, Math.max(0, at - mine.now()));
+        mine.ensureRetryTimer.unref();
+      }
+    } else if (mine === st) {
       // A registration that failed (cams-admin said proxy_ahead, an admin then
       // fixed it there): try again on a growing wait, until a run is clean.
       const wait = mine.ensureRetryMs[Math.min(mine.ensureRetryStep++, mine.ensureRetryMs.length - 1)];
@@ -384,13 +396,14 @@ async function moveStateOnce(s: Snapshot): Promise<void> {
   loadTlsState();
 }
 
-export interface StartOptions { pullIntervalMs?: number; debounceMs?: number; now?: () => number; tokenRetryMs?: number[] }
+export interface StartOptions { pullIntervalMs?: number; debounceMs?: number; now?: () => number; tokenRetryMs?: number[]; adminTokenRetryMs?: number[] }
 
 export async function startConfig(o: StartOptions = {}): Promise<void> {
   stopConfig();
   st = fresh();
   st.now = o.now ?? Date.now;
   st.ensureRetryMs = o.tokenRetryMs?.length ? o.tokenRetryMs : TOKEN_RETRY_MS;
+  st.adminTokenRetryMs = o.adminTokenRetryMs;
   st.mode = configMode();
   st.legacy = loadCameras();
   setLegacyCredentials(st.legacy);
@@ -419,7 +432,7 @@ export async function startConfig(o: StartOptions = {}): Promise<void> {
   if (st.mode === 'cams-admin') st.trust = TrustStore.load(); // a corrupt one stops the start
   st.recordedHome = st.trust ? st.trust.fileAccountId() : recordedHome();
   setSecretGuard(false); // on with the first cams-admin build (rebuild)
-  st.tokens = LocalTokens.load();
+  st.tokens = LocalTokens.load(undefined, { adminRetryMs: st.adminTokenRetryMs });
   if (st.mode === 'cams-admin' && getAllowedEmails().length) {
     st.startProblems.push({ code: 'allowed_emails_ignored' });
     logger.warn({ kind: 'config' }, 'allowed_emails_ignored');

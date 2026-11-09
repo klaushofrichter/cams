@@ -104,10 +104,20 @@ export function videoNavHref(last: string, selectedCam: string | null, zoom: str
   return `${VIDEO_PATH}?${p.toString()}`;
 }
 
-// The URL the route was last read from (the page shows it).
+// The URL the route was last read from (the page shows it), and its
+// entry's place in the history (cvIdx: one more than the entry it was pushed
+// from), so a popstate tells Back from Forward.
 let shown = '';
+let shownIdx = 0;
+const idxOf = (state: unknown): number => {
+  const i = (state as { cvIdx?: unknown } | null)?.cvIdx;
+  return typeof i === 'number' ? i : 0;
+};
+// The state for an entry pushed on top of the current one.
+export const stateAbove = (extra: Record<string, unknown> = {}): Record<string, unknown> => ({ ...extra, cvIdx: idxOf(history.state) + 1 });
 function sync(): void {
   shown = location.pathname + location.search;
+  shownIdx = idxOf(history.state);
   const r = parseRoute(location.pathname, location.search);
   if (r.page === 'video' && location.pathname === VIDEO_PATH) rememberVideo(shown);
   store.set(r);
@@ -130,7 +140,7 @@ export function navigate(href: string): void {
     const u = new URL(href, location.href);
     beforeLeave(parseRoute(u.pathname, u.search));
   }
-  history.pushState({}, '', href);
+  history.pushState(stateAbove(), '', href);
   sync();
 }
 
@@ -155,11 +165,25 @@ export function guardBack(fn: () => boolean): () => void {
     if (backGuard === fn) backGuard = null;
   };
 }
+// A fill-the-screen entry left behind (the page was left while filling the
+// screen, #186) is a duplicate of the entry below it: Back and Forward step
+// over it. Back carries its URL (the moment last shown) to the entry below.
+let carry: string | null = null;
 function onPop(): void {
+  const carried = carry;
+  carry = null;
   if (backGuard?.()) {
     if (location.pathname + location.search !== shown) history.replaceState(history.state, '', shown);
     return;
   }
+  if ((history.state as { cvFill?: boolean } | null)?.cvFill) {
+    if (idxOf(history.state) < shownIdx) {
+      carry = location.pathname + location.search;
+      history.back();
+    } else history.forward();
+    return;
+  }
+  if (carried) history.replaceState(history.state, '', carried);
   sync();
 }
 

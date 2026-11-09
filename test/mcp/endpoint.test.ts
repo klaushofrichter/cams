@@ -7,6 +7,7 @@ import { setCameras } from '../../server/cameraRegistry';
 import { logger } from '../../server/logger';
 import { getMcpTokens } from '../../server/mcp/tokens';
 import { resetMcpLimits } from '../../server/mcp/limits';
+import { codeOf } from '../../server/mcp/result';
 import { createSimCamera } from '../camera/sim';
 import { freshTokens, issue, mcpClient, startApp, type Running } from './helpers';
 
@@ -100,6 +101,45 @@ describe('/mcp', () => {
     } finally {
       (logger as unknown as { info: unknown }).info = orig;
     }
+  });
+});
+
+// #297: the 64 KiB cap held only for a Content-Length; the body was parsed
+// before the bearer check; bad JSON got a text/plain 400; an internal 401
+// (the token revoked mid-call) was the tool error `invalid`.
+describe('/mcp body', () => {
+  const post = (token: string | undefined, body: BodyInit, extra: Record<string, unknown> = {}) =>
+    fetch(`${app.url}/mcp`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', accept: 'application/json, text/event-stream', ...(token ? { authorization: `Bearer ${token}` } : {}) },
+      body,
+      ...extra,
+    } as RequestInit);
+  const chunked = (s: string) => new ReadableStream({ start(c) { for (let i = 0; i < s.length; i += 8192) c.enqueue(new TextEncoder().encode(s.slice(i, i + 8192))); c.close(); } });
+  const big = JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/list', params: { pad: 'x'.repeat(70 * 1024) } });
+
+  it('holds a chunked body (no Content-Length) to 64 KiB too', async () => {
+    const { token } = issue();
+    const r = await post(token, chunked(big), { duplex: 'half' });
+    expect(r.status).toBe(413);
+    expect(await r.json()).toEqual({ error: 'too_large' });
+  });
+
+  it('checks the bearer before reading the body', async () => {
+    const r = await post(undefined, chunked(big), { duplex: 'half' });
+    expect(r.status).toBe(401);
+  });
+
+  it('answers bad JSON with a JSON 400', async () => {
+    const { token } = issue();
+    const r = await post(token, '{"jsonrpc": ');
+    expect(r.status).toBe(400);
+    expect(r.headers.get('content-type')).toMatch(/json/);
+    expect(await r.json()).toEqual({ error: 'invalid_json' });
+  });
+
+  it('maps an internal 401 (a token revoked mid-call) to forbidden', () => {
+    expect(codeOf(401, { error: 'unauthorized' })).toBe('forbidden');
   });
 });
 

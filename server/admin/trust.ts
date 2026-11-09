@@ -211,14 +211,19 @@ export class TrustStore {
   // is offered in this snapshot and not held (Review Focus 1), trusted with
   // exactly the offered values; host and protocol are the confirmed ones;
   // the TLS name is the camera's name under the proxy's (non-null) site. A
-  // moveId left set after the move excuses nothing else (Review Focus 2).
+  // moveId left set after the move excuses nothing else (Review Focus 2),
+  // nor a change on the same proxy: the proxy must change (#266).
   private moveAllowed(accountId: string, confirmed: TrustValues, offered: TrustValues, move: MoveContext): boolean {
     const proxyKey = `${accountId}/${move.proxyId}`;
     const proxyOffer = this.proxyOffers.get(proxyKey);
     return !!move.moveId && !!move.proxyCameraId && !!move.site
+      && proxyDiffers(proxyPart(confirmed), proxyPart(offered)).length > 0
       && offered.proxyUrl !== null
       && !!proxyOffer && !proxyDiffers(proxyOffer.offered, proxyPart(offered)).length && !this.heldProxyOf(proxyKey)
       && this.isTrusted(accountId, move.proxyId, offered)
+      // A camera whose address comes from its proxy has host "from-proxy" on
+      // both sides, so "host unchanged" proves nothing there (#266): the
+      // pinned TLS name below is what binds it.
       && offered.host !== null && offered.host === confirmed.host && offered.protocol !== null && offered.protocol === confirmed.protocol
       && offered.tlsServername === `${move.proxyCameraId}.${move.site}.internal`;
   }

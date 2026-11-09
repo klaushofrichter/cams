@@ -61,7 +61,8 @@ export function codeOf(status: number, body: unknown): ErrorCode {
   if (typeof e === 'string' && known[e]) return known[e];
   if (status === 404) return 'not_found';
   if (status === 429) return 'rate_limited';
-  if (status === 403) return 'forbidden';
+  // 401: the token was revoked or expired mid-call (#297).
+  if (status === 401 || status === 403) return 'forbidden';
   if (status === 409) return 'busy';
   if (status >= 400 && status < 500) return 'invalid';
   return 'proxy_unavailable';

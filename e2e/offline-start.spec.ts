@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test';
 import { spawn, type ChildProcess } from 'child_process';
-import { chmodSync, cpSync, mkdtempSync, rmSync } from 'fs';
+import { chmodSync, cpSync, mkdtempSync, openSync, readFileSync, rmSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
 import { E2E_ADMIN_DATA, E2E_ADMIN_ENV } from './env';
@@ -14,19 +14,24 @@ const PORT = 8081;
 const TOKEN = 'e2e-offline-token-not-a-secret-00000000';
 let proc: ChildProcess | undefined;
 let dir = '';
+// This cams's log (JSON lines), attached to a failed test (#280: a days
+// answer without `days` was seen twice locally, cause unknown).
+let logFile = '';
 
 test.describe.configure({ mode: 'serial' });
 test.beforeAll(async () => {
   dir = mkdtempSync(join(tmpdir(), 'cams-e2e-offline-'));
   cpSync(E2E_ADMIN_DATA, dir, { recursive: true });
   chmodSync(join(dir, 'admin'), 0o700); // cpSync makes folders with the default mode; cams refuses an open key folder
+  logFile = join(dir, 'cams.log');
+  const log = openSync(logFile, 'a');
   proc = spawn('node', ['dist/server/server.js'], {
     env: {
       ...process.env, ...E2E_ADMIN_ENV, PORT: String(PORT), CAMS_DATA_DIR: dir, CAMS_ADMIN_URL: 'http://127.0.0.1:9',
       CAMERA_CREDENTIALS_FILE: join(dir, 'credentials.json'), PREFS_FILE: join(dir, 'prefs.json'), PROXY_STATE_FILE: join(dir, 'proxy-state.json'),
       CACHE_DIR: join(dir, 'cache'), CAMS_LOGIN_TOKEN: TOKEN, CAMS_TOKEN_ACCOUNT: 'home', COOKIE_SECURE: 'false',
     },
-    stdio: 'ignore',
+    stdio: ['ignore', log, log],
   });
   await expect.poll(async () => fetch(`http://127.0.0.1:${PORT}/health`).then((r) => r.status).catch(() => 0), { timeout: 20_000 }).toBe(200);
 });
@@ -41,6 +46,16 @@ test.afterAll(async () => {
   rmSync(dir, { recursive: true, force: true });
 });
 
+test.afterEach(async ({}, info) => {
+  if (info.status !== info.expectedStatus && logFile) {
+    try {
+      await info.attach('cams.log', { body: readFileSync(logFile), contentType: 'text/plain' });
+    } catch {
+      // no log
+    }
+  }
+});
+
 test('cams-admin unreachable: token sign-in, the live still and the recordings work from the cache', async ({ page }) => {
   await page.goto(`http://localhost:${PORT}/`);
   const login = await page.evaluate(async (token) => (await fetch('/auth/token', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ token }) })).status, TOKEN);
@@ -51,8 +66,13 @@ test('cams-admin unreachable: token sign-in, the live still and the recordings w
   expect(cams.map((c) => c.name)).toEqual(['Den']);
   await expect.poll(async () => page.evaluate(async () => (await fetch('/api/cameras/cam1/still/latest.jpg')).status), { timeout: 15_000 }).toBe(200);
   const month = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Chicago', year: 'numeric', month: '2-digit' }).format(new Date());
-  const days = await page.evaluate(async (m) => (await (await fetch(`/api/cameras/cam1/days?month=${m}`)).json()) as { days: string[] }, month);
-  expect(days.days.length).toBeGreaterThan(0);
+  const days = await page.evaluate(async (m) => {
+    const r = await fetch(`/api/cameras/cam1/days?month=${m}`);
+    return { status: r.status, body: (await r.json()) as { days?: string[]; error?: string } };
+  }, month);
+  // The answer itself in the message, not just "undefined" (#280).
+  expect(days, JSON.stringify(days)).toMatchObject({ status: 200, body: { days: expect.any(Array) } });
+  expect(days.body.days!.length).toBeGreaterThan(0);
   await page.goto(`http://localhost:${PORT}/app/video`);
   await expect(page.getByTestId('camera-picker').locator('option')).toHaveText(['Den']);
 });

@@ -154,8 +154,9 @@ function heldAction(action: 'confirm' | 'keep') {
   return async (req: Request, res: Response) => {
     const items = (req.body as { items?: unknown } | undefined)?.items;
     if (!Array.isArray(items) || !items.length || items.length > 256
-      || !items.every((i) => i && typeof i === 'object' && typeof i.camsId === 'string' && /^[a-z0-9][a-z0-9-]{0,31}$/.test(i.camsId) && typeof i.digest === 'string' && /^[0-9a-f]{64}$/.test(i.digest))) {
-      return void res.status(400).json({ error: 'invalid', detail: 'items is a list of {camsId, digest}' });
+      || !items.every((i) => i && typeof i === 'object' && typeof i.camsId === 'string' && /^[a-z0-9][a-z0-9-]{0,31}$/.test(i.camsId) && typeof i.digest === 'string' && /^[0-9a-f]{64}$/.test(i.digest))
+      || new Set(items.map((i: { camsId: string }) => i.camsId)).size !== items.length) {
+      return void res.status(400).json({ error: 'invalid', detail: 'items is a list of {camsId, digest}, each camera once' });
     }
     const account = sessionAccount(req, res).id;
     const store = trustStore();
@@ -187,8 +188,9 @@ const PROXY_ID = /^prx_[0-9A-HJKMNP-TV-Z]{20}$/;
 accountsRouter.post('/api/admin/held/proxies/confirm', (req: Request, res: Response) => {
   const items = (req.body as { items?: unknown } | undefined)?.items;
   if (!Array.isArray(items) || !items.length || items.length > 64
-    || !items.every((i) => i && typeof i === 'object' && typeof i.proxyId === 'string' && PROXY_ID.test(i.proxyId) && typeof i.digest === 'string' && /^[0-9a-f]{64}$/.test(i.digest))) {
-    return void res.status(400).json({ error: 'invalid', detail: 'items is a list of 1 to 64 {proxyId, digest}' });
+    || !items.every((i) => i && typeof i === 'object' && typeof i.proxyId === 'string' && PROXY_ID.test(i.proxyId) && typeof i.digest === 'string' && /^[0-9a-f]{64}$/.test(i.digest))
+    || new Set(items.map((i: { proxyId: string }) => i.proxyId)).size !== items.length) {
+    return void res.status(400).json({ error: 'invalid', detail: 'items is a list of 1 to 64 {proxyId, digest}, each proxy once' });
   }
   const account = sessionAccount(req, res).id;
   const store = trustStore();

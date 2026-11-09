@@ -16,9 +16,13 @@ async function proxyStill(ctx: ToolCtx, camera: string): Promise<{ data: Buffer;
     await r.body?.cancel();
     return null;
   }
+  // Its time first: a stale still isn't downloaded (#297).
   const ts = Number(r.headers.get('x-still-time'));
-  const data = Buffer.from(await r.arrayBuffer());
-  return Number.isSafeInteger(ts) && Date.now() - ts <= FRESH_MS ? { data, ts } : null;
+  if (!Number.isSafeInteger(ts) || Date.now() - ts > FRESH_MS) {
+    await r.body?.cancel();
+    return null;
+  }
+  return { data: Buffer.from(await r.arrayBuffer()), ts };
 }
 
 export function registerSnapshotTool(server: McpServer, ctx: ToolCtx): void {
