@@ -1,5 +1,5 @@
 import { get, writable, type Readable } from 'svelte/store';
-import { guardBack } from './router';
+import { guardBack, stateAbove } from './router';
 
 // Fullscreen for the player box in every mode (#182, spec
 // 2026-10-04-fullscreen-recorded): element fullscreen where the browser has
@@ -95,7 +95,7 @@ function enterFill() {
   // Back leaves fill mode (it isn't the browser's fullscreen, so the browser
   // wouldn't): an entry with the same URL for Back to take, and the router's
   // guard keeps the position on screen (the entry below has an older one).
-  history.pushState({ ...(history.state ?? {}), cvFill: true }, '', location.href);
+  history.pushState(stateAbove({ ...(history.state ?? {}), cvFill: true }), '', location.href);
   stopGuard = guardBack(() => {
     leaveFill();
     return true;

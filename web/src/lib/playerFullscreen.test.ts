@@ -4,7 +4,7 @@ import { get } from 'svelte/store';
 import {
   canElementFullscreen, enterPlayerFullscreen, exitPlayerFullscreen, fsKey, hintFor, playerFs,
 } from './playerFullscreen';
-import { initRouter, replaceRoute } from './router';
+import { initRouter, navigate, replaceRoute } from './router';
 
 // Fullscreen for the player box (#182, spec 2026-10-04-fullscreen-recorded).
 const key = (k: string, mods: Partial<KeyboardEvent> = {}) => ({ key: k, shiftKey: false, altKey: false, ctrlKey: false, metaKey: false, ...mods });
@@ -112,6 +112,26 @@ describe('enterPlayerFullscreen', () => {
     window.dispatchEvent(new PopStateEvent('popstate'));
     expect(get(playerFs)).toBe('off');
     expect(location.search).toBe('?cam=cam1&at=5000'); // not jumped back
+  });
+
+  // Leaving the Video page while filling the screen (#186): our entry is no
+  // longer on top, so it stays; Back and Forward step over it.
+  it('fill mode: after leaving the page, Back and Forward step over the fill entry', async () => {
+    Object.defineProperty(document, 'fullscreenEnabled', { configurable: true, value: false });
+    const settled = async () => { for (let i = 0; i < 5; i++) await new Promise((r) => setTimeout(r, 20)); };
+    await enterPlayerFullscreen(document.createElement('div'));
+    replaceRoute('/app/video?cam=cam1&at=5000'); // playing moved on
+    navigate('/app/settings'); // the menu pushes another page
+    exitPlayerFullscreen(); // the Video page goes away
+    expect(get(playerFs)).toBe('off');
+    history.back();
+    await settled();
+    // One Back: the Video page at the moment last shown, on the entry below ours.
+    expect(location.pathname + location.search).toBe('/app/video?cam=cam1&at=5000');
+    expect(history.state?.cvFill).toBeFalsy();
+    history.forward();
+    await settled();
+    expect(location.pathname).toBe('/app/settings'); // one Forward, not two
   });
 
   it('gives the focus back to where it was once fullscreen ends (review of #185)', async () => {
