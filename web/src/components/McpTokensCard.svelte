@@ -21,6 +21,7 @@
   let fresh = $state<{ token: string; endpoint: string } | null>(null);
   let copied = $state(false);
   let confirming = $state<string | null>(null);
+  let revokeError = $state('');
 
   async function load() {
     try {
@@ -54,7 +55,10 @@
 
   async function revoke(id: string) {
     confirming = null;
-    await postJson(`/api/mcp-tokens/${encodeURIComponent(id)}/revoke`, {}).catch(() => null);
+    revokeError = '';
+    const r = await postJson(`/api/mcp-tokens/${encodeURIComponent(id)}/revoke`, {}).catch(() => null);
+    // A refusal or a network failure says so (#297): the row stays active.
+    if (!r || r.status >= 300) revokeError = "The token couldn't be revoked. Try again.";
     await load();
   }
 
@@ -127,6 +131,7 @@
     <button class="primary" type="submit" data-testid="mcp-create" disabled={creating || !name.trim()}>Create token</button>
   </form>
   {#if createError}<p class="err" role="alert" data-testid="mcp-create-error">{createError}</p>{/if}
+  {#if revokeError}<p class="err" role="alert" data-testid="mcp-revoke-error">{revokeError}</p>{/if}
 
   {#if admin && all}
     <div data-testid="mcp-all-tokens">

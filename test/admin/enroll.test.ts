@@ -39,6 +39,22 @@ describe('admin-enroll', () => {
     expect((await cli(['admin-enroll', '--url', fake.url, '--code', 'x'], '', { CAMS_DATA_DIR: dir })).code).not.toBe(0); // no --code option
   });
 
+  // #246: kubectl exec -it … admin-enroll waited silently for the code.
+  it('prompts for the code on stderr before reading it; piped stdin gets a hint too', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'cams-enroll-'));
+    const seen: string[] = [];
+    const stdin = Readable.from([`${fake.code}\n`]);
+    const io = { stdin, out: () => undefined, err: (l: string) => seen.push(`err:${l}`), prompt: (t: string) => seen.push(`prompt:${t}`), env: { CAMS_DATA_DIR: dir } };
+    expect(await runCli(['admin-enroll', '--url', fake.url], io)).toBe(0);
+    expect(seen.slice(0, 2)).toEqual(['prompt:Enrollment code (input hidden): ', 'err:reading the code from stdin…']);
+    // A terminal: the prompt only (the code is typed without echo).
+    const tty = Object.assign(Readable.from(['CAE1-0000-0000-0000-0000-0000\n']), { isTTY: true });
+    const seen2: string[] = [];
+    await runCli(['admin-enroll', '--url', fake.url], { ...io, stdin: tty, err: (l: string) => seen2.push(`err:${l}`), prompt: (t: string) => seen2.push(`prompt:${t}`) });
+    expect(seen2[0]).toBe('prompt:Enrollment code (input hidden): ');
+    expect(seen2).not.toContain('err:reading the code from stdin…');
+  });
+
   it('a refused code exits non-zero with the error code, and writes nothing', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'cams-enroll-'));
     const out = await cli(['admin-enroll', '--url', fake.url], 'CAC1-0000-0000-0000-0000-0000\n', { CAMS_DATA_DIR: dir });

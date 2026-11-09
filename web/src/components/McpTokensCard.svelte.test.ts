@@ -92,6 +92,19 @@ describe('McpTokensCard', () => {
     expect(calls.find((c) => c.url.endsWith('/revoke'))?.url).toBe(`/api/mcp-tokens/${mine.id}/revoke`);
   });
 
+  it('says so when a revoke fails (#297)', async () => {
+    const inner = fetch;
+    vi.stubGlobal('fetch', async (url: string, init: RequestInit = {}) =>
+      (init.method === 'POST' && url.endsWith('/revoke') ? new Response(JSON.stringify({ error: 'internal' }), { status: 500, headers: { 'Content-Type': 'application/json' } }) : inner(url, init)));
+    await render(false);
+    expect(q('mcp-revoke-error')).toBeNull();
+    q<HTMLButtonElement>('mcp-revoke')!.click();
+    flushSync();
+    q<HTMLButtonElement>('mcp-revoke-confirm')!.click();
+    await settle();
+    expect(q('mcp-revoke-error')!.textContent).toBe("The token couldn't be revoked. Try again.");
+  });
+
   it('warns on a plain http viewer', async () => {
     plainHttp = true;
     await render(false);

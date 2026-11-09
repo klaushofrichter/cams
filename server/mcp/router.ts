@@ -2,7 +2,7 @@
 // only, the server's own Origin or none, a live bearer token, the limits, then
 // a stateless Streamable HTTP transport with JSON answers. One audit line per
 // request; never the token.
-import { Router, type NextFunction, type Request, type Response } from 'express';
+import express, { Router, type NextFunction, type Request, type Response } from 'express';
 import { Readable } from 'stream';
 import { pipeline } from 'stream/promises';
 import type { ReadableStream as WebReadableStream } from 'stream/web';
@@ -17,13 +17,28 @@ import { buildServer, makeCtx } from './server';
 import { getMcpTokens } from './tokens';
 
 export const MAX_BODY = 64 * 1024;
+// The body is parsed here, after the bearer check: a chunked body (no
+// Content-Length) is held to MAX_BODY too, and bad JSON answers JSON.
+const parseJson = express.json({ limit: MAX_BODY });
+function readBody(req: Request, res: Response): Promise<'ok' | 'too_large' | 'invalid_json'> {
+  return new Promise((resolve) => {
+    parseJson(req, res, (err?: unknown) => {
+      if (!err) return resolve('ok');
+      resolve((err as { type?: string }).type === 'entity.too.large' ? 'too_large' : 'invalid_json');
+    });
+  });
+}
 export const originOf = (req: Request): string => `${req.protocol}://${req.get('host')}`;
 
 function tooMany(res: Response, retryAfter: number): void {
   res.set('Retry-After', String(retryAfter)).status(429).json({ error: 'rate_limited' });
 }
 
-// Shared with /mcp/media: off is a plain 404; a browser from another origin is refused.
+// Shared with /mcp/media: off is a plain 404; a browser page from another
+// origin is refused. The check compares with the request's own Host, so it
+// does not stop DNS rebinding (the rebound name is the Host); that is
+// harmless because /mcp carries no ambient credential: bearer tokens only,
+// never the session cookie (#297).
 export function mcpGate(req: Request, res: Response, next: NextFunction): void {
   if (!mcpEnabled()) return void res.status(404).json({ error: 'not found' });
   res.set('Cache-Control', 'no-store');
@@ -46,6 +61,9 @@ mcpRouter.all('/mcp', mcpGate, async (req: Request, res: Response) => {
     return void res.set('WWW-Authenticate', 'Bearer error="invalid_token"').status(401).json({ error: 'unauthorized' });
   }
   if (Number(req.get('content-length') ?? 0) > MAX_BODY) return void res.status(413).json({ error: 'too_large' });
+  const read = await readBody(req, res);
+  if (read === 'too_large') return void res.status(413).json({ error: 'too_large' });
+  if (read === 'invalid_json') return void res.status(400).json({ error: 'invalid_json' });
   // A JSON-RPC batch would run many calls for one count of the limits (and
   // one audit line); MCP dropped batches in 2025-06-18, so it is refused.
   if (Array.isArray(req.body)) return void res.status(400).json({ error: 'batch_not_supported' });

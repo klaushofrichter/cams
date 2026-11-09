@@ -10,7 +10,8 @@ import { writeKeyFile } from './admin/keyfile';
 import { appVersion } from './version';
 import { exportConfig } from './exportConfig';
 
-export interface CliIo { stdin: Readable; out: (line: string) => void; err: (line: string) => void; env: NodeJS.ProcessEnv }
+// prompt: text on stderr without a line end (the code is typed after it).
+export interface CliIo { stdin: Readable; out: (line: string) => void; err: (line: string) => void; env: NodeJS.ProcessEnv; prompt?: (text: string) => void }
 
 const USAGE = 'usage: cli.js admin-enroll --url <cams-admin URL>   (the enrollment code on stdin)';
 
@@ -68,6 +69,11 @@ async function adminEnroll(args: string[], io: CliIo): Promise<number> {
     io.err('set CAMS_DATA_DIR (or PREFS_FILE): the key file is written to <data>/admin/key.json');
     return 2;
   }
+  // Say what is awaited (#246: kubectl exec -it waited silently): on a TTY
+  // the code is typed unseen; piped, it is read from stdin.
+  const prompt = io.prompt ?? io.err;
+  prompt('Enrollment code (input hidden): ');
+  if (!(io.stdin as Readable & { isTTY?: boolean }).isTTY) io.err('reading the code from stdin…');
   let code: string;
   try {
     code = (await readLine(io.stdin)).trim();
@@ -109,7 +115,7 @@ export async function runCli(argv: string[], io: CliIo): Promise<number> {
 }
 
 if (require.main === module) {
-  void runCli(process.argv.slice(2), { stdin: process.stdin, out: (l) => console.log(l), err: (l) => console.error(l), env: process.env }).then((code) => {
+  void runCli(process.argv.slice(2), { stdin: process.stdin, out: (l) => console.log(l), err: (l) => console.error(l), env: process.env, prompt: (t) => void process.stderr.write(t) }).then((code) => {
     process.exitCode = code;
   });
 }
