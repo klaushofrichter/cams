@@ -368,6 +368,20 @@ describe('Video page: an offline camera comes back by itself', () => {
     expect(player()).not.toBeNull();
   });
 
+  it('hides the PTZ panel while the camera shows offline (#305)', async () => {
+    withStream();
+    listeners.get('proxy')!({ data: JSON.stringify({ cam: 'den', up: true }) });
+    const ptz = { move: true, zoom: true, focus: true, speed: true, positions: { max: 20 } };
+    cameras.set([{ id: 'den', name: 'Den', webUiUrl: null, proxy: true, proxyConfigured: true, capabilities: { schema: 1, ptz } }]);
+    await open('/app/video?cam=den');
+    expect(offline()).not.toBeNull();
+    expect(target!.querySelector('[data-testid="ptz-panel"]')).toBeNull();
+    online = true;
+    listeners.get('change')!({ data: JSON.stringify({ cam: 'den', type: 'camera-status', ts: null }) });
+    await settle();
+    expect(target!.querySelector('[data-testid="ptz-panel"]')).not.toBeNull();
+  });
+
   it('without proxy events: every 30 s while offline, and no more once online', async () => {
     vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] });
     await open('/app/video?cam=den');

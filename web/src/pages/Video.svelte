@@ -695,7 +695,8 @@
         <CameraCard cameraId={cam} {proxyInfo} />
         <VideoControls cameraId={cam} {mode} paused={!pageVisible || !tabVisible} />
         <!-- Pan/tilt/zoom (cam-proxy spec 2026-10-30-ptz-capabilities-design §8.2): live only, for a camera whose proxy reports ptz. -->
-        {#if mode === 'live' && camera?.capabilities?.ptz}
+        <!-- Not while the camera shows offline: moves would only answer "offline" (#305). -->
+        {#if mode === 'live' && camera?.capabilities?.ptz && !camOffline}
           <div transition:reveal><PtzPanel cameraId={cam} ptz={camera.capabilities.ptz} /></div>
         {/if}
         <EventList bind:this={eventList} cameraId={cam} events={visible} {filter} date={cursor.date} selectedId={glued ? null : playheadClip} {atPlayhead} pending={pendingToday}
