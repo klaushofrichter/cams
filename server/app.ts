@@ -51,7 +51,9 @@ export function createApp(): Express {
   app.set('trust proxy', TRUST_PROXY);
   // First, so rejected requests (401/403/429) are logged too.
   app.use(httpLogger);
-  app.use(express.json());
+  // /mcp parses its own body, after the bearer check and with its 64 KiB cap (#297).
+  const json = express.json();
+  app.use((req, res, next) => (req.path === '/mcp' ? next() : json(req, res, next)));
   app.use(cookieParser());
   app.use(healthRouter);
   app.use(authRouter);
