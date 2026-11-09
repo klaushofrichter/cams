@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import http, { type Server } from 'http';
 import type { AddressInfo } from 'net';
 import { createApp } from '../server/app';
-import { liveStreamCount } from '../server/routes/cameras';
+import { liveStreamCount, recheckLiveStreams } from '../server/routes/cameras';
 import { clearSecretBindings, setSecretGuard } from '../server/secretGuard';
 import { SESSION_COOKIE, signSession } from '../server/session';
 import { FAKE_TOKEN } from './proxy/fakeProxy';
@@ -59,6 +59,33 @@ const body = (res: http.IncomingMessage): Promise<string> => new Promise((r) => 
 });
 
 describe('live through the proxy', () => {
+  // Code review 2026-11-09 (and #243 M2): an open live stream ends when its
+  // sign-in no longer qualifies, at a new configuration or the periodic check.
+  it('ends an open stream once the viewer is no longer allowed in', async () => {
+    const res = await open();
+    expect(res.statusCode).toBe(200);
+    await read(res, 1000);
+    const ended = new Promise<void>((r) => res.on('close', () => r()));
+    const saved = process.env.ALLOWED_EMAILS;
+    process.env.ALLOWED_EMAILS = 'someone-else@example.org';
+    try {
+      recheckLiveStreams();
+      await Promise.race([ended, new Promise((_r, reject) => setTimeout(() => reject(new Error('still open')), 2000))]);
+      expect(liveStreamCount(k('den'))).toBe(0);
+    } finally {
+      process.env.ALLOWED_EMAILS = saved;
+    }
+  }, 15_000);
+
+  it('keeps it while the viewer still qualifies', async () => {
+    const res = await open();
+    await read(res, 1000);
+    recheckLiveStreams();
+    await new Promise((r) => setTimeout(r, 100));
+    expect(liveStreamCount(k('den'))).toBe(1);
+    res.destroy();
+  }, 15_000);
+
   it('relays fMP4 with the proxy\'s MIME type', async () => {
     const res = await open();
     expect(res.statusCode).toBe(200);

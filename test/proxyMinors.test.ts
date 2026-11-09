@@ -103,10 +103,15 @@ describe('cam-proxy minors (#38)', () => {
     await new Promise((r) => http.once('listening', r));
     const port = (http.address() as AddressInfo).port;
     const open: import('http').ClientRequest[] = [];
-    const statuses = await Promise.all(Array.from({ length: 21 }, () => new Promise<number>((resolve) => {
-      const req = require('http').get({ port, path: '/api/events/stream', headers: { Cookie: auth } }, (res: import('http').IncomingMessage) => resolve(res.statusCode ?? 0));
+    // Four people (each under their own cap of 6, code review 2026-11-09).
+    const saved = process.env.ALLOWED_EMAILS;
+    process.env.ALLOWED_EMAILS = [0, 1, 2, 3].map((i) => `u${i}@example.org`).join(',');
+    const cookies = [0, 1, 2, 3].map((i) => `${SESSION_COOKIE}=${signSession(`u${i}@example.org`)}`);
+    const statuses = await Promise.all(Array.from({ length: 21 }, (_, i) => new Promise<number>((resolve) => {
+      const req = require('http').get({ port, path: '/api/events/stream', headers: { Cookie: cookies[i % 4] } }, (res: import('http').IncomingMessage) => resolve(res.statusCode ?? 0));
       open.push(req);
     })));
+    process.env.ALLOWED_EMAILS = saved;
     expect(statuses.filter((s) => s === 200)).toHaveLength(20);
     expect(statuses.filter((s) => s === 503)).toHaveLength(1);
     expect(eventStreamCount()).toBe(20);
@@ -115,6 +120,42 @@ describe('cam-proxy minors (#38)', () => {
     expect(eventStreamCount()).toBe(0);
     for (const r of open) r.destroy();
     await new Promise<void>((r) => http.close(() => r()));
+  });
+
+  // Code review 2026-11-09, item 6: one person can't take all 20.
+  it('caps the event relay at 6 per person, within the 20', async () => {
+    const http = createApp().listen(0);
+    await new Promise((r) => http.once('listening', r));
+    const port = (http.address() as AddressInfo).port;
+    const open: import('http').ClientRequest[] = [];
+    const get = (cookie: string) => new Promise<number>((resolve) => {
+      const req = require('http').get({ port, path: '/api/events/stream', headers: { Cookie: cookie } }, (res: import('http').IncomingMessage) => resolve(res.statusCode ?? 0));
+      open.push(req);
+    });
+    const saved = process.env.ALLOWED_EMAILS;
+    process.env.ALLOWED_EMAILS = 'klaus@klaushofrichter.net,other@example.org';
+    try {
+      const statuses: number[] = [];
+      for (let i = 0; i < 7; i++) statuses.push(await get(auth)); // one after the other: the 7th is refused
+      expect(statuses).toEqual([200, 200, 200, 200, 200, 200, 503]);
+      expect(await get(`${SESSION_COOKIE}=${signSession('other@example.org')}`)).toBe(200); // someone else still gets one
+      open.shift()!.destroy(); // one of the six closes: a new one fits again
+      await sleep(50);
+      expect(await get(auth)).toBe(200);
+      expect(eventStreamCount()).toBe(7); // 6 of one person, 1 of the other
+      // EVENT_STREAMS_PER_PERSON changes the cap (e2e: one person in every worker).
+      process.env.EVENT_STREAMS_PER_PERSON = '8';
+      expect(await get(auth)).toBe(200);
+      expect(await get(auth)).toBe(200);
+      expect(await get(auth)).toBe(503);
+    } finally {
+      process.env.ALLOWED_EMAILS = saved;
+      delete process.env.EVENT_STREAMS_PER_PERSON;
+      closeEventStreams();
+      await sleep(50);
+      for (const r of open) r.destroy();
+      await new Promise<void>((r) => http.close(() => r()));
+    }
   });
 
   // 2026-09-29: a sprite the browser gave up on (a tile scrolled away, a page

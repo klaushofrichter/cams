@@ -30,6 +30,8 @@ test.beforeAll(async () => {
       ...process.env, ...E2E_ADMIN_ENV, PORT: String(PORT), CAMS_DATA_DIR: dir, CAMS_ADMIN_URL: 'http://127.0.0.1:9',
       CAMERA_CREDENTIALS_FILE: join(dir, 'credentials.json'), PREFS_FILE: join(dir, 'prefs.json'), PROXY_STATE_FILE: join(dir, 'proxy-state.json'),
       CACHE_DIR: join(dir, 'cache'), CAMS_LOGIN_TOKEN: TOKEN, CAMS_TOKEN_ACCOUNT: 'home', COOKIE_SECURE: 'false',
+      // The e2e env is silent; this cams logs, or its attached log is empty (#280).
+      LOG_LEVEL: 'debug',
     },
     stdio: ['ignore', log, log],
   });

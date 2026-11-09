@@ -12,6 +12,8 @@ import { entryOf, readProxyList, type ProxyCameraEntry } from '../proxy/cameraLi
 import { badRequest, knownCamera, outId, proxyFailed, proxyTarget } from './common';
 import { accountIdOf, type CamKey } from '../fleet';
 import { nodeBody } from '../httpBody';
+import { adminTokenWaiting } from '../configSource';
+import type { Principal } from '../middleware/requireAuth';
 
 // Stills and preview sprites from a camera's cam-proxy, for the Timeline
 // page (Plan 6). cams signs the browser in; the proxy's token is added here.
@@ -79,7 +81,12 @@ async function proxyInfo(id: CamKey): Promise<{ reachable: boolean; webUrl: stri
 
 proxyRouter.get('/api/cameras/:id/proxy/info', async (req: Request, res: Response) => {
   const c = configured(req, res);
-  if (c) res.json(await proxyInfo(c.id));
+  if (!c) return;
+  // Admins: cams's admin token for this proxy waits for the proxy to allow
+  // it (#249), so there's no signed-in link to it yet.
+  const admin = (res.locals.principal as Principal).role === 'admin';
+  const adminWaiting = admin && !c.proxy.adminToken && !!c.proxy.proxyId && adminTokenWaiting(accountIdOf(c.id), c.proxy.proxyId);
+  res.json({ ...(await proxyInfo(c.id)), ...(adminWaiting && { adminWaiting: true }) });
 });
 
 // A signed-in cams user opens the proxy's UI without its token (Klaus,
@@ -140,15 +147,35 @@ function spriteVersion(present: unknown): string {
   return n < present.length ? `?n=${n}` : '';
 }
 
+// A preview minute as the page uses it, field by field (nothing else the
+// proxy sends reaches the browser); null when its layout is unusable. Only
+// whole minutes: the value goes into URLs and CSS (issue #38).
+const posInt = (v: unknown): v is number => Number.isSafeInteger(v) && (v as number) > 0 && (v as number) <= 10_000;
+function previewOf(m: unknown, base: string) {
+  const r = (m ?? {}) as Record<string, unknown>;
+  if (!Number.isSafeInteger(r.minute) || (r.minute as number) < 0 || (r.minute as number) % 60_000 !== 0) return null;
+  if (!posInt(r.cols) || !posInt(r.rows) || !posInt(r.tileW) || !posInt(r.tileH)) return null;
+  if (typeof r.intervalS !== 'number' || !Number.isFinite(r.intervalS) || r.intervalS <= 0) return null;
+  if (!Array.isArray(r.present) || r.present.length > r.cols * r.rows) return null;
+  const present = r.present.map((x) => x === true);
+  return { minute: r.minute as number, cols: r.cols, rows: r.rows, tileW: r.tileW, tileH: r.tileH, intervalS: r.intervalS, present, url: `${base}/previews/${r.minute}.jpg${spriteVersion(present)}` };
+}
+
+// A proxy answer that isn't the list it should be: 502, like a failed call.
+function badList(res: Response, id: CamKey, what: string): void {
+  logger.warn({ cameraId: id, what }, 'proxy_bad_answer');
+  res.status(502).json({ error: 'proxy_unavailable' });
+}
+// Still times: whole, non-negative unix ms; null when the answer isn't a list.
+const stillTimes = (v: unknown): number[] | null => (Array.isArray(v) ? v.filter((t): t is number => Number.isSafeInteger(t) && t >= 0) : null);
+
 proxyRouter.get('/api/cameras/:id/previews', async (req: Request, res: Response) => {
   const p = proxied(req, res);
   const r = p && range(req, res);
   if (!p || !r) return;
   try {
-    const list = await p.client.json<{ minute: unknown; url: string; present?: unknown }[]>(proxyPath(p.id, '/previews'), { from: r[0], to: r[1] });
-    // Only whole minutes: the value goes into URLs and CSS (issue #38).
-    const ok = (Array.isArray(list) ? list : []).filter((m): m is { minute: number; url: string; present?: unknown } => Number.isSafeInteger(m?.minute) && (m.minute as number) % 60_000 === 0);
-    res.json(ok.map((m) => ({ ...m, url: `${p.base}/previews/${m.minute}.jpg${spriteVersion(m.present)}` })));
+    const list = await p.client.json<unknown>(proxyPath(p.id, '/previews'), { from: r[0], to: r[1] });
+    res.json((Array.isArray(list) ? list : []).map((m) => previewOf(m, p.base)).filter((m) => m !== null));
   } catch (err) {
     failed(err, p.id, res);
   }
@@ -159,7 +186,9 @@ proxyRouter.get('/api/cameras/:id/stills', async (req: Request, res: Response) =
   const r = p && range(req, res);
   if (!p || !r) return;
   try {
-    res.json(await p.client.json<number[]>(proxyPath(p.id, '/stills'), { from: r[0], to: r[1] }));
+    const times = stillTimes(await p.client.json<unknown>(proxyPath(p.id, '/stills'), { from: r[0], to: r[1] }));
+    if (!times) return badList(res, p.id, 'stills');
+    res.json(times);
   } catch (err) {
     failed(err, p.id, res);
   }
@@ -251,8 +280,9 @@ proxyRouter.get('/api/cameras/:id/still/latest.jpg', async (req: Request, res: R
   if (!p) return;
   try {
     const now = Date.now();
-    const stills = await p.client.json<number[]>(proxyPath(p.id, '/stills'), { from: now - 120_000, to: now });
-    const ts = stills.filter((t) => Number.isSafeInteger(t)).at(-1);
+    const stills = stillTimes(await p.client.json<unknown>(proxyPath(p.id, '/stills'), { from: now - 120_000, to: now }));
+    if (!stills) return badList(res, p.id, 'stills');
+    const ts = stills.at(-1);
     if (ts === undefined) return void res.status(404).json({ error: 'not_found' });
     await relayImage(res, p.client, proxyPath(p.id, `/stills/${ts}.jpg`), () => ({ 'Cache-Control': 'no-store', 'X-Still-Time': String(ts) }));
   } catch (err) {

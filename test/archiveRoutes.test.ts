@@ -268,7 +268,7 @@ describe('one item (contract §4)', () => {
     });
     expect(full.status).toBe(200);
     expect(Buffer.compare(full.body as Buffer, MP4)).toBe(0);
-    expect(full.headers).toMatchObject({ 'content-type': 'video/mp4', 'accept-ranges': 'bytes', 'content-length': String(MP4.length), 'cache-control': 'private, max-age=604800, immutable' });
+    expect(full.headers).toMatchObject({ 'content-type': 'video/mp4', 'accept-ranges': 'bytes', 'content-length': String(MP4.length), 'cache-control': 'no-store' }); // camera media leaves no copy in the browser cache (code review 2026-11-09)
     const part = await get(`/api/archive/den/items/${it0.id}/video`).set('Range', 'bytes=4-11');
     expect(part.status).toBe(206);
     expect(part.headers['content-range']).toBe(`bytes 4-11/${MP4.length}`);
@@ -286,6 +286,7 @@ describe('one item (contract §4)', () => {
     const it0 = a.archive.add('cam1', { recordedFrom: 999_000, recordedTo: 1_010_000 });
     const t = await get(`/api/archive/den/items/${it0.id}/thumbnail`);
     expect(t.headers['content-type']).toBe('image/jpeg');
+    expect(t.headers['cache-control']).toBe('no-store');
     expect(Buffer.compare(t.body as Buffer, FAKE_JPEG)).toBe(0);
     const none = a.archive.add('cam1', { thumb: null });
     expect((await get(`/api/archive/den/items/${none.id}/thumbnail`)).status).toBe(404);
@@ -394,9 +395,9 @@ describe('ZIP (contract §5)', () => {
 describe('parseItem media URLs', () => {
   const raw = { id: 3, cam: 'cam1', createdAt: 1791376468161, expiresAt: null, recordedFrom: 1, recordedTo: 2, bytes: 1, durationS: 1, retentionDays: null, name: 'x', thumbnail: { from: 'still', at: 1 } };
   const proxy = { via: 'cam1', toCams: new Map<string, string>() };
-  // The video and thumbnail are cached as immutable; an id names another item
-  // after a camera move (the target numbers anew) or a reused id, so the URL
-  // carries the item's creation time and a different item gets a different URL.
+  // An id names another item after a camera move (the target numbers anew) or
+  // a reused id, so the URL carries the item's creation time and a different
+  // item gets a different URL (a player or <img> never mixes the two up).
   it('carries the creation time on the cached video and thumbnail URLs', () => {
     const it = parseItem(raw, proxy)!;
     expect(it.urls.video).toBe('/api/archive/cam1/items/3/video?v=1791376468161');

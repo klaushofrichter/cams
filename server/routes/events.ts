@@ -4,6 +4,7 @@ import { proxyHub, proxyStates } from '../proxy/stream';
 import { capabilityEvents, nameEvents } from '../cameraRegistry';
 import { accountIdOf, camsIdOf, fleetEvents, type CamKey } from '../fleet';
 import { sessionAccount } from './common';
+import { authState, type Principal } from '../middleware/requireAuth';
 import '../proxy/names'; // keeps the cameras' names from their cam-proxies
 import '../proxy/stillChecks'; // drops a camera's cached checks on a new one
 
@@ -12,8 +13,16 @@ import '../proxy/stillChecks'; // drops a camera's cached checks on a new one
 export const eventsRouter = Router();
 
 const MAX_CLIENTS = 20;
+// Per person (signed-in email; a viewer token's own), so one can't take all
+// 20: a few tabs and devices each (code review 2026-11-09). EVENT_STREAMS_PER_PERSON
+// changes it (e2e: every worker's browser is the same person).
+const perPersonMax = (): number => {
+  const n = Number(process.env.EVENT_STREAMS_PER_PERSON);
+  return Number.isSafeInteger(n) && n > 0 ? n : 6;
+};
 const PING_MS = 25_000;
 let clients = 0;
+const perPerson = new Map<string, number>();
 const open = new Set<Response>();
 
 // On shutdown (SIGTERM): end every relay, so the old revision isn't held
@@ -44,11 +53,13 @@ proxyHub.on('message', (m: ProxyMessage) => {
 });
 
 eventsRouter.get('/api/events/stream', (req: Request, res: Response) => {
-  if (clients >= MAX_CLIENTS) {
+  const person = (res.locals.principal as { email: string }).email;
+  if (clients >= MAX_CLIENTS || (perPerson.get(person) ?? 0) >= perPersonMax()) {
     res.status(503).json({ error: 'too_many_streams' });
     return;
   }
   clients++;
+  perPerson.set(person, (perPerson.get(person) ?? 0) + 1);
   open.add(res);
   res.status(200).set({ 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-store', 'X-Accel-Buffering': 'no' });
   res.flushHeaders();
@@ -57,6 +68,16 @@ eventsRouter.get('/api/events/stream', (req: Request, res: Response) => {
   // Only the session's account, and only camsIds: nothing crosses accounts.
   const account = sessionAccount(req, res).id;
   const mine = (cam: CamKey) => accountIdOf(cam) === account;
+  // The session is checked for as long as the stream is open, not only at
+  // connect: a new configuration (a member removed, a viewer token revoked)
+  // ends it at once, anything else (expiry) at the next keep-alive.
+  const who = (res.locals.principal as Principal).email;
+  const stillSignedIn = (): boolean => {
+    const s = authState(req);
+    if (s.kind === 'ok' && s.principal.email === who && s.principal.account.id === account) return true;
+    res.end();
+    return false;
+  };
   for (const s of proxyStates(account)) send('proxy', { cam: camsIdOf(s.cam), up: s.up });
   const onState = (s: { cam: CamKey; up: boolean }) => {
     if (mine(s.cam)) send('proxy', { cam: camsIdOf(s.cam), up: s.up });
@@ -92,6 +113,7 @@ eventsRouter.get('/api/events/stream', (req: Request, res: Response) => {
   };
   // A new configuration for this account (cams-admin): the same.
   const onApplied = (e: { accountIds: string[] }) => {
+    if (!stillSignedIn()) return;
     if (e.accountIds.includes(account)) send('cameras', {});
   };
   // A camera's shown name changed (renamed here, in the Reolink app or on the
@@ -109,12 +131,17 @@ eventsRouter.get('/api/events/stream', (req: Request, res: Response) => {
   proxyHub.on('state', onState);
   proxyHub.on('message', onMessage);
   proxyHub.on('cameras', onCameras);
-  const ping = setInterval(() => res.write(': ping\n\n'), PING_MS);
+  const ping = setInterval(() => {
+    if (stillSignedIn()) res.write(': ping\n\n');
+  }, PING_MS);
   let done = false;
   const finish = () => {
     if (done) return;
     done = true;
     clients--;
+    const n = (perPerson.get(person) ?? 1) - 1;
+    if (n > 0) perPerson.set(person, n);
+    else perPerson.delete(person);
     open.delete(res);
     clearInterval(ping);
     proxyHub.off('state', onState);

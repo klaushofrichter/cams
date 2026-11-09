@@ -12,7 +12,7 @@ import { writeKeyFile } from '../server/admin/keyfile';
 import type { Snapshot } from '../server/admin/snapshot';
 import { createApp } from '../server/app';
 import { cameraHost, getCamera, setCameras } from '../server/cameraRegistry';
-import { pullNow, startConfig, stopConfig } from '../server/configSource';
+import { pullNow, reportSoon, startConfig, stopConfig } from '../server/configSource';
 import { camKey, setFileAccountId, DEFAULT_FILE_ACCOUNT_ID } from '../server/fleet';
 import { loadProxyState } from '../server/proxyState';
 import { ALPHA, BETA, cookieFor } from './helpers/fleet';
@@ -222,9 +222,55 @@ describe('held changes', () => {
 
   // #266: a duplicate item (the same camera or proxy twice) is refused too.
   it('a bad proxy confirm body → 400 (an empty list too)', async () => {
-    for (const body of [{}, { items: [] }, { items: 'x' }, { items: [{ proxyId: PRX_C }] }, { items: [{ proxyId: 'prx_short', digest: 'a'.repeat(64) }] }, { items: [{ proxyId: PRX_C, digest: 'A'.repeat(64) }] }, { items: Array(65).fill({ proxyId: PRX_C, digest: 'a'.repeat(64) }) }, { items: Array(2).fill({ proxyId: PRX_C, digest: 'a'.repeat(64) }) }]) {
+    for (const body of [{}, { items: [] }, { items: 'x' }, { items: [{ proxyId: PRX_C }] }, { items: [{ proxyId: 'proxy_x', digest: 'a'.repeat(64) }] }, { items: [{ proxyId: `prx_${'x'.repeat(61)}`, digest: 'a'.repeat(64) }] }, { items: [{ proxyId: PRX_C, digest: 'A'.repeat(64) }] }, { items: Array(65).fill({ proxyId: PRX_C, digest: 'a'.repeat(64) }) }, { items: Array(2).fill({ proxyId: PRX_C, digest: 'a'.repeat(64) }) }]) {
       expect((await request(createApp()).post('/api/admin/held/proxies/confirm').set('Cookie', ADMIN).set(ORIGIN).send(body)).status).toBe(400);
     }
+  });
+
+  // #266: Ignore on the proxy banner (spec §9.2: Confirm / Ignore).
+  const ignoreProxies = (items: unknown, cookie = ADMIN) => request(createApp()).post('/api/admin/held/proxies/ignore').set('Cookie', cookie).set(ORIGIN).send({ items });
+  it('Ignore hides that offer from the banner and the count; the proxy stays untrusted and held for cams-admin', async () => {
+    fake.setSnapshot(withShed('r:00000000000000d1'));
+    await pullNow();
+    const [p] = await heldProxies();
+    expect((await ignoreProxies([{ proxyId: p.proxyId, digest: p.digest }], VIEWER)).status).toBe(403);
+    const r = await ignoreProxies([{ proxyId: p.proxyId, digest: p.digest }]);
+    expect([r.status, r.body]).toEqual([200, { ignored: [PRX_C] }]);
+    expect(await heldProxies()).toEqual([]);
+    expect((await request(createApp()).get('/api/me').set('Cookie', ADMIN)).body.held).toBe(0);
+    // A move to it is still held (not trusted).
+    fake.setSnapshot(twoAccountsSnapshot({ alphaHost: '192.0.2.5', revision: 'r:00000000000000d2', alphaMoreProxies: [SHED], alphaCameras: [
+      snapCamera({ id: 'cam_AAAAAAAAAAAAAAAAAAA1', name: 'Alpha cam', proxyId: PRX_C, proxyCameraId: 'cam1', host: '192.0.2.5', tlsServername: 'cam1.shed.internal', moveId: MOVE }),
+    ] }));
+    await pullNow();
+    expect((await heldList()).map((h) => h.camsId)).toEqual(['cam1']);
+    // Reported as held still.
+    reportSoon(true);
+    await expect.poll(() => fake.reports.at(-1)?.heldProxies).toEqual([{ accountId: ALPHA, proxyId: PRX_C, fields: ['proxyUrl', 'caFingerprints', 'proxyTlsServername'] }]);
+    // Another offer (a new pin) shows again.
+    fake.setSnapshot(withShed('r:00000000000000d3', { caFingerprints: ['cd'.repeat(32)] }));
+    await pullNow();
+    expect((await heldProxies()).map((x) => x.proxyId)).toEqual([PRX_C]);
+  });
+
+  it('Ignore with a stale digest is 409; a bad body 400', async () => {
+    fake.setSnapshot(withShed('r:00000000000000d4'));
+    await pullNow();
+    const [shown] = await heldProxies();
+    fake.setSnapshot(withShed('r:00000000000000d5', { caFingerprints: ['cd'.repeat(32)] }));
+    await pullNow();
+    expect((await ignoreProxies([{ proxyId: shown.proxyId, digest: shown.digest }])).status).toBe(409);
+    expect((await ignoreProxies([])).status).toBe(400);
+  });
+
+  // #266 T5: a proxy id the snapshot accepts but not of the contract's form
+  // (prx_ + 20 Crockford, e.g. a hand-made livestack id) can be confirmed too.
+  it('confirms a proxy whose id is not of the contract\'s form, as the snapshot accepts it', async () => {
+    fake.setSnapshot(withShed('r:00000000000000d6', { id: 'prx_shed-handmade' }));
+    await pullNow();
+    const [p] = await heldProxies();
+    expect(p.proxyId).toBe('prx_shed-handmade');
+    expect((await confirmProxies([{ proxyId: p.proxyId, digest: p.digest }])).body).toEqual({ confirmed: ['prx_shed-handmade'] });
   });
 
   it('report carries heldProxies (ids and field names only)', async () => {

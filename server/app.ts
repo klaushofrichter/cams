@@ -4,7 +4,7 @@ import { STATUS_CODES } from 'http';
 import { httpLogger, logger } from './logger';
 import { TRUST_PROXY } from './trustProxy';
 import { healthRouter } from './routes/health';
-import { authRouter } from './routes/auth';
+import { authRouter, VIEWER_TOKEN_PATHS } from './routes/auth';
 import { apiRouter } from './routes/api';
 import { mcpRouter } from './mcp/router';
 import { pagesRouter, webDir } from './routes/pages';
@@ -51,9 +51,12 @@ export function createApp(): Express {
   app.set('trust proxy', TRUST_PROXY);
   // First, so rejected requests (401/403/429) are logged too.
   app.use(httpLogger);
-  // /mcp parses its own body, after the bearer check and with its 64 KiB cap (#297).
+  // /mcp parses its own body, after the bearer check and with its 64 KiB cap
+  // (#297); the viewer-token sign-in too, with its 4 KiB cap (server/routes/auth.ts).
   const json = express.json();
-  app.use((req, res, next) => (req.path === '/mcp' ? next() : json(req, res, next)));
+  const ownBody = new Set(['/mcp', ...VIEWER_TOKEN_PATHS]);
+  // As routing matches them: any case, a trailing slash.
+  app.use((req, res, next) => (ownBody.has(req.path.toLowerCase().replace(/(.)\/+$/, '$1')) ? next() : json(req, res, next)));
   app.use(cookieParser());
   app.use(healthRouter);
   app.use(authRouter);

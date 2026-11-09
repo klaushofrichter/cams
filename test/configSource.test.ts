@@ -11,7 +11,7 @@ import { writeCache } from '../server/admin/cache';
 import { enroll } from '../server/admin/enroll';
 import { writeKeyFile } from '../server/admin/keyfile';
 import type { Snapshot } from '../server/admin/snapshot';
-import { configStatus, nextDelayMs, pullNow, pullSoon, startConfig, stopConfig, tokensSettled } from '../server/configSource';
+import { adminTokenWaiting, configStatus, nextDelayMs, pullNow, pullSoon, startConfig, stopConfig, tokensSettled } from '../server/configSource';
 import { createApp } from '../server/app';
 import { listCameras, setCameras } from '../server/cameraRegistry';
 import { fileAccount, fleetAccounts, setFileAccountId, DEFAULT_FILE_ACCOUNT_ID } from '../server/fleet';
@@ -369,6 +369,21 @@ describe('token registration retries', () => {
     // Refused at least once, then both proxies (a slow runner may fit in one more refused try).
     expect(fake.registered.filter((r) => r.kind === 'admin').length).toBeGreaterThanOrEqual(3);
     await expect.poll(() => configStatus().problems.map((p) => p.code)).not.toContain('admin_token_not_allowed');
+  });
+
+  // #249: Settings says when cams's admin token waits for a proxy.
+  it('knows which proxy\'s admin token waits for the proxy to allow it', async () => {
+    await start();
+    fake.tokenAnswer = { status: 409, body: { error: 'not_allowed_on_proxy' }, kind: 'admin' };
+    await startConfig({ ...RETRY, adminTokenRetryMs: [3_600_000] });
+    await expect.poll(() => configStatus().problems.map((p) => p.code), { timeout: 5000 }).toContain('admin_token_not_allowed');
+    const refused = configStatus().problems.filter((p) => p.code === 'admin_token_not_allowed');
+    expect(refused).toHaveLength(1);
+    const proxyId = refused[0].detail!.replace('proxy ', '');
+    expect(adminTokenWaiting(refused[0].accountId!, proxyId)).toBe(true);
+    const otherAcc = refused[0].accountId === ALPHA ? BETA : ALPHA;
+    expect(adminTokenWaiting(otherAcc, proxyId)).toBe(false);
+    expect(adminTokenWaiting(refused[0].accountId!, 'prx_XXXXXXXXXXXXXXXXXXXX')).toBe(false);
   });
 });
 

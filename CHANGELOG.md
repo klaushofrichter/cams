@@ -8,13 +8,26 @@ published as [GitHub releases](https://github.com/klaushofrichter/cams/releases)
 
 ## [Unreleased]
 
-### Fixed
-- Video page: after leaving the page while the player fills the screen (phones without fullscreen), one Back now returns to the recording at the moment last shown; it used to take an extra Back.
-- cams-admin mode: when a cam-proxy refuses cams's admin token because its allow-list doesn't include admin tokens yet, cams tries again after 5 minutes, then 15, 30 and every hour (it used to wait a day or a restart), so the proxy sign-in link and camera renames work soon after the proxy allows it.
-- Video page: a camera that was offline (for example after a power cut) returns to live video by itself once it is back: at once when its cam-proxy reports it, otherwise within 30 seconds. It used to need a reload or Retry.
-- Video page: the pan/tilt/zoom panel is hidden while the camera shows offline (its moves could only fail then), and comes back with the camera.
-- Settings → Assistant access (MCP): a token that couldn't be revoked now says so instead of failing silently.
-- `admin-enroll` prompts for the enrollment code ("Enrollment code (input hidden):") instead of waiting silently, and says when it reads the code from piped input.
-- MCP: a request body over 64 KiB is refused also when it is sent without a length, and only after the token is checked; malformed JSON gets a JSON error.
-- cams-admin mode, camera moves: a move is accepted without Confirm only when the camera's proxy actually changes; a change on the same proxy (for example only its TLS name, while cams-admin still lists a finished move) waits for Confirm like any other change. Confirm requests that list a camera or proxy twice are refused.
 
+### Fixed
+
+- MCP: search_recordings answers within about 40 seconds, with what it found so far marked as cut short.
+- MCP: pictures read at most 32 MB from cams before scaling, and their ffmpeg runs share the thumbnails' limit of two at a time.
+### Security
+
+- An open live-update connection and an open live video now end when their sign-in ends: right away when the person is removed from the account or their viewer token is revoked, otherwise within a minute (an expired session, an address taken off the allow-list).
+- Archive videos and thumbnails are no longer kept in the browser cache, like every other camera image.
+- The viewer-token sign-in reads at most 4 KiB of a request, also when the browser doesn't say the size up front.
+- A clip being made can be cancelled only by the person who started it or an account admin; everyone in the account can still follow it and download the result.
+- One person can keep at most 6 live-update connections open (tabs and devices), so they can't use up the 20 the server allows.
+- A malformed answer from a cam-proxy (stills, previews, a started clip) now shows as "proxy unavailable" instead of a server error, and a started clip is no longer lost then.
+- A clip request with a missing or wrong setting is refused with a clear reason before anything is asked of the cam-proxy.
+### Added
+
+- Settings says when a camera's cam-proxy doesn't allow cams's admin token yet; cams keeps asking on its own.
+- The new-proxy banner has Ignore next to Confirm: the proxy stays untrusted (no camera moves to it) and that offer isn't shown again.
+
+### Fixed
+
+- A PTZ position missing on the camera keeps its note under its name, so the list still shows five rows.
+- A proxy whose id isn't in cams-admin's usual form can be confirmed from the banner.

@@ -8,6 +8,7 @@ import type { Principal } from '../middleware/requireAuth';
 import { appVersion } from '../version';
 import { callApi, type InternalBase } from './internal';
 import { fail, failureOf, ToolFailure } from './result';
+import { MAX_INPUT } from './images';
 import type { StoredToken } from './tokens';
 import { registerAnalyticsTool } from './tools/analytics';
 import { registerArchiveTools } from './tools/archive';
@@ -47,10 +48,26 @@ export function makeCtx(principal: Principal, token: StoredToken, base: Internal
       if (!r.ok) throw await failureOf(r);
       return (await r.json()) as T;
     },
+    // At most the pictures' input limit (32 MB), by Content-Length and while
+    // reading (#297): a larger answer is never held in memory.
     bytes: async (path: string, init?: ApiInit) => {
       const r = await api(path, init);
       if (!r.ok) throw await failureOf(r);
-      return { data: Buffer.from(await r.arrayBuffer()), headers: r.headers };
+      if (Number(r.headers.get('content-length') ?? 0) > MAX_INPUT) {
+        await r.body?.cancel();
+        throw new ToolFailure('image_too_large');
+      }
+      const chunks: Buffer[] = [];
+      let size = 0;
+      for await (const chunk of (r.body ?? []) as AsyncIterable<Uint8Array>) {
+        size += chunk.length;
+        if (size > MAX_INPUT) {
+          await r.body?.cancel().catch(() => undefined);
+          throw new ToolFailure('image_too_large');
+        }
+        chunks.push(Buffer.from(chunk));
+      }
+      return { data: Buffer.concat(chunks), headers: r.headers };
     },
   };
 }

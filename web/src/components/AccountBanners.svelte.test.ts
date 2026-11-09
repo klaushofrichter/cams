@@ -185,7 +185,7 @@ describe('HeldBanner: proxies (camera move)', () => {
     expect(item.textContent!.replace(/\s+/g, ' ')).toContain('New proxy Shed at https://192.0.2.20:8443 (certificate 0123abcd…)');
     const all = [...target!.querySelectorAll('[data-testid^="held-"]')].map((e) => e.getAttribute('data-testid'));
     expect(all.indexOf(`held-proxy-${PRX}`)).toBeLessThan(all.indexOf('held-cam1'));
-    expect(q('held-proxy-help')!.textContent).toBe('Confirm a proxy once; cameras can then move to it without asking again.');
+    expect(q('held-proxy-help')!.textContent).toBe('Confirm a proxy once; cameras can then move to it without asking again. Ignore hides it here; no camera moves to it.');
     expect(q(`held-proxy-confirm-${PRX}`)!.textContent).toBe('Confirm');
     answers['GET /api/admin/held'] = { status: 200, body: { items: [], proxies: [] } };
     q(`held-proxy-confirm-${PRX}`)!.click();
@@ -194,7 +194,7 @@ describe('HeldBanner: proxies (camera move)', () => {
     expect(JSON.parse(String(sent.init!.body))).toEqual({ items: [{ proxyId: PRX, digest: '3'.repeat(64) }] });
     expect(q('held-banner')).toBeNull();
   });
-  it('a changed proxy shows "Proxy <name>: <label> <from> → <to>", Confirm only', async () => {
+  it('a changed proxy shows "Proxy <name>: <label> <from> → <to>", Confirm or Ignore (no Keep old)', async () => {
     me.set({ ...BASE, held: 1 });
     answers['GET /api/admin/held'] = { status: 200, body: { items: [], proxies: [{ proxyId: PRX, name: 'Shed', fields: ['proxyUrl'], from: { proxyUrl: 'https://192.0.2.20:8443' }, to: { proxyUrl: 'https://192.0.2.21:8443' }, digest: '4'.repeat(64) }] } };
     answers['POST /api/admin/held/proxies/confirm'] = { status: 409, body: { error: 'offer_changed', changed: [PRX] } };
@@ -205,6 +205,24 @@ describe('HeldBanner: proxies (camera move)', () => {
     q(`held-proxy-confirm-${PRX}`)!.click();
     await settle();
     expect(q('held-changed')).not.toBeNull();
+  });
+});
+
+describe('HeldBanner: Ignore a proxy (#266)', () => {
+  const PRX = 'prx_CCCCCCCCCCCCCCCCCCCC';
+  it('posts {proxyId, digest} to ignore, and the item goes', async () => {
+    me.set({ ...BASE, held: 1 });
+    answers['GET /api/admin/held'] = { status: 200, body: { items: [], proxies: [{ proxyId: PRX, name: 'Shed', fields: ['proxyUrl'], from: null, to: { proxyUrl: 'https://192.0.2.20:8443' }, digest: '5'.repeat(64) }] } };
+    answers['POST /api/admin/held/proxies/ignore'] = { status: 200, body: { ignored: [PRX] } };
+    render(HeldBanner);
+    await settle();
+    expect(q(`held-proxy-ignore-${PRX}`)!.textContent).toBe('Ignore');
+    answers['GET /api/admin/held'] = { status: 200, body: { items: [], proxies: [] } };
+    q(`held-proxy-ignore-${PRX}`)!.click();
+    await settle();
+    const sent = calls.find((c) => c.url === '/api/admin/held/proxies/ignore')!;
+    expect(JSON.parse(String(sent.init!.body))).toEqual({ items: [{ proxyId: PRX, digest: '5'.repeat(64) }] });
+    expect(q('held-banner')).toBeNull();
   });
 });
 

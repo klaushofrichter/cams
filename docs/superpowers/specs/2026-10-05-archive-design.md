@@ -113,7 +113,7 @@ only; no proxy URL or token in any answer):
   ZIP (`Content-Length`, the proxy's `Content-Disposition` when it matches
   the contract's form) are piped as they arrive, never buffered; a viewer
   who leaves cancels the upstream request. Video and thumbnails are
-  `private, max-age=604800, immutable` (ids are never reused).
+  `no-store` (since 2026-11-09; ruling 20).
 - **Who**: `X-On-Behalf-Of: <the signed-in email>` on every write (create,
   PATCH, DELETE, bulk delete, job cancel).
 - **Limits**: per signed-in user 10 new clips and 4 ZIPs a minute
@@ -231,3 +231,5 @@ contract.
 20. Ruling: video and thumbnails are relayed `private, max-age=604800,
     immutable`, not `/api`'s no-store — ids are never reused (contract §0) —
     cost: none.
+    Superseded 2026-11-09 (code review): both are `no-store` like the rest
+    of `/api`, so no camera media stays in the browser cache after logout.
