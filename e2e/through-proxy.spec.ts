@@ -105,7 +105,14 @@ test('an offline camera returns to live when its proxy reports it online again',
   await openMill(page);
   await expect(page.getByTestId('offline-reason')).toHaveText('The camera could not be reached.');
   await page.request.post(`${HOOKS}/camera-status`, { data: { cam: 'mill', status: null } });
-  await page.request.post(`${HOOKS}/push`, { data: { cam: 'mill', type: 'camera-status', data: { online: true, reason: null } } });
+  // The message reaches the page only once cams's stream from the proxy and
+  // the page's event stream are both open (later under load): sent again
+  // until the page reads the status, which then is online.
+  await expect(async () => {
+    const read = page.waitForRequest(/\/api\/cameras\/mill\/status/, { timeout: 2000 });
+    await page.request.post(`${HOOKS}/push`, { data: { cam: 'mill', type: 'camera-status', data: { online: true, reason: null } } });
+    await read;
+  }).toPass({ timeout: 20_000 });
   await expect(page.getByTestId('offline-banner')).toBeHidden({ timeout: 10_000 });
   await expect(page.getByTestId('live-video')).toBeVisible();
 });
