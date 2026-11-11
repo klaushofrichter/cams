@@ -16,6 +16,13 @@ const MEDIA_MAX = fromEnv('RATE_LIMIT_MEDIA_MAX', 3000);
 // cam-proxy stills and sprites: small, served from the proxy's disk, and
 // asked for in bursts (a day of Timeline sprites, stills while scrubbing).
 const IMAGE_MAX = fromEnv('RATE_LIMIT_IMAGE_MAX', 20000);
+// The web bundle, the landing page's screenshots and the icons: what a page
+// load fetches besides the page itself. Their own, much higher budget
+// (createStaticRateLimit): a page view is about 10 of them, and a visitor
+// paging through the site, or the public-pages suite's four browsers plus
+// Lighthouse on one address, spent the pages' 600 in minutes and got 429s
+// for the stylesheet (kube-setup's "public web pages" baseline, 2026-11-11).
+const STATIC_MAX = fromEnv('RATE_LIMIT_STATIC_MAX', 20000);
 // PTZ moves, zoom, focus and stop: holding the pad sends 4 a second, which
 // would spend the general budget in 2.5 minutes. 5 a second over the window.
 export const PTZ_MAX = fromEnv('RATE_LIMIT_PTZ_MAX', 1500);
@@ -110,6 +117,27 @@ export function createMediaRateLimit(): RateLimitRequestHandler {
 // cam-proxy stills and sprites only.
 export function createImageRateLimit(): RateLimitRequestHandler {
   return build(IMAGE_MAX, { skip: (req) => isVerifiedInternal(req) || !IMAGE_PATH.test(req.path) });
+}
+
+// The pages router's static files (server/routes/pages.ts): matched against
+// req.path at the root. /assets/<hashed file>, /landing/<name>.webp and the
+// public files at the web root by name.
+export const STATIC_ROOT_FILES: ReadonlySet<string> = new Set(['favicon.svg', 'favicon-32.png', 'apple-touch-icon.png', 'icon-512.png', 'site.webmanifest', 'llms.txt']);
+export function isStaticPath(path: string): boolean {
+  if (path.startsWith('/assets/') || /^\/landing\/[^/]+$/.test(path)) return true;
+  return /^\/[^/]+$/.test(path) && STATIC_ROOT_FILES.has(path.slice(1));
+}
+
+// The pages themselves (/, /signin, /token, /app/...): the API's budget, with
+// the static files left out of it.
+export function createPagesRateLimit(): RateLimitRequestHandler {
+  return build(API_MAX, { skip: (req) => isStaticPath(req.path) });
+}
+
+// The static files only, with their own budget: never counted against the
+// pages, still capped (CodeQL js/missing-rate-limiting, and a flood).
+export function createStaticRateLimit(): RateLimitRequestHandler {
+  return build(STATIC_MAX, { skip: (req) => !isStaticPath(req.path) });
 }
 
 // Still checks (cams #179): each may cost a Vision call. Per signed-in user,
