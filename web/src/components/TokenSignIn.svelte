@@ -170,6 +170,8 @@
     background: var(--surface);
     color: var(--text);
     font: inherit;
+    /* 16 px or more: iOS zooms the page into a smaller field when it takes the focus. */
+    font-size: 16px;
   }
   input:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
   .primary {

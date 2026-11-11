@@ -44,6 +44,8 @@
 <style>
   .nt-hint { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
   .page {
+    /* The accent at 4.5:1 for text and buttons in both themes (theme.css). */
+    --accent: var(--accent-text);
     min-height: 100vh;
     display: flex;
     flex-direction: column;

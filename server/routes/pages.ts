@@ -1,6 +1,6 @@
 import express, { Router, Request, Response } from 'express';
 import { join, resolve } from 'path';
-import { readdirSync } from 'fs';
+import { readdirSync, readFileSync } from 'fs';
 import { readFile } from 'fs/promises';
 import { authState, currentUser, noStore, rememberReturn, requireAuthPage, RETURN_COOKIE, safeReturnPath } from '../middleware/requireAuth';
 import { createPagesRateLimit, createStaticRateLimit, STATIC_ROOT_FILES } from '../middleware/rateLimit';
@@ -125,7 +125,20 @@ export function pagesRouter(dir: string): Router {
     next();
   });
 
-  router.use((_req: Request, res: Response) => {
+  // Anything else: the site's 404 page for a browser (web/404.html, read once
+  // at startup), a short text for anything that doesn't take HTML (a missing
+  // screenshot, a script). A build without the page: the text for everyone.
+  let notFoundPage: string | null = null;
+  try {
+    notFoundPage = readFileSync(join(dir, '404.html'), 'utf8');
+  } catch {
+    notFoundPage = null;
+  }
+  router.use((req: Request, res: Response) => {
+    if (notFoundPage && req.accepts(['text/plain', 'html']) === 'html') {
+      res.status(404).type('html').send(notFoundPage);
+      return;
+    }
     res.status(404).type('text/plain').send('Not found');
   });
   return router;

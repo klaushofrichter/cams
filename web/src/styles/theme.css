@@ -23,12 +23,19 @@
   --accent: #22D3EE;
   --accent-2: #6366F1;
   --accent-ink: #06202A;
+  /* The public pages' accent where it carries text or sits behind it (links,
+     eyebrows, the sign-in buttons): 4.5:1 on the page and with --accent-ink.
+     Dark: the accent itself. Light: a step darker than --accent, which is
+     3.5:1 there (kube-setup's public-pages baseline, 2026-11-11). */
+  --accent-text: #22D3EE;
   --danger: #EF4444;
   --ok: #22C55E; /* a camera online (the Video page's status dot) */
   --warning: #F59E0B;
   --warning-ink: #1F1300;
   /* The start page's demo sash: dark ink on the amber stripes, in both themes. */
   --sash-ink: #1F1300;
+  /* The sash's second stripe: 4.5:1 with --sash-ink in both themes. */
+  --sash-stripe: color-mix(in srgb, var(--warning) 85%, var(--sash-ink));
   /* The e-paper display's paper behind its pages (the panel's white), in both themes. */
   --epaper-paper: #FFFFFF;
   /* Vision badges by confidence (Klaus, 2026-09-30): ≥ 80 %, 50–79 %, < 50 %. */
@@ -51,6 +58,10 @@
   --scroll-thumb-hover: #3B5082;
   --shadow: 0 10px 30px rgba(0, 0, 0, 0.35);
   --grad: linear-gradient(135deg, var(--accent), var(--accent-2));
+  /* The gradient behind white text (the start page's buttons and chat
+     bubbles): deep enough for 4.5:1 with --on-grad at every point, in both
+     themes. --grad behind white text is 2:1 at its cyan end. */
+  --grad-strong: linear-gradient(135deg, #0E7490, #4F46E5);
   --scrim: rgba(3, 8, 18, 0.55);
   /* Over the picture (the fullscreen controls): dark in either theme. */
   --player-scrim: rgba(3, 8, 18, 0.62);
@@ -87,6 +98,8 @@
   --accent: #0891B2;
   --accent-2: #4F46E5;
   --accent-ink: #FFFFFF;
+  --accent-text: #0E7490;
+  --sash-stripe: #F59E0B;
   --danger: #DC2626;
   --ok: #16A34A;
   --warning: #D97706;
@@ -135,6 +148,8 @@
     --accent: #0891B2;
     --accent-2: #4F46E5;
     --accent-ink: #FFFFFF;
+    --accent-text: #0E7490;
+    --sash-stripe: #F59E0B;
     --danger: #DC2626;
     --ok: #16A34A;
     --warning: #D97706;
@@ -169,6 +184,9 @@ html {
   scrollbar-width: thin;
   scrollbar-color: var(--scroll-thumb) var(--scroll-track);
 }
+/* The public pages (web/index.html, web/404.html) zoom, as WCAG 1.4.4 asks:
+   pinch and pan, no double-tap delay. The signed-in app doesn't. */
+html.public { touch-action: manipulation; }
 ::-webkit-scrollbar { width: 10px; height: 10px; }
 ::-webkit-scrollbar-track { background: var(--scroll-track); }
 ::-webkit-scrollbar-thumb { background: var(--scroll-thumb); border-radius: 6px; border: 2px solid var(--scroll-track); }
