@@ -1,9 +1,9 @@
 import express, { Router, Request, Response } from 'express';
 import { join, resolve } from 'path';
-import { readdirSync } from 'fs';
+import { readdirSync, readFileSync } from 'fs';
 import { readFile } from 'fs/promises';
 import { authState, currentUser, noStore, rememberReturn, requireAuthPage, RETURN_COOKIE, safeReturnPath } from '../middleware/requireAuth';
-import { createApiRateLimit } from '../middleware/rateLimit';
+import { createPagesRateLimit, createStaticRateLimit, STATIC_ROOT_FILES } from '../middleware/rateLimit';
 import { cookieOptions, loginMethods } from '../loginConfig';
 import { configMode } from '../configSource';
 import { fleetAccounts } from '../fleet';
@@ -48,8 +48,10 @@ export function webDir(): string {
 export function pagesRouter(dir: string): Router {
   const router = Router();
   // These handlers read files from disk; CodeQL (js/missing-rate-limiting)
-  // requires a limiter in front of them, and it is sensible anyway.
-  router.use(createApiRateLimit());
+  // requires a limiter in front of them, and it is sensible anyway. The
+  // static files (bundle, screenshots, icons) have their own budget, so a
+  // page load's ten or so of them never spend the pages'.
+  router.use(createPagesRateLimit(), createStaticRateLimit());
 
   // ?returnTo=/app/... (the web app's fallback when an expired session
   // can't be renewed silently): remembered for a signed-out visitor, so the
@@ -96,7 +98,8 @@ export function pagesRouter(dir: string): Router {
   // Public files at the web root, by exact name. An allow-list rather than
   // express.static on the root, so the HTML entries can't be fetched past the
   // auth decision through encoded or differently-cased names (/%61pp.html, /APP.html).
-  const PUBLIC_ROOT_FILES = new Set(['favicon.svg', 'favicon-32.png', 'apple-touch-icon.png', 'icon-512.png', 'site.webmanifest', 'llms.txt']);
+  // The list lives with the static limiter, which must know them too.
+  const PUBLIC_ROOT_FILES = STATIC_ROOT_FILES;
 
   // The landing page's screenshots (web/public/landing/): public, WebP only.
   // The names are fixed at startup from the built folder, so a request only
@@ -122,7 +125,20 @@ export function pagesRouter(dir: string): Router {
     next();
   });
 
-  router.use((_req: Request, res: Response) => {
+  // Anything else: the site's 404 page for a browser (web/404.html, read once
+  // at startup), a short text for anything that doesn't take HTML (a missing
+  // screenshot, a script). A build without the page: the text for everyone.
+  let notFoundPage: string | null = null;
+  try {
+    notFoundPage = readFileSync(join(dir, '404.html'), 'utf8');
+  } catch {
+    notFoundPage = null;
+  }
+  router.use((req: Request, res: Response) => {
+    if (notFoundPage && req.accepts(['text/plain', 'html']) === 'html') {
+      res.status(404).type('html').send(notFoundPage);
+      return;
+    }
     res.status(404).type('text/plain').send('Not found');
   });
   return router;

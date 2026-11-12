@@ -15,6 +15,7 @@
     "dev:web": "vite --config web/vite.config.mts",
     "test": "vitest run",
     "test:e2e": "playwright test",
+    "test:e2e:public": "playwright test --config playwright.public.config.ts",
     "test:e2e:times": "tsx scripts/e2e-time-of-day.ts",
     "icons": "node scripts/gen-icons.mjs",
     "check:svelte": "sh scripts/check-svelte.sh",
@@ -33,6 +34,7 @@
     "zod": "4.6.7"
   },
   "devDependencies": {
+    "@axe-core/playwright": "^4.14.0",
     "@playwright/test": "^1.65.0",
     "@resvg/resvg-js": "^2.6.2",
     "@sveltejs/vite-plugin-svelte": "^7.3.1",
@@ -40,6 +42,7 @@
     "@types/express": "^5.0.6",
     "@types/jsonwebtoken": "^9.0.10",
     "@types/node": "^26.6.6",
+    "@types/pngjs": "^6.0.5",
     "@types/supertest": "^7.2.1",
     "@types/ws": "^8.18.2",
     "ajv": "^8.20.0",
@@ -47,6 +50,7 @@
     "jsdom": "^31.0.0",
     "jsqr": "1.4.0",
     "mpegts.js": "^1.8.2",
+    "pngjs": "^7.0.0",
     "supertest": "^7.3.1",
     "svelte": "^5.57.3",
     "tsx": "^4.23.15",

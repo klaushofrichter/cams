@@ -36,6 +36,9 @@ export const E2E_ENV: Record<string, string> = {
   RATE_LIMIT_API_MAX: '1000000',
   RATE_LIMIT_MEDIA_MAX: '10000',
   RATE_LIMIT_IMAGE_MAX: '50000',
+  // The static files' own budget (bundle, screenshots, icons; rateLimit.ts
+  // STATIC_MAX): the whole run loads the app hundreds of times from one address.
+  RATE_LIMIT_STATIC_MAX: '1000000',
   RATE_LIMIT_CHECKS_PER_MIN: '1000',
   RATE_LIMIT_CHECKS_PER_DAY: '10000',
   RATE_LIMIT_ARCHIVE_PER_MIN: '1000',

@@ -126,6 +126,25 @@ describe('pages', () => {
     const res = await request(createApp()).get('/wp-login.php');
     expect(res.status).toBe(404);
   });
+
+  // kube-setup's public-pages baseline: a browser gets the site's 404 page
+  // (web/404.html), with the 404 status; a script, a picture or a tool a
+  // short text, as before.
+  it('answers a browser with the site’s 404 page, anything else with a short text', async () => {
+    const page = await request(createApp()).get('/no-such-page').set('Accept', 'text/html,application/xhtml+xml,*/*;q=0.8');
+    expect(page.status).toBe(404);
+    expect(page.headers['content-type']).toMatch(/^text\/html/);
+    expect(page.text).toContain('NOT-FOUND-PAGE');
+    for (const accept of ['*/*', 'image/webp,image/*,*/*;q=0.8', 'application/json']) {
+      const res = await request(createApp()).get('/no-such-page').set('Accept', accept);
+      expect(res.status, accept).toBe(404);
+      expect(res.text, accept).toBe('Not found');
+    }
+    // The HTML entries stay unreachable by name, the 404 page among them.
+    const entry = await request(createApp()).get('/app.html').set('Accept', 'text/html');
+    expect(entry.status).toBe(404);
+    expect(entry.text).not.toContain('APP');
+  });
 });
 
 // The landing page's screenshots (web/public/landing/ → <dist>/landing/):
