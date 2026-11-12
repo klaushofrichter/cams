@@ -69,13 +69,66 @@ jobs:
       - run: npm run test:e2e
         env:
           CI: 'true'
+      # The PUBLIC pages (signed out: /, /signin, /token, the 404 page), by
+      # kube-setup's "public web pages" baseline (docs/cluster-deployment-
+      # requirements.md §4): the Docker image this commit builds, the artifact
+      # the deploy ships, in four browsers (desktop Chrome, a Pixel, an iPhone
+      # in WebKit, desktop Firefox; playwright.public.config.ts, e2e-public/),
+      # then Lighthouse on a phone profile. In this job, so the required check
+      # stays the single `e2e`. GitHub's runners only: a browser OOM-kills the
+      # in-cluster runner.
+      - name: Build and start the image (public pages)
+        run: |
+          set -euo pipefail
+          docker build --build-arg APP_VERSION=2099.01.01.1 -t cams:public-e2e .
+          # The cloud's Google sign-in and no cameras: what a signed-out
+          # visitor sees doesn't depend on them. None of these are real.
+          docker run -d --name cams-public -p 8072:8080 \
+            -e COOKIE_SECRET=e2e-public-cookie-secret-not-used-for-anything \
+            -e GOOGLE_CLIENT_ID=e2e -e GOOGLE_CLIENT_SECRET=e2e \
+            -e GOOGLE_REDIRECT_URI=http://localhost:8072/auth/google/callback \
+            -e ALLOWED_EMAILS=nobody@e2e.example \
+            -e PREFS_FILE=/tmp/prefs.json -e PROXY_STATE_FILE=/tmp/proxy-state.json -e PROXY_FEATURES_FILE=/tmp/proxy-features.json \
+            cams:public-e2e
+          for i in $(seq 1 30); do
+            curl -sf http://localhost:8072/health >/dev/null && break
+            echo "waiting for the image (${i}/30)"; sleep 1
+          done
+          curl -sf http://localhost:8072/health | grep -q '"version":"2099.01.01.1"' \
+            || { echo "::error::the image did not come up with the stamped version"; docker logs cams-public; exit 1; }
+      # `--with-deps` runs `apt-get update`, which also reads the Google Chrome
+      # source the runner image ships; one bad index there fails the whole job
+      # (art, 2026-09-09), so drop that source. Chrome itself stays: the suite
+      # above and Lighthouse below use it.
+      - name: Install the browsers (public pages)
+        run: |
+          sudo rm -f /etc/apt/sources.list.d/google-chrome.list \
+                     /etc/apt/sources.list.d/google-chrome.sources
+          npx playwright install --with-deps chromium webkit firefox
+      # failOnFlakyTests (playwright.public.config.ts) fails this step if any
+      # test passed only on its retry.
+      - name: Walk the public pages in four browsers
+        env:
+          CI: 'true'
+          BASE_URL: http://localhost:8072
+          EXPECT_VERSION: 2099.01.01.1
+        run: npx playwright test --config playwright.public.config.ts
+      - name: Lighthouse (Google PageSpeed) on a phone
+        run: scripts/lighthouse-gate.sh http://localhost:8072/
       # Traces, screenshots and error context of failed tests.
       - uses: actions/upload-artifact@v7
         if: failure()
         with:
           name: e2e-test-results
-          path: test-results/
+          path: |
+            test-results/
+            test-results-public/
+            playwright-report-public/
+            lighthouse-report.report.html
           retention-days: 7
+      - name: Server log of the public-pages image when something failed
+        if: failure()
+        run: docker logs cams-public || true
 
   # The Video specs at fixed Chicago times of day (00:30 to 23:50, the
   # runner's UTC a day ahead too), each with the whole stack's clock moved

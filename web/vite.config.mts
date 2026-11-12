@@ -5,8 +5,8 @@ import { fileURLToPath } from 'url';
 
 const __dirname = fileURLToPath(new URL('.', import.meta.url));
 
-// Two entries: index.html is the public landing page, app.html the signed-in
-// SPA. Express decides which one a request gets (server/routes/pages.ts).
+// Three entries: index.html is the public landing page, app.html the signed-in
+// SPA, 404.html the public 404 page. Express decides which one a request gets (server/routes/pages.ts).
 export default defineConfig({
   root: resolve(__dirname),
   plugins: [svelte()],
@@ -17,6 +17,7 @@ export default defineConfig({
       input: {
         index: resolve(__dirname, 'index.html'),
         app: resolve(__dirname, 'app.html'),
+        notFound: resolve(__dirname, '404.html'),
       },
     },
   },

@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="en" class="public">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Page not found · cams</title>
+    <meta name="robots" content="noindex" />
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <link rel="icon" href="/favicon-32.png" sizes="32x32" type="image/png" />
+    <meta name="theme-color" content="#0B1220" />
+    <!-- The site's 404 page (server/routes/pages.ts sends it with status 404).
+         Plain HTML and the theme's stylesheet: it works without JavaScript. -->
+    <script>
+      try { var t = localStorage.getItem('cams-theme'); if (t === 'light' || t === 'dark') document.documentElement.dataset.theme = t; } catch (e) {}
+    </script>
+    <link rel="stylesheet" href="/src/styles/theme.css" />
+    <style>
+      .page {
+        --accent: var(--accent-text);
+        min-height: 100vh;
+        display: flex;
+        flex-direction: column;
+        background:
+          radial-gradient(900px 400px at 80% -10%, color-mix(in srgb, var(--accent-2) 30%, transparent), transparent 60%),
+          var(--bg);
+      }
+      header { display: flex; align-items: center; padding: 14px 24px; }
+      .home { color: var(--text); text-decoration: none; font-weight: 700; font-size: 18px; }
+      .home:hover { color: var(--accent); }
+      main { flex: 1; display: grid; place-items: center; padding: 24px 16px 64px; }
+      .card { width: min(440px, 100%); padding: 36px 28px; border-radius: 22px; background: var(--surface); border: 1px solid var(--border); box-shadow: var(--shadow); }
+      .card img { display: block; }
+      h1 { font-family: 'Iowan Old Style', 'Palatino Linotype', Palatino, Georgia, serif; font-weight: 600; font-size: 32px; margin: 14px 0 4px; }
+      p { margin: 0 0 22px; color: var(--muted); }
+      .back {
+        display: inline-flex; align-items: center; gap: 8px; padding: 11px 20px; border-radius: 999px;
+        background: var(--accent); color: var(--accent-ink); font-weight: 700; text-decoration: none;
+      }
+      .back:hover { filter: brightness(1.08); }
+      footer { padding: 14px 24px; font-size: 12px; color: var(--muted); border-top: 1px solid var(--border); }
+      footer a { color: inherit; }
+      .nt { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+    </style>
+  </head>
+  <body>
+    <div class="page">
+      <header><a class="home" href="/"><span aria-hidden="true">←</span> cams</a></header>
+      <main>
+        <section class="card" aria-labelledby="nf-title">
+          <img src="/favicon.svg" width="44" height="44" alt="" />
+          <h1 id="nf-title">Page not found</h1>
+          <p>There is no page at this address. It may have moved, or the link has a typo.</p>
+          <a class="back" href="/" data-testid="not-found-home">Back to cams <span aria-hidden="true">→</span></a>
+        </section>
+      </main>
+      <footer>© Skylar Technology LLC · <a href="https://skylar.technology" target="_blank" rel="noopener noreferrer">skylar.technology<span class="nt"> (opens in a new tab)</span></a></footer>
+    </div>
+  </body>
+</html>

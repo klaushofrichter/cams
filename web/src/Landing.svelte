@@ -282,6 +282,8 @@
   }
 
   .landing {
+    /* The accent at 4.5:1 for text in both themes (theme.css --accent-text). */
+    --accent: var(--accent-text);
     --display: 'Iowan Old Style', 'Palatino Linotype', Palatino, 'Book Antiqua', Georgia, serif;
     --ease: cubic-bezier(0.2, 0.7, 0.2, 1);
     min-height: 100vh;
@@ -311,14 +313,14 @@
     transform: rotate(45deg);
     text-align: center;
     padding: 8px 0 7px;
-    background: repeating-linear-gradient(-45deg, var(--warning) 0 10px, color-mix(in srgb, var(--warning) 85%, var(--sash-ink)) 10px 20px);
+    background: repeating-linear-gradient(-45deg, var(--warning) 0 10px, var(--sash-stripe) 10px 20px);
     color: var(--sash-ink);
     font: 800 12px/1.15 var(--font);
     letter-spacing: 0.2em;
     box-shadow: 0 6px 18px rgb(0 0 0 / 0.35);
     border-block: 1px solid color-mix(in srgb, var(--sash-ink) 35%, transparent);
   }
-  .sash small { display: block; font-weight: 600; font-size: 9.5px; letter-spacing: 0.14em; opacity: 0.85; }
+  .sash small { display: block; font-weight: 600; font-size: 9.5px; letter-spacing: 0.14em; }
 
   /* Header: transparent at the top, frosted once the page scrolls. */
   .nav { position: sticky; top: 0; z-index: 30; border-bottom: 1px solid transparent; transition: background-color 0.3s, border-color 0.3s, backdrop-filter 0.3s; }
@@ -420,7 +422,7 @@
     transition: transform 0.2s, border-color 0.2s, box-shadow 0.2s, background-color 0.2s;
   }
   .btn:hover { transform: translateY(-2px); border-color: var(--accent); }
-  .btn.primary { background: var(--grad); color: var(--on-grad); border-color: transparent; box-shadow: 0 10px 30px color-mix(in srgb, var(--accent) 28%, transparent); }
+  .btn.primary { background: var(--grad-strong); color: var(--on-grad); border-color: transparent; box-shadow: 0 10px 30px color-mix(in srgb, var(--accent) 28%, transparent); }
   .btn.primary:hover { box-shadow: 0 14px 40px color-mix(in srgb, var(--accent) 40%, transparent); }
   .notice { margin: 0 0 18px; padding: 10px 14px; border-radius: 10px; background: var(--surface-2); border: 1px solid var(--border); color: var(--text); }
   .visual { position: relative; display: grid; place-items: center; padding: 24px; animation: rise 1.1s var(--ease) 0.1s both; }
@@ -454,7 +456,7 @@
   .track { display: flex; width: max-content; animation: marquee 40s linear infinite; }
   .marquee:hover .track, .marquee:focus-within .track { animation-play-state: paused; }
   .group { display: flex; align-items: center; gap: 36px; padding-right: 36px; }
-  .group a { font: 600 clamp(30px, 4.2vw, 58px)/1 var(--display); color: transparent; -webkit-text-stroke: 1px color-mix(in srgb, var(--text) 45%, transparent); white-space: nowrap; text-decoration: none; transition: color 0.3s; }
+  .group a { font: 600 clamp(30px, 4.2vw, 58px)/1 var(--display); color: transparent; -webkit-text-stroke: 1px color-mix(in srgb, var(--text) 55%, transparent); white-space: nowrap; text-decoration: none; transition: color 0.3s; }
   .group a:hover, .group a:focus-visible { color: var(--text); }
   .track i { font-style: normal; color: var(--accent); font-size: 20px; }
 
@@ -584,7 +586,7 @@
     margin: 0;
     padding: 10px 14px;
     border-radius: 16px 16px 4px 16px;
-    background: var(--grad);
+    background: var(--grad-strong);
     color: var(--on-grad);
     font-size: 14px;
     font-weight: 600;
