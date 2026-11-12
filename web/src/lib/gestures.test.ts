@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { classifyStroke, createTapGate, gestureAction, DOUBLE_TAP_MS, DOUBLE_TAP_PX, EDGE_PX, SWIPE_MIN_PX, TAP_MAX_PX, type Stroke } from './gestures';
+import { classifyStroke, createTapGate, gestureAction, swallowClickAt, DOUBLE_TAP_MS, DOUBLE_TAP_PX, EDGE_PX, SWIPE_MIN_PX, TAP_MAX_PX, type Stroke } from './gestures';
 
 // Phone gestures in fullscreen (#182, spec 2026-10-04-fullscreen-recorded):
 // one stroke is a swipe, a tap in a third, or nothing.
@@ -131,5 +131,43 @@ describe('createTapGate', () => {
 
   it('keeps the window short', () => {
     expect(DOUBLE_TAP_MS).toBeLessThanOrEqual(300);
+  });
+});
+
+// Leaving fullscreen on the second tap of a double tap: the overlay is gone
+// before the browser sends that tap's click, so the click lands on the page
+// underneath (a phone at the centre: "Show in Timeline", which left the video
+// page; cams #386's CI, 2026-11-11). The click is swallowed there.
+describe('swallowClickAt', () => {
+  beforeEach(() => vi.useFakeTimers());
+  afterEach(() => vi.useRealTimers());
+  const click = (x: number, y: number) => Object.assign(new Event('click', { cancelable: true }), { clientX: x, clientY: y });
+  // The page's own listener after the swallow's: a window capture listener
+  // runs before the page's in the browser; a bare EventTarget runs in order.
+  const page = (x: number, y: number) => {
+    const t = new EventTarget();
+    swallowClickAt(x, y, t);
+    const seen = vi.fn();
+    t.addEventListener('click', seen);
+    return { t, seen };
+  };
+
+  it('swallows the click at that point, once', () => {
+    const { t, seen } = page(100, 200);
+    const e = click(102, 198);
+    t.dispatchEvent(e);
+    expect(e.defaultPrevented).toBe(true);
+    expect(seen).not.toHaveBeenCalled();
+    t.dispatchEvent(click(100, 200));
+    expect(seen).toHaveBeenCalledTimes(1);
+  });
+
+  it('lets a click elsewhere through, and stops waiting after the window', () => {
+    const { t, seen } = page(100, 200);
+    t.dispatchEvent(click(100 + DOUBLE_TAP_PX + 10, 200));
+    expect(seen).toHaveBeenCalledTimes(1);
+    vi.advanceTimersByTime(1000);
+    t.dispatchEvent(click(100, 200));
+    expect(seen).toHaveBeenCalledTimes(2);
   });
 });

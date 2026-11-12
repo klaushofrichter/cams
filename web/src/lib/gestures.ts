@@ -79,3 +79,24 @@ export function createTapGate(ms = DOUBLE_TAP_MS, px = DOUBLE_TAP_PX): TapGate {
     cancel,
   };
 }
+
+// The click a tap still sends after its pointerup/touchend, when that tap has
+// already changed the page (the second tap of a double tap leaves fullscreen
+// and the overlay is gone): swallowed at that point, once, so it can't press
+// what is under the finger now ("Show in Timeline" at a phone's centre).
+// Capture phase on the window, before anything on the page sees it.
+export function swallowClickAt(x: number, y: number, on: EventTarget = window, ms = 2 * DOUBLE_TAP_MS, px = DOUBLE_TAP_PX): void {
+  const done = () => {
+    clearTimeout(timer);
+    on.removeEventListener('click', swallow, { capture: true });
+  };
+  const swallow = (e: Event) => {
+    const m = e as MouseEvent;
+    if (Math.hypot(m.clientX - x, m.clientY - y) > px) return;
+    e.preventDefault();
+    e.stopImmediatePropagation();
+    done();
+  };
+  const timer = setTimeout(done, ms);
+  on.addEventListener('click', swallow, { capture: true });
+}
