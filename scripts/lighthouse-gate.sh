@@ -22,6 +22,14 @@
 # MEDIAN run (one run on a busy GitHub runner can score 81 where three from
 # elsewhere score 100); every other category must hold in EVERY run.
 #
+# A warm-up run comes first and is not scored (LH_WARMUP, default 1): on a
+# cold GitHub runner the first run scored 77–86 where the runs after it scored
+# 94 and more (2026-11-12), and the npx download and the server's caches are
+# warm after it.
+#
+# LH_CMD replaces the Lighthouse command (the tests' fake); default
+# "npx --yes lighthouse@12".
+#
 # Lighthouse sees the signed-out start page only; the sign-in pages and the
 # 404 page share its shell and are covered by the axe specs (e2e-public/).
 set -euo pipefail
@@ -34,13 +42,24 @@ CHROME_PATH="${CHROME_PATH:-$(command -v google-chrome || command -v chromium ||
 [ -n "$CHROME_PATH" ] || { echo "::error::no Chrome found for Lighthouse"; exit 1; }
 export CHROME_PATH
 
-RUNS="${LH_RUNS:-3}"
-for n in $(seq 1 "$RUNS"); do
-  npx --yes lighthouse@12 "$URL" \
+read -r -a LH <<<"${LH_CMD:-npx --yes lighthouse@12}"
+lighthouse() {
+  "${LH[@]}" "$URL" \
     --quiet \
     --chrome-flags="--headless=new --no-sandbox" \
     --only-categories=performance,accessibility,best-practices,seo \
-    --output=json --output=html --output-path="./$OUT-run$n"
+    --output=json --output=html --output-path="$1"
+}
+
+# Counted, not seq: BSD seq 1 0 counts down (two runs for LH_WARMUP=0).
+for ((n = 0; n < ${LH_WARMUP:-1}; n++)); do
+  lighthouse "./$OUT-warmup"
+  rm -f "$OUT-warmup.report.json" "$OUT-warmup.report.html"
+done
+
+RUNS="${LH_RUNS:-3}"
+for n in $(seq 1 "$RUNS"); do
+  lighthouse "./$OUT-run$n"
 done
 
 # The median run by performance becomes the report; the rest are dropped.
