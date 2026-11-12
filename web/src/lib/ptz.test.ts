@@ -86,6 +86,7 @@ describe('ptzApi', () => {
     const api = ptzApi('a b');
     await api.zoom('in', 600);
     await api.focus('far', 400);
+    await api.autofocus();
     await api.stop();
     expect(await api.positions()).toEqual({ max: 20, positions: [] });
     await api.save('Gate');
@@ -99,6 +100,7 @@ describe('ptzApi', () => {
     expect(calls).toEqual([
       { url: `${base}/zoom`, method: 'POST', body: { direction: 'in', durationMs: 600 } },
       { url: `${base}/focus`, method: 'POST', body: { direction: 'far', durationMs: 400 } },
+      { url: `${base}/autofocus`, method: 'POST', body: {} },
       { url: `${base}/stop`, method: 'POST', body: {} },
       { url: `${base}/positions`, method: 'GET', body: undefined },
       { url: `${base}/positions`, method: 'POST', body: { name: 'Gate' } },

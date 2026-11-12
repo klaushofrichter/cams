@@ -133,7 +133,7 @@ export function seed(fake: FakeProxy): { jpeg: Buffer; sprite: Buffer } {
   // §4): listed with its own name and capabilities; Den is a fixed camera.
   fake.features = ['sse-cam-list', 'ptz'];
   fake.cameraNames.set('barn', 'Barn');
-  fake.capabilities.set('barn', { schema: 1, ptz: { move: true, zoom: true, focus: true, speed: true, positions: { max: 20 } } });
+  fake.capabilities.set('barn', { schema: 1, ptz: { move: true, zoom: true, focus: true, autofocus: true, speed: true, positions: { max: 20 } } });
   return { jpeg, sprite };
 }
 
