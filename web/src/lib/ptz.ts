@@ -9,6 +9,7 @@ export interface PtzCapabilities {
   move: boolean;
   zoom: boolean;
   focus: boolean;
+  autofocus?: boolean; // absent from an older cams server: no autofocus
   speed: boolean;
   positions: { max: number } | null;
 }
@@ -71,6 +72,7 @@ export function ptzApi(cam: string) {
     move: (d: Direction, durationMs: number) => none(call(cam, '/move', 'POST', { direction: d, durationMs })),
     zoom: (d: 'in' | 'out', durationMs: number) => none(call(cam, '/zoom', 'POST', { direction: d, durationMs })),
     focus: (d: 'near' | 'far', durationMs: number) => none(call(cam, '/focus', 'POST', { direction: d, durationMs })),
+    autofocus: () => none(call(cam, '/autofocus', 'POST', {})),
     stop: () => none(call(cam, '/stop', 'POST', {})),
     positions: () => call<PtzPositions>(cam, '/positions', 'GET'),
     save: (name: string) => call<PtzPosition>(cam, '/positions', 'POST', { name }),

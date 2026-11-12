@@ -57,6 +57,7 @@ describe('the access table', () => {
       'DELETE /api/cameras/:id/ptz/positions/:posId',
       'PATCH /api/cameras/:id/ptz/positions/:posId',
       'POST /api/cameras/:id/compositions',
+      'POST /api/cameras/:id/ptz/autofocus',
       'POST /api/cameras/:id/ptz/focus',
       'POST /api/cameras/:id/ptz/move',
       'POST /api/cameras/:id/ptz/positions',

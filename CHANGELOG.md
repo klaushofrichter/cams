@@ -8,3 +8,7 @@ published as [GitHub releases](https://github.com/klaushofrichter/cams/releases)
 
 ## [Unreleased]
 
+### Added
+
+- Video page, Pan & tilt: a click on the word **Focus** makes the camera focus by itself, like the Reolink app's Autofocus button (cameras that can, such as the E1 Outdoor Pro; needs cam-proxy with `ptz/autofocus`). The word blinks while the camera focuses, about 4 s. New `POST /api/cameras/:id/ptz/autofocus` for every member.
+

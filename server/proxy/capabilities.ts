@@ -8,6 +8,7 @@ export interface PtzCapabilities {
   move: boolean;
   zoom: boolean;
   focus: boolean;
+  autofocus: boolean; // a one-shot autofocus (POST …/ptz/autofocus); false from a proxy without it
   speed: boolean;
   positions: { max: number } | null; // null: the camera can't store positions
 }
@@ -49,6 +50,7 @@ export function parseCapabilities(entry: ProxyCameraEntry | undefined): Capabili
       move: p.move === true,
       zoom: p.zoom === true,
       focus: p.focus === true,
+      autofocus: p.autofocus === true,
       speed: p.speed === true,
       positions: typeof max === 'number' && Number.isInteger(max) && max >= 1 && max <= 64 ? { max } : null,
     },

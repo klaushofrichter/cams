@@ -221,6 +221,46 @@ describe('PtzPanel', () => {
     ]);
   });
 
+  // The Reolink app's Autofocus button (Klaus, 2026-11-12): the word Focus.
+  it('the word Focus is a plain label without autofocus', () => {
+    render();
+    open();
+    expect(q('ptz-autofocus')).toBeNull();
+    expect(q('ptz-focus-far')).not.toBeNull();
+  });
+
+  it('a click on Focus autofocuses once, busy until the camera has settled', async () => {
+    render({ ptz: { ...ALL, autofocus: true } });
+    open();
+    const b = q('ptz-autofocus') as HTMLButtonElement;
+    expect(b.textContent?.trim()).toBe('Focus');
+    expect(b.getAttribute('aria-label')).toBe('Autofocus');
+    b.click();
+    b.click();
+    await vi.advanceTimersByTimeAsync(10);
+    flushSync();
+    expect(calls).toEqual([{ url: '/api/cameras/den/ptz/autofocus', method: 'POST', body: {} }]);
+    expect(b.disabled).toBe(true);
+    expect(b.getAttribute('aria-busy')).toBe('true');
+    await vi.advanceTimersByTimeAsync(4000);
+    flushSync();
+    expect(b.disabled).toBe(false);
+    b.click();
+    await vi.advanceTimersByTimeAsync(10);
+    expect(calls).toHaveLength(2);
+  });
+
+  it('a refused autofocus shows why and is ready again at once', async () => {
+    answer = () => new Response(JSON.stringify({ error: 'camera_offline' }), { status: 503 });
+    render({ ptz: { ...ALL, autofocus: true } });
+    open();
+    q('ptz-autofocus')!.click();
+    await vi.advanceTimersByTimeAsync(10);
+    flushSync();
+    expect(q('ptz-error')!.textContent).toBe('The camera is offline.');
+    expect((q('ptz-autofocus') as HTMLButtonElement).disabled).toBe(false);
+  });
+
   it('focus far sends focus', async () => {
     render();
     open();

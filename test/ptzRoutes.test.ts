@@ -14,7 +14,7 @@ import { SESSION_COOKIE, signSession } from '../server/session';
 import { FAKE_TOKEN, startFakeProxy, type FakeProxy } from './proxy/fakeProxy';
 
 const auth = `${SESSION_COOKIE}=${signSession('klaus@klaushofrichter.net')}`;
-const PTZ = { schema: 1, ptz: { move: true, zoom: true, focus: true, speed: true, positions: { max: 20 } } };
+const PTZ = { schema: 1, ptz: { move: true, zoom: true, focus: true, autofocus: true, speed: true, positions: { max: 20 } } };
 let fake: FakeProxy;
 
 beforeEach(async () => {
@@ -82,6 +82,14 @@ describe('PTZ control pass-through', () => {
       expect([r.status, r.body.error]).toEqual([400, 'invalid']);
     }
     expect(fake.ptzCalls).toHaveLength(5);
+  });
+
+  it('forwards an autofocus with an empty body, whatever was sent', async () => {
+    expect((await post('den', 'autofocus', { direction: 'far', extra: 1 })).status).toBe(204);
+    expect(fake.ptzCalls).toEqual([{ cam: 'cam1', op: 'autofocus', body: {} }]);
+    fake.capabilities.set('cam1', { schema: 1, ptz: { move: true, zoom: true, focus: true, speed: true } });
+    const r = await post('den', 'autofocus');
+    expect([r.status, r.body]).toEqual([404, { error: 'not_supported' }]);
   });
 
   it("relays the proxy's refusals as they are", async () => {
