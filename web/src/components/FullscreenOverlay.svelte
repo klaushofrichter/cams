@@ -3,7 +3,7 @@
   import { onDestroy, onMount } from 'svelte';
   import Icon from './Icon.svelte';
   import { focusBeforeFullscreen, fsKey, hintFor, type FsAction } from '../lib/playerFullscreen';
-  import { classifyStroke, createTapGate, gestureAction } from '../lib/gestures';
+  import { classifyStroke, createTapGate, gestureAction, swallowClickAt } from '../lib/gestures';
   import type { ZoomState } from '../lib/pinchZoom';
   import type { Mode } from '../lib/videoMode';
 
@@ -112,6 +112,14 @@
     act(a);
   }
 
+  // A double tap (double click) leaves on its second pointerup; that tap's
+  // click comes after, when the overlay is gone, and would press what is
+  // under it on the page (CI 2026-11-11: "Show in Timeline").
+  function leave(e: PointerEvent) {
+    swallowClickAt(e.clientX, e.clientY);
+    act({ kind: 'exit' });
+  }
+
   // One stroke per pointer: start on down, classify on up.
   let start: { id: number; x: number; y: number; t: number } | null = null;
   let layer: HTMLDivElement | undefined = $state();
@@ -136,7 +144,7 @@
       // Desktop: a click on the picture plays or pauses (the thirds are for
       // touch), a double click leaves.
       show();
-      if (g.kind === 'tap') gate.tap(e.clientX, e.clientY, () => { if (!live) act({ kind: 'toggle' }); }, () => act({ kind: 'exit' }));
+      if (g.kind === 'tap') gate.tap(e.clientX, e.clientY, () => { if (!live) act({ kind: 'toggle' }); }, () => leave(e));
       return;
     }
     const wasHidden = !shown;
@@ -144,7 +152,7 @@
     // The middle: play or pause, unless a second tap makes it a double tap
     // (leave); the controls show at once either way.
     if (g.kind === 'tap' && g.zone === 'middle') {
-      gate.tap(e.clientX, e.clientY, () => { if (!live && !wasHidden) act({ kind: 'toggle' }); }, () => act({ kind: 'exit' }));
+      gate.tap(e.clientX, e.clientY, () => { if (!live && !wasHidden) act({ kind: 'toggle' }); }, () => leave(e));
       return;
     }
     // Live: the picture only shows the controls (a stray tap mustn't leave live);

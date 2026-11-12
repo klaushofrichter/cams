@@ -17,6 +17,18 @@ test.beforeEach(async ({ context, baseURL }) => {
 const badge = (page: Page) => page.getByTestId('mode-badge');
 const overlay = (page: Page) => page.getByTestId('fs-overlay');
 const fsElement = (page: Page) => page.evaluate(() => !!document.fullscreenElement);
+// Clicks that reach the page outside the fullscreen overlay. The double tap
+// that leaves fullscreen gets its second tap's click after the overlay may be
+// gone (a slow phone; CI 2026-11-11): it must not press what is under it then
+// ("Show in Timeline" at the centre, which left the video page).
+const countPageClicks = (page: Page) => page.evaluate(() => {
+  const w = window as { pageClicks?: number };
+  w.pageClicks = 0;
+  document.addEventListener('click', (e) => {
+    if (!(e.target instanceof Element && e.target.closest('[data-testid="fs-overlay"]'))) w.pageClicks! += 1;
+  }, true);
+});
+const pageClicks = (page: Page) => page.evaluate(() => (window as { pageClicks?: number }).pageClicks ?? 0);
 
 async function withoutElementFullscreen(page: Page) {
   await page.addInitScript(() => {
@@ -99,8 +111,12 @@ test('phone: a double tap fills the screen; the sides step on each tap, the midd
   await expect(page.getByTestId('fs-play')).toHaveAttribute('aria-pressed', 'true');
   // A double tap in the middle: leaves, still playing.
   await keepControlsUp();
+  await countPageClicks(page);
   await doubleTap(page, { x: vp.width / 2, y });
   await expect(overlay(page)).toHaveCount(0);
+  await page.waitForTimeout(700);
+  expect(await pageClicks(page)).toBe(0);
+  await expect(page).toHaveURL(/\/app\/video\?/);
   await expect(page.getByTestId('play-toggle')).toHaveAttribute('aria-pressed', 'true');
   await page.waitForTimeout(800);
   await expect(overlay(page)).toHaveCount(0); // not entered again
@@ -114,10 +130,13 @@ test('phone: element fullscreen too, by a double tap, and out again', async ({ p
   await doubleTap(page, await centreOf(page.getByTestId('player-box')));
   await expect.poll(() => fsElement(page)).toBe(true);
   const vp = page.viewportSize()!;
+  await countPageClicks(page);
   await doubleTap(page, { x: vp.width / 2, y: vp.height / 2 });
   await expect.poll(() => fsElement(page)).toBe(false);
   await page.waitForTimeout(800);
   expect(await fsElement(page)).toBe(false);
+  expect(await pageClicks(page)).toBe(0);
+  await expect(page).toHaveURL(/\/app\/video\?/);
   await expect(page.getByTestId('play-toggle')).toHaveAttribute('aria-pressed', 'false');
 });
 

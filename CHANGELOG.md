@@ -8,3 +8,6 @@ published as [GitHub releases](https://github.com/klaushofrichter/cams/releases)
 
 ## [Unreleased]
 
+### Fixed
+- Phone: leaving fullscreen with a double tap no longer presses what is under your finger afterwards. On a slow phone, the second tap could open the Timeline through the "Show in Timeline" link.
+
