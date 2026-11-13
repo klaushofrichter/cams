@@ -46,7 +46,7 @@ test('Close during generation cancels the job', async ({ page }) => {
   await del;
 });
 
-test('4K saves the original main stream; a camera without a proxy offers only SD and 4K', async ({ page }) => {
+test('Hi saves the original main stream; a camera without a proxy offers only SD and Hi', async ({ page }) => {
   // Barn's fake proxy holds no SD recordings and its camera refuses downloads,
   // so /full-quality would say no; this test is about the link (see below).
   await page.route('**/full-quality', (r) => r.fulfill({ json: { available: true } }));
@@ -59,7 +59,7 @@ test('4K saves the original main stream; a camera without a proxy offers only SD
   await page.goto('/app/recordings?panel=history&cam=porch');
   await download(page, '-').first().click();
   await expect(page.getByTestId('compose-pre')).toHaveCount(0);
-  await expect(page.getByTestId('compose-size').locator('option')).toHaveText([/^SD/, /^4K/]);
+  await expect(page.getByTestId('compose-size').locator('option')).toHaveText([/^SD/, /^Hi/]);
   await expect(page.getByTestId('compose-save')).toHaveAttribute('href', /quality=sub/);
 });
 

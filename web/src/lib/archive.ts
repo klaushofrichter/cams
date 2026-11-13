@@ -107,7 +107,7 @@ export function expiresText(expiresAt: number | null, now: number): string {
 }
 
 export const durationText = (s: number) => formatSeconds(Math.max(0, Math.round(s)));
-const QUALITY_LABELS: Record<string, string> = { '360p': '360p', sd: 'SD', '720p': '720p', '1080p': '1080p', '4k': '4K' };
+const QUALITY_LABELS: Record<string, string> = { '360p': '360p', sd: 'SD', '720p': '720p', '1080p': '1080p', '4k': 'Hi' };
 export const qualityText = (q: string) => QUALITY_LABELS[q] ?? q;
 // "2026-10-05 14:03:22", the viewer's clock.
 export const dateTime = (t: number) => `${localDate(new Date(t))} ${formatClock(t)}`;

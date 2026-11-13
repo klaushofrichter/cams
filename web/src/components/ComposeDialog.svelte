@@ -360,7 +360,7 @@
     <p class="muted" data-testid="compose-roll-note">Pre- and post-roll are available only for SD quality.</p>
   {/if}
   {#if is4k}
-    <p class="muted" data-testid="compose-4k-note">4K saves the camera's original recording as it is.</p>
+    <p class="muted" data-testid="compose-4k-note">Hi saves the camera's original recording as it is.</p>
   {/if}
   {#if fullMissing}
     <p class="err" data-testid="compose-4k-unavailable" role="alert">The full-resolution file isn't available right now; download the standard quality instead.</p>

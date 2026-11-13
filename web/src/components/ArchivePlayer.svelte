@@ -52,7 +52,7 @@
   const sourceText = $derived.by(() => {
     const s = item.source;
     if (s.type === 'composition') return `Composed${s.anchor === 'at' ? ' around a second' : ''}: ${qualityText(String(s.size ?? item.quality))}, pre-roll ${s.preS ?? 0} s, post-roll ${s.postS ?? 0} s${s.badge ? ', still sections marked' : ''}`;
-    if (s.type === 'recording') return `The camera’s ${s.stream === 'main' ? '4K' : 'SD'} recording, as it is`;
+    if (s.type === 'recording') return `The camera’s ${s.stream === 'main' ? 'Hi' : 'SD'} recording, as it is`;
     if (s.type === 'clip') return 'The cam-proxy’s FTP copy, as it is';
     return '—';
   });

@@ -144,7 +144,7 @@ describe('landing content', () => {
   });
 
   it('uses sentence-case titles', () => {
-    const names = /^(Google|Vision|Raspberry|Pi|SD|4K|ZIP|AI|APIs?|UI|CA|Reolink|RLC-1224A|GitHub|Kubernetes|Timeline|Video|Archive|Status)$/; // names and the app’s page names
+    const names = /^(Google|Vision|Raspberry|Pi|SD|Hi|4K|ZIP|AI|APIs?|UI|CA|Reolink|RLC-1224A|GitHub|Kubernetes|Timeline|Video|Archive|Status)$/; // names and the app’s page names
     for (const t of [...HIGHLIGHTS.map((h) => h.title), ...SECTIONS.map((s) => s.title), ...SECTIONS.flatMap((s) => s.features.map((f) => f.title))]) {
       const words = t.split(' ').slice(1);
       expect(words.filter((w) => /^[A-Z]/.test(w) && !names.test(w.replace(/[,.:]/g, ''))), t).toEqual([]);

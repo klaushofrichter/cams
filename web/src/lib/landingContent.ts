@@ -99,7 +99,7 @@ export const SECTIONS: Section[] = [
       {
         icon: 'live',
         title: 'Live video',
-        text: 'Watch in SD or 4K, turn on the sound or the camera’s spotlight, and take a snapshot. If the stream stalls, the proxy’s newest still fills in every second.',
+        text: 'Watch in SD or Hi, turn on the sound or the camera’s spotlight, and take a snapshot. If the stream stalls, the proxy’s newest still fills in every second.',
       },
       {
         icon: 'history',
@@ -154,8 +154,8 @@ export const SECTIONS: Section[] = [
     features: [
       {
         icon: 'download',
-        title: 'Downloads in SD or 4K',
-        text: 'Save any recording of up to 10 minutes, in SD or as the camera’s original 4K file. Nothing downloads until you press Save.',
+        title: 'Downloads in SD or Hi',
+        text: 'Save any recording of up to 10 minutes, in SD or as the camera’s original Hi file. Nothing downloads until you press Save.',
       },
       {
         icon: 'clip',
@@ -182,7 +182,7 @@ export const SECTIONS: Section[] = [
       {
         icon: 'camera',
         title: 'What we use of the RLC-1224A',
-        text: 'Its two live streams (SD in H.264, 4K in H.265), the AI detection of people, vehicles and pets, motion and ONVIF events, the recordings on its SD card, clip uploads by FTP, the spotlight and the infrared lights.',
+        text: 'Its two live streams (SD in H.264, Hi in H.265), the AI detection of people, vehicles and pets, motion and ONVIF events, the recordings on its SD card, clip uploads by FTP, the spotlight and the infrared lights.',
       },
       {
         icon: 'settings',
