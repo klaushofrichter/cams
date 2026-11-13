@@ -733,13 +733,13 @@ describe('ComposeDialog: Archive', () => {
     expect(q('compose-size')).not.toBeNull();
   });
 
-  it('archives 4K as the main recording, with the 4K label', () => {
+  it('archives 4K as the main recording, with the Hi label', () => {
     vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ available: true }), { status: 200 })));
     render();
     set4k();
     q('compose-archive')!.click();
     flushSync();
-    expect(target!.querySelector('[data-label="4K"]')!.getAttribute('aria-pressed')).toBe('true');
+    expect(target!.querySelector('[data-label="Hi"]')!.getAttribute('aria-pressed')).toBe('true');
     expect(target!.querySelector('[data-label="SD"]')!.getAttribute('aria-pressed')).toBe('false');
   });
 
