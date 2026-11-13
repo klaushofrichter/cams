@@ -83,25 +83,25 @@
   }
   const muteTip = $derived($liveUi.muted ? 'Muted, click to unmute' : 'Sound on, click to mute');
   const lightTip = $derived(!live ? LIVE_ONLY : light ? 'Light is on, click to turn off' : 'Light is off, click to turn on');
-  const qualityTip = $derived(!live ? LIVE_ONLY : $liveUi.quality === 'main' ? 'Switch to SD' : 'Switch to 4K');
-  const qualityName = $derived(!live ? 'Quality — only in live mode' : `Quality: ${$liveUi.quality === 'main' ? '4K, switch to SD' : 'SD, switch to 4K'}`);
+  const qualityTip = $derived(!live ? LIVE_ONLY : $liveUi.quality === 'main' ? 'Switch to SD' : 'Switch to Hi');
+  const qualityName = $derived(!live ? 'Quality — only in live mode' : `Quality: ${$liveUi.quality === 'main' ? 'Hi, switch to SD' : 'SD, switch to Hi'}`);
   // A camera with a third stream (ext, the Reolink app's Balanced) gets three
-  // choices, SD | Mid | 4K (4K where HEVC plays), instead of the toggle. "Mid"
+  // choices, SD | Mid | Hi (Hi where HEVC plays), instead of the toggle. "Mid"
   // keeps the row on one line (Klaus, 2026-11-03); the tooltip names Balanced.
   const hasExt = $derived(offersExt($cameraById(cameraId)));
   const extFailed = $derived(!!$liveUi.extFailed?.includes(cameraId));
   const shown = $derived(effectiveQuality($liveUi.quality, { hevc: $liveUi.hevc, ext: hasExt && !extFailed }));
   const CHOICES: { q: Quality; label: string; tip: string }[] = [
     { q: 'sub', label: 'SD', tip: 'SD (smallest, plays everywhere)' },
-    { q: 'ext', label: 'Mid', tip: 'Mid: between SD and 4K (Balanced in the Reolink app)' },
-    { q: 'main', label: '4K', tip: 'Full quality (needs HEVC support)' },
+    { q: 'ext', label: 'Mid', tip: 'Mid: between SD and Hi (Balanced in the Reolink app)' },
+    { q: 'main', label: 'Hi', tip: 'Hi: the highest quality (needs HEVC support)' },
   ];
-  // 4K stays visible where the browser can't play it, disabled with the reason
+  // Hi (the main stream; "Hi" whatever its size, Klaus 2026-11-13) stays visible where the browser can't play it, disabled with the reason
   // (Klaus, 2026-11-04); Mid only for a camera with a third stream.
   const choices = $derived(CHOICES.filter((c) => c.q !== 'ext' || hasExt));
   const unplayable = (c: { q: Quality }) => c.q === 'main' && !$liveUi.hevc;
   const choiceTip = (c: { q: Quality; tip: string }) =>
-    unplayable(c) ? "4K needs a browser that plays H.265 (HEVC), and this one doesn't" : !live ? LIVE_ONLY : c.q === 'ext' && extFailed ? "Mid didn't start for this camera; it plays SD" : c.tip;
+    unplayable(c) ? "Hi needs a browser that plays H.265 (HEVC), and this one doesn't" : !live ? LIVE_ONLY : c.q === 'ext' && extFailed ? "Mid didn't start for this camera; it plays SD" : c.tip;
   const lightName = $derived(!live ? 'Light — only in live mode' : lightTip);
   const snapTip = $derived($liveUi.snapshotBusy ? 'Saving…' : live ? 'Save a snapshot' : 'Save this frame');
 </script>
@@ -122,7 +122,7 @@
   {:else}
     <button data-testid="quality-toggle" aria-pressed={$liveUi.quality === 'main'} aria-disabled={live ? undefined : 'true'} aria-describedby={live ? undefined : 'live-only-note'}
       onclick={() => liveOnly(toggleQuality)} title={qualityTip} aria-label={qualityName}>
-      {$liveUi.quality === 'main' ? '4K' : 'SD'}
+      {$liveUi.quality === 'main' ? 'Hi' : 'SD'}
     </button>
   {/if}
   <!-- Switching the light changes the camera: account admins only (migration P4). -->

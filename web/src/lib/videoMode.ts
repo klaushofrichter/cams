@@ -29,9 +29,9 @@ export function liveBadge(u: Pick<LiveUi, 'playerState' | 'stillsShowing' | 'sta
 }
 
 // What a recording shows (Klaus, 2026-10-04): a clip by the stream that
-// plays (sub SD, main 4K), or the proxy's stills.
-export type RecShown = 'SD' | '4K' | 'Still';
-export const clipShown = (stream: 'sub' | 'main'): RecShown => (stream === 'main' ? '4K' : 'SD');
+// plays (sub SD, main Hi), or the proxy's stills.
+export type RecShown = 'SD' | 'Hi' | 'Still';
+export const clipShown = (stream: 'sub' | 'main'): RecShown => (stream === 'main' ? 'Hi' : 'SD');
 
 // The badge on the player: "● LIVE", or "REC 14:03:22 · SD" (with the day
 // when it isn't today: "REC Oct 3, 14:03:22 · Still"); nothing after the

@@ -57,11 +57,11 @@ describe('VideoControls', () => {
     expect(q('snapshot')!.textContent!.trim()).toBe('');
     expect(q('snapshot')!.title).toBe('Save a snapshot');
     expect(q('quality-toggle')!.textContent!.trim()).toBe('SD');
-    expect(q('quality-toggle')!.title).toBe('Switch to 4K');
+    expect(q('quality-toggle')!.title).toBe('Switch to Hi');
     liveUi.update((u) => ({ ...u, muted: false, quality: 'main' }));
     flushSync();
     expect(q('mute-toggle')!.title).toBe('Sound on, click to mute');
-    expect(q('quality-toggle')!.textContent!.trim()).toBe('4K');
+    expect(q('quality-toggle')!.textContent!.trim()).toBe('Hi');
     expect(q('quality-toggle')!.title).toBe('Switch to SD');
   });
 
@@ -105,7 +105,7 @@ describe('VideoControls', () => {
 
   it('names quality for screen readers in live mode too', () => {
     render();
-    expect(q('quality-toggle')!.getAttribute('aria-label')).toBe('Quality: SD, switch to 4K');
+    expect(q('quality-toggle')!.getAttribute('aria-label')).toBe('Quality: SD, switch to Hi');
     expect(q('quality-toggle')!.hasAttribute('aria-disabled')).toBe(false);
   });
 
@@ -271,13 +271,13 @@ describe('VideoControls: Balanced', () => {
   const withExt = (live: ('main' | 'ext' | 'sub')[] = ['main', 'ext', 'sub']) =>
     cameras.set([{ id: 'cam2', name: 'Garage', webUiUrl: null, capabilities: { schema: 1, ptz: null, live } }]);
 
-  it('offers SD, Mid and 4K for a camera with ext; the choice is kept', () => {
+  it('offers SD, Mid and Hi for a camera with ext; the choice is kept', () => {
     withExt();
     lightServer();
     render();
     expect(q('quality-toggle')).toBeNull();
     const group = q('quality-choice')!;
-    expect([...group.querySelectorAll('button')].map((b) => b.textContent!.trim())).toEqual(['SD', 'Mid', '4K']);
+    expect([...group.querySelectorAll('button')].map((b) => b.textContent!.trim())).toEqual(['SD', 'Mid', 'Hi']);
     expect(q('quality-sub')!.getAttribute('aria-pressed')).toBe('true');
     q('quality-ext')!.click();
     flushSync();
@@ -291,13 +291,13 @@ describe('VideoControls: Balanced', () => {
   });
 
   // Klaus, 2026-11-04: show the quality the browser can't play, dimmed, and say why.
-  const NO_HEVC = "4K needs a browser that plays H.265 (HEVC), and this one doesn't";
-  it('without HEVC: 4K is shown, disabled, and its tooltip says why; SD and Mid play (ext is H.264)', () => {
+  const NO_HEVC = "Hi needs a browser that plays H.265 (HEVC), and this one doesn't";
+  it('without HEVC: Hi is shown, disabled, and its tooltip says why; SD and Mid play (ext is H.264)', () => {
     withExt();
     lightServer();
     liveUi.update((u) => ({ ...u, hevc: false }));
     render();
-    expect([...q('quality-choice')!.querySelectorAll('button')].map((b) => b.textContent!.trim())).toEqual(['SD', 'Mid', '4K']);
+    expect([...q('quality-choice')!.querySelectorAll('button')].map((b) => b.textContent!.trim())).toEqual(['SD', 'Mid', 'Hi']);
     const k = q('quality-main') as HTMLButtonElement;
     expect(k.disabled).toBe(true);
     expect(k.title).toBe(NO_HEVC);
@@ -307,18 +307,18 @@ describe('VideoControls: Balanced', () => {
     flushSync();
     expect(get(liveUi).quality).toBe('sub');
   });
-  it('without HEVC and without ext: SD and a disabled 4K instead of no quality control at all', () => {
+  it('without HEVC and without ext: SD and a disabled Hi instead of no quality control at all', () => {
     withExt(['main', 'sub']);
     lightServer();
     liveUi.update((u) => ({ ...u, hevc: false }));
     render();
     expect(q('quality-toggle')).toBeNull();
-    expect([...q('quality-choice')!.querySelectorAll('button')].map((b) => b.textContent!.trim())).toEqual(['SD', '4K']);
+    expect([...q('quality-choice')!.querySelectorAll('button')].map((b) => b.textContent!.trim())).toEqual(['SD', 'Hi']);
     expect((q('quality-main') as HTMLButtonElement).disabled).toBe(true);
     expect(q('quality-main')!.title).toBe(NO_HEVC);
     expect(q('quality-sub')!.getAttribute('aria-pressed')).toBe('true');
   });
-  it('a camera without ext (or an older proxy) keeps the SD/4K toggle; a stored Balanced shows as SD there', () => {
+  it('a camera without ext (or an older proxy) keeps the SD/Hi toggle; a stored Balanced shows as SD there', () => {
     withExt(['main', 'sub']);
     lightServer();
     liveUi.update((u) => ({ ...u, quality: 'ext' }));

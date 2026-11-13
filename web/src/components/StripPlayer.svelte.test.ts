@@ -410,16 +410,16 @@ describe('StripPlayer', () => {
     expect(q('mode-badge')!.textContent!.trim()).toBe('● LIVE');
   });
 
-  // Klaus, 2026-10-04: REC says what it shows (the clip's stream: sub SD, main 4K; the stills: Still).
-  it('adds SD, 4K or Still to the REC badge, and its aria-label', async () => {
+  // Klaus, 2026-10-04: REC says what it shows (the clip's stream: sub SD, main Hi; the stills: Still).
+  it('adds SD, Hi or Still to the REC badge, and its aria-label', async () => {
     const p = render({ at: T + 12_000 }) as unknown as { at: number; clipStream: 'sub' | 'main' };
     await tick(0);
     expect(q('mode-badge')!.textContent!.trim()).toBe(`REC ${localClock(T + 12_000)} · SD`);
     expect(q('mode-badge')!.getAttribute('aria-label')).toBe(`REC ${localClock(T + 12_000)} · SD, back to live`);
     p.clipStream = 'main';
     flushSync();
-    expect(q('mode-badge')!.textContent!.trim()).toBe(`REC ${localClock(T + 12_000)} · 4K`);
-    expect(q('mode-badge')!.getAttribute('aria-label')).toBe(`REC ${localClock(T + 12_000)} · 4K, back to live`);
+    expect(q('mode-badge')!.textContent!.trim()).toBe(`REC ${localClock(T + 12_000)} · Hi`);
+    expect(q('mode-badge')!.getAttribute('aria-label')).toBe(`REC ${localClock(T + 12_000)} · Hi, back to live`);
     p.clipStream = 'sub';
     flushSync();
     expect(q('mode-badge')!.textContent!.trim()).toBe(`REC ${localClock(T + 12_000)} · SD`);

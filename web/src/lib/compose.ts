@@ -6,9 +6,9 @@ export const SIZE_LABELS: Record<ComposeSize, string> = {
   sd: 'SD 896×512 (original)', '360p': '640×360', '720p': '1280×720 (upscaled)', '1080p': '1920×1080 (upscaled)',
 };
 // What the save dialog offers: the composed sizes, plus the camera's original
-// main stream (4K, formerly "Full"), which is saved as it is (Klaus, 2026-09-29).
+// main stream (Hi, formerly "4K" and "Full"; Klaus 2026-11-13: not every camera's main is 4K), which is saved as it is (Klaus, 2026-09-29).
 export type SaveSize = ComposeSize | '4k';
-export const ORIGINAL_4K_LABEL = '4K 4512×2512 (original)';
+export const ORIGINAL_4K_LABEL = 'Hi (original)';
 export interface JobView { id: string; state: 'queued' | 'running' | 'done' | 'failed' | 'cancelled'; progress: number; durationS: number; error?: string; name?: string }
 
 // The limits and the length rule are the server's own module, so the dialog
