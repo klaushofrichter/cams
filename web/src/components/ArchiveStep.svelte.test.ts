@@ -64,7 +64,7 @@ describe('ArchiveStep', () => {
     expect(chip('Person').getAttribute('aria-pressed')).toBe('true');
     expect(chip('SD').getAttribute('aria-pressed')).toBe('true');
     expect(chip('Pet').getAttribute('aria-pressed')).toBe('false');
-    expect(chip('4K').getAttribute('aria-pressed')).toBe('false');
+    expect(chip('Hi').getAttribute('aria-pressed')).toBe('false');
   });
 
   it('archives at once (201): the name only when edited, forever, custom labels; done offers the Archive', async () => {

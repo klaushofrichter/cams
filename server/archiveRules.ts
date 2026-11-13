@@ -4,7 +4,9 @@
 // archive step, the Archive page), so the two never disagree with each other
 // or with the proxy.
 
-export const PREDEFINED_LABELS = ['Pet', 'Person', 'Vehicle', 'SD', '4K'] as const;
+// "Hi" for the main stream since 2026-11-13 (was "4K"; not every camera's main
+// is 4K). Clips archived earlier keep "4K", now an ordinary custom label.
+export const PREDEFINED_LABELS = ['Pet', 'Person', 'Vehicle', 'SD', 'Hi'] as const;
 export const MAX_LABELS = 16;
 export const LABEL_MAX_CHARS = 24;
 export const NAME_MAX_CHARS = 120;
@@ -24,7 +26,7 @@ export function labelProblem(label: string): string | null {
   return null;
 }
 
-// The predefined spelling of a label (pet → Pet, 4k → 4K), else as typed.
+// The predefined spelling of a label (pet → Pet, hi → Hi), else as typed.
 export function labelSpelling(label: string): string {
   return PREDEFINED_LABELS.find((p) => p.toLowerCase() === label.toLowerCase()) ?? label;
 }
@@ -63,12 +65,12 @@ export function retentionProblem(days: unknown): string | null {
 }
 
 // The labels the archive step starts with (cams preselects, the proxy adds
-// none): the clip's person, vehicle and pet kinds, and SD or 4K by its size.
+// none): the clip's person, vehicle and pet kinds, and SD or Hi by its size.
 export function preselectLabels(kinds: readonly string[], size: string): string[] {
   const out: string[] = [];
   for (const [kind, label] of [['person', 'Person'], ['vehicle', 'Vehicle'], ['pet', 'Pet']] as const) if (kinds.includes(kind)) out.push(label);
   if (size === 'sd') out.push('SD');
-  if (size === '4k') out.push('4K');
+  if (size === '4k') out.push('Hi');
   return out;
 }
 

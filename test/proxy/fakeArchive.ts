@@ -351,7 +351,7 @@ export function installFakeArchive(app: Express, fake: FakeProxy, dir: string): 
     const items = [...a.entries.values()].map((e) => e.item);
     const bytes = items.reduce((n, x) => n + x.bytes, 0);
     const counts = new Map<string, number>();
-    for (const l of ['Pet', 'Person', 'Vehicle', 'SD', '4K']) counts.set(l, 0);
+    for (const l of ['Pet', 'Person', 'Vehicle', 'SD', 'Hi']) counts.set(l, 0);
     for (const it of items) for (const l of it.labels) counts.set(l, (counts.get(l) ?? 0) + 1);
     const created = items.map((x) => x.createdAt);
     const percent = Math.round((bytes / a.diskSize) * 1000) / 10;
