@@ -40,7 +40,7 @@
     live?: Snippet; // the live stream; kept mounted while unglued so it resumes at once
     onglue?: () => void; // the REC badge: back to live (spec 2026-10-04)
     // The stream a clip's video plays (HistoryView passes VIDEO_STREAM, the
-    // clip route's: sub, SD); main says 4K.
+    // clip route's: sub, SD); main says Hi.
     clipStream?: 'sub' | 'main';
     // The timeline is being dragged (Klaus, 2026-10-09): a clip's video loads
     // and seeks under the still and shows only once it has the frame.
@@ -443,7 +443,7 @@
   // moment starts at 1x (Klaus, 2026-11-05, lib/zoomReset.ts).
   const zoomKey = $derived(zoomKeyOf(cam, zoomPicks));
   let zoomState: ZoomState = { zoomed: false, strokeTaken: false };
-  // REC adds what it shows (Klaus, 2026-10-04): SD or 4K for a clip, Still for the stills.
+  // REC adds what it shows (Klaus, 2026-10-04): SD or Hi for a clip, Still for the stills.
   const shown = $derived<RecShown | null>(source.kind === 'clip' ? clipShown(clipStream) : source.kind === 'still' ? 'Still' : null);
   const badge = $derived(mode === 'live' ? liveBadge($liveUi) : modeBadge(mode, at, now, shown));
 

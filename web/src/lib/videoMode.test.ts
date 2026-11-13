@@ -28,11 +28,11 @@ describe('mode', () => {
   });
 
   // Klaus, 2026-10-04: REC says what it shows: a clip's quality, or the stills.
-  it('adds what a recording shows: SD, 4K or Still', () => {
+  it('adds what a recording shows: SD, Hi or Still', () => {
     const now = new Date(2026, 9, 4, 15, 0, 0).getTime();
     const today = new Date(2026, 9, 4, 7, 18, 32).getTime();
     expect(modeBadge('rec', today, now, 'SD')).toBe(`REC ${localClock(today)} · SD`);
-    expect(modeBadge('rec', today, now, '4K')).toBe(`REC ${localClock(today)} · 4K`);
+    expect(modeBadge('rec', today, now, 'Hi')).toBe(`REC ${localClock(today)} · Hi`);
     expect(modeBadge('rec', today, now, 'Still')).toBe(`REC ${localClock(today)} · Still`);
     const yesterday = new Date(2026, 9, 3, 9, 5, 7).getTime();
     expect(modeBadge('rec', yesterday, now, 'SD')).toBe(`REC Oct 3, ${localClock(yesterday)} · SD`);
