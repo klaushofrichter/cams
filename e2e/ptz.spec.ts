@@ -123,6 +123,16 @@ test('zoom in held, then stop', async ({ page }) => {
   expect((await calls(page))[0]).toMatchObject({ op: 'zoom', body: { direction: 'in', durationMs: 400 } });
 });
 
+test('a click on the word Focus autofocuses once, and the word is busy meanwhile', async ({ page }) => {
+  await openPanel(page);
+  const af = page.getByRole('button', { name: 'Autofocus' });
+  await expect(af).toHaveText('Focus');
+  await af.click();
+  await expect(af).toBeDisabled();
+  await expect.poll(async () => (await calls(page)).map((c) => c.op)).toEqual(['autofocus']);
+  await expect(af).toBeEnabled({ timeout: 6000 });
+});
+
 test('save, sort, make Home and delete positions', async ({ page }) => {
   await openPanel(page);
   await expect(page.getByTestId('ptz-empty')).toBeVisible();

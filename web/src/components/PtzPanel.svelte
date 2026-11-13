@@ -45,17 +45,46 @@
     next.set('focus-near', make((ms) => api.focus('near', ms)));
     next.set('focus-far', make((ms) => api.focus('far', ms)));
     holds = next;
+    endFocusing();
     error = '';
     renaming = confirming = null;
     saving = false;
     return () => {
       for (const h of next.values()) h.cancel();
+      clearTimeout(focusTimer);
     };
   });
 
   const cancelAll = () => {
     for (const h of holds.values()) h.cancel();
   };
+
+  // The Reolink app's Autofocus, on the word Focus (Klaus, 2026-11-12): one
+  // call, then busy while the camera focuses (it settles within about 4 s).
+  const AUTOFOCUS_MS = 4000;
+  let focusing = $state(false);
+  let focusTimer: ReturnType<typeof setTimeout> | undefined;
+  function endFocusing() {
+    clearTimeout(focusTimer);
+    focusTimer = undefined;
+    focusing = false;
+  }
+  async function autofocus() {
+    if (focusing) return;
+    const cam = cameraId;
+    cancelAll();
+    focusing = true;
+    try {
+      await ptzApi(cam).autofocus();
+      if (cam !== cameraId) return;
+      error = '';
+      focusTimer = setTimeout(endFocusing, AUTOFOCUS_MS);
+    } catch (e) {
+      if (cam !== cameraId) return;
+      error = ptzErrorText(e);
+      endFocusing();
+    }
+  }
   // Collapsing removes the buttons mid-hold (no pointerup reaches them): stop.
   $effect(() => {
     if (!$open) cancelAll();
@@ -289,7 +318,11 @@
             {/if}
             {#if ptz.focus}
               <div class="row" role="group" aria-label="Focus">
-                <span class="what">Focus</span>
+                {#if ptz.autofocus}
+                  <button class="what af" data-testid="ptz-autofocus" aria-label="Autofocus" title="Autofocus" aria-busy={focusing} disabled={focusing} onclick={autofocus}>Focus</button>
+                {:else}
+                  <span class="what">Focus</span>
+                {/if}
                 <button class="key" data-testid="ptz-focus-near" aria-label="Focus nearer" title="Focus nearer" {...press('focus-near')}>−</button>
                 <button class="key" data-testid="ptz-focus-far" aria-label="Focus farther" title="Focus farther" {...press('focus-far')}>+</button>
               </div>
@@ -412,6 +445,15 @@
   .lens { display: flex; flex-direction: column; gap: 8px; }
   .row { display: flex; align-items: center; gap: 6px; }
   .what { width: 44px; font-size: 13px; color: var(--muted); }
+  .af {
+    padding: 0; border: 0; background: none; font: inherit; font-size: 13px; text-align: left; cursor: pointer;
+    text-decoration: underline dotted; text-underline-offset: 3px;
+  }
+  .af:hover:not(:disabled) { color: var(--text); }
+  .af:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 2px; }
+  .af:disabled { cursor: progress; color: var(--accent); animation: af-pulse 0.8s ease-in-out infinite alternate; }
+  @keyframes af-pulse { from { opacity: 1; } to { opacity: 0.4; } }
+  @media (prefers-reduced-motion: reduce) { .af:disabled { animation: none; } }
   .error { margin: 10px 0 0; font-size: 13px; color: var(--danger); }
 
   .positions { margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--border); --ptz-row: 40px; }

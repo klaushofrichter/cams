@@ -60,6 +60,11 @@ for (const op of ['zoom', 'focus'] as const) {
   });
 }
 
+// One autofocus (the Reolink app's Autofocus): nothing to pass but the call.
+ptzRouter.post('/api/cameras/:id/ptz/autofocus', async (req, res) => {
+  await forward(req, res, '/ptz/autofocus', { method: 'POST', body: {}, timeoutMs: CONTROL_TIMEOUT_MS });
+});
+
 ptzRouter.post('/api/cameras/:id/ptz/stop', async (req, res) => {
   await forward(req, res, '/ptz/stop', { method: 'POST', body: {}, timeoutMs: CONTROL_TIMEOUT_MS });
 });

@@ -16,7 +16,7 @@ import { until } from './helpers/wait';
 
 // A camera's capabilities from its cam-proxy (cam-proxy spec
 // 2026-10-30-ptz-capabilities-design §4): passed on in GET /api/cameras.
-const PTZ = { schema: 1, ptz: { move: true, zoom: true, focus: true, speed: true, positions: { max: 20 } } };
+const PTZ = { schema: 1, ptz: { move: true, zoom: true, focus: true, autofocus: true, speed: true, positions: { max: 20 } } };
 // What cams keeps: an older proxy says nothing about live streams, so main and sub.
 const MAIN_SUB = ['main', 'sub'];
 const PTZ_PARSED = { ...PTZ, live: MAIN_SUB };
@@ -32,13 +32,13 @@ describe('parseCapabilities', () => {
   it('reads non-booleans as false and an implausible positions.max as no positions', () =>
     expect(parseCapabilities({ features: ['ptz'], capabilities: { schema: 1, ptz: { move: 'yes', zoom: true, positions: { max: 500 } } } })).toEqual({
       schema: 1,
-      ptz: { move: false, zoom: true, focus: false, speed: false, positions: null },
+      ptz: { move: false, zoom: true, focus: false, autofocus: false, speed: false, positions: null },
       live: MAIN_SUB,
     }));
   it('reads a camera without presets (no positions field) as positions null', () =>
     expect(parseCapabilities({ features: ['ptz'], capabilities: { schema: 1, ptz: { move: true, zoom: false, focus: false, speed: true } } })).toEqual({
       schema: 1,
-      ptz: { move: true, zoom: false, focus: false, speed: true, positions: null },
+      ptz: { move: true, zoom: false, focus: false, autofocus: false, speed: true, positions: null },
       live: MAIN_SUB,
     }));
   it('reads ptz null (a fixed camera) as ptz null', () => expect(parseCapabilities({ features: ['ptz'], capabilities: { schema: 1, ptz: null } })).toEqual({ schema: 1, ptz: null, live: MAIN_SUB }));

@@ -8,13 +8,11 @@ published as [GitHub releases](https://github.com/klaushofrichter/cams/releases)
 
 ## [Unreleased]
 
+### Added
+
+- Video page, Pan & tilt: a click on the word **Focus** makes the camera focus by itself, like the Reolink app's Autofocus button (cameras that can, such as the E1 Outdoor Pro; needs cam-proxy with `ptz/autofocus`). The word blinks while the camera focuses, about 4 s. New `POST /api/cameras/:id/ptz/autofocus` for every member.
+
 ### Changed
 
-- The public pages (the start page, the sign-in pages) can be zoomed on a phone, as accessibility guidelines ask; the signed-in app still holds still. The token field is a touch larger, so iPhones don't zoom in when it is tapped.
-- Text on the public pages is easier to read: the light theme's accent text (section labels, "Read more", links) and the sign-in buttons are a deeper teal, the start page's gradient buttons and chat bubbles are a deeper teal-to-indigo in both themes, the outlined repository names are a little stronger, and the demo sash's stripes are lighter in the light theme. Every text now has WCAG AA contrast against what is really behind it.
-- An unknown address shows a page in the site's style ("Page not found", with a way back) instead of a plain "Not found".
-
-### Fixed
-- Phone: leaving fullscreen with a double tap no longer presses what is under your finger afterwards. On a slow phone, the second tap could open the Timeline through the "Show in Timeline" link.
-- The start page's scripts, stylesheets, screenshots and icons no longer count against the visitor's page limit, so browsing the public pages never ends in "too many requests" for the page's own files. They have their own, much larger limit.
+- The Lighthouse check (the daily live check and the production checks) now runs Lighthouse once to warm up before the three scored runs: on GitHub's machines the first run often scored 77–86 where the next ones scored 94 and more, and could fail the check on its own.
 

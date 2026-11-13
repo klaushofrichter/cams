@@ -501,12 +501,12 @@ export async function startFakeProxy(opts: { port?: number; token?: string; tls?
   // Like the real one: the oldest clip, still and preview it holds.
   // PTZ (cam-proxy's src/api/ptz-api.ts, spec 2026-10-30-ptz-capabilities-design
   // §5): the capability gate, then the body's checks, with its words and codes.
-  type PtzNeed = 'move' | 'zoom' | 'focus' | 'positions';
+  type PtzNeed = 'move' | 'zoom' | 'focus' | 'autofocus' | 'positions';
   const ptzGate = (cam: string, res: Response, need: PtzNeed): boolean => {
-    const caps = fake.capabilities.get(cam) as { ptz?: { zoom?: boolean; focus?: boolean; positions?: unknown } | null } | null | undefined;
+    const caps = fake.capabilities.get(cam) as { ptz?: { zoom?: boolean; focus?: boolean; autofocus?: boolean; positions?: unknown } | null } | null | undefined;
     if (!caps) return void res.status(503).json({ error: 'camera_offline' }), false;
     const ptz = caps.ptz;
-    if (!ptz || (need === 'zoom' && !ptz.zoom) || (need === 'focus' && !ptz.focus) || (need === 'positions' && !ptz.positions)) return void res.status(404).json({ error: 'not_supported' }), false;
+    if (!ptz || (need === 'zoom' && !ptz.zoom) || (need === 'focus' && !ptz.focus) || (need === 'autofocus' && !ptz.autofocus) || (need === 'positions' && !ptz.positions)) return void res.status(404).json({ error: 'not_supported' }), false;
     return true;
   };
   const ptzBad = (res: Response, detail: string) => void res.status(400).json({ error: 'invalid', detail });
@@ -539,6 +539,11 @@ export async function startFakeProxy(opts: { port?: number; token?: string; tls?
       ptzDone(res, cam, op, b);
     });
   }
+  app.post('/api/cameras/:cam/ptz/autofocus', express.json(), (req, res) => {
+    const cam = String(req.params.cam);
+    if (!ptzGate(cam, res, 'autofocus')) return;
+    ptzDone(res, cam, 'autofocus', req.body ?? {});
+  });
   app.post('/api/cameras/:cam/ptz/stop', express.json(), (req, res) => {
     const cam = String(req.params.cam);
     if (!ptzGate(cam, res, 'move')) return;
