@@ -8,3 +8,5 @@ published as [GitHub releases](https://github.com/klaushofrichter/cams/releases)
 
 ## [Unreleased]
 
+- Archive: the label for the main stream is now **Hi** instead of "4K". Clips archived earlier keep "4K" as an ordinary label.
+

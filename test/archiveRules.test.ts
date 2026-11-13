@@ -14,7 +14,9 @@ describe('labels', () => {
   });
 
   it('is a case-insensitive set: the first spelling wins, the predefined keep theirs', () => {
-    expect(normalizeLabels(['pet', 'Fox', 'FOX', '4k', 'sd', 'person'])).toEqual({ ok: true, labels: ['Pet', 'Fox', '4K', 'SD', 'Person'] });
+    expect(normalizeLabels(['pet', 'Fox', 'FOX', 'hi', 'sd', 'person'])).toEqual({ ok: true, labels: ['Pet', 'Fox', 'Hi', 'SD', 'Person'] });
+    // "4K", predefined until 2026-11-13, is an ordinary label now: kept as typed.
+    expect(normalizeLabels(['4K', '4k'])).toEqual({ ok: true, labels: ['4K'] });
     expect(normalizeLabels([])).toEqual({ ok: true, labels: [] });
   });
 
@@ -26,9 +28,9 @@ describe('labels', () => {
     expect(normalizeLabels([1]).ok).toBe(false);
   });
 
-  it('preselects the clip’s person, vehicle and pet kinds and SD or 4K by its size', () => {
+  it('preselects the clip’s person, vehicle and pet kinds and SD or Hi by its size', () => {
     expect(preselectLabels(['motion', 'person', 'pet'], 'sd')).toEqual(['Person', 'Pet', 'SD']);
-    expect(preselectLabels(['vehicle'], '4k')).toEqual(['Vehicle', '4K']);
+    expect(preselectLabels(['vehicle'], '4k')).toEqual(['Vehicle', 'Hi']);
     expect(preselectLabels(['motion'], '720p')).toEqual([]);
   });
 });
