@@ -2,7 +2,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   ALL_KINDS, addDays, cursorSearch, isAllKinds, parseFilter, toggleFilter, downloadUrl, filterEvents, groupByHour,
-  loadCursor, orderTriggers, parseCursor, saveCursor, thumbUrl, videoUrl,
+  loadCursor, orderRank, orderTriggers, parseCursor, saveCursor, thumbUrl, videoUrl,
   type EventClip,
 } from './recordings';
 
@@ -256,5 +256,13 @@ describe('tagText', () => {
     expect(tagText('person', undefined)).toBe('Person');
     expect(tagText('motion', { person: 2 })).toBe('Motion');
     expect(tagText('timer', {})).toBe('Scheduled');
+  });
+});
+
+describe('orderRank', () => {
+  it('ranks by position in the list, unknown values last', () => {
+    const rank = orderRank(['b', 'a']);
+    expect(['x', 'a', 'b'].sort((p, q) => rank(p) - rank(q))).toEqual(['b', 'a', 'x']);
+    expect(rank('zzz')).toBe(2);
   });
 });

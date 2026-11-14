@@ -60,7 +60,6 @@ export function makeCtx(principal: Principal, token: StoredToken, base: Internal
 }
 
 export const CAMERA = z.string().regex(/^[a-z0-9][a-z0-9-]{0,31}$/, 'a camera id from list_cameras');
-export const ERROR_SHAPE = { error: z.string(), message: z.string(), retryable: z.boolean() };
 
 export interface ToolDef<I extends z.ZodTypeAny> {
   name: string;

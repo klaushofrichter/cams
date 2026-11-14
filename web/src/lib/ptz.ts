@@ -84,7 +84,6 @@ export function ptzApi(cam: string) {
     remove: (id: string) => none(call(cam, `/positions/${encodeURIComponent(id)}`, 'DELETE')),
   };
 }
-export type PtzApi = ReturnType<typeof ptzApi>;
 
 const TEXT: Record<string, string> = {
   not_supported: "This camera can't do that.",

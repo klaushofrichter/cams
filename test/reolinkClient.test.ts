@@ -110,6 +110,26 @@ describe('ReolinkClient', () => {
     expect(state.logins).toBe(2);
   });
 
+  // A camera that keeps refusing the token after a re-login: both GET paths
+  // (Snap, FLV) try exactly twice and end in camera_auth_failed.
+  it('reports camera_auth_failed when the token is refused again after the re-login', async () => {
+    const simCam = await createSimCamera({ user: 'u', password: 'p' });
+    const outer = express();
+    outer.use((req, res, next) => (req.query.cmd === 'Snap' || req.path === '/flv' ? void res.status(403).end() : next()));
+    outer.use(simCam.app);
+    const refusing = outer.listen(0);
+    await new Promise((r) => refusing.once('listening', r));
+    try {
+      const client = new ReolinkClient({ ...cam, host: `127.0.0.1:${(refusing.address() as AddressInfo).port}` });
+      await expect(client.snapshot()).rejects.toMatchObject({ code: 'camera_auth_failed', message: 'token rejected after re-login' });
+      expect(simCam.state.logins).toBe(2);
+      await expect(client.openLive('sub', new AbortController().signal)).rejects.toMatchObject({ code: 'camera_auth_failed', message: 'token rejected after re-login' });
+      expect(simCam.state.logins).toBe(4);
+    } finally {
+      await new Promise<void>((r) => refusing.close(() => r()));
+    }
+  });
+
   // Review Important 3: a snapshot's full request (open + body read) must
   // stay inside the per-camera concurrency gate, same as JSON commands.
   it('keeps snapshots within the per-camera concurrency cap', async () => {

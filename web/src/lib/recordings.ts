@@ -46,12 +46,14 @@ export function tagText(t: Trigger, counts: EventClip['counts']): string {
 // then Person, Vehicle, Pet, Scheduled; the camera's own order varies. Only
 // the display: kinds this list doesn't know follow, in their order.
 const TRIGGER_ORDER: readonly string[] = ['motion', 'person', 'vehicle', 'pet', 'timer'];
+// A value's position in `order`, for sorting by it; unknown values after all.
+export const orderRank = (order: readonly string[]) => (k: string): number => {
+  const i = order.indexOf(k);
+  return i < 0 ? order.length : i;
+};
+const triggerRank = orderRank(TRIGGER_ORDER);
 export function orderTriggers<T extends string>(triggers: readonly T[]): T[] {
-  const rank = (t: string) => {
-    const i = TRIGGER_ORDER.indexOf(t);
-    return i < 0 ? TRIGGER_ORDER.length : i;
-  };
-  return [...triggers].sort((a, b) => rank(a) - rank(b));
+  return [...triggers].sort((a, b) => triggerRank(a) - triggerRank(b));
 }
 export const ALL_KINDS: FilterKind[] = ['person', 'vehicle', 'pet', 'motion'];
 export const isAllKinds = (f: Filter) => ALL_KINDS.every((k) => f.includes(k));
