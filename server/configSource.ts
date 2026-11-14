@@ -26,6 +26,7 @@ import { LocalTokens } from './admin/tokens';
 import { buildReport, Reporter } from './admin/report';
 import { shadowDiff } from './admin/shadow';
 import { registerViewerTokenClock, returnViewerTokenUses, takeViewerTokenUses } from './viewerTokens';
+import { intEnv } from './env';
 
 export type ConfigMode = 'file' | 'shadow' | 'cams-admin';
 const MODES: readonly ConfigMode[] = ['file', 'shadow', 'cams-admin'];
@@ -460,8 +461,7 @@ export async function startConfig(o: StartOptions = {}): Promise<void> {
     loadTlsState();
   }
   // CAMS_ADMIN_PULL_MS: a shorter interval (1–60 s) for tests and the local stack; the default is the spec's 60 s.
-  const envPull = Number(process.env.CAMS_ADMIN_PULL_MS);
-  const pullMs = o.pullIntervalMs ?? (Number.isInteger(envPull) && envPull >= 1000 && envPull <= 60_000 ? envPull : 60_000);
+  const pullMs = o.pullIntervalMs ?? intEnv('CAMS_ADMIN_PULL_MS', 60_000, { min: 1000, max: 60_000 });
   st.puller = new Puller({ pull: pullOnce, intervalMs: pullMs, debounceMs: o.debounceMs ?? Math.min(10_000, pullMs) });
   st.puller.start();
 }

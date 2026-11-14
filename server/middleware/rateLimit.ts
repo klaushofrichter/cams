@@ -2,30 +2,27 @@ import rateLimit, { MemoryStore, RateLimitRequestHandler } from 'express-rate-li
 import { Request } from 'express';
 import { currentUser } from './requireAuth';
 import { isVerifiedInternal } from '../mcp/internal';
+import { intEnv } from '../env';
 
-function fromEnv(name: string, fallback: number): number {
-  const parsed = Number(process.env[name]);
-  return Number.isInteger(parsed) && parsed > 0 ? parsed : fallback;
-}
 
 // Overridable so the e2e suite can lift the caps; production sets neither.
-const WINDOW_MS = fromEnv('RATE_LIMIT_WINDOW_MS', 5 * 60 * 1000);
-const AUTH_MAX = fromEnv('RATE_LIMIT_MAX', 40);
-const API_MAX = fromEnv('RATE_LIMIT_API_MAX', 600);
-const MEDIA_MAX = fromEnv('RATE_LIMIT_MEDIA_MAX', 3000);
+const WINDOW_MS = intEnv('RATE_LIMIT_WINDOW_MS', 5 * 60 * 1000);
+const AUTH_MAX = intEnv('RATE_LIMIT_MAX', 40);
+const API_MAX = intEnv('RATE_LIMIT_API_MAX', 600);
+const MEDIA_MAX = intEnv('RATE_LIMIT_MEDIA_MAX', 3000);
 // cam-proxy stills and sprites: small, served from the proxy's disk, and
 // asked for in bursts (a day of Timeline sprites, stills while scrubbing).
-const IMAGE_MAX = fromEnv('RATE_LIMIT_IMAGE_MAX', 20000);
+const IMAGE_MAX = intEnv('RATE_LIMIT_IMAGE_MAX', 20000);
 // The web bundle, the landing page's screenshots and the icons: what a page
 // load fetches besides the page itself. Their own, much higher budget
 // (createStaticRateLimit): a page view is about 10 of them, and a visitor
 // paging through the site, or the public-pages suite's four browsers plus
 // Lighthouse on one address, spent the pages' 600 in minutes and got 429s
 // for the stylesheet (kube-setup's "public web pages" baseline, 2026-11-11).
-const STATIC_MAX = fromEnv('RATE_LIMIT_STATIC_MAX', 20000);
+const STATIC_MAX = intEnv('RATE_LIMIT_STATIC_MAX', 20000);
 // PTZ moves, zoom, focus and stop: holding the pad sends 4 a second, which
 // would spend the general budget in 2.5 minutes. 5 a second over the window.
-export const PTZ_MAX = fromEnv('RATE_LIMIT_PTZ_MAX', 1500);
+export const PTZ_MAX = intEnv('RATE_LIMIT_PTZ_MAX', 1500);
 
 // Matched against req.path once mounted under /api (the prefix is already
 // stripped there). Clip media: a clip's video, thumbnail and download.
@@ -64,7 +61,7 @@ export function createTokenFailureLimit(): RateLimitRequestHandler {
   stores.push(store);
   return rateLimit({
     windowMs: 15 * 60 * 1000,
-    limit: () => fromEnv('RATE_LIMIT_TOKEN_FAILURES', 10),
+    limit: () => intEnv('RATE_LIMIT_TOKEN_FAILURES', 10),
     standardHeaders: true,
     legacyHeaders: false,
     store,
@@ -85,7 +82,7 @@ export function createViewerTokenGlobalLimit(): RateLimitRequestHandler {
   stores.push(store);
   return rateLimit({
     windowMs: 15 * 60 * 1000,
-    limit: () => fromEnv('RATE_LIMIT_VIEWER_TOKEN_FAILURES', 100),
+    limit: () => intEnv('RATE_LIMIT_VIEWER_TOKEN_FAILURES', 100),
     standardHeaders: true,
     legacyHeaders: false,
     store,
@@ -145,7 +142,7 @@ export function createStaticRateLimit(): RateLimitRequestHandler {
 // is the budget's hard stop. In memory: a restart starts them over.
 // Overridable for the e2e suite; read per request, so tests can set them.
 export function createCheckRateLimits(): RateLimitRequestHandler[] {
-  return ([[60_000, () => fromEnv('RATE_LIMIT_CHECKS_PER_MIN', 6)], [86_400_000, () => fromEnv('RATE_LIMIT_CHECKS_PER_DAY', 60)]] as const).map(([windowMs, limit]) => perUser(windowMs, limit));
+  return ([[60_000, () => intEnv('RATE_LIMIT_CHECKS_PER_MIN', 6)], [86_400_000, () => intEnv('RATE_LIMIT_CHECKS_PER_DAY', 60)]] as const).map(([windowMs, limit]) => perUser(windowMs, limit));
 }
 
 // A limit per signed-in user, its cap read per request.
@@ -167,7 +164,7 @@ function perUser(windowMs: number, limit: () => number): RateLimitRequestHandler
 // clips and 4 ZIPs a minute, the proxy's own per-client limits (cams is one
 // client to it, so one person can't use up everyone's). Read per request.
 export function createArchiveRateLimit(kind: 'create' | 'zip'): RateLimitRequestHandler {
-  return perUser(60_000, () => (kind === 'create' ? fromEnv('RATE_LIMIT_ARCHIVE_PER_MIN', 10) : fromEnv('RATE_LIMIT_ARCHIVE_ZIP_PER_MIN', 4)));
+  return perUser(60_000, () => (kind === 'create' ? intEnv('RATE_LIMIT_ARCHIVE_PER_MIN', 10) : intEnv('RATE_LIMIT_ARCHIVE_ZIP_PER_MIN', 4)));
 }
 
 export function resetRateLimits(): void {

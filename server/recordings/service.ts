@@ -23,6 +23,7 @@ import { throughProxy } from '../proxy/features';
 import { proxyTimeInfo } from '../proxy/cameraCalls';
 import { camsIdOf, fileSafe, type CamKey } from '../fleet';
 import { contentLength } from '../httpBody';
+import { intEnv } from '../env';
 
 // A clip-cache name for one camera: flat (DiskCache refuses "/"), prefixed by
 // the account and camera (ruling R4-15), so no two accounts share a name.
@@ -63,13 +64,13 @@ const LIST_SPELL_MS = 15_000;
 // until a power cycle.
 const TRANSFERS_PER_CAMERA = 1;
 const BREAKER_FAILURES = 3;
-const RECORDINGS_PROBE_MS = () => Number(process.env.RECORDINGS_PROBE_MS) || 60_000;
-const DOWNLOAD_RETRY_DELAY_MS = Number(process.env.DOWNLOAD_RETRY_DELAY_MS) || 1000;
+const RECORDINGS_PROBE_MS = () => intEnv('RECORDINGS_PROBE_MS', 60_000);
+const DOWNLOAD_RETRY_DELAY_MS = intEnv('DOWNLOAD_RETRY_DELAY_MS', 1000);
 const RECENT_WINDOW_MS = 24 * 60 * 60 * 1000;
 // A detection's thumbnail: the still at its second or up to this much later.
 const DETECTION_STILL_MS = 3000;
 // A card whose detection thumbnail failed is tried again after this long.
-const DETECTION_RETRY_MS = () => Number(process.env.DETECTION_RETRY_MS ?? 300_000);
+const DETECTION_RETRY_MS = () => intEnv('DETECTION_RETRY_MS', 300_000, { min: 0 });
 type ThumbRule = 'detection' | 'start';
 const hasDetection = (triggers: readonly Trigger[]) => triggers.some((t) => t === 'person' || t === 'vehicle' || t === 'pet');
 // The camera Search cache behind cameraPath(): this many camera/day/stream
