@@ -801,6 +801,8 @@ export async function startFakeProxy(opts: { port?: number; token?: string; tls?
     res.type('video/mp4').setHeader('Accept-Ranges', 'bytes');
     if (!range) return void res.send(mp4);
     const from = Number(range[1]), to = range[2] ? Math.min(Number(range[2]), mp4.length - 1) : mp4.length - 1;
+    // Wholly past the end: 416 with the size and no body, like cam-proxy's sendFile.
+    if (from >= mp4.length) return void res.status(416).setHeader('Content-Range', `bytes */${mp4.length}`).end();
     res.status(206).setHeader('Content-Range', `bytes ${from}-${to}/${mp4.length}`);
     res.send(mp4.subarray(from, to + 1));
   });

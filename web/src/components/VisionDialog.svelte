@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount, tick } from 'svelte';
+  import { isPlainClick } from '../lib/plainClick';
   import TimelineStill from './TimelineStill.svelte';
   import { getJson } from '../lib/api';
   import { portal } from '../lib/portal';
@@ -73,7 +74,7 @@
   const historyLink = $derived(still ? historyHref(cameraId, still.stillTs) : '');
   // A plain click closes the dialog and stays in the app; a modified one is the browser's.
   function go(e: MouseEvent, open: () => void) {
-    if (e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey) return;
+    if (!isPlainClick(e)) return;
     e.preventDefault();
     close();
     open();

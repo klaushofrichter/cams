@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onDestroy, onMount, tick, untrack } from 'svelte';
+  import { isPlainClick } from '../lib/plainClick';
   import Icon from '../components/Icon.svelte';
   import Modal from '../components/Modal.svelte';
   import ArchivePlayer from '../components/ArchivePlayer.svelte';
@@ -185,7 +186,7 @@
     if (playing && byKey.has(itemKey(playing))) playing = byKey.get(itemKey(playing))!;
   }
   function openVideo(e: MouseEvent, href: string) {
-    if (e.metaKey || e.ctrlKey || e.shiftKey || e.button !== 0) return;
+    if (!isPlainClick(e)) return;
     e.preventDefault();
     navigate(href);
   }

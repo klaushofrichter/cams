@@ -2,13 +2,13 @@ import { Router, type Request, type Response } from 'express';
 import { pipeline } from 'stream/promises';
 import { aroundLength, generateMaxS, resultLength, ROLL_LIMIT_S } from '../clipLimits';
 import { logger } from '../logger';
-import { getProxyClient, proxyPath, type ProxyClient } from '../proxy/client';
+import { getProxyClient, proxyPath, ProxyError, type ProxyClient } from '../proxy/client';
 import { CLIP_ID as EVENT, offsetAt, offsetStamp, zoneStamp, type TimeInfo } from '../recordings/clipNames';
 import { getRecordings } from '../recordings/service';
 import { badRequest, knownCamera, proxyFailed, proxyTarget } from './common';
 import type { Principal } from '../middleware/requireAuth';
 import { camsIdOf, type CamKey } from '../fleet';
-import { nodeBody } from '../httpBody';
+import { nodeBody, readCapped } from '../httpBody';
 import { JobRegistry } from '../jobRegistry';
 
 // Composed clips (cam-proxy spec 2026-09-28): the Downloads modal's calls,
@@ -28,7 +28,11 @@ function relayText(res: Response, status: number, text: string) {
   if (text) res.type('application/json').send(text);
   else res.end();
 }
-const relay = async (res: Response, up: globalThis.Response) => relayText(res, up.status, await up.text());
+// The proxy's answers here are small JSON: a longer one is cut off, never
+// held whole (code review 2026-11-14), and answered as proxy_unavailable.
+const MAX_ANSWER = 64 * 1024;
+const relay = async (res: Response, up: globalThis.Response) =>
+  relayText(res, up.status, (await readCapped(up, MAX_ANSWER, () => new ProxyError('proxy_error', 'the proxy\'s answer is too large', up.status))).toString('utf8'));
 const jobOk = (req: Request, res: Response) => (JOB.test(String(req.params.job)) ? true : (res.status(400).json({ error: 'invalid' }), false));
 
 // The jobs cams started, per camera, with cams's own copy of the proxy's id:
@@ -208,10 +212,20 @@ composeRouter.get('/api/cameras/:id/compositions/:job/video', async (req, res) =
   if (!t) return;
   const job = known(t.id, req, res);
   if (!job) return;
+  // A browser that gives up on a range (scrubbing) ends the proxy request
+  // too, instead of leaving it to wait for headers (code review 2026-11-14).
+  const gone = new AbortController();
+  res.once('close', () => {
+    if (!res.writableFinished) gone.abort();
+  });
   try {
     // Byte ranges pass through: iOS Safari plays a <video> only with them (issue #72).
     const range = req.get('range');
-    const up = await t.client.open(`${t.base}/${job.id}.mp4`, undefined, { idleMs: 30_000, headers: range && /^bytes=\d*-\d*$/.test(range) ? { Range: range } : {} });
+    const up = await t.client.open(`${t.base}/${job.id}.mp4`, undefined, { idleMs: 30_000, signal: gone.signal, headers: range && /^bytes=\d*-\d*$/.test(range) ? { Range: range } : {} });
+    // A Range past the end: the proxy's 416 as it is, with the size in its
+    // Content-Range (bytes */N), so iOS Safari learns the length (code
+    // review 2026-11-14); never a JSON answer.
+    if (up.status === 416) return void unsatisfiable(res, up);
     if (!up.ok || !up.body) return void (await relay(res, up));
     const name = typeof req.query.name === 'string' && NAME.test(req.query.name) ? req.query.name : 'composed.mp4';
     res.status(up.status === 206 ? 206 : 200).set({
@@ -226,9 +240,18 @@ composeRouter.get('/api/cameras/:id/compositions/:job/video', async (req, res) =
     if (cr && /^bytes \d+-\d+\/\d+$/.test(cr)) res.setHeader('Content-Range', cr);
     await pipeline(nodeBody(up), res);
   } catch (err) {
+    if (gone.signal.aborted) return; // the browser left; nobody to answer
     failed(err, res);
   }
 });
+
+function unsatisfiable(res: Response, up: globalThis.Response) {
+  void up.body?.cancel().catch(() => undefined);
+  res.status(416).set({ 'Accept-Ranges': 'bytes', 'Cache-Control': 'no-store' });
+  const cr = up.headers.get('content-range');
+  if (cr && /^bytes \*\/\d+$/.test(cr)) res.setHeader('Content-Range', cr);
+  res.end();
+}
 
 composeRouter.delete('/api/cameras/:id/compositions/:job', async (req, res) => {
   if (!jobOk(req, res)) return;

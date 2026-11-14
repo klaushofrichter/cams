@@ -1,5 +1,6 @@
 <script lang="ts">
   import { navigate } from '../lib/router';
+  import { isPlainClick } from '../lib/plainClick';
   import { onMount, tick, untrack } from 'svelte';
   import { get } from 'svelte/store';
   import { getJson, HttpError } from '../lib/api';
@@ -644,7 +645,7 @@
                     <span class="spacer"></span>
                     <!-- History at this second, paused, without boxes (Klaus, 2026-09-30). -->
                     <a data-testid="timeline-open-history" href={historyHref(camera.id, s.ts)}
-                      onclick={(e) => { if (e.button === 0 && !e.metaKey && !e.ctrlKey && !e.shiftKey) { e.preventDefault(); navigate((e.currentTarget as HTMLAnchorElement).getAttribute('href')!); } }}>Open in Video</a>
+                      onclick={(e) => { if (isPlainClick(e)) { e.preventDefault(); navigate((e.currentTarget as HTMLAnchorElement).getAttribute('href')!); } }}>Open in Video</a>
                   </div>
                   <StillCheck {base} ts={s.ts} gap={!!s.gap} check={k} analysed={seenStill !== null} {usage} onresult={onCheck} ondone={() => void refreshUsage()} onaround={(t) => (aroundAt = t)} />
                 </div>
