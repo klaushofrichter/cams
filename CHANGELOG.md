@@ -8,14 +8,3 @@ published as [GitHub releases](https://github.com/klaushofrichter/cams/releases)
 
 ## [Unreleased]
 
-- Extending a viewer token in cams-admin now also extends the sessions already signed in with it; before, they were still signed out at the old time.
-- Cancelling a composed clip while the cam-proxy is briefly unreachable no longer loses track of the clip: it can still be followed, cancelled again or archived.
-- A cam-proxy that sends an oversized answer (composed clips, the Archive, camera settings, pan and tilt) now gets a clear "proxy unavailable" instead of the server holding the whole answer in memory.
-- Signing in with a viewer token can no longer be blocked for everyone by someone trying wrong tokens from a few addresses, and malformed sign-in attempts no longer use up an address's tries.
-- Timeline previews, stills and Vision check pictures are no longer kept in the browser's cache: after signing out nothing stays behind, and a picture of another account's camera with the same short name can't be shown by mistake.
-- Pan & tilt: going to a saved position now ends in focus by itself on cameras that can focus automatically, without a click on Focus (this comes with the camera's cam-proxy update). Clicking Focus or moving the camera right after a go still works as before and takes over.
-- Composed clips on iPhone and iPad: seeking past the end of a composed clip's preview now gets the clip's size back, so Safari can keep playing it.
-- Scrubbing a composed clip's preview no longer leaves requests to the cam-proxy running after the browser has moved on.
-- Alt-click (download) on the app's own links, such as the menu, "Show in Timeline" and "Open in Video", now does what the browser normally does instead of moving within the app.
-- Internal cleanup, no change to what you see: shared helpers replace repeated code across the server and the web app. Opening a day of recordings with new thumbnails does less disk work on the server, and the History view no longer re-asks for its time range on every tab switch.
-
