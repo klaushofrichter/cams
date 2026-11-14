@@ -233,6 +233,24 @@ describe('the events at the playhead', () => {
   });
 });
 
+describe('the left edge (extent)', () => {
+  const extents = () => requested.filter((u) => u.includes('/extent')).length;
+  const show = () => document.dispatchEvent(new Event('visibilitychange'));
+  it('is asked every minute, and on a tab show only after 10 s without an answer', async () => {
+    await render();
+    expect(extents()).toBe(1);
+    show(); // right after the first ask: not again
+    await vi.advanceTimersByTimeAsync(10);
+    expect(extents()).toBe(1);
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(extents()).toBe(2);
+    await vi.advanceTimersByTimeAsync(15_000);
+    show();
+    await vi.advanceTimersByTimeAsync(10);
+    expect(extents()).toBe(3);
+  });
+});
+
 describe('the live end (glue, spec 2026-09-28)', () => {
   const badge = () => target!.querySelector('[data-testid="live-badge"]');
   it('opens glued on the live panel, following now', async () => {
