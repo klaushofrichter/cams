@@ -1,5 +1,6 @@
 <script lang="ts">
   import Logo from './Logo.svelte';
+  import { isPlainClick } from '../lib/plainClick';
   import Icon from './Icon.svelte';
   import CameraPicker from './CameraPicker.svelte';
   import ThemeToggle from './ThemeToggle.svelte';
@@ -16,7 +17,7 @@
   // The brand (Klaus, 2026-11-05): the Video page live, on the camera picked,
   // the zoom kept; the menu's Video entry is live from then on (lib/router).
   function goLive(event: MouseEvent) {
-    if (event.metaKey || event.ctrlKey || event.shiftKey || event.button !== 0) return;
+    if (!isPlainClick(event)) return;
     event.preventDefault();
     navigate(VIDEO_PATH);
     drawerOpen.set(false);

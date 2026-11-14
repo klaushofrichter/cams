@@ -1,4 +1,5 @@
 import { apiFetch, UnauthorizedError } from './api';
+import { isPlainClick } from './plainClick';
 
 // Opens a camera's cam-proxy UI signed in (Klaus, 2026-09-28): cams mints a
 // one-time link server side. The tab opens at once (so no popup blocker),
@@ -24,7 +25,7 @@ export async function openProxyUi(cameraId: string, webUrl: string, w: Window | 
 // clicks stay the browser's (a background tab, the plain address); a blocked
 // popup leaves the <a target=_blank> to open the plain address itself.
 export function openProxyClick(e: MouseEvent, cameraId: string, webUrl: string): Promise<void> {
-  if (e.defaultPrevented || e.button !== 0 || e.ctrlKey || e.metaKey || e.shiftKey || e.altKey) return Promise.resolve();
+  if (!isPlainClick(e)) return Promise.resolve();
   const w = window.open('', '_blank');
   if (!w) return Promise.resolve();
   e.preventDefault();

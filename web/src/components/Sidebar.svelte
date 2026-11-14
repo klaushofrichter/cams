@@ -1,5 +1,6 @@
 <script lang="ts">
   import Icon from './Icon.svelte';
+  import { isPlainClick } from '../lib/plainClick';
   import ThemeToggle from './ThemeToggle.svelte';
   import AccountMenu from './AccountMenu.svelte';
   import { NAV_ITEMS, isActive, lastVideoHref, navigate, route, videoNavHref, type NavItem } from '../lib/router';
@@ -18,7 +19,7 @@
   const hrefOf = (item: NavItem) => (item.page === 'video' ? videoHref : item.href);
 
   function go(event: MouseEvent, item: NavItem) {
-    if (event.metaKey || event.ctrlKey || event.shiftKey || event.button !== 0) return;
+    if (!isPlainClick(event)) return;
     event.preventDefault();
     // Video while on it: it stays as it is (its link may be a second behind).
     if (!(item.page === 'video' && $route.page === 'video')) navigate(hrefOf(item));

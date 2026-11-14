@@ -1,6 +1,7 @@
 <!-- web/src/components/StripPlayer.svelte -->
 <script lang="ts">
   import { untrack, type Snippet } from 'svelte';
+  import { isPlainClick } from '../lib/plainClick';
   import Icon from './Icon.svelte';
   import ComposeDialog from './ComposeDialog.svelte';
   import { cameraById } from '../lib/stores';
@@ -586,7 +587,7 @@
         {#if timelineHref}
           <!-- This moment in the Timeline: its minute opens with the still (Klaus, 2026-09-30). -->
           · <a data-testid="show-in-timeline" href={timelineHref}
-            onclick={(e) => { if (e.button === 0 && !e.metaKey && !e.ctrlKey && !e.shiftKey) { e.preventDefault(); navigate(timelineHref!); } }}>Show in Timeline</a>
+            onclick={(e) => { if (isPlainClick(e)) { e.preventDefault(); navigate(timelineHref!); } }}>Show in Timeline</a>
         {/if}
       {/if}
     </span>
