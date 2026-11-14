@@ -1,4 +1,4 @@
-import { snapshotName, triggerDownload } from './download';
+import { downloadBlob, snapshotName } from './download';
 import { writable } from 'svelte/store';
 import { get } from 'svelte/store';
 import { apiFetch, getJson } from './api';
@@ -185,23 +185,33 @@ export function markExtFailed(cameraId: string): void {
   liveUi.update((u) => (u.extFailed?.includes(cameraId) ? u : { ...u, extFailed: [...(u.extFailed ?? []), cameraId] }));
 }
 
-// Fetch first, then save: a plain download link would silently save an
-// error page (or nothing) when the camera can't take a snapshot.
-export async function saveSnapshot(id: string): Promise<void> {
+// An image from the API as a blob; anything but an image is an error.
+export async function fetchImageBlob(url: string): Promise<Blob> {
+  const res = await apiFetch(url);
+  if (!res.ok || !(res.headers.get('content-type') ?? '').startsWith('image/')) throw new Error(String(res.status));
+  return res.blob();
+}
+
+// A snapshot save (live or recording): one at a time (snapshotBusy), the
+// picture `produce` gives saved as a download, `errorText` on the error
+// line when it fails.
+export async function saveSnapshotWith(produce: () => Promise<{ blob: Blob; name: string }>, errorText: string): Promise<void> {
   if (get(liveUi).snapshotBusy) return;
   liveUi.update((u) => ({ ...u, snapshotBusy: true, snapshotError: '' }));
   try {
-    const res = await apiFetch(snapshotUrl(id));
-    if (!res.ok || !(res.headers.get('content-type') ?? '').startsWith('image/')) throw new Error(String(res.status));
-    const url = URL.createObjectURL(await res.blob());
-    triggerDownload(url, snapshotName(id, 'live', Date.now()));
-    setTimeout(() => URL.revokeObjectURL(url), 10_000);
+    const { blob, name } = await produce();
+    downloadBlob(blob, name);
   } catch {
-    liveUi.update((u) => ({ ...u, snapshotError: "The snapshot couldn't be taken. The camera may be busy or offline." }));
+    liveUi.update((u) => ({ ...u, snapshotError: errorText }));
   } finally {
     liveUi.update((u) => ({ ...u, snapshotBusy: false }));
   }
 }
+
+// Fetch first, then save: a plain download link would silently save an
+// error page (or nothing) when the camera can't take a snapshot.
+export const saveSnapshot = (id: string): Promise<void> =>
+  saveSnapshotWith(async () => ({ blob: await fetchImageBlob(snapshotUrl(id)), name: snapshotName(id, 'live', Date.now()) }), "The snapshot couldn't be taken. The camera may be busy or offline.");
 
 // True while the video page holds the live stream open (on screen, or kept
 // alive after leaving it): App keeps the page mounted meanwhile.

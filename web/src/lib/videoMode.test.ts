@@ -2,7 +2,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { get } from 'svelte/store';
 import { LIVE_ONLY, NOTHING_TO_SAVE, currentPlayer, frameBlob, liveBadge, modeBadge, modeOf, registerPlayer, saveRecordingSnapshot, snapshotName, type PlayerFrame } from './videoMode';
-import { liveUi } from './liveUi';
+import { liveUi, saveSnapshot } from './liveUi';
 import { localClock } from './clock';
 
 afterEach(() => {
@@ -139,5 +139,24 @@ describe('saveRecordingSnapshot', () => {
     expect(NOTHING_TO_SAVE).toBe('Nothing to save here.');
     expect(get(liveUi).snapshotBusy).toBe(false);
     stop();
+  });
+});
+
+describe('saveSnapshot (live)', () => {
+  it('saves the camera snapshot named live, and an answer that is not an image only sets the error line', async () => {
+    const names: string[] = [];
+    vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(function (this: HTMLAnchorElement) {
+      names.push(this.download);
+    });
+    vi.stubGlobal('URL', Object.assign(URL, { createObjectURL: () => 'blob:x', revokeObjectURL: () => {} }));
+    vi.stubGlobal('fetch', async () => new Response(new Blob(['x']), { status: 200, headers: { 'content-type': 'image/jpeg' } }));
+    await saveSnapshot('cam1');
+    expect(names).toHaveLength(1);
+    expect(names[0]).toMatch(/^cam1-live-\d{4}-\d{2}-\d{2}-\d{2}-\d{2}-\d{2}\.jpg$/);
+    expect(get(liveUi)).toMatchObject({ snapshotBusy: false, snapshotError: '' });
+    vi.stubGlobal('fetch', async () => new Response('<html>', { status: 200, headers: { 'content-type': 'text/html' } }));
+    await saveSnapshot('cam1');
+    expect(names).toHaveLength(1);
+    expect(get(liveUi)).toMatchObject({ snapshotBusy: false, snapshotError: "The snapshot couldn't be taken. The camera may be busy or offline." });
   });
 });
