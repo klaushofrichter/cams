@@ -72,6 +72,20 @@ const DETECTION_STILL_MS = 3000;
 // A card whose detection thumbnail failed is tried again after this long.
 const DETECTION_RETRY_MS = () => intEnv('DETECTION_RETRY_MS', 300_000, { min: 0 });
 type ThumbRule = 'detection' | 'start';
+// The first `n` bytes of a file (fewer when it is shorter; none when it can't be read).
+async function readHead(path: string, n: number): Promise<Buffer> {
+  try {
+    const fh = await fs.open(path);
+    try {
+      const { buffer, bytesRead } = await fh.read(Buffer.alloc(n), 0, n, 0);
+      return buffer.subarray(0, bytesRead);
+    } finally {
+      await fh.close();
+    }
+  } catch {
+    return Buffer.alloc(0);
+  }
+}
 const hasDetection = (triggers: readonly Trigger[]) => triggers.some((t) => t === 'person' || t === 'vehicle' || t === 'pet');
 // The camera Search cache behind cameraPath(): this many camera/day/stream
 // entries, least recently used out first.
@@ -672,7 +686,7 @@ export class RecordingsService {
     });
     if (!used) return null;
     // Only a JPEG becomes a (cached) thumbnail.
-    const head = await fs.readFile(tmp).then((b) => b.subarray(0, 3)).catch(() => Buffer.alloc(0));
+    const head = await readHead(tmp, 3);
     if (head.length === 3 && head[0] === 0xff && head[1] === 0xd8 && head[2] === 0xff) return used;
     logger.warn({ cameraId, clipId }, 'proxy_still_not_a_jpeg');
     return null;
