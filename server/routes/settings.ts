@@ -1,7 +1,7 @@
 import { Router, Request, Response, NextFunction } from 'express';
 import { setTimeout as sleep } from 'timers/promises';
-import { getCamera, proxyActive, setReportedName } from '../cameraRegistry';
-import { plausibleName } from '../proxy/names';
+import { getCamera } from '../cameraRegistry';
+import { noteDirectName } from '../proxy/names';
 import { CameraError } from '../reolink/client';
 import { getClient } from '../reolink/clients';
 import { readDetectionRaw, readDevice, readImageRaw } from '../reolink/device';
@@ -203,7 +203,7 @@ settingsRouter.get('/api/cameras/:id/device', async (req, res, next) => {
   if (!c) return;
   try {
     const device = await readDevice(c.cam, c.client);
-    if (!proxyActive(c.cam.id) && plausibleName(device.name)) setReportedName(c.cam.id, device.name);
+    noteDirectName(c.cam.id, device.name);
     res.json(device);
   } catch (err) {
     fail(err, c.cam.id, res, next);
