@@ -420,7 +420,7 @@ archiveRouter.get('/api/archive/:via/items/:id/thumbnail', async (req, res) => {
   const id = p && itemId(req, res);
   if (!p || !id) return;
   try {
-    await relayImage(res, p.client, `/api/archive/${id}/thumbnail`, () => ({ 'Cache-Control': 'no-store' }), viewerGone(res));
+    await relayImage(res, p.client, `/api/archive/${id}/thumbnail`, {}, viewerGone(res));
   } catch (err) {
     failed(err, res, 'thumbnail');
   }

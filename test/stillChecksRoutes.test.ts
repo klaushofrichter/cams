@@ -175,6 +175,7 @@ describe('GET still checks, one, its image, the usage', () => {
     const img = await get('/api/cameras/den/still-checks/1.jpg');
     expect(img.status).toBe(200);
     expect(img.headers['content-type']).toBe('image/jpeg');
+    expect(img.headers['cache-control']).toBe('no-store'); // camera media leaves no copy in the browser cache (code review 2026-11-14)
     expect(Buffer.compare(img.body as Buffer, JPEG)).toBe(0);
     expect((await get('/api/cameras/den/still-checks/9')).status).toBe(404);
     expect((await get('/api/cameras/den/still-checks/9.jpg')).status).toBe(404);
