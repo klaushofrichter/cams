@@ -152,6 +152,47 @@ describe('POST /auth/viewer-token', () => {
     expect([page.status, page.headers.location]).toEqual([302, '/token']);
   });
 
+  // A longer validity set in cams-admin reaches a signed-in viewer: the next
+  // request reissues the session cookie until the new expiry (code review
+  // 2026-11-14). The same or a shorter one reissues nothing (shorter is
+  // enforced by the fleet check above).
+  it('a longer validity renews the signed-in session cookie on the next request', async () => {
+    const c = cookieOf(await post('/auth/viewer-token', { token: TOKEN }));
+    const me = () => request(createApp()).get('/api/me').set('Cookie', c);
+    expect(sessionCookie(await me())).toBeUndefined();
+    const later = now + 30 * 24 * HOUR;
+    applyFleet(fleet({ tokenExpires: later }));
+    const r = await me();
+    expect(r.status).toBe(200);
+    const renewed = sessionCookie(r)!;
+    expect(renewed).toMatch(new RegExp(`Max-Age=${Math.floor((later - now) / 1000)}`));
+    expect(renewed).toMatch(/HttpOnly/);
+    const raw = renewed.split(';')[0].slice(SESSION_COOKIE.length + 1);
+    expect((jwt.decode(raw) as { exp: number }).exp).toBe(Math.floor(later / 1000));
+    expect(verifySession(raw)).toEqual({ email: `viewer-token:${ID}`, via: 'viewer-token', vt: ID, tf: sessionTag(viewerTokenFingerprint(TOKEN)), acc: ALPHA });
+    // The renewed cookie is the new one: nothing more to renew.
+    expect(sessionCookie(await request(createApp()).get('/api/me').set('Cookie', `${SESSION_COOKIE}=${raw}`))).toBeUndefined();
+    // A page visit renews too.
+    const page = await request(createApp()).get('/app/video').set('Cookie', c);
+    expect(sessionCookie(page)).toMatch(new RegExp(`Max-Age=${Math.floor((later - now) / 1000)}`));
+    // Shorter: no new cookie; the fleet check ends the session at the new time.
+    applyFleet(fleet({ tokenExpires: now + HOUR }));
+    expect(sessionCookie(await me())).toBeUndefined();
+  });
+
+  it('a token of several accounts, not yet chosen, is renewed too (no account in the cookie)', async () => {
+    const c = cookieOf(await post('/auth/viewer-token', { token: TWO }));
+    const [alpha, beta] = fleet();
+    const later = now + 7 * 24 * HOUR;
+    for (const a of [alpha, beta]) a.viewerTokens = a.viewerTokens!.map((g) => (g.id === ID_TWO ? { ...g, expiresAt: later } : g));
+    applyFleet([alpha, beta]);
+    const r = await request(createApp()).get('/api/me').set('Cookie', c);
+    expect(r.status).toBe(200);
+    const raw = sessionCookie(r)!.split(';')[0].slice(SESSION_COOKIE.length + 1);
+    expect((jwt.decode(raw) as { exp: number }).exp).toBe(Math.floor(later / 1000));
+    expect(verifySession(raw)).not.toHaveProperty('acc');
+  });
+
   it('an ended session\'s renewal goes to /token, not Google', async () => {
     const c = cookieOf(await post('/auth/viewer-token', { token: TOKEN }));
     applyFleet(fleet({ withToken: false }));
