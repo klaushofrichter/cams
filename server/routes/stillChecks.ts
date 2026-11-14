@@ -99,7 +99,7 @@ stillChecksRouter.get('/api/cameras/:id/still-checks/:file', async (req: Request
   const checkId = Number(m[1]);
   try {
     if (m[2]) {
-      return void (await relayImage(res, t.client, proxyPath(t.id, `/still-checks/${checkId}.jpg`), () => ({ 'Cache-Control': 'private, max-age=604800, immutable' })));
+      return void (await relayImage(res, t.client, proxyPath(t.id, `/still-checks/${checkId}.jpg`)));
     }
     const check = parseFullCheck(await t.client.json<unknown>(proxyPath(t.id, `/still-checks/${checkId}`)));
     if (!check) return void res.status(502).json({ error: 'proxy_unavailable' });

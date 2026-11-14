@@ -48,6 +48,13 @@ describe('PTZ control pass-through', () => {
     expect(fake.ptzCalls.at(-1)).toEqual({ cam: 'cam1', op: 'move', body: { direction: 'down' } });
   });
 
+  // Read up to 64 KiB (code review 2026-11-14): a longer answer is 502.
+  it('an answer over 64 KiB: 502 proxy_unavailable', async () => {
+    fake.ptzOverride = { status: 400, body: { error: 'invalid', pad: 'x'.repeat(70_000) } };
+    const r = await post('den', 'move', { direction: 'down' });
+    expect([r.status, r.body]).toEqual([502, { error: 'proxy_unavailable' }]);
+  });
+
   it.each([
     [{ direction: 'north' }],
     [{}],

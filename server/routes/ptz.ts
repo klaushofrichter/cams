@@ -1,6 +1,6 @@
 import { Router, type Request, type Response } from 'express';
 import { proxyPath } from '../proxy/client';
-import { badRequest, proxyFailed, proxyTarget } from './common';
+import { badRequest, proxyAnswerText, proxyFailed, proxyTarget } from './common';
 
 // Pan, tilt, zoom and saved positions (cam-proxy spec
 // 2026-10-30-ptz-capabilities-design §5, §8.2): every member's calls, checked
@@ -14,10 +14,10 @@ const CONTROL_TIMEOUT_MS = 5000;
 
 const isInt = (v: unknown, min: number, max: number): v is number => typeof v === 'number' && Number.isInteger(v) && v >= min && v <= max;
 
-// The proxy's status and JSON body, as they are.
+// The proxy's status and JSON body, as they are (up to 64 KiB, else 502).
 async function relay(res: Response, up: globalThis.Response): Promise<void> {
+  const text = await proxyAnswerText(up);
   res.status(up.status);
-  const text = await up.text();
   if (text) res.type('application/json').send(text);
   else res.end();
 }

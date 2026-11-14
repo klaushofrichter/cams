@@ -39,6 +39,13 @@ export function signViewerTokenSession(id: string, tag: string, expiresAt: numbe
   return jwt.sign({ email: viewerTokenUser(id), via: 'viewer-token', vt: id, tf: tag, exp: Math.floor(expiresAt / 1000), ...(acc && { acc }) }, getCookieSecret(), { algorithm: 'HS256' });
 }
 
+// A session's own expiry (unix seconds), read from a cookie value that
+// verifySession already accepted; null when it has none.
+export function sessionExpiry(token: string): number | null {
+  const d = jwt.decode(token);
+  return d && typeof d === 'object' && typeof d.exp === 'number' ? d.exp : null;
+}
+
 function payloadOf(decoded: unknown): SessionPayload | null {
   if (typeof decoded !== 'object' || decoded === null) return null;
   const d = decoded as { email?: unknown; via?: unknown; tf?: unknown; vt?: unknown; acc?: unknown };

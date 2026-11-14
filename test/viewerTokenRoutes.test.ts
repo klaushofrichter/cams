@@ -152,6 +152,47 @@ describe('POST /auth/viewer-token', () => {
     expect([page.status, page.headers.location]).toEqual([302, '/token']);
   });
 
+  // A longer validity set in cams-admin reaches a signed-in viewer: the next
+  // request reissues the session cookie until the new expiry (code review
+  // 2026-11-14). The same or a shorter one reissues nothing (shorter is
+  // enforced by the fleet check above).
+  it('a longer validity renews the signed-in session cookie on the next request', async () => {
+    const c = cookieOf(await post('/auth/viewer-token', { token: TOKEN }));
+    const me = () => request(createApp()).get('/api/me').set('Cookie', c);
+    expect(sessionCookie(await me())).toBeUndefined();
+    const later = now + 30 * 24 * HOUR;
+    applyFleet(fleet({ tokenExpires: later }));
+    const r = await me();
+    expect(r.status).toBe(200);
+    const renewed = sessionCookie(r)!;
+    expect(renewed).toMatch(new RegExp(`Max-Age=${Math.floor((later - now) / 1000)}`));
+    expect(renewed).toMatch(/HttpOnly/);
+    const raw = renewed.split(';')[0].slice(SESSION_COOKIE.length + 1);
+    expect((jwt.decode(raw) as { exp: number }).exp).toBe(Math.floor(later / 1000));
+    expect(verifySession(raw)).toEqual({ email: `viewer-token:${ID}`, via: 'viewer-token', vt: ID, tf: sessionTag(viewerTokenFingerprint(TOKEN)), acc: ALPHA });
+    // The renewed cookie is the new one: nothing more to renew.
+    expect(sessionCookie(await request(createApp()).get('/api/me').set('Cookie', `${SESSION_COOKIE}=${raw}`))).toBeUndefined();
+    // A page visit renews too.
+    const page = await request(createApp()).get('/app/video').set('Cookie', c);
+    expect(sessionCookie(page)).toMatch(new RegExp(`Max-Age=${Math.floor((later - now) / 1000)}`));
+    // Shorter: no new cookie; the fleet check ends the session at the new time.
+    applyFleet(fleet({ tokenExpires: now + HOUR }));
+    expect(sessionCookie(await me())).toBeUndefined();
+  });
+
+  it('a token of several accounts, not yet chosen, is renewed too (no account in the cookie)', async () => {
+    const c = cookieOf(await post('/auth/viewer-token', { token: TWO }));
+    const [alpha, beta] = fleet();
+    const later = now + 7 * 24 * HOUR;
+    for (const a of [alpha, beta]) a.viewerTokens = a.viewerTokens!.map((g) => (g.id === ID_TWO ? { ...g, expiresAt: later } : g));
+    applyFleet([alpha, beta]);
+    const r = await request(createApp()).get('/api/me').set('Cookie', c);
+    expect(r.status).toBe(200);
+    const raw = sessionCookie(r)!.split(';')[0].slice(SESSION_COOKIE.length + 1);
+    expect((jwt.decode(raw) as { exp: number }).exp).toBe(Math.floor(later / 1000));
+    expect(verifySession(raw)).not.toHaveProperty('acc');
+  });
+
   it('an ended session\'s renewal goes to /token, not Google', async () => {
     const c = cookieOf(await post('/auth/viewer-token', { token: TOKEN }));
     applyFleet(fleet({ withToken: false }));
@@ -265,12 +306,38 @@ describe('limits', () => {
     expect([r.status, r.body]).toEqual([429, { error: 'too_many_attempts' }]);
   });
 
-  it('one bucket for all addresses (100 by default)', async () => {
+  // Only a well-formed token that doesn't match counts: a malformed request
+  // (bad format, not JSON, token in the URL, too large) or cams-admin being
+  // out of reach spends nothing (code review 2026-11-14).
+  it('per address: malformed requests and an unreachable cams-admin don\'t count', async () => {
+    process.env.RATE_LIMIT_TOKEN_FAILURES = '2';
+    resetRateLimits();
+    for (let i = 0; i < 3; i++) {
+      expect((await post('/auth/viewer-token', { token: 'nope' })).status).toBe(401);
+      expect((await post('/auth/viewer-token/check', { token: 42 })).status).toBe(401);
+      expect((await post(`/auth/viewer-token?t=${TOKEN}`, { token: TOKEN })).status).toBe(400);
+      expect((await post('/auth/viewer-token', { token: TOKEN, pad: 'x'.repeat(5000) })).status).toBe(413);
+      expect((await request(createApp()).post('/auth/viewer-token').set('Origin', ORIGIN).set('Host', '127.0.0.1').type('form').send({ token: TOKEN })).status).toBe(415);
+    }
+    const lastGood = clock.lastGoodAt;
+    clock.lastGoodAt = null; // cams-admin never reached: offline
+    for (let i = 0; i < 3; i++) expect((await post('/auth/viewer-token', { token: 'cav_RouteTestFakeToken9999' })).status).toBe(401);
+    clock.lastGoodAt = lastGood;
+    expect((await post('/auth/viewer-token', { token: TOKEN })).status).toBe(200);
+  });
+
+  // No bucket for all addresses together: it let anyone lock every viewer
+  // out from a few addresses (code review 2026-11-14). A token is 131 random
+  // bits; the per-address limit stays, and a flood of failures is logged.
+  it('no lockout across addresses: many failures are only logged', async () => {
     process.env.RATE_LIMIT_TOKEN_FAILURES = '1000';
     process.env.RATE_LIMIT_VIEWER_TOKEN_FAILURES = '2';
     resetRateLimits();
-    for (let i = 0; i < 2; i++) expect((await post('/auth/viewer-token', { token: 'nope' })).status).toBe(401);
-    expect((await post('/auth/viewer-token/check', { token: TOKEN })).status).toBe(429);
+    const warn = vi.spyOn(logger, 'warn');
+    for (let i = 0; i < 5; i++) expect((await post('/auth/viewer-token', { token: 'cav_RouteTestFakeToken9999' })).status).toBe(401);
+    expect((await post('/auth/viewer-token/check', { token: TOKEN })).status).toBe(200);
+    expect(warn.mock.calls.filter(([, msg]) => msg === 'viewer_token_failures_high')).toHaveLength(1); // once per window
+    warn.mockRestore();
   });
 
   it('a body over 4 KiB: 413', async () => {

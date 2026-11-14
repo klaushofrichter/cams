@@ -9,7 +9,7 @@ import request from 'supertest';
 import { parseItem } from '../server/proxy/archive';
 import { createApp } from '../server/app';
 import { setCameras } from '../server/cameraRegistry';
-import { resetProxyClients } from '../server/proxy/client';
+import { ProxyClient, resetProxyClients } from '../server/proxy/client';
 import { RecordingError } from '../server/recordings/errors';
 import { getRecordings } from '../server/recordings/service';
 import { SESSION_COOKIE, signSession } from '../server/session';
@@ -293,6 +293,31 @@ describe('one item (contract §4)', () => {
     const m = await get(`/api/archive/den/items/${it0.id}/metadata`);
     expect(m.body).toMatchObject({ item: { id: it0.id, via: 'den' }, camera: { id: 'cam1', name: 'Den', model: 'RLC-1224A' }, window: { from: 999_000, to: 1_010_000 }, events: [{ id: 5, kind: 'person', analysis: { stillTs: 1_001_000, objects: [{ name: 'Person', score: 0.9 }], summary: [{ category: 'person', score: 0.9 }] } }] });
     expect(JSON.stringify(m.body)).not.toMatch(/secret|raw/);
+  });
+});
+
+// Answers are read up to a cap (code review 2026-11-14): 64 KiB for an item,
+// more for the metadata, which lists every event and check of the window.
+describe('answer size caps', () => {
+  it('an item over 64 KiB: 502 proxy_unavailable', async () => {
+    const it0 = a.archive.add('cam1', {});
+    expect((await get(`/api/archive/den/items/${it0.id}`)).status).toBe(200);
+    // The proxy's real answer, padded past the cap.
+    const open = ProxyClient.prototype.open;
+    vi.spyOn(ProxyClient.prototype, 'open').mockImplementation(async function (this: ProxyClient, ...args: Parameters<ProxyClient['open']>) {
+      const up = await open.apply(this, args);
+      return new Response(JSON.stringify({ ...((await up.json()) as object), pad: 'x'.repeat(70_000) }), { status: up.status });
+    });
+    const r = await get(`/api/archive/den/items/${it0.id}`);
+    expect([r.status, r.body]).toEqual([502, { error: 'proxy_unavailable' }]);
+  });
+  it('a large metadata answer (many events) still comes through', async () => {
+    const analysis = { provider: 'google-vision', status: 'ok', stillTs: 1_001_000, objects: Array.from({ length: 20 }, (_, i) => ({ name: `Thing ${i}`, score: 0.5, box: { x0: 0, y0: 0, x1: 1, y1: 1 } })), summary: [{ category: 'person', score: 0.9 }] };
+    a.events.set('cam1', Array.from({ length: 300 }, (_, i) => ({ id: i + 1, kind: 'person', source: 'onvif', start: 1_000_000 + i * 10, end: 1_000_005 + i * 10, endReason: 'state', analysis })));
+    const it0 = a.archive.add('cam1', { recordedFrom: 999_000, recordedTo: 1_010_000 });
+    const m = await get(`/api/archive/den/items/${it0.id}/metadata`);
+    expect(m.status).toBe(200);
+    expect(m.body.events).toHaveLength(300);
   });
 });
 

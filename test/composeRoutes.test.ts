@@ -109,6 +109,32 @@ describe('compositions pass-through', () => {
     expect(fake.compositions.has(body.id)).toBe(false);
   });
 
+  // The job is forgotten only once the proxy confirmed the cancel (or says it
+  // is gone): a failed cancel leaves it pollable and cancellable (code review
+  // 2026-11-14).
+  it('a cancel the proxy fails keeps the job; a confirmed one or the proxy\'s 404 forgets it', async () => {
+    fake.composeDelayMs = 10_000;
+    const { body } = await post('den', { eventId: EVENT, preS: 0, postS: 5, size: 'sd', badge: false });
+    const del = () => request(createApp()).delete(`/api/cameras/den/compositions/${body.id}`).set('Cookie', auth);
+    const poll = () => request(createApp()).get(`/api/cameras/den/compositions/${body.id}`).set('Cookie', auth);
+    const client = getProxyClient(k('den'))!;
+    const open = vi.spyOn(client, 'open');
+    open.mockResolvedValueOnce(new Response(JSON.stringify({ error: 'busy' }), { status: 503 }));
+    expect((await del()).status).toBe(503);
+    expect((await poll()).status).toBe(200);
+    open.mockRejectedValueOnce(new ProxyError('proxy_unreachable', 'down'));
+    expect((await del()).status).toBe(502);
+    expect((await poll()).status).toBe(200);
+    expect(fake.compositions.has(body.id)).toBe(true);
+    expect((await del()).status).toBe(204);
+    expect((await poll()).status).toBe(404);
+    // The proxy no longer knows a job: forgotten too.
+    const second = (await post('den', { eventId: EVENT, preS: 0, postS: 5, size: 'sd', badge: false })).body;
+    fake.compositions.delete(second.id);
+    expect((await request(createApp()).delete(`/api/cameras/den/compositions/${second.id}`).set('Cookie', auth)).status).toBe(404);
+    expect((await request(createApp()).get(`/api/cameras/den/compositions/${second.id}`).set('Cookie', auth)).status).toBe(404);
+  });
+
   it('says no_proxy, no_clip, bad job ids, and needs a signed-in user', async () => {
     expect((await post('shed', { eventId: EVENT, preS: 0, postS: 5, size: 'sd', badge: false })).body).toEqual({ error: 'no_proxy' });
     expect((await post('den', { eventId: '20260928-090000-090010', preS: 0, postS: 5, size: 'sd', badge: false })).body).toEqual({ error: 'no_clip' });
@@ -416,6 +442,17 @@ describe('compositions: who may cancel, malformed answers, every field checked',
     vi.spyOn(getProxyClient(k('den'))!, 'open').mockResolvedValue(new Response('{"id": "abc', { status: 201 }));
     const r = await post('den', { eventId: EVENT, preS: 0, postS: 5, size: 'sd', badge: false });
     expect([r.status, r.body]).toEqual([502, { error: 'proxy_unavailable', detail: 'the proxy started a job but its answer is unreadable' }]);
+  });
+
+  // The proxy's answer is read up to 64 KiB (code review 2026-11-14): a
+  // longer one, a 201 or a refusal, is 502 proxy_unavailable, never held whole.
+  it('an answer over 64 KiB, starting or around a second: 502 proxy_unavailable', async () => {
+    const huge = () => new Response(JSON.stringify({ id: 'J'.repeat(22), pad: 'x'.repeat(70_000) }), { status: 201 });
+    vi.spyOn(getProxyClient(k('den'))!, 'open').mockImplementation(async () => huge());
+    const r = await post('den', { eventId: EVENT, preS: 0, postS: 5, size: 'sd', badge: false });
+    expect([r.status, r.body]).toEqual([502, { error: 'proxy_unavailable' }]);
+    const a = await post('den', { at: Math.floor(Date.now() / 1000) * 1000 - 60_000, preS: 1, postS: 1, size: 'sd', badge: false });
+    expect([a.status, a.body]).toEqual([502, { error: 'proxy_unavailable' }]);
   });
 
   it('the same around a second', async () => {
