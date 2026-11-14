@@ -71,3 +71,22 @@ describe('auth guards', () => {
     expect(res.status).toBe(200);
   });
 });
+
+describe('currentUser behind requireAuthApi', () => {
+  it('reuses the principal requireAuthApi decided instead of authenticating again', async () => {
+    const app = express();
+    app.use(cookieParser());
+    app.use(createApiRateLimit());
+    let seen: unknown;
+    app.get('/api/who', requireAuthApi, (req, res) => {
+      seen = res.locals.principal;
+      // Gone from the request now: only the decided principal can answer.
+      delete req.cookies[SESSION_COOKIE];
+      res.json(currentUser(req));
+    });
+    const r = await request(app).get('/api/who').set('Cookie', cookieFor('klaus@klaushofrichter.net'));
+    expect(r.status).toBe(200);
+    expect(r.body).toEqual(JSON.parse(JSON.stringify(seen)));
+    expect(r.body).toMatchObject({ email: 'klaus@klaushofrichter.net' });
+  });
+});
