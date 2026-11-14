@@ -6,7 +6,8 @@
   // A camera behind an up-to-date cam-proxy (spec 2026-10-30 §6.2): the
   // password goes straight to that proxy, which keeps it once the camera
   // accepts it; cams keeps nothing. Shown to admins in either config mode.
-  import { apiFetch } from '../lib/api';
+  import { putJson } from '../lib/api';
+  import { proxyRelayText } from '../lib/proxyRelay';
   import { isAdmin } from '../lib/session';
   import { cameraById, cameras, me } from '../lib/stores';
 
@@ -30,12 +31,10 @@
   // The proxy's answer, in words (never the password).
   function proxyAnswer(status: number, body: { error?: string; retryAfterS?: number } | null): string {
     if (status === 422) return 'The camera refused this password.';
-    if (status === 503) return "The camera can't be reached.";
     if (status === 429) return `Too many tries; wait ${body?.retryAfterS ?? 60} s.`;
     if (status === 409 && body?.error === 'env_password') return 'This proxy has a password in its settings file; remove it there first.';
     if (status === 409 && (body?.error === 'not_trusted' || body?.error === 'fingerprint_changed')) return "The cam-proxy doesn't trust the camera's certificate: trust it first.";
-    if (status === 403 && body?.error === 'proxy_admin_missing') return "cams has no admin token for this proxy: use the proxy's admin page.";
-    return 'Could not save the password.';
+    return proxyRelayText(status, body) ?? 'Could not save the password.';
   }
 
   async function save() {
@@ -43,7 +42,7 @@
     status = '';
     secret = null;
     try {
-      const res = await apiFetch(`/api/cameras/${encodeURIComponent(cameraId)}/credentials`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ password }) });
+      const res = await putJson<{ error?: string; reason?: string; secretKey?: string; user?: string; retryAfterS?: number }>(`/api/cameras/${encodeURIComponent(cameraId)}/credentials`, { password });
       if (res.status === 204 && viaProxy) {
         status = 'Saved on the cam-proxy. It signs in to the camera with it now.';
         password = '';
@@ -60,7 +59,7 @@
         cameras.update((l) => l.map((c) => (c.id === cameraId ? { ...c, credentials: undefined } : c)));
         return;
       }
-      const body = (await res.json().catch(() => null)) as { error?: string; reason?: string; secretKey?: string; user?: string; retryAfterS?: number } | null;
+      const body = res.body;
       if (viaProxy) {
         password = '';
         status = proxyAnswer(res.status, body);
