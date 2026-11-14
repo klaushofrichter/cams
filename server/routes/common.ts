@@ -70,6 +70,17 @@ export function sendFileQuietly(req: Request, res: Response, path: string, opts:
   });
 }
 
+// Aborted when the viewer goes away before the answer is out, so an upstream
+// request still waiting (a large ZIP being planned, a busy proxy list) is let
+// go at once, not at its timeout.
+export function viewerGone(res: Response): AbortSignal {
+  const ctl = new AbortController();
+  res.on('close', () => {
+    if (!res.writableFinished) ctl.abort();
+  });
+  return ctl.signal;
+}
+
 // A request that fails validation: 400 invalid with a detail for the developer.
 export const badRequest = (res: Response, detail: string): void => void res.status(400).json({ error: 'invalid', detail });
 

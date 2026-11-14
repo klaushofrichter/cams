@@ -3,9 +3,9 @@
 // a stateless Streamable HTTP transport with JSON answers. One audit line per
 // request; never the token.
 import express, { Router, type NextFunction, type Request, type Response } from 'express';
-import { Readable } from 'stream';
 import { pipeline } from 'stream/promises';
-import type { ReadableStream as WebReadableStream } from 'stream/web';
+import { nodeBody } from '../httpBody';
+import { viewerGone } from '../routes/common';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import { logger } from '../logger';
 import { bearerPrincipal, mcpPrincipal } from './auth';
@@ -107,20 +107,19 @@ mcpRouter.get('/mcp/media/:link', mcpGate, async (req: Request, res: Response) =
   if (p === 'invalid' || !token || token.accountId !== p.acc || !mcpPrincipal(token) || !path) return void res.status(403).json({ error: 'link_invalid' });
   const wait = limits.mediaMinute.take(token.id);
   if (wait) return tooMany(res, wait);
-  const gone = new AbortController();
-  res.on('close', () => gone.abort());
+  const gone = viewerGone(res);
   const range = req.get('range');
   try {
-    const up = await callApi(internalBaseOf(req), token.id, path, { headers: range && /^bytes=\d{0,15}-\d{0,15}$/.test(range) ? { range } : {}, signal: gone.signal });
+    const up = await callApi(internalBaseOf(req), token.id, path, { headers: range && /^bytes=\d{0,15}-\d{0,15}$/.test(range) ? { range } : {}, signal: gone });
     res.status(up.status);
     for (const h of PASS) {
       const v = up.headers.get(h);
       if (v) res.setHeader(h, v);
     }
     if (!up.body) return void res.end();
-    await pipeline(Readable.fromWeb(up.body as unknown as WebReadableStream), res);
+    await pipeline(nodeBody(up), res);
   } catch (err) {
-    if (gone.signal.aborted) return;
+    if (gone.aborted) return;
     logger.warn({ message: (err as Error).message }, 'mcp_media_failed');
     if (!res.headersSent) res.status(502).json({ error: 'proxy_unavailable' });
     else res.destroy();

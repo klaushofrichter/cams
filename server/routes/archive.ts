@@ -12,7 +12,7 @@ import { CLIP_ID } from '../recordings/clipNames';
 import { RecordingError } from '../recordings/errors';
 import { getRecordings } from '../recordings/service';
 import { startedComposition } from './compose';
-import { badRequest, knownCamera, proxyFailed, readJson, sessionAccount } from './common';
+import { badRequest, knownCamera, proxyFailed, readJson, sessionAccount, viewerGone } from './common';
 import { relayImage } from './proxy';
 import { nodeBody } from '../httpBody';
 
@@ -363,16 +363,6 @@ archiveRouter.post('/api/archive/:via/delete', async (req, res) => {
     failed(err, res, 'bulk-delete');
   }
 });
-
-// Aborted when the viewer goes away, so a proxy request still waiting for its
-// headers (a large ZIP being planned) is let go at once, not at its timeout.
-function viewerGone(res: Response): AbortSignal {
-  const ctl = new AbortController();
-  res.on('close', () => {
-    if (!res.writableFinished) ctl.abort(new Error('viewer left'));
-  });
-  return ctl.signal;
-}
 
 // Streams the proxy's body as it comes (never buffered); a viewer who leaves
 // cancels the upstream request.

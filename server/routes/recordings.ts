@@ -11,7 +11,7 @@ import { clipDate, clipSeconds, CLIP_ID, isRealDate, isRealMonth } from '../reco
 import { getRecordings } from '../recordings/service';
 import { RecordingError } from '../recordings/errors';
 import { extent } from '../recordings/extent';
-import { knownCamera, sendCameraError, sendFileQuietly } from './common';
+import { knownCamera, sendCameraError, sendFileQuietly, viewerGone } from './common';
 import type { CamKey } from '../fleet';
 
 export const recordingsRouter = Router();
@@ -73,13 +73,10 @@ recordingsRouter.get('/api/cameras/:id/events', async (req, res, next) => {
     return;
   }
   // A viewer who leaves mid-list stops holding the proxy's busy wait.
-  const gone = new AbortController();
-  res.on('close', () => {
-    if (!res.writableEnded) gone.abort();
-  });
+  const gone = viewerGone(res);
   try {
     const rec = getRecordings();
-    const events = await rec.events(id, date, gone.signal);
+    const events = await rec.events(id, date, gone);
     rec.probeIfDue(id, events.at(-1)?.id);
     // cam-proxy's Vision results on the cards (spec 2026-09-30-analytics-in-cams-design),
     // and how many person, vehicle and pet events each holds (Klaus, 2026-10-04).
