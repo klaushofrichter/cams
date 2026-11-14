@@ -1,5 +1,5 @@
 import { setTimeout as sleep } from 'timers/promises';
-import { afterAll, describe, expect, it } from 'vitest';
+import { afterAll, describe, expect, it, vi } from 'vitest';
 import { mkdtempSync, readdirSync, rmSync, statSync, writeFileSync } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
@@ -114,5 +114,29 @@ describe('DiskCache', () => {
     const cache = new DiskCache(d, 10_000);
     await cache.fill('a', bytes(3));
     expect(readdirSync(d).sort()).toEqual(['a']);
+  });
+});
+
+describe('DiskCache: no directory scan while under the cap', () => {
+  it('stats only the new file per fill under the cap, and scans once it is over', async () => {
+    const d = dir();
+    writeFileSync(join(d, 'old'), Buffer.alloc(100, 1)); // from an earlier run: counted at start
+    const cache = new DiskCache(d, 350);
+    await cache.fill('a', bytes(100));
+    const fsp = (await import('fs')).promises;
+    const stat = vi.spyOn(fsp, 'stat');
+    const readdir = vi.spyOn(fsp, 'readdir');
+    try {
+      await cache.fill('b', bytes(100)); // 300 of 350
+      expect(readdir).not.toHaveBeenCalled();
+      expect(stat).toHaveBeenCalledTimes(1);
+      await sleep(15);
+      await cache.fill('c', bytes(100)); // 400: over, the oldest goes
+      expect(readdir).toHaveBeenCalledTimes(1);
+      expect(readdirSync(d).sort()).toEqual(['a', 'b', 'c']);
+    } finally {
+      stat.mockRestore();
+      readdir.mockRestore();
+    }
   });
 });

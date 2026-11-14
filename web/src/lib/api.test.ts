@@ -7,7 +7,9 @@ import {
   HttpError,
   deleteJson,
   patchJson,
+  okStatus,
   putJson,
+  requestJson,
   renewalUrl,
   resetSessionState,
   safeReturnPath,
@@ -209,5 +211,21 @@ describe('patchJson / deleteJson', () => {
       ['/api/x/1', 'DELETE', undefined],
     ]);
     expect((calls[1].init.headers as Record<string, string>)['Content-Type']).toBeUndefined();
+  });
+});
+
+describe('requestJson', () => {
+  it('GETs without a body, and gives {} for a 204 or an answer that is not JSON', async () => {
+    const calls: RequestInit[] = [];
+    vi.stubGlobal('fetch', vi.fn(async (url: string, init: RequestInit) => {
+      calls.push(init);
+      return url.endsWith('/empty') ? new Response(null, { status: 204 }) : new Response('<html>', { status: 502 });
+    }));
+    expect(await requestJson('GET', '/api/x/empty')).toEqual({ status: 204, body: {} });
+    expect(await requestJson('POST', '/api/x/html', { a: 1 })).toEqual({ status: 502, body: {} });
+    expect(calls[0]).toMatchObject({ method: 'GET', headers: { Accept: 'application/json' } });
+    expect(calls[0].body).toBeUndefined();
+    expect(calls[1]).toMatchObject({ method: 'POST', body: '{"a":1}', headers: { 'Content-Type': 'application/json' } });
+    expect([okStatus(200), okStatus(204), okStatus(302), okStatus(409)]).toEqual([true, true, false, false]);
   });
 });

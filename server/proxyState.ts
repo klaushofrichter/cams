@@ -1,4 +1,5 @@
 import { readFileSync, promises as fs } from 'fs';
+import { writeFileAtomic } from './fsAtomic';
 import { tmpdir } from 'os';
 import { dirname, join } from 'path';
 import { logger } from './logger';
@@ -58,16 +59,7 @@ export function proxyEnabled(cameraId: CamKey): boolean {
 
 const sorted = (o: Off): Off => Object.fromEntries(Object.keys(o).sort().map((id) => [id, false as const]));
 
-async function write(next: Loaded<Off>): Promise<void> {
-  const target = file();
-  await fs.mkdir(dirname(target), { recursive: true });
-  const tmp = `${target}.${process.pid}.tmp`;
-  await fs.writeFile(tmp, JSON.stringify(next.layout === 'old' ? next.data : next.file));
-  await fs.rename(tmp, target).catch(async (err: unknown) => {
-    await fs.rm(tmp, { force: true });
-    throw err;
-  });
-}
+const write = (next: Loaded<Off>): Promise<void> => writeFileAtomic(file(), JSON.stringify(next.layout === 'old' ? next.data : next.file));
 
 // Writes are serialized and atomic (temp file, then rename). The new value
 // takes effect only once it is on disk, so a failed write changes nothing.

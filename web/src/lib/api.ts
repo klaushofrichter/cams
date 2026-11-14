@@ -156,8 +156,10 @@ export async function getJson<T>(url: string): Promise<T> {
 }
 
 // Through apiFetch like getJson, so an expired session is handled the
-// same way for PUT, POST, PATCH and DELETE. No body (undefined): none sent.
-async function bodyJson<T>(method: 'PUT' | 'POST' | 'PATCH' | 'DELETE', url: string, body: unknown): Promise<{ status: number; body: T }> {
+// same way for every method. No body (undefined): none sent. The answer's
+// status and JSON body ({} when it has none or isn't JSON); a network
+// failure throws (apiFetch's errors).
+export async function requestJson<T>(method: 'GET' | 'PUT' | 'POST' | 'PATCH' | 'DELETE', url: string, body?: unknown): Promise<{ status: number; body: T }> {
   const res = await apiFetch(url, {
     method,
     headers: body === undefined ? { Accept: 'application/json' } : { Accept: 'application/json', 'Content-Type': 'application/json' },
@@ -166,18 +168,21 @@ async function bodyJson<T>(method: 'PUT' | 'POST' | 'PATCH' | 'DELETE', url: str
   return { status: res.status, body: (await res.json().catch(() => ({}))) as T };
 }
 
+// A 2xx status (requestJson's answers carry no `ok`).
+export const okStatus = (status: number): boolean => status >= 200 && status < 300;
+
 export function putJson<T>(url: string, body: unknown): Promise<{ status: number; body: T }> {
-  return bodyJson<T>('PUT', url, body);
+  return requestJson<T>('PUT', url, body);
 }
 
 export function postJson<T>(url: string, body: unknown): Promise<{ status: number; body: T }> {
-  return bodyJson<T>('POST', url, body);
+  return requestJson<T>('POST', url, body);
 }
 
 export function patchJson<T>(url: string, body: unknown): Promise<{ status: number; body: T }> {
-  return bodyJson<T>('PATCH', url, body);
+  return requestJson<T>('PATCH', url, body);
 }
 
 export function deleteJson<T>(url: string): Promise<{ status: number; body: T }> {
-  return bodyJson<T>('DELETE', url, undefined);
+  return requestJson<T>('DELETE', url);
 }

@@ -376,8 +376,7 @@ export class ReolinkClient {
       offlineOn503(res);
       if (await this.isAuthRejection(res)) {
         this.clearTokenIfCurrent(token);
-        if (attempt === 0) continue;
-        throw new CameraError('camera_auth_failed', 'token rejected after re-login');
+        continue; // the second rejection ends the loop: auth failed
       }
       throw new CameraError('camera_error', `unexpected response (HTTP ${res.statusCode})`);
     }
@@ -421,8 +420,6 @@ export class ReolinkClient {
       const outcome = await this.snapshotAttempt(token);
       if (outcome.ok) return outcome.body;
       this.clearTokenIfCurrent(token);
-      if (attempt === 0) continue;
-      throw new CameraError('camera_auth_failed', 'token rejected after re-login');
     }
     throw new CameraError('camera_auth_failed', 'token rejected after re-login');
   }

@@ -4,7 +4,8 @@
   // one the proxy measured on the LAN (from its status), never typed. cams
   // pins it on the proxy with its proxy-admin token; a certificate that
   // changed meanwhile comes back as the new fingerprint for another look.
-  import { apiFetch } from '../lib/api';
+  import { okStatus, postJson } from '../lib/api';
+  import { proxyRelayText } from '../lib/proxyRelay';
 
   let { cameraId, fingerprint, onsaved }: { cameraId: string; fingerprint: string; onsaved?: () => void } = $props();
   // The fingerprint shown now: the proxy's newer one after a 409.
@@ -19,9 +20,9 @@
     saving = true;
     status = '';
     try {
-      const res = await apiFetch(`/api/cameras/${encodeURIComponent(cameraId)}/trust`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ fingerprint: shown }) });
-      const body = (await res.json().catch(() => null)) as { error?: string; fingerprint?: string | null } | null;
-      if (res.ok) {
+      const res = await postJson<{ error?: string; fingerprint?: string | null }>(`/api/cameras/${encodeURIComponent(cameraId)}/trust`, { fingerprint: shown });
+      const body = res.body;
+      if (okStatus(res.status)) {
         status = 'Trusted.';
         onsaved?.();
         return;
@@ -31,9 +32,7 @@
           shown = body.fingerprint;
           status = 'The camera now shows another certificate. Check this one, then trust it.';
         } else status = 'The camera shows no certificate right now.';
-      } else if (res.status === 403 && body?.error === 'proxy_admin_missing') status = "cams has no admin token for this proxy: use the proxy's admin page.";
-      else if (res.status === 503) status = "The camera can't be reached.";
-      else status = 'Could not trust the certificate.';
+      } else status = proxyRelayText(res.status, body) ?? 'Could not trust the certificate.';
     } catch {
       status = 'Could not trust the certificate.';
     } finally {

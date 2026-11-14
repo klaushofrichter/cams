@@ -101,10 +101,10 @@ export async function readProxyStatus(id: CamKey, o: { signal?: AbortSignal; tim
 }
 
 // The camera-changing calls' client: the proxy-admin token with the same trust as the client token's.
-export function proxyAdminClient(id: CamKey): ProxyClient {
+export function proxyAdminClient(id: CamKey, { timeoutMs = 20_000 }: { timeoutMs?: number } = {}): ProxyClient {
   const proxy = getCamera(id)?.proxy;
   if (!proxy?.adminToken) throw new ProxyError('proxy_admin_missing', 'cams has no admin token for this cam-proxy', 403);
-  return new ProxyClient({ url: proxy.url, token: proxy.adminToken }, { timeoutMs: 20_000, ...groupTrustOptions(id) });
+  return new ProxyClient({ url: proxy.url, token: proxy.adminToken }, { timeoutMs, ...groupTrustOptions(id) });
 }
 
 // The camera's time and zone from its proxy, cached 10 minutes (and replaced

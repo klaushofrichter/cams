@@ -77,7 +77,9 @@ describe('proxy media routes', () => {
       });
       expect(r.status).toBe(200);
       expect(r.headers['content-type']).toBe('image/jpeg');
-      expect(r.headers['cache-control']).toMatch(/immutable/);
+      // Camera media is never cached: the URL names a per-account camera id, and
+      // nothing may stay in the browser after logout (code review 2026-11-14).
+      expect(r.headers['cache-control']).toBe('no-store');
       expect(Buffer.compare(r.body, JPEG)).toBe(0);
     }
     expect((await get(`/api/cameras/den/stills/${M + 9000}.jpg`)).status).toBe(404);

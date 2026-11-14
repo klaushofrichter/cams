@@ -1,11 +1,11 @@
 import { NextFunction, Request, Response } from 'express';
-import { expiredSessionKind, SESSION_COOKIE, verifySession } from '../session';
+import { expiredSessionKind, SESSION_COOKIE, sessionExpiry, signViewerTokenSession, verifySession } from '../session';
 import { configMode, reportSoon } from '../configSource';
 import type { AccountRef, Role } from '../fleet';
 import { membershipsOf, tokenAccount, type Membership } from '../membership';
 import { internalPrincipal, isInternal } from '../mcp/internal';
 import { cookieOptions, loginToken, tokenFingerprint, tokenLoginEnabled, tokenUser } from '../loginConfig';
-import { noteViewerTokenUse, viewerTokenForSession, type ViewerToken } from '../viewerTokens';
+import { noteViewerTokenUse, viewerTokenForSession, viewerTokenNow, type ViewerToken } from '../viewerTokens';
 
 export const RETURN_COOKIE = 'return_to';
 const RETURN_MAX_AGE_MS = 10 * 60 * 1000;
@@ -90,7 +90,11 @@ export function principalIn(id: { email: string; via: 'google' | 'token'; tf?: s
   return m ? { email: id.email, via: 'google', account: m.account, role: m.role } : null;
 }
 
+// Behind requireAuthApi the request's principal is already decided
+// (res.locals.principal): reused, not authenticated again per call.
 export function currentUser(req: Request): Principal | null {
+  const decided = req.res?.locals.principal as Principal | undefined;
+  if (decided) return decided;
   const s = authState(req);
   return s.kind === 'ok' ? s.principal : null;
 }
@@ -119,15 +123,37 @@ export function rememberReturn(res: Response, value: unknown): void {
   res.cookie(RETURN_COOKIE, path, { ...cookieOptions(), maxAge: RETURN_MAX_AGE_MS });
 }
 
+// A viewer token's session lasts until the token's expiry at sign-in (the
+// JWT's exp and the cookie's Max-Age). A longer validity set in cams-admin
+// since then reissues the cookie, with the same id, tag and account, until
+// the token's new expiry, as sign-in would (code review 2026-11-14). A
+// shorter one needs nothing here: authState checks the fleet's expiry on
+// every request. Cams-admin's viewer tokens always have an expiry (1 to 365
+// days); none never expires.
+function renewViewerTokenSession(req: Request, res: Response, state: AuthState): void {
+  const info = state.kind === 'ok' ? state.principal.viewerToken : state.kind === 'choose' ? state.viewerToken : undefined;
+  if (!info) return;
+  const cookie = req.cookies?.[SESSION_COOKIE];
+  const session = typeof cookie === 'string' ? verifySession(cookie) : null;
+  if (!session || session.via !== 'viewer-token' || session.vt !== info.id || !session.tf) return;
+  const exp = sessionExpiry(cookie as string);
+  if (exp === null || Math.floor(info.expiresAt / 1000) <= exp) return;
+  const maxAge = info.expiresAt - viewerTokenNow();
+  if (maxAge <= 0) return;
+  res.cookie(SESSION_COOKIE, signViewerTokenSession(info.id, session.tf, info.expiresAt, session.acc), { ...cookieOptions(), maxAge });
+}
+
 // A person who must choose an account gets the web app (it opens the picker).
 export function requireAuthPage(req: Request, res: Response, next: NextFunction): void {
-  if (authState(req).kind === 'none') {
+  const state = authState(req);
+  if (state.kind === 'none') {
     // Remember where the visitor was going, so sign-in can bring them back.
     rememberReturn(res, req.originalUrl);
     // A viewer token's session that ended (revoked, expired): its own sign-in page.
     res.redirect(302, expiredSessionKind(req.cookies?.[SESSION_COOKIE]) === 'viewer-token' ? '/token' : '/');
     return;
   }
+  renewViewerTokenSession(req, res, state);
   next();
 }
 
@@ -148,6 +174,7 @@ export function requireAuthApi(req: Request, res: Response, next: NextFunction):
     res.status(401).json({ error: 'unauthorized' });
     return;
   }
+  if (!isInternal(req)) renewViewerTokenSession(req, res, state);
   if (state.kind === 'choose') {
     if (CHOOSE_OK.has(`${req.method} ${req.baseUrl}${req.path}`)) return next();
     res.status(409).json({ error: 'choose_account' });

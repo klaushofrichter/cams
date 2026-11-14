@@ -1,7 +1,8 @@
 import { logger } from '../logger';
-import { dayWindow, parseObjects, parseSummary, type StillObject, type SummaryEntry } from './analyses';
+import { parseObjects, parseSummary, type StillObject, type SummaryEntry } from './analyses';
 import { getProxyClient, proxyPath, ProxyError } from './client';
 import { proxyHub } from './stream';
+import { DayCache } from './dayCache';
 import type { CamKey } from '../fleet';
 
 // cam-proxy's still checks (cams #179, cam-proxy's still checks API): Vision
@@ -76,68 +77,33 @@ export function parseUsage(v: unknown): Usage {
   };
 }
 
-const RECENT_TTL = 60_000;
-const PAST_TTL = 3_600_000;
 const FETCH_TIMEOUT_MS = 3000;
-const FAIL_TTL = 30_000;
 
-// The checks of a camera's day, for the cards (GET /events), like the AI
-// events' store: a day fetched while it goes on is kept a minute, a past one
-// an hour; a failed fetch is not repeated for 30 s; a `still-check` message
-// drops the camera's days.
+// The checks of a camera's day, for the cards (GET /events), cached like the
+// AI events (DayCache); a `still-check` message drops the camera's days.
+// While the proxy fails: the day as last fetched, else none. An older proxy
+// has no checks (404): an empty day, kept like one.
 class CheckStore {
-  private days = new Map<string, { at: number; list: StillCheck[] }>();
-  private inflight = new Map<string, Promise<StillCheck[]>>();
-  private failed = new Map<string, number>();
-  private gen = new Map<string, number>();
+  private cache = new DayCache<StillCheck>({
+    async fetch(cam, win) {
+      const client = getProxyClient(cam);
+      if (!client) return null;
+      const body = await client.json<unknown>(proxyPath(cam, '/still-checks'), { from: win[0], to: win[1] }, { timeoutMs: FETCH_TIMEOUT_MS, signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) });
+      return (Array.isArray(body) ? body : []).map(parseCheck).filter((c): c is StillCheck => c !== null);
+    },
+    failure(cam, err) {
+      const status = err instanceof ProxyError ? err.status : undefined;
+      logger.debug({ cameraId: cam, code: err instanceof ProxyError ? err.code : 'error', status }, 'proxy_still_checks_unavailable');
+      return status === 404 ? 'empty' : 'failed';
+    },
+  });
 
   async forDay(cam: CamKey, date: string, cards: { start: string }[], now = Date.now()): Promise<StillCheck[]> {
-    if (!cards.length) return [];
-    const win = dayWindow(date, cards[0].start);
-    if (!win) return [];
-    const key = `${cam}|${date}`;
-    for (const [k, d] of this.days) if (now - d.at >= PAST_TTL) this.days.delete(k);
-    for (const [k, at] of this.failed) if (now - at >= FAIL_TTL) this.failed.delete(k);
-    const hit = this.days.get(key);
-    const ttl = (hit?.at ?? now) <= win[1] ? RECENT_TTL : PAST_TTL;
-    if (hit && now - hit.at < ttl) return hit.list;
-    if (this.failed.has(key)) return hit?.list ?? [];
-    return this.inflight.get(key) ?? this.fetch(cam, key, win, now);
+    return (await this.cache.forDay(cam, date, cards, now)) ?? this.cache.last(cam, date) ?? [];
   }
 
   invalidate(cam: CamKey): void {
-    this.gen.set(cam, (this.gen.get(cam) ?? 0) + 1);
-    for (const k of this.days.keys()) if (k.startsWith(`${cam}|`)) this.days.delete(k);
-    for (const k of this.inflight.keys()) if (k.startsWith(`${cam}|`)) this.inflight.delete(k);
-  }
-
-  private fetch(cam: CamKey, key: string, win: [number, number], now: number): Promise<StillCheck[]> {
-    const gen = this.gen.get(cam) ?? 0;
-    const work = (async () => {
-      const client = getProxyClient(cam);
-      if (!client) return [];
-      try {
-        const body = await client.json<unknown>(proxyPath(cam, '/still-checks'), { from: win[0], to: win[1] }, { timeoutMs: FETCH_TIMEOUT_MS, signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) });
-        const list = (Array.isArray(body) ? body : []).map(parseCheck).filter((c): c is StillCheck => c !== null);
-        if ((this.gen.get(cam) ?? 0) === gen) this.days.set(key, { at: now, list });
-        this.failed.delete(key);
-        return list;
-      } catch (err) {
-        const status = err instanceof ProxyError ? err.status : undefined;
-        logger.debug({ cameraId: cam, code: err instanceof ProxyError ? err.code : 'error', status }, 'proxy_still_checks_unavailable');
-        // An older proxy has no checks (404): an empty day, kept like one.
-        if (status === 404) {
-          this.days.set(key, { at: now, list: [] });
-          return [];
-        }
-        this.failed.set(key, Date.now());
-        return this.days.get(key)?.list ?? [];
-      }
-    })().finally(() => {
-      if (this.inflight.get(key) === work) this.inflight.delete(key);
-    });
-    this.inflight.set(key, work);
-    return work;
+    this.cache.invalidate(cam);
   }
 }
 

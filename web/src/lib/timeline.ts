@@ -1,7 +1,7 @@
 // The Timeline page's arithmetic (Plan 6). cam-proxy works in UTC ms; the
 // page shows the browser's local day.
 import { writable } from 'svelte/store';
-import { DATE, localDate, pad2, saveCursor } from './recordings';
+import { DATE, localDate, orderRank, pad2, saveCursor } from './recordings';
 import { navigate } from './router';
 import type { SummaryEntry } from './vision';
 
@@ -192,10 +192,7 @@ export function cardsInMinute<T extends { start: string; end: string }>(m: { min
 }
 
 const PRIORITY = ['person', 'vehicle', 'pet', 'motion', 'timer'];
-const rank = (k: string) => {
-  const i = PRIORITY.indexOf(k);
-  return i < 0 ? PRIORITY.length : i;
-};
+const rank = orderRank(PRIORITY);
 
 // A card's colour: its most specific trigger (person before vehicle, pet, motion).
 export function cardKind(c: { triggers: readonly string[] }): string {

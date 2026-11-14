@@ -5,6 +5,7 @@
 // minutes at the proxy; its link never outlives that.
 import { logger } from '../logger';
 import { callApi, type InternalBase } from './internal';
+import { intEnv } from '../env';
 
 export type JobState = 'queued' | 'running' | 'done' | 'failed' | 'cancelled';
 export interface McpJob {
@@ -27,10 +28,6 @@ const MAX_RUN_MS = 10 * 60_000;
 const KEEP_MS = 20 * 60_000;
 const JOB_ID = /^[A-Za-z0-9_-]{22}$/;
 const STATES: JobState[] = ['queued', 'running', 'done', 'failed', 'cancelled'];
-const intEnv = (name: string, def: number) => {
-  const v = Number(process.env[name]);
-  return Number.isInteger(v) && v > 0 ? v : def;
-};
 export const pollMs = () => intEnv('MCP_JOB_POLL_MS', 10_000);
 export const waitMs = () => intEnv('MCP_JOB_WAIT_MS', 25_000);
 

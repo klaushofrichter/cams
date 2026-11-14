@@ -2,6 +2,8 @@
 // modal's calls go to the camera's cam-proxy with its token.
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import request from 'supertest';
+import http from 'http';
+import type { AddressInfo } from 'net';
 import { createApp } from '../server/app';
 import { setCameras } from '../server/cameraRegistry';
 import { getProxyClient, ProxyError, resetProxyClients } from '../server/proxy/client';
@@ -107,6 +109,32 @@ describe('compositions pass-through', () => {
     expect(fake.compositions.has(body.id)).toBe(false);
   });
 
+  // The job is forgotten only once the proxy confirmed the cancel (or says it
+  // is gone): a failed cancel leaves it pollable and cancellable (code review
+  // 2026-11-14).
+  it('a cancel the proxy fails keeps the job; a confirmed one or the proxy\'s 404 forgets it', async () => {
+    fake.composeDelayMs = 10_000;
+    const { body } = await post('den', { eventId: EVENT, preS: 0, postS: 5, size: 'sd', badge: false });
+    const del = () => request(createApp()).delete(`/api/cameras/den/compositions/${body.id}`).set('Cookie', auth);
+    const poll = () => request(createApp()).get(`/api/cameras/den/compositions/${body.id}`).set('Cookie', auth);
+    const client = getProxyClient(k('den'))!;
+    const open = vi.spyOn(client, 'open');
+    open.mockResolvedValueOnce(new Response(JSON.stringify({ error: 'busy' }), { status: 503 }));
+    expect((await del()).status).toBe(503);
+    expect((await poll()).status).toBe(200);
+    open.mockRejectedValueOnce(new ProxyError('proxy_unreachable', 'down'));
+    expect((await del()).status).toBe(502);
+    expect((await poll()).status).toBe(200);
+    expect(fake.compositions.has(body.id)).toBe(true);
+    expect((await del()).status).toBe(204);
+    expect((await poll()).status).toBe(404);
+    // The proxy no longer knows a job: forgotten too.
+    const second = (await post('den', { eventId: EVENT, preS: 0, postS: 5, size: 'sd', badge: false })).body;
+    fake.compositions.delete(second.id);
+    expect((await request(createApp()).delete(`/api/cameras/den/compositions/${second.id}`).set('Cookie', auth)).status).toBe(404);
+    expect((await request(createApp()).get(`/api/cameras/den/compositions/${second.id}`).set('Cookie', auth)).status).toBe(404);
+  });
+
   it('says no_proxy, no_clip, bad job ids, and needs a signed-in user', async () => {
     expect((await post('shed', { eventId: EVENT, preS: 0, postS: 5, size: 'sd', badge: false })).body).toEqual({ error: 'no_proxy' });
     expect((await post('den', { eventId: '20260928-090000-090010', preS: 0, postS: 5, size: 'sd', badge: false })).body).toEqual({ error: 'no_clip' });
@@ -164,6 +192,68 @@ describe('compositions pass-through', () => {
     expect(r.status).toBe(206);
     expect(r.headers['content-range']).toMatch(/^bytes 0-3\/\d+$/);
     expect(r.headers['accept-ranges']).toBe('bytes');
+  });
+
+  // Code review 2026-11-14: a Range past the end is the proxy's 416, with
+  // the size in Content-Range (bytes */N), so iOS Safari learns the length;
+  // not a JSON answer without it.
+  it('passes the proxy\'s 416 through with its Content-Range', async () => {
+    fake.composeDelayMs = 0;
+    const { body } = await post('den', { eventId: EVENT, preS: 0, postS: 5, size: 'sd', badge: false });
+    await new Promise((res) => setTimeout(res, 20));
+    const r = await request(createApp()).get(`/api/cameras/den/compositions/${body.id}/video?inline=1`).set('Cookie', auth).set('Range', 'bytes=999-');
+    expect(r.status).toBe(416);
+    expect(r.headers['content-range']).toBe('bytes */16');
+    expect(r.headers['accept-ranges']).toBe('bytes');
+    expect(r.headers['content-type'] ?? '').not.toMatch(/json/);
+  });
+
+  // Code review 2026-11-14: a browser that gives up on a range request
+  // (scrubbing) ends the upstream request too.
+  it('aborts the proxy request when the browser goes away', async () => {
+    fake.composeDelayMs = 0;
+    const { body } = await post('den', { eventId: EVENT, preS: 0, postS: 5, size: 'sd', badge: false });
+    await new Promise((res) => setTimeout(res, 20));
+    const client = getProxyClient(k('den'))!;
+    let signal: AbortSignal | undefined;
+    const asked = new Promise<void>((done) => {
+      vi.spyOn(client, 'open').mockImplementation((_p, _q, init) => {
+        signal = init?.signal;
+        done();
+        return new Promise(() => undefined); // the proxy never answers
+      });
+    });
+    const server = createApp().listen(0);
+    try {
+      const { port } = server.address() as AddressInfo;
+      const req = http.get({ port, path: `/api/cameras/den/compositions/${body.id}/video?inline=1`, headers: { Cookie: auth, Range: 'bytes=0-3' } });
+      req.on('error', () => undefined);
+      await asked;
+      req.destroy();
+      await vi.waitFor(() => expect(signal?.aborted).toBe(true));
+    } finally {
+      server.close();
+    }
+  });
+
+  // Code review 2026-11-14: an error answer is read up to a cap, never whole.
+  it('reads at most a bounded error body from the proxy', async () => {
+    fake.composeDelayMs = 0;
+    const { body } = await post('den', { eventId: EVENT, preS: 0, postS: 5, size: 'sd', badge: false });
+    await new Promise((res) => setTimeout(res, 20));
+    let sent = 0;
+    // 1 MiB of error body, then it never ends.
+    const endless = new ReadableStream<Uint8Array>({
+      pull(c) {
+        if (sent >= 1 << 20) return new Promise(() => undefined);
+        sent += 16_384;
+        c.enqueue(new Uint8Array(16_384));
+      },
+    });
+    vi.spyOn(getProxyClient(k('den'))!, 'open').mockResolvedValue(new Response(endless, { status: 409 }));
+    const r = await request(createApp()).get(`/api/cameras/den/compositions/${body.id}/video`).set('Cookie', auth).timeout(3000);
+    expect(r.status).toBe(502);
+    expect(sent).toBeLessThan(1 << 20);
   });
 
   it('says whether the proxy has a copy of the event, before anything is composed', async () => {
@@ -352,6 +442,17 @@ describe('compositions: who may cancel, malformed answers, every field checked',
     vi.spyOn(getProxyClient(k('den'))!, 'open').mockResolvedValue(new Response('{"id": "abc', { status: 201 }));
     const r = await post('den', { eventId: EVENT, preS: 0, postS: 5, size: 'sd', badge: false });
     expect([r.status, r.body]).toEqual([502, { error: 'proxy_unavailable', detail: 'the proxy started a job but its answer is unreadable' }]);
+  });
+
+  // The proxy's answer is read up to 64 KiB (code review 2026-11-14): a
+  // longer one, a 201 or a refusal, is 502 proxy_unavailable, never held whole.
+  it('an answer over 64 KiB, starting or around a second: 502 proxy_unavailable', async () => {
+    const huge = () => new Response(JSON.stringify({ id: 'J'.repeat(22), pad: 'x'.repeat(70_000) }), { status: 201 });
+    vi.spyOn(getProxyClient(k('den'))!, 'open').mockImplementation(async () => huge());
+    const r = await post('den', { eventId: EVENT, preS: 0, postS: 5, size: 'sd', badge: false });
+    expect([r.status, r.body]).toEqual([502, { error: 'proxy_unavailable' }]);
+    const a = await post('den', { at: Math.floor(Date.now() / 1000) * 1000 - 60_000, preS: 1, postS: 1, size: 'sd', badge: false });
+    expect([a.status, a.body]).toEqual([502, { error: 'proxy_unavailable' }]);
   });
 
   it('the same around a second', async () => {

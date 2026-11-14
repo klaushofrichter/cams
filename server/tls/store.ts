@@ -1,5 +1,6 @@
 import { EventEmitter } from 'events';
 import { readFileSync, statSync, promises as fs } from 'fs';
+import { writeFileAtomic } from '../fsAtomic';
 import { basename, dirname, join } from 'path';
 import { allCameras } from '../cameraRegistry';
 import { logger } from '../logger';
@@ -89,13 +90,7 @@ function save(): Promise<void> {
   const run = writing.then(async () => {
     const target = file();
     if (!target) return; // no data folder: only possible without a pinned proxy
-    await fs.mkdir(dirname(target), { recursive: true });
-    const tmp = `${target}.${process.pid}.tmp`;
-    await fs.writeFile(tmp, JSON.stringify({ cas: Object.fromEntries(cas), pins: Object.fromEntries(pins), ...(layout === 'accounts' && { v: 2 }) }), { mode: 0o600 });
-    await fs.rename(tmp, target).catch(async (err: unknown) => {
-      await fs.rm(tmp, { force: true });
-      throw err;
-    });
+    await writeFileAtomic(target, JSON.stringify({ cas: Object.fromEntries(cas), pins: Object.fromEntries(pins), ...(layout === 'accounts' && { v: 2 }) }), { mode: 0o600 });
   });
   writing = run.catch((err: unknown) => logger.warn({ message: (err as Error).message }, 'proxy_tls_state_unwritten'));
   return writing as Promise<void>;

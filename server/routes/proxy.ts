@@ -7,9 +7,10 @@ import { logger } from '../logger';
 import { setProxyEnabled } from '../proxyState';
 import { proxyHub, startProxyStream, stopProxyStream } from '../proxy/stream';
 import { parseObjects, parseSummary } from '../proxy/analyses';
-import { groupTrustOptions, ProxyClient, ProxyError, proxyPath } from '../proxy/client';
+import { ProxyError, proxyPath, type ProxyClient } from '../proxy/client';
+import { proxyAdminClient } from '../proxy/cameraCalls';
 import { entryOf, readProxyList, type ProxyCameraEntry } from '../proxy/cameraList';
-import { badRequest, knownCamera, outId, proxyFailed, proxyTarget } from './common';
+import { badRequest, knownCamera, msRange, outId, proxyFailed, proxyTarget } from './common';
 import { accountIdOf, type CamKey } from '../fleet';
 import { nodeBody } from '../httpBody';
 import { adminTokenWaiting } from '../configSource';
@@ -19,7 +20,6 @@ import type { Principal } from '../middleware/requireAuth';
 // page (Plan 6). cams signs the browser in; the proxy's token is added here.
 export const proxyRouter = Router();
 
-const DAY = 86_400_000;
 
 // A camera with a cam-proxy in use: its client, the proxy's id for it
 // (encoded) and cams's own URL base for it.
@@ -101,7 +101,7 @@ proxyRouter.post('/api/cameras/:id/proxy/login-link', async (req: Request, res: 
   if (!info.reachable) return void res.status(502).json({ error: 'proxy_unavailable' });
   if (!info.webUrl) return void res.status(409).json({ error: 'no_login_link' });
   try {
-    const r = await new ProxyClient({ url: proxy.url, token: proxy.adminToken }, { timeoutMs: 3000, ...groupTrustOptions(id) }).open('/control/login-links', undefined, { method: 'POST' });
+    const r = await proxyAdminClient(id, { timeoutMs: 3000 }).open('/control/login-links', undefined, { method: 'POST' });
     const body = (await r.json().catch(() => null)) as { code?: unknown } | null;
     if (!r.ok || typeof body?.code !== 'string' || !/^[A-Za-z0-9_-]{8,128}$/.test(body.code)) {
       logger.warn({ cameraId: id, status: r.status }, 'proxy_login_link_refused');
@@ -121,12 +121,7 @@ proxyRouter.post('/api/cameras/:id/proxy/login-link', async (req: Request, res: 
   }
 });
 
-function range(req: Request, res: Response): [number, number] | undefined {
-  const from = String(req.query.from ?? ''), to = String(req.query.to ?? '');
-  if (!/^\d{1,15}$/.test(from) || !/^\d{1,15}$/.test(to) || Number(to) < Number(from)) return badRequest(res, 'from and to (unix ms) are required'), undefined;
-  if (Number(to) - Number(from) > DAY) return badRequest(res, 'at most one day per request'), undefined;
-  return [Number(from), Number(to)];
-}
+const range = (req: Request, res: Response) => msRange(req, res, 1, 'one day');
 
 function failed(err: unknown, id: CamKey, res: Response): void {
   // The browser left (a tile scrolled away, a page closed): nothing to answer.
@@ -140,7 +135,7 @@ function failed(err: unknown, id: CamKey, res: Response): void {
 // sprite on demand under the minute's one URL, and a browser keeps an image
 // URL for the whole page (no-store or not), so a sprite loaded early stayed
 // blank where later tiles came in (Klaus, 2026-10-03). Its URL names how many
-// tiles it has; a whole minute keeps the plain URL (cached for 7 days).
+// tiles it has; a whole minute keeps the plain URL.
 function spriteVersion(present: unknown): string {
   if (!Array.isArray(present)) return '';
   const n = present.filter(Boolean).length;
@@ -202,11 +197,10 @@ const ms = (v: unknown): v is number => Number.isSafeInteger(v) && (v as number)
 proxyRouter.get('/api/cameras/:id/outages', async (req: Request, res: Response) => {
   const p = proxied(req, res);
   if (!p) return;
-  const from = String(req.query.from ?? ''), to = String(req.query.to ?? '');
-  if (!/^\d{1,15}$/.test(from) || !/^\d{1,15}$/.test(to) || Number(to) < Number(from)) return badRequest(res, 'from and to (unix ms) are required');
-  if (Number(to) - Number(from) > 2 * DAY) return badRequest(res, 'at most two days per request');
+  const r = msRange(req, res, 2, 'two days');
+  if (!r) return;
   try {
-    const body = await p.client.json<{ outages?: unknown }>(proxyPath(p.id, '/outages'), { from: Number(from), to: Number(to) });
+    const body = await p.client.json<{ outages?: unknown }>(proxyPath(p.id, '/outages'), { from: r[0], to: r[1] });
     const list = Array.isArray(body?.outages) ? body.outages : [];
     res.json({
       outages: list
@@ -244,19 +238,23 @@ proxyRouter.get('/api/cameras/:id/analyses/:eventId', async (req: Request, res: 
 
 // One image from the proxy, streamed: its 404 stays a 404, any other refusal
 // is a 502. Also the still checks' and the Archive's images; `signal` lets a
-// viewer who left cancel the request.
-export async function relayImage(res: Response, client: ProxyClient, path: string, headers: (up: globalThis.Response) => Record<string, string>, signal?: AbortSignal): Promise<void> {
+// viewer who left cancel the request. Always no-store, whatever the proxy
+// says: the URL names a camsId, which is per account (another account's
+// camera, or another camera after a move, can have the same URL), and camera
+// media must not stay in the browser cache after logout (code review
+// 2026-11-14). Within one page the browser still reuses a loaded image.
+export async function relayImage(res: Response, client: ProxyClient, path: string, extra: Record<string, string> = {}, signal?: AbortSignal): Promise<void> {
   const up = await client.open(path, undefined, { idleMs: 10_000, signal });
   if (!up.ok || !up.body) {
     await up.body?.cancel();
     return void res.status(up.status === 404 ? 404 : 502).json({ error: up.status === 404 ? 'not_found' : 'proxy_unavailable' });
   }
   if (res.destroyed) return void (await up.body.cancel()); // the browser left while we waited
-  res.status(200).set({ 'Content-Type': 'image/jpeg', ...headers(up) });
+  res.status(200).set({ ...extra, 'Content-Type': 'image/jpeg', 'Cache-Control': 'no-store' });
   await pipeline(nodeBody(up), res);
 }
 
-// One image, streamed with the proxy's type and caching.
+// One image, streamed (never cached, see relayImage).
 for (const kind of ['previews', 'stills'] as const) {
   proxyRouter.get(`/api/cameras/:id/${kind}/:file`, async (req: Request, res: Response) => {
     const m = /^(\d{1,15})\.jpg$/.exec(String(req.params.file));
@@ -266,7 +264,7 @@ for (const kind of ['previews', 'stills'] as const) {
     // The proxy path is built from the parsed number, never the raw parameter.
     const ts = Number(m[1]);
     try {
-      await relayImage(res, p.client, proxyPath(p.id, `/${kind}/${ts}.jpg`), (up) => ({ 'Cache-Control': up.headers.get('cache-control') ?? 'no-store' }));
+      await relayImage(res, p.client, proxyPath(p.id, `/${kind}/${ts}.jpg`));
     } catch (err) {
       failed(err, p.id, res);
     }
@@ -284,7 +282,7 @@ proxyRouter.get('/api/cameras/:id/still/latest.jpg', async (req: Request, res: R
     if (!stills) return badList(res, p.id, 'stills');
     const ts = stills.at(-1);
     if (ts === undefined) return void res.status(404).json({ error: 'not_found' });
-    await relayImage(res, p.client, proxyPath(p.id, `/stills/${ts}.jpg`), () => ({ 'Cache-Control': 'no-store', 'X-Still-Time': String(ts) }));
+    await relayImage(res, p.client, proxyPath(p.id, `/stills/${ts}.jpg`), { 'X-Still-Time': String(ts) });
   } catch (err) {
     failed(err, p.id, res);
   }

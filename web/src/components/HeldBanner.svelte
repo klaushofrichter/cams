@@ -2,7 +2,7 @@
   // Held connection changes (migration P4, M §9.7): cams-admin changed where
   // cams connects for a camera or its proxy; cams keeps the old values until
   // an account admin confirms here (or keeps the old ones).
-  import { apiFetch, getJson } from '../lib/api';
+  import { getJson, okStatus, postJson } from '../lib/api';
   import { isAdmin } from '../lib/session';
   import { me } from '../lib/stores';
   import { reloadCameras } from '../lib/eventStream';
@@ -52,12 +52,12 @@
     busy = true;
     changed = false;
     try {
-      const r = await apiFetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ items: [item] }) });
+      const r = await postJson(url, { items: [item] });
       changed = r.status === 409;
       // Something confirmed or kept: a new configuration is in use. Re-read the
       // camera list now, so live (through the proxy or not) follows without a
       // reload of the page (finding 14); the event stream says so too, later.
-      if (r.ok) await Promise.all([load(), reloadCameras()]);
+      if (okStatus(r.status)) await Promise.all([load(), reloadCameras()]);
       else await load();
     } finally {
       busy = false;
