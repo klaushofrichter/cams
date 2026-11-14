@@ -166,6 +166,20 @@ describe('compositions pass-through', () => {
     expect(r.headers['accept-ranges']).toBe('bytes');
   });
 
+  // Code review 2026-11-14: a Range past the end is the proxy's 416, with
+  // the size in Content-Range (bytes */N), so iOS Safari learns the length;
+  // not a JSON answer without it.
+  it('passes the proxy\'s 416 through with its Content-Range', async () => {
+    fake.composeDelayMs = 0;
+    const { body } = await post('den', { eventId: EVENT, preS: 0, postS: 5, size: 'sd', badge: false });
+    await new Promise((res) => setTimeout(res, 20));
+    const r = await request(createApp()).get(`/api/cameras/den/compositions/${body.id}/video?inline=1`).set('Cookie', auth).set('Range', 'bytes=999-');
+    expect(r.status).toBe(416);
+    expect(r.headers['content-range']).toBe('bytes */16');
+    expect(r.headers['accept-ranges']).toBe('bytes');
+    expect(r.headers['content-type'] ?? '').not.toMatch(/json/);
+  });
+
   it('says whether the proxy has a copy of the event, before anything is composed', async () => {
     expect((await request(createApp()).get(`/api/cameras/den/compositions/available?eventId=${EVENT}`).set('Cookie', auth)).body).toEqual({ available: true });
     expect((await request(createApp()).get('/api/cameras/den/compositions/available?eventId=20260928-090000-090010').set('Cookie', auth)).body).toEqual({ available: false });

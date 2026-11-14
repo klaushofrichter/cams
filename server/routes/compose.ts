@@ -212,6 +212,10 @@ composeRouter.get('/api/cameras/:id/compositions/:job/video', async (req, res) =
     // Byte ranges pass through: iOS Safari plays a <video> only with them (issue #72).
     const range = req.get('range');
     const up = await t.client.open(`${t.base}/${job.id}.mp4`, undefined, { idleMs: 30_000, headers: range && /^bytes=\d*-\d*$/.test(range) ? { Range: range } : {} });
+    // A Range past the end: the proxy's 416 as it is, with the size in its
+    // Content-Range (bytes */N), so iOS Safari learns the length (code
+    // review 2026-11-14); never a JSON answer.
+    if (up.status === 416) return void unsatisfiable(res, up);
     if (!up.ok || !up.body) return void (await relay(res, up));
     const name = typeof req.query.name === 'string' && NAME.test(req.query.name) ? req.query.name : 'composed.mp4';
     res.status(up.status === 206 ? 206 : 200).set({
@@ -229,6 +233,14 @@ composeRouter.get('/api/cameras/:id/compositions/:job/video', async (req, res) =
     failed(err, res);
   }
 });
+
+function unsatisfiable(res: Response, up: globalThis.Response) {
+  void up.body?.cancel().catch(() => undefined);
+  res.status(416).set({ 'Accept-Ranges': 'bytes', 'Cache-Control': 'no-store' });
+  const cr = up.headers.get('content-range');
+  if (cr && /^bytes \*\/\d+$/.test(cr)) res.setHeader('Content-Range', cr);
+  res.end();
+}
 
 composeRouter.delete('/api/cameras/:id/compositions/:job', async (req, res) => {
   if (!jobOk(req, res)) return;
