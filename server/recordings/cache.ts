@@ -11,6 +11,10 @@ export class DiskCache {
   private readonly inflight = new Map<string, Promise<string>>();
   private readonly pins = new Map<string, number>();
   private ready: Promise<void> | null = null;
+  // The bytes the cache holds, as this process counted them: from one scan
+  // when the directory is first used, then each fill. Only an over-cap total
+  // makes evict() scan the directory (one process owns it, see ensureDir).
+  private total = 0;
 
   constructor(
     private readonly dir: string,
@@ -39,6 +43,7 @@ export class DiskCache {
           // not poison `ready` and leave every future fill() rejecting.
           names.filter((n) => n.includes('.tmp-')).map((n) => fs.rm(join(this.dir, n), { force: true }).catch(() => {})),
         );
+        this.total = (await this.scan(names)).reduce((sum, f) => sum + f.size, 0);
       } catch (err) {
         // mkdir itself failing (e.g. a transient permissions problem) must
         // not wedge `ready` into a rejected promise forever: clear it so the
@@ -92,6 +97,7 @@ export class DiskCache {
         await fs.rm(tmp, { force: true });
         throw err;
       }
+      this.total += (await fs.stat(target).catch(() => null))?.size ?? 0;
       await this.evict(key);
       return target;
     })().finally(() => this.inflight.delete(key));
@@ -99,15 +105,25 @@ export class DiskCache {
     return work;
   }
 
-  private async evict(justAdded: string): Promise<void> {
-    const names = (await fs.readdir(this.dir)).filter((n) => !n.includes('.tmp-'));
+  // The files (not temp ones) among `names`, with their size and age.
+  private async scan(names: string[]): Promise<{ name: string; size: number; mtime: number }[]> {
     const files = await Promise.all(
-      names.map(async (name) => {
-        const s = await fs.stat(join(this.dir, name)).catch(() => null);
-        return s ? { name, size: s.size, mtime: s.mtimeMs } : null;
-      }),
+      names
+        .filter((n) => !n.includes('.tmp-'))
+        .map(async (name) => {
+          const s = await fs.stat(join(this.dir, name)).catch(() => null);
+          return s ? { name, size: s.size, mtime: s.mtimeMs } : null;
+        }),
     );
-    const live = files.filter((f): f is { name: string; size: number; mtime: number } => f !== null);
+    return files.filter((f): f is { name: string; size: number; mtime: number } => f !== null);
+  }
+
+  // Under the cap by the running total: nothing to do, no disk scan. Over
+  // it: the directory as it really is, least recently used out first.
+  private async evict(justAdded: string): Promise<void> {
+    if (this.total <= this.maxBytes) return;
+    const counted = this.total; // fills finishing during the scan add to it
+    const live = await this.scan(await fs.readdir(this.dir));
     let total = live.reduce((sum, f) => sum + f.size, 0);
     for (const f of live.sort((a, b) => a.mtime - b.mtime)) {
       if (total <= this.maxBytes) break;
@@ -115,5 +131,8 @@ export class DiskCache {
       await fs.rm(join(this.dir, f.name), { force: true });
       total -= f.size;
     }
+    // The directory as found, plus what other fills added meanwhile (one
+    // counted twice only means an early scan, never a missed eviction).
+    this.total = total + (this.total - counted);
   }
 }
