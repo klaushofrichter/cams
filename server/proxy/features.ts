@@ -1,6 +1,7 @@
 import { EventEmitter } from 'events';
 import { createHash } from 'crypto';
-import { readFileSync, promises as fs } from 'fs';
+import { readFileSync } from 'fs';
+import { writeFileAtomic } from '../fsAtomic';
 import { dirname, join } from 'path';
 import { logger } from '../logger';
 import { fleetCamera, fleetCameras, type CamKey } from '../fleet';
@@ -82,13 +83,7 @@ function featuresOf(list: unknown): string[] {
 async function write(next: FileShape): Promise<void> {
   const target = proxyFeaturesFile();
   if (!target) return; // in memory only
-  await fs.mkdir(dirname(target), { recursive: true });
-  const tmp = `${target}.${process.pid}.tmp`;
-  await fs.writeFile(tmp, JSON.stringify(next));
-  await fs.rename(tmp, target).catch(async (err: unknown) => {
-    await fs.rm(tmp, { force: true });
-    throw err;
-  });
+  await writeFileAtomic(target, JSON.stringify(next));
 }
 
 // A successful read of a proxy's camera list (GET /api/cameras). Written

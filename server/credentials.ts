@@ -5,8 +5,8 @@
 // transition, for the file account only — from the same id in CAMERAS_FILE.
 // The user name comes from cams-admin; a different one here is a mismatch,
 // shown, never guessed. Nothing here is ever logged.
-import { accessSync, constants, readFileSync, statSync, promises as fs } from 'fs';
-import { randomBytes } from 'crypto';
+import { accessSync, constants, readFileSync, statSync } from 'fs';
+import { writeFileAtomic } from './fsAtomic';
 import { basename, dirname } from 'path';
 import type { FileCameraConfig } from './cameraRegistry';
 import { fileAccount } from './fleet';
@@ -88,6 +88,13 @@ export function credentialsWritable(): boolean {
   }
 }
 
+// The entries as the file holds them (sorted), written atomically, mode 600.
+function writeEntries(f: string): Promise<void> {
+  const out: Record<string, unknown> = { v: 1 };
+  for (const k of [...entries.keys()].sort()) out[k] = entries.get(k);
+  return writeFileAtomic(f, JSON.stringify(out, null, 2), { mode: 0o600 });
+}
+
 // Atomic (temp 600, fsync, rename), the other entries kept.
 export function setCameraPassword(accountId: string, camsId: string, user: string, password: string): Promise<void> {
   const run = writing.then(async () => {
@@ -96,22 +103,7 @@ export function setCameraPassword(accountId: string, camsId: string, user: strin
     if (!user || !password) throw new Error('setCameraPassword: a user and a password, or the next start refuses the file');
     loadCredentials();
     entries.set(`${accountId}/${camsId}`, { user, password });
-    const out: Record<string, unknown> = { v: 1 };
-    for (const k of [...entries.keys()].sort()) out[k] = entries.get(k);
-    const tmp = `${f}.tmp-${randomBytes(6).toString('hex')}`;
-    try {
-      const fh = await fs.open(tmp, 'wx', 0o600);
-      try {
-        await fh.writeFile(JSON.stringify(out, null, 2));
-        await fh.sync();
-      } finally {
-        await fh.close();
-      }
-      await fs.rename(tmp, f);
-    } catch (err) {
-      await fs.rm(tmp, { force: true });
-      throw err;
-    }
+    await writeEntries(f);
   });
   writing = run.catch(() => undefined);
   return run;
@@ -132,20 +124,9 @@ export function removeCameraPassword(accountId: string, camsId: string): Promise
     if (!f || !credentialsWritable()) return false;
     loadCredentials();
     if (!entries.delete(`${accountId}/${camsId}`)) return false;
-    const out: Record<string, unknown> = { v: 1 };
-    for (const k of [...entries.keys()].sort()) out[k] = entries.get(k);
-    const tmp = `${f}.tmp-${randomBytes(6).toString('hex')}`;
     try {
-      const fh = await fs.open(tmp, 'wx', 0o600);
-      try {
-        await fh.writeFile(JSON.stringify(out, null, 2));
-        await fh.sync();
-      } finally {
-        await fh.close();
-      }
-      await fs.rename(tmp, f);
+      await writeEntries(f);
     } catch (err) {
-      await fs.rm(tmp, { force: true });
       loadCredentials();
       throw err;
     }

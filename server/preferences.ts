@@ -1,7 +1,7 @@
-import { randomBytes } from 'crypto';
+import { writeFileAtomic } from './fsAtomic';
 import { promises as fs } from 'fs';
 import { tmpdir } from 'os';
-import { dirname, join } from 'path';
+import { join } from 'path';
 import { resolveCamera } from './cameraRegistry';
 import { fileAccount, type AccountRef } from './fleet';
 import { logger } from './logger';
@@ -122,26 +122,7 @@ export async function getPreferences(account: AccountRef, email: string): Promis
   return { ...DEFAULT_PREFERENCES, ...sanitize(account.id, usersOf(await readAll(), account)[email.toLowerCase()]) };
 }
 
-// Atomic write: temp file with a random part, fsync, rename.
-async function writeAtomic(content: string): Promise<void> {
-  await fs.mkdir(dirname(file()), { recursive: true });
-  const tmp = `${file()}.tmp-${randomBytes(6).toString('hex')}`;
-  try {
-    // Synced before the rename, so a crash right after it can't leave the
-    // new name pointing at a file whose data never reached the disk.
-    const fh = await fs.open(tmp, 'w');
-    try {
-      await fh.writeFile(content);
-      await fh.sync();
-    } finally {
-      await fh.close();
-    }
-    await fs.rename(tmp, file());
-  } catch (err) {
-    await fs.rm(tmp, { force: true });
-    throw err;
-  }
-}
+const writeAtomic = (content: string): Promise<void> => writeFileAtomic(file(), content);
 
 // The first start in cams-admin mode (M §11.5): the old layout moves under
 // the account (the file account, as the snapshot names it); a copy stays as
