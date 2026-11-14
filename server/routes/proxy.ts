@@ -7,9 +7,10 @@ import { logger } from '../logger';
 import { setProxyEnabled } from '../proxyState';
 import { proxyHub, startProxyStream, stopProxyStream } from '../proxy/stream';
 import { parseObjects, parseSummary } from '../proxy/analyses';
-import { groupTrustOptions, ProxyClient, ProxyError, proxyPath } from '../proxy/client';
+import { ProxyError, proxyPath, type ProxyClient } from '../proxy/client';
+import { proxyAdminClient } from '../proxy/cameraCalls';
 import { entryOf, readProxyList, type ProxyCameraEntry } from '../proxy/cameraList';
-import { badRequest, knownCamera, outId, proxyFailed, proxyTarget } from './common';
+import { badRequest, knownCamera, msRange, outId, proxyFailed, proxyTarget } from './common';
 import { accountIdOf, type CamKey } from '../fleet';
 import { nodeBody } from '../httpBody';
 import { adminTokenWaiting } from '../configSource';
@@ -19,7 +20,6 @@ import type { Principal } from '../middleware/requireAuth';
 // page (Plan 6). cams signs the browser in; the proxy's token is added here.
 export const proxyRouter = Router();
 
-const DAY = 86_400_000;
 
 // A camera with a cam-proxy in use: its client, the proxy's id for it
 // (encoded) and cams's own URL base for it.
@@ -101,7 +101,7 @@ proxyRouter.post('/api/cameras/:id/proxy/login-link', async (req: Request, res: 
   if (!info.reachable) return void res.status(502).json({ error: 'proxy_unavailable' });
   if (!info.webUrl) return void res.status(409).json({ error: 'no_login_link' });
   try {
-    const r = await new ProxyClient({ url: proxy.url, token: proxy.adminToken }, { timeoutMs: 3000, ...groupTrustOptions(id) }).open('/control/login-links', undefined, { method: 'POST' });
+    const r = await proxyAdminClient(id, { timeoutMs: 3000 }).open('/control/login-links', undefined, { method: 'POST' });
     const body = (await r.json().catch(() => null)) as { code?: unknown } | null;
     if (!r.ok || typeof body?.code !== 'string' || !/^[A-Za-z0-9_-]{8,128}$/.test(body.code)) {
       logger.warn({ cameraId: id, status: r.status }, 'proxy_login_link_refused');
@@ -121,12 +121,7 @@ proxyRouter.post('/api/cameras/:id/proxy/login-link', async (req: Request, res: 
   }
 });
 
-function range(req: Request, res: Response): [number, number] | undefined {
-  const from = String(req.query.from ?? ''), to = String(req.query.to ?? '');
-  if (!/^\d{1,15}$/.test(from) || !/^\d{1,15}$/.test(to) || Number(to) < Number(from)) return badRequest(res, 'from and to (unix ms) are required'), undefined;
-  if (Number(to) - Number(from) > DAY) return badRequest(res, 'at most one day per request'), undefined;
-  return [Number(from), Number(to)];
-}
+const range = (req: Request, res: Response) => msRange(req, res, 1, 'one day');
 
 function failed(err: unknown, id: CamKey, res: Response): void {
   // The browser left (a tile scrolled away, a page closed): nothing to answer.
@@ -202,11 +197,10 @@ const ms = (v: unknown): v is number => Number.isSafeInteger(v) && (v as number)
 proxyRouter.get('/api/cameras/:id/outages', async (req: Request, res: Response) => {
   const p = proxied(req, res);
   if (!p) return;
-  const from = String(req.query.from ?? ''), to = String(req.query.to ?? '');
-  if (!/^\d{1,15}$/.test(from) || !/^\d{1,15}$/.test(to) || Number(to) < Number(from)) return badRequest(res, 'from and to (unix ms) are required');
-  if (Number(to) - Number(from) > 2 * DAY) return badRequest(res, 'at most two days per request');
+  const r = msRange(req, res, 2, 'two days');
+  if (!r) return;
   try {
-    const body = await p.client.json<{ outages?: unknown }>(proxyPath(p.id, '/outages'), { from: Number(from), to: Number(to) });
+    const body = await p.client.json<{ outages?: unknown }>(proxyPath(p.id, '/outages'), { from: r[0], to: r[1] });
     const list = Array.isArray(body?.outages) ? body.outages : [];
     res.json({
       outages: list

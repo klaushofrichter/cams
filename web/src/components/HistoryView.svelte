@@ -3,6 +3,7 @@
   import { onDestroy, untrack, type Snippet } from 'svelte';
   import Strip from './Strip.svelte';
   import { getJson } from '../lib/api';
+  import { createTodayRefresher } from '../lib/refresh';
   import StripPlayer from './StripPlayer.svelte';
   import { createStripData, type StripData } from '../lib/stripData';
   import { clipRuns, EMPTY_COVERAGE, eventsAt, eventStep, windowAround, type Coverage } from '../lib/strip';
@@ -68,18 +69,11 @@
         .then((r) => { if (!stale) oldest = typeof r.oldest === 'number' ? r.oldest : null; })
         .catch(() => undefined);
     void load();
-    // Not while the tab is hidden; asked again when it shows.
-    const id = setInterval(() => {
-      if (document.visibilityState !== 'hidden') void load();
-    }, 60_000);
-    const onVisible = () => {
-      if (document.visibilityState === 'visible') void load();
-    };
-    document.addEventListener('visibilitychange', onVisible);
+    // Every minute, not while the tab is hidden; asked again when it shows.
+    const poll = createTodayRefresher({ isToday: () => true, refresh: () => void load() });
     return () => {
       stale = true;
-      clearInterval(id);
-      document.removeEventListener('visibilitychange', onVisible);
+      poll.stop();
     };
   });
   // The right edge: now, or the end of the latest known clip (a camera clock

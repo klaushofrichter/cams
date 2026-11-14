@@ -2,7 +2,7 @@
 // what the menu, the banners and the admin-only controls read, and the
 // account switch (a full page load afterwards: nothing of the old account
 // survives in memory, and its camera state in sessionStorage is cleared).
-import { apiFetch, HttpError } from './api';
+import { HttpError, okStatus, postJson } from './api';
 import type { Me } from './stores';
 
 // An older server (or file mode) has no role: everyone is admin there.
@@ -25,9 +25,8 @@ export function clearCameraSessionState(): void {
 export interface AccountItem { id: string; name: string; displayName: string; role: 'admin' | 'viewer'; current: boolean; remembered: boolean }
 
 export async function switchAccount(accountId: string): Promise<void> {
-  const res = await apiFetch('/api/session/account', { method: 'POST', headers: { 'Content-Type': 'application/json', Accept: 'application/json' }, body: JSON.stringify({ accountId }) });
-  const body = (await res.json().catch(() => null)) as { redirect?: unknown; error?: unknown } | null;
-  if (!res.ok) throw new HttpError('/api/session/account', res.status, typeof body?.error === 'string' ? body.error : null);
+  const { status, body } = await postJson<{ redirect?: unknown; error?: unknown }>('/api/session/account', { accountId });
+  if (!okStatus(status)) throw new HttpError('/api/session/account', status, typeof body?.error === 'string' ? body.error : null);
   clearCameraSessionState();
   location.assign(typeof body?.redirect === 'string' && body.redirect.startsWith('/app') ? body.redirect : '/app/video');
 }

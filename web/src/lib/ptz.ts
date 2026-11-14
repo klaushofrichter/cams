@@ -1,4 +1,4 @@
-import { apiFetch, UnauthorizedError } from './api';
+import { okStatus, requestJson, UnauthorizedError } from './api';
 
 // The PTZ panel's calls (cams's /api/cameras/:id/ptz/…, passed through to
 // cam-proxy; spec 2026-10-30-ptz-capabilities-design §5), its words, and the
@@ -41,29 +41,18 @@ export class PtzError extends Error {
 }
 
 async function call<T>(cam: string, path: string, method: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE', body?: unknown): Promise<T> {
-  let res: Response;
+  let res: { status: number; body: unknown };
   try {
-    res = await apiFetch(`/api/cameras/${encodeURIComponent(cam)}/ptz${path}`, {
-      method,
-      headers: body === undefined ? { Accept: 'application/json' } : { Accept: 'application/json', 'Content-Type': 'application/json' },
-      ...(body !== undefined && { body: JSON.stringify(body) }),
-    });
+    res = await requestJson(method, `/api/cameras/${encodeURIComponent(cam)}/ptz${path}`, body);
   } catch (e) {
     if (e instanceof UnauthorizedError) throw e;
     throw new PtzError(0, null);
   }
-  const text = await res.text().catch(() => '');
-  let json: unknown = null;
-  try {
-    json = text ? JSON.parse(text) : null;
-  } catch {
-    json = null;
-  }
-  if (!res.ok) {
-    const code = (json as { error?: unknown } | null)?.error;
+  if (!okStatus(res.status)) {
+    const code = (res.body as { error?: unknown }).error;
     throw new PtzError(res.status, typeof code === 'string' ? code : null);
   }
-  return json as T;
+  return res.body as T;
 }
 
 export function ptzApi(cam: string) {
@@ -84,7 +73,6 @@ export function ptzApi(cam: string) {
     remove: (id: string) => none(call(cam, `/positions/${encodeURIComponent(id)}`, 'DELETE')),
   };
 }
-export type PtzApi = ReturnType<typeof ptzApi>;
 
 const TEXT: Record<string, string> = {
   not_supported: "This camera can't do that.",

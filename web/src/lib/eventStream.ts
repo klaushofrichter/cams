@@ -4,6 +4,7 @@ import { checkSession, getJson } from './api';
 import { preferences } from './preferences';
 import { setCameraName } from './cameraName';
 import { followDayChanges } from './dayCache';
+import { orderRank } from './recordings';
 
 // cams' relay of the cameras' cam-proxy events (GET /api/events/stream,
 // Plan 6). While a camera's proxy is up, pages reload on its changes at once
@@ -285,10 +286,7 @@ export function groupPending(pending: Pending[]): PendingGroup[] {
       if (!g.kinds.includes(p.kind)) g.kinds.push(p.kind);
     } else groups.push({ start: p.ts, ts: p.ts, kinds: [p.kind] });
   }
-  const rank = (k: string) => {
-    const i = KIND_ORDER.indexOf(k);
-    return i < 0 ? KIND_ORDER.length : i;
-  };
+  const rank = orderRank(KIND_ORDER);
   for (const g of groups) g.kinds.sort((a, b) => rank(a) - rank(b));
   return groups.reverse();
 }

@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onDestroy, onMount, tick, untrack } from 'svelte';
   import { triggerDownload } from '../lib/download';
+  import { focusables as focusablesIn, trapTab } from '../lib/focusTrap';
   import { downloadUrl, formatClock, orderTriggers, thumbUrl, TRIGGER_LABELS, type EventClip } from '../lib/recordings';
   import { aroundLength, aroundPreset, aroundRanges, cancelJob, composedName, formatSeconds, generateMaxS, madeOf, PLAIN_MAX_S, planAround, rollKeyStep, rollValueText, secondsPast, sliderBounds, fullQualityAvailable, isAvailable, isPlain, ORIGINAL_4K_LABEL, pollJob, presetRolls, resultLength, rollRange, saveMaxS, SIZE_LABELS, snapRoll, startJob, videoUrl, type AroundPlan, type ComposeSize, type JobView, type RollRange, type SaveSize } from '../lib/compose';
   import { localClock } from '../lib/clock';
@@ -148,7 +149,7 @@
   // Focus: into the dialog on open, kept inside by Tab, back to where it was
   // on close (issue #72).
   const opener = typeof document !== 'undefined' ? (document.activeElement as HTMLElement | null) : null;
-  const focusables = () => [...(dialogEl?.querySelectorAll<HTMLElement>('button, input, select, a[href]') ?? [])].filter((e) => !e.hasAttribute('disabled'));
+  const focusables = () => focusablesIn(dialogEl, 'button, input, select, a[href]');
   onMount(() => {
     void tick().then(() => focusables()[0]?.focus());
     if (composable && !around) void isAvailable(camera, clip!.id).then((a) => (available = a));
@@ -166,15 +167,7 @@
     };
   });
   onDestroy(() => opener?.focus?.());
-  function trap(e: KeyboardEvent) {
-    if (e.key !== 'Tab') return;
-    const f = focusables();
-    if (!f.length) return;
-    const i = f.indexOf(document.activeElement as HTMLElement);
-    const next = e.shiftKey ? (i <= 0 ? f.length - 1 : i - 1) : i === f.length - 1 ? 0 : i + 1;
-    e.preventDefault();
-    f[next].focus();
-  }
+  const trap = (e: KeyboardEvent) => trapTab(e, focusables);
 
   // Any change after a result (or while one is starting) makes it stale.
   let lastKey = '';

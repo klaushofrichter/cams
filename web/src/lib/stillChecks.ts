@@ -1,7 +1,7 @@
 // Still checks on the Timeline (cams #179, spec 2026-10-04-still-checks-ui-design):
 // Vision on a second picked by hand. The button's state, the words, the marks
 // and the steps between checks; the page does the requests.
-import { apiFetch, getJson, HttpError, UnauthorizedError } from './api';
+import { getJson, HttpError, okStatus, postJson, UnauthorizedError } from './api';
 import { localClock } from './clock';
 import { boxLabel, LABEL, type Category, type StillObject, type SummaryEntry } from './vision';
 
@@ -189,14 +189,14 @@ export class CheckError extends Error {
 
 // Check a second: the result, or a CheckError with the words to show.
 export async function requestCheck(base: string, at: number): Promise<CheckResult> {
-  let res: Response;
+  let res: { status: number; body: CheckResult & { error?: string; reason?: string; until?: number | null; detail?: string } };
   try {
-    res = await apiFetch(`${base}/still-checks`, { method: 'POST', headers: { 'Content-Type': 'application/json', Accept: 'application/json' }, body: JSON.stringify({ at }) });
+    res = await postJson(`${base}/still-checks`, { at });
   } catch (err) {
     if (err instanceof UnauthorizedError) throw err;
     throw new CheckError('The camera gateway is not reachable right now.');
   }
-  const body = (await res.json().catch(() => null)) as (CheckResult & { error?: string; reason?: string; until?: number | null; detail?: string }) | null;
-  if (!res.ok || !body?.check) throw new CheckError(errorText(res.status, body));
+  const body = res.body;
+  if (!okStatus(res.status) || !body?.check) throw new CheckError(errorText(res.status, body));
   return { reused: body.reused === true, source: body.source, check: body.check };
 }

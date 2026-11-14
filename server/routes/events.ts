@@ -11,15 +11,13 @@ import '../proxy/stillChecks'; // drops a camera's cached checks on a new one
 // The cam-proxy relay to browsers (Plan 6): the proxy's events, as a hint
 // to reload through the usual APIs. No URLs or tokens travel here.
 export const eventsRouter = Router();
+import { intEnv } from '../env';
 
 const MAX_CLIENTS = 20;
 // Per person (signed-in email; a viewer token's own), so one can't take all
 // 20: a few tabs and devices each (code review 2026-11-09). EVENT_STREAMS_PER_PERSON
 // changes it (e2e: every worker's browser is the same person).
-const perPersonMax = (): number => {
-  const n = Number(process.env.EVENT_STREAMS_PER_PERSON);
-  return Number.isSafeInteger(n) && n > 0 ? n : 6;
-};
+const perPersonMax = (): number => intEnv('EVENT_STREAMS_PER_PERSON', 6);
 const PING_MS = 25_000;
 let clients = 0;
 const perPerson = new Map<string, number>();

@@ -90,7 +90,11 @@ export function principalIn(id: { email: string; via: 'google' | 'token'; tf?: s
   return m ? { email: id.email, via: 'google', account: m.account, role: m.role } : null;
 }
 
+// Behind requireAuthApi the request's principal is already decided
+// (res.locals.principal): reused, not authenticated again per call.
 export function currentUser(req: Request): Principal | null {
+  const decided = req.res?.locals.principal as Principal | undefined;
+  if (decided) return decided;
   const s = authState(req);
   return s.kind === 'ok' ? s.principal : null;
 }

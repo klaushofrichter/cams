@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onDestroy, onMount, tick, type Snippet } from 'svelte';
   import { portal } from '../lib/portal';
+  import { focusables as focusablesIn, trapTab } from '../lib/focusTrap';
 
   // A dialog over the page (the Archive's player, edit and confirm dialogs):
   // a backdrop, Escape and the ✕ close it, focus goes in on open, stays inside
@@ -9,7 +10,7 @@
 
   let el: HTMLElement | undefined = $state();
   const opener = typeof document !== 'undefined' ? (document.activeElement as HTMLElement | null) : null;
-  const focusables = () => [...(el?.querySelectorAll<HTMLElement>('button, input, select, textarea, a[href], video[tabindex]') ?? [])].filter((e) => !e.hasAttribute('disabled'));
+  const focusables = () => focusablesIn(el, 'button, input, select, textarea, a[href], video[tabindex]');
   onMount(() => void tick().then(() => (focusables().find((f) => f.dataset.autofocus !== undefined) ?? focusables()[1] ?? focusables()[0])?.focus()));
   onDestroy(() => opener?.focus?.());
   function key(e: KeyboardEvent) {
@@ -18,12 +19,7 @@
       onclose();
       return;
     }
-    if (e.key !== 'Tab') return;
-    const f = focusables();
-    if (!f.length) return;
-    const i = f.indexOf(document.activeElement as HTMLElement);
-    e.preventDefault();
-    f[e.shiftKey ? (i <= 0 ? f.length - 1 : i - 1) : i === f.length - 1 ? 0 : i + 1].focus();
+    trapTab(e, focusables);
   }
 </script>
 

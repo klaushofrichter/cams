@@ -1,4 +1,4 @@
-import { cameraHost, getCamera, setReportedAddress, setReportedCapabilities, setReportedName } from '../cameraRegistry';
+import { cameraHost, getCamera, proxyActive, setReportedAddress, setReportedCapabilities, setReportedName } from '../cameraRegistry';
 import { parseCapabilities } from './capabilities';
 import { logger } from '../logger';
 import { applyProxyTls } from '../tls/cameraTrust';
@@ -36,6 +36,13 @@ export function forgetProxyName(id: CamKey): void {
 
 // Shown as text only; still bounded, and without control characters.
 export const plausibleName = (v: unknown): v is string => typeof v === 'string' && v.length > 0 && v.length <= 64 && !/\p{C}/u.test(v);
+
+// A name the camera itself reported on a direct read (status, device):
+// kept only for a camera without a cam-proxy in use (its proxy names it
+// otherwise), and only a plausible one.
+export function noteDirectName(id: CamKey, name: unknown): void {
+  if (!proxyActive(id) && plausibleName(name)) setReportedName(id, name);
+}
 
 // The camera's entry in the proxy's camera list (no answer, no entry: undefined).
 async function readProxyEntry(id: CamKey, timeoutMs: number, maxAgeMs?: number): Promise<ProxyCameraEntry | undefined> {

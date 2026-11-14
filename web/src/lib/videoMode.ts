@@ -1,7 +1,6 @@
 import { get } from 'svelte/store';
-import { snapshotName, triggerDownload } from './download';
-import { apiFetch } from './api';
-import { liveUi, type LiveUi } from './liveUi';
+import { snapshotName } from './download';
+import { fetchImageBlob, liveUi, saveSnapshotWith, type LiveUi } from './liveUi';
 import { localClock } from './clock';
 import { localDate } from './recordings';
 
@@ -88,11 +87,7 @@ function loadImage(url: string): Promise<HTMLImageElement> {
 // origin, so the canvas isn't tainted); a still is the file itself; a
 // preview tile is cut from its sprite.
 export async function frameBlob(frame: PlayerFrame): Promise<Blob> {
-  if (frame.kind === 'still') {
-    const res = await apiFetch(frame.url);
-    if (!res.ok || !(res.headers.get('content-type') ?? '').startsWith('image/')) throw new Error(String(res.status));
-    return res.blob();
-  }
+  if (frame.kind === 'still') return fetchImageBlob(frame.url);
   const canvas = document.createElement('canvas');
   const ctx = (w: number, h: number) => {
     canvas.width = w;
@@ -121,15 +116,5 @@ export async function saveRecordingSnapshot(cam: string): Promise<void> {
     liveUi.update((u) => ({ ...u, snapshotError: NOTHING_TO_SAVE }));
     return;
   }
-  liveUi.update((u) => ({ ...u, snapshotBusy: true, snapshotError: '' }));
-  try {
-    const blob = await frameBlob(frame);
-    const url = URL.createObjectURL(blob);
-    triggerDownload(url, snapshotName(cam, frame.kind === 'clip' ? 'rec' : 'still', frame.at));
-    setTimeout(() => URL.revokeObjectURL(url), 10_000);
-  } catch {
-    liveUi.update((u) => ({ ...u, snapshotError: "The snapshot couldn't be saved. The picture may still be loading." }));
-  } finally {
-    liveUi.update((u) => ({ ...u, snapshotBusy: false }));
-  }
+  await saveSnapshotWith(async () => ({ blob: await frameBlob(frame), name: snapshotName(cam, frame.kind === 'clip' ? 'rec' : 'still', frame.at) }), "The snapshot couldn't be saved. The picture may still be loading.");
 }

@@ -16,6 +16,7 @@ import { AdminError, type AdminClient } from './client';
 import { adminDir, checkPrivate, dataDir, writePrivate } from './keyfile';
 import type { AccountPart, SnapProxy } from './snapshot';
 import type { Problem } from './apply';
+import { intEnv } from '../env';
 
 export interface LocalToken { id: string | null; accountId: string; proxyId: string; kind: 'client' | 'admin'; token: string; hash: string; createdAt: number; registeredAt: number | null; retiringAt: number | null }
 type Kind = 'client' | 'admin';
@@ -26,12 +27,8 @@ const DAY = 86_400_000;
 // every hour: an admin who fixes the allow-list sees it work soon (#249).
 export const ADMIN_RETRY_MS = [5, 15, 30, 60].map((m) => m * 60_000);
 
-const intEnv = (name: string, def: number, min: number, max: number) => {
-  const v = Number(process.env[name]);
-  return Number.isInteger(v) && v >= min && v <= max ? v : def;
-};
-const rotateDays = () => intEnv('TOKEN_ROTATE_DAYS', 90, 1, 365);
-const retireHours = () => intEnv('TOKEN_RETIRE_HOURS', 24, 1, 168);
+const rotateDays = () => intEnv('TOKEN_ROTATE_DAYS', 90, { max: 365 });
+const retireHours = () => intEnv('TOKEN_RETIRE_HOURS', 24, { max: 168 });
 
 const hashOf = (token: string) => `sha256:${createHash('sha256').update(token).digest('hex')}`;
 const newToken = () => randomBytes(32).toString('base64url');

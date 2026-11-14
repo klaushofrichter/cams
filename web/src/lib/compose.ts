@@ -1,6 +1,6 @@
 // Composed SD clips (cam-proxy spec 2026-09-28): the save dialog's API.
 import { formatSeconds, generateMaxS, GENERATE_MAX_S, PLAIN_MAX_S, ROLL_LIMIT_S } from '../../../server/clipLimits';
-import { apiFetch } from './api';
+import { apiFetch, okStatus, postJson } from './api';
 export type ComposeSize = 'sd' | '360p' | '720p' | '1080p';
 export const SIZE_LABELS: Record<ComposeSize, string> = {
   sd: 'SD 896×512 (original)', '360p': '640×360', '720p': '1280×720 (upscaled)', '1080p': '1920×1080 (upscaled)',
@@ -99,9 +99,8 @@ type AroundBody = { at: number; preS: number; postS: number; size: ComposeSize; 
 // The proxy's refusals in the dialog's words; its own reason (`detail`) else.
 const NOTHING_AROUND = 'Nothing is kept around this second (stills and clips are kept 7 days).';
 export async function startJob(cam: string, body: ClipBody | AroundBody): Promise<JobView> {
-  const r = await apiFetch(base(cam), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
-  const j = (await r.json().catch(() => ({}))) as JobView & { error?: string; detail?: string };
-  if (!r.ok) {
+  const { status, body: j } = await postJson<JobView & { error?: string; detail?: string }>(base(cam), body);
+  if (!okStatus(status)) {
     // The proxy's own reason when it gives one (its clip may differ from the event).
     const detail = typeof j.detail === 'string' && j.detail ? j.detail.charAt(0).toUpperCase() + j.detail.slice(1) + '.' : '';
     throw new Error(
@@ -149,10 +148,9 @@ export function madeOf(p: AroundPlan, clock: (t: number) => string): string {
 // the dialog shows no line and the real request answers).
 export async function planAround(cam: string, q: { at: number; preS: number; postS: number; size: ComposeSize }): Promise<{ kind: 'plan'; plan: AroundPlan } | { kind: 'nothing' } | { kind: 'unknown' }> {
   try {
-    const r = await apiFetch(base(cam), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...q, badge: true, dryRun: true }) });
-    if (r.status === 409) return { kind: 'nothing' };
-    if (!r.ok) return { kind: 'unknown' };
-    const j = (await r.json()) as Partial<AroundPlan>;
+    const { status, body: j } = await postJson<Partial<AroundPlan>>(base(cam), { ...q, badge: true, dryRun: true });
+    if (status === 409) return { kind: 'nothing' };
+    if (!okStatus(status)) return { kind: 'unknown' };
     if (!j.seconds || !Array.isArray(j.clips)) return { kind: 'unknown' };
     return { kind: 'plan', plan: { seconds: j.seconds, clips: j.clips } };
   } catch {

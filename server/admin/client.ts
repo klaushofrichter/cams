@@ -4,6 +4,7 @@
 // 401 clock_skew sets the clock offset (the Pi has no RTC) and the request
 // is retried once. Answers ≤ 1 MiB. Logs: path, status, error code only.
 import { logger } from '../logger';
+import { readCapped } from '../httpBody';
 import type { AdminKeyFile } from './keyfile';
 import { answerText, newNonce, privateFromB64, requestText, signText, verifyWithAny } from './sign';
 import type { KeyObject } from 'crypto';
@@ -99,7 +100,7 @@ export class AdminClient {
       status = res.status;
       etag = res.headers.get('etag');
       answerSig = res.headers.get('x-cams-admin-sig');
-      answer = await readCapped(res, ctl);
+      answer = await readCapped(res, MAX_ANSWER, () => new AdminError('too_large', res.status), ctl);
     } catch (err) {
       if (err instanceof AdminError) {
         logger.warn({ path, code: err.code }, 'admin_request_failed');
@@ -178,29 +179,4 @@ export class AdminClient {
     if (typeof b.changed !== 'boolean' || typeof b.revision !== 'string') throw new AdminError('bad_answer', r.status);
     return { changed: b.changed, revision: b.revision };
   }
-}
-
-// The body, read up to MAX_ANSWER bytes; a longer one aborts the transfer.
-async function readCapped(res: Response, ctl: AbortController): Promise<Buffer> {
-  const len = Number(res.headers.get('content-length'));
-  if (Number.isFinite(len) && len > MAX_ANSWER) {
-    ctl.abort();
-    throw new AdminError('too_large', res.status);
-  }
-  if (!res.body) return Buffer.alloc(0);
-  const chunks: Buffer[] = [];
-  let n = 0;
-  const reader = res.body.getReader();
-  for (;;) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    n += value.byteLength;
-    if (n > MAX_ANSWER) {
-      void reader.cancel().catch(() => undefined);
-      ctl.abort();
-      throw new AdminError('too_large', res.status);
-    }
-    chunks.push(Buffer.from(value));
-  }
-  return Buffer.concat(chunks);
 }

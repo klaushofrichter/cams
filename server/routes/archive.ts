@@ -12,7 +12,8 @@ import { CLIP_ID } from '../recordings/clipNames';
 import { RecordingError } from '../recordings/errors';
 import { getRecordings } from '../recordings/service';
 import { startedComposition } from './compose';
-import { badRequest, knownCamera, proxyFailed, readJson, sessionAccount } from './common';
+import { JobRegistry } from '../jobRegistry';
+import { badRequest, knownCamera, proxyFailed, readJson, sessionAccount, viewerGone } from './common';
 import { relayImage } from './proxy';
 import { nodeBody } from '../httpBody';
 
@@ -81,14 +82,7 @@ function itemId(req: Request, res: Response): number | undefined {
 
 // The jobs cams started, with cams's own copy of the proxy's id: only those
 // are polled or cancelled. Kept as long as the proxy keeps a finished job.
-const jobs = new Map<string, { id: string; at: number }>(); // by jobKey(via key, job)
-const KEEP_MS = 20 * 60_000;
-const jobKey = (via: CamKey, id: string) => `${via}\u0000${id}`;
-function remember(via: CamKey, id: string) {
-  const now = Date.now();
-  for (const [k, v] of jobs) if (now - v.at > KEEP_MS) jobs.delete(k);
-  jobs.set(jobKey(via, id), { id, at: now });
-}
+const jobs = new JobRegistry(20 * 60_000); // by via key
 
 type CreateBody = { source?: { type?: unknown; id?: unknown; eventId?: unknown; quality?: unknown }; name?: unknown; labels?: unknown; retentionDays?: unknown; thumbnailAt?: unknown };
 
@@ -141,7 +135,7 @@ archiveRouter.post('/api/cameras/:id/archive', createArchiveRateLimit('create'),
     }
     const job = parseJob(await readJson(up), target.proxy);
     if (!job) return void res.status(502).json({ error: 'proxy_unavailable' });
-    remember(target.proxy.viaKey, job.id);
+    jobs.remember(target.proxy.viaKey, job.id, {});
     res.status(up.status).json(job);
   } catch (err) {
     failed(err, res, 'create');
@@ -149,9 +143,8 @@ archiveRouter.post('/api/cameras/:id/archive', createArchiveRateLimit('create'),
 });
 
 function knownJob(req: Request, res: Response, p: ArchiveProxy): string | undefined {
-  const e = jobs.get(jobKey(p.viaKey, String(req.params.job)));
+  const e = jobs.lookup(p.viaKey, String(req.params.job));
   if (!e) return void res.status(404).json({ error: 'not_found' });
-  e.at = Date.now();
   return e.id;
 }
 
@@ -363,16 +356,6 @@ archiveRouter.post('/api/archive/:via/delete', async (req, res) => {
     failed(err, res, 'bulk-delete');
   }
 });
-
-// Aborted when the viewer goes away, so a proxy request still waiting for its
-// headers (a large ZIP being planned) is let go at once, not at its timeout.
-function viewerGone(res: Response): AbortSignal {
-  const ctl = new AbortController();
-  res.on('close', () => {
-    if (!res.writableFinished) ctl.abort(new Error('viewer left'));
-  });
-  return ctl.signal;
-}
 
 // Streams the proxy's body as it comes (never buffered); a viewer who leaves
 // cancels the upstream request.

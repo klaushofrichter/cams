@@ -3,7 +3,7 @@
 // server's own module, so the dialog, cams's server and the proxy agree.
 import { formatSeconds } from '../../../server/clipLimits';
 import { nameProblem, normalizeLabels, retentionProblem, type SortKey, type SortOrder } from '../../../server/archiveRules';
-import { apiFetch, getJson } from './api';
+import { apiFetch, getJson, okStatus, requestJson } from './api';
 import { formatClock, localDate } from './recordings';
 
 export { compareItems, DEFAULT_RETENTION_DAYS, labelProblem, labelSpelling, MAX_LABELS, nameProblem, normalizeLabels, PREDEFINED_LABELS, preselectLabels, RETENTION_MAX_DAYS, retentionProblem, sortItems } from '../../../server/archiveRules';
@@ -153,15 +153,13 @@ export class ArchiveError extends Error {
     super(message);
   }
 }
-async function send<T>(url: string, method: string, body?: unknown): Promise<{ status: number; body: T }> {
-  const r = await apiFetch(url, { method, headers: body === undefined ? {} : { 'Content-Type': 'application/json' }, body: body === undefined ? undefined : JSON.stringify(body) });
-  const j = r.status === 204 ? null : await r.json().catch(() => null);
-  if (!r.ok) {
-    const b = (j ?? {}) as { error?: unknown };
-    const code = typeof b.error === 'string' ? b.error : null;
-    throw new ArchiveError(code, r.status, errorText(code, b as Record<string, unknown>));
+async function send<T>(url: string, method: 'GET' | 'POST' | 'PATCH' | 'DELETE', body?: unknown): Promise<{ status: number; body: T }> {
+  const r = await requestJson<Record<string, unknown>>(method, url, body);
+  if (!okStatus(r.status)) {
+    const code = typeof r.body.error === 'string' ? r.body.error : null;
+    throw new ArchiveError(code, r.status, errorText(code, r.body));
   }
-  return { status: r.status, body: j as T };
+  return { status: r.status, body: (r.status === 204 ? null : r.body) as T };
 }
 
 export type ArchiveSource = { type: 'composition'; id: string } | { type: 'event'; eventId: string; quality: 'sub' | 'main' };

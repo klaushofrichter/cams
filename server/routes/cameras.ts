@@ -3,14 +3,13 @@ import { pipeline } from 'stream/promises';
 import { requireClient } from '../reolink/clients';
 import { CameraError } from '../reolink/client';
 import { logger } from '../logger';
-import { proxyActive, setReportedName } from '../cameraRegistry';
-import { plausibleName } from '../proxy/names';
-import { badRequest, knownCamera, outId, sendCameraError, viaProxyFailed } from './common';
+import { proxyActive } from '../cameraRegistry';
+import { noteDirectName } from '../proxy/names';
+import { badRequest, knownCamera, outId, readJson, sendCameraError, viaProxyFailed, viewerGone } from './common';
 import { LIVE_CODECS, openProxyLive, type ProxyLive } from '../proxy/live';
 import { throughProxy } from '../proxy/features';
 import { PROXY_FINGERPRINT, proxyAdminClient, readProxyStatus, type ProxyCameraStatus } from '../proxy/cameraCalls';
 import { authState, currentUser } from '../middleware/requireAuth';
-import { readJson } from './common';
 import { proxyCameraId } from '../proxy/client';
 import { cameraCapabilities, getCamera } from '../cameraRegistry';
 import { ProxyError, proxyPath, requireProxyClient } from '../proxy/client';
@@ -101,7 +100,7 @@ camerasRouter.get('/api/cameras/:id/status', async (req: Request, res: Response,
     offlineSince.delete(id);
     // A camera without a cam-proxy in use: cams reads its name itself (the
     // page shows it from /api/cameras and the event stream).
-    if (!proxyActive(id) && plausibleName(name)) setReportedName(id, name);
+    noteDirectName(id, name);
     res.json({ id: outId(id), online: true, ...status });
   } catch (err) {
     if (!(err instanceof CameraError)) return next(err);
@@ -116,10 +115,9 @@ camerasRouter.get('/api/cameras/:id/snapshot.jpg', async (req: Request, res: Res
   if (!id) return;
   if (throughProxy(id)) {
     // The proxy's full-size snapshot (the camera's Snap), streamed.
-    const ctl = new AbortController();
-    res.on('close', () => ctl.abort());
+    const gone = viewerGone(res);
     try {
-      const up = await requireProxyClient(id).open(proxyPath(id, '/snapshot.jpg'), { stream: 'main' }, { idleMs: 10_000, signal: ctl.signal, timeoutMs: 20_000 });
+      const up = await requireProxyClient(id).open(proxyPath(id, '/snapshot.jpg'), { stream: 'main' }, { idleMs: 10_000, signal: gone, timeoutMs: 20_000 });
       if (!up.ok || !up.body) {
         const body = (await up.json().catch(() => null)) as { error?: unknown } | null;
         return void res.status(up.status === 503 && body?.error === 'camera_offline' ? 503 : 502).json({ error: up.status === 503 && body?.error === 'camera_offline' ? 'camera_offline' : 'proxy_unavailable' });
@@ -127,7 +125,7 @@ camerasRouter.get('/api/cameras/:id/snapshot.jpg', async (req: Request, res: Res
       res.status(200).set({ 'Content-Type': 'image/jpeg', 'Cache-Control': 'no-store' });
       await pipeline(nodeBody(up), res);
     } catch (err) {
-      if (ctl.signal.aborted) return;
+      if (gone.aborted) return;
       viaProxyFailed(err, id, res, next);
     }
     return;

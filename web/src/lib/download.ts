@@ -9,6 +9,13 @@ export function triggerDownload(href: string, name = ''): void {
   a.remove();
 }
 
+// Saves a blob as a download named `name`; its object URL is let go after 10 s.
+export function downloadBlob(blob: Blob, name: string): void {
+  const url = URL.createObjectURL(blob);
+  triggerDownload(url, name);
+  setTimeout(() => URL.revokeObjectURL(url), 10_000);
+}
+
 // What a snapshot is of (spec 2026-10-04): the camera's live picture, a
 // recording's frame, or a still.
 export type SnapshotKind = 'live' | 'rec' | 'still';
