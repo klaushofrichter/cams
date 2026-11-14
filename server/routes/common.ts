@@ -84,6 +84,15 @@ export function viewerGone(res: Response): AbortSignal {
 // A request that fails validation: 400 invalid with a detail for the developer.
 export const badRequest = (res: Response, detail: string): void => void res.status(400).json({ error: 'invalid', detail });
 
+// The from/to query (unix ms) of a range request, at most `maxDays` apart;
+// a bad one is answered 400 here (undefined). `span` words the limit.
+export function msRange(req: Request, res: Response, maxDays: number, span: string): [number, number] | undefined {
+  const from = String(req.query.from ?? ''), to = String(req.query.to ?? '');
+  if (!/^\d{1,15}$/.test(from) || !/^\d{1,15}$/.test(to) || Number(to) < Number(from)) return badRequest(res, 'from and to (unix ms) are required'), undefined;
+  if (Number(to) - Number(from) > maxDays * 86_400_000) return badRequest(res, `at most ${span} per request`), undefined;
+  return [Number(from), Number(to)];
+}
+
 // A cam-proxy call that failed: 502 proxy_unavailable (or the response cut
 // once headers are out), logged as `event` with `fields`. Anything but a
 // ProxyError is rethrown; a viewer who already left gets nothing.

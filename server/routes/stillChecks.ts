@@ -4,7 +4,7 @@ import { currentUser } from '../middleware/requireAuth';
 import { createCheckRateLimits } from '../middleware/rateLimit';
 import { proxyPath, ProxyError } from '../proxy/client';
 import { parseCheck, parseFullCheck, parseUsage, type StillCheck } from '../proxy/stillChecks';
-import { badRequest, outId, proxyFailed, proxyTarget, readJson } from './common';
+import { badRequest, msRange, outId, proxyFailed, proxyTarget, readJson } from './common';
 import { relayImage } from './proxy';
 import type { CamKey } from '../fleet';
 
@@ -14,7 +14,6 @@ import type { CamKey } from '../fleet';
 // `raw`, nothing the proxy sent unchecked.
 export const stillChecksRouter = Router();
 
-const DAY = 86_400_000;
 const base = (id: CamKey) => `/api/cameras/${encodeURIComponent(outId(id))}/still-checks`;
 
 // A check as the browser gets it: cams's own image URL, from the parsed id.
@@ -77,13 +76,12 @@ stillChecksRouter.post('/api/cameras/:id/still-checks', ...createCheckRateLimits
 
 // The checks of a range (the Timeline's day), oldest first. An older proxy: none.
 stillChecksRouter.get('/api/cameras/:id/still-checks', async (req: Request, res: Response) => {
-  const from = String(req.query.from ?? ''), to = String(req.query.to ?? '');
-  if (!/^\d{1,15}$/.test(from) || !/^\d{1,15}$/.test(to) || Number(to) < Number(from)) return badRequest(res, 'from and to (unix ms) are required');
-  if (Number(to) - Number(from) > 31 * DAY) return badRequest(res, 'at most 31 days per request');
+  const r = msRange(req, res, 31, '31 days');
+  if (!r) return;
   const t = proxyTarget(req, res);
   if (!t) return;
   try {
-    const list = await t.client.json<unknown>(proxyPath(t.id, '/still-checks'), { from: Number(from), to: Number(to) });
+    const list = await t.client.json<unknown>(proxyPath(t.id, '/still-checks'), { from: r[0], to: r[1] });
     res.json((Array.isArray(list) ? list : []).map(parseCheck).filter((c): c is StillCheck => c !== null).map((c) => out(t.id, c)));
   } catch (err) {
     if (err instanceof ProxyError && err.status === 404 && !res.headersSent) return void res.json([]);
