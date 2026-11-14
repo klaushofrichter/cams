@@ -18,7 +18,7 @@ import { cacheWrittenAt, readCache, writeCache } from './admin/cache';
 import { readKeyFile, type AdminKeyFile } from './admin/keyfile';
 import { Puller } from './admin/puller';
 import { accountParts, verifySnapshot, type AccountPart, type SnapProxy, type Snapshot } from './admin/snapshot';
-import { buildFleet, proxyTrustOf, type ApplyContext, type MoveContext, type Problem, type TrustValues } from './admin/apply';
+import { buildFleet, type ApplyContext, type MoveContext, type Problem, type TrustValues } from './admin/apply';
 import { credentialsFor, loadCredentials, setLegacyCredentials } from './credentials';
 import { bindSecret, clearSecretBindings, setSecretGuard } from './secretGuard';
 import { TrustStore, trustValuesOf } from './admin/trust';
