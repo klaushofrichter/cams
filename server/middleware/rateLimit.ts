@@ -3,6 +3,7 @@ import { Request } from 'express';
 import { currentUser } from './requireAuth';
 import { isVerifiedInternal } from '../mcp/internal';
 import { intEnv } from '../env';
+import { logger } from '../logger';
 
 
 // Overridable so the e2e suite can lift the caps; production sets neither.
@@ -52,9 +53,12 @@ export function createAuthRateLimit(): RateLimitRequestHandler {
 }
 
 // The token login's failures (POST /auth/token), per address: 10 per 15
-// minutes. Successes don't count (res.locals.tokenOk, set by the handler), so
-// the owner signing in on several browsers never trips it. Per address only,
-// no global cap, which would let anyone on the LAN lock the owner out (spec
+// minutes. Only a failure counts (res.locals.tokenFailed, set by the handler
+// for a well-formed token that doesn't match): successes don't, so the owner
+// signing in on several browsers never trips it, and malformed requests (not
+// JSON, a token in the URL, too large, a bad format) or cams-admin being out
+// of reach don't either (code review 2026-11-14). Per address only, no global
+// cap, which would let anyone on the LAN lock the owner out (spec
 // 2026-10-04-pi-deployment-design). Read per request, so tests can set it.
 export function createTokenFailureLimit(): RateLimitRequestHandler {
   const store = new MemoryStore();
@@ -66,31 +70,28 @@ export function createTokenFailureLimit(): RateLimitRequestHandler {
     legacyHeaders: false,
     store,
     skipSuccessfulRequests: true,
-    requestWasSuccessful: (_req, res) => res.locals.tokenOk === true,
+    requestWasSuccessful: (_req, res) => res.locals.tokenFailed !== true,
     message: { error: 'too_many_attempts' },
   });
 }
 
-// Viewer tokens (cams-admin design 2026-11-05, "Brute force"): besides the
-// per-address limit above, one bucket for every address together, 100 failed
-// token sign-ins per 15 minutes. 131 random bits leave nothing to guess; this
-// caps a spread-out attempt. Signed-in sessions are not affected, and the
-// Pi's own token login (POST /auth/token) doesn't use this bucket. Read per
-// request, so tests can set it.
-export function createViewerTokenGlobalLimit(): RateLimitRequestHandler {
-  const store = new MemoryStore();
-  stores.push(store);
-  return rateLimit({
-    windowMs: 15 * 60 * 1000,
-    limit: () => intEnv('RATE_LIMIT_VIEWER_TOKEN_FAILURES', 100),
-    standardHeaders: true,
-    legacyHeaders: false,
-    store,
-    keyGenerator: () => 'viewer-tokens',
-    skipSuccessfulRequests: true,
-    requestWasSuccessful: (_req, res) => res.locals.tokenOk === true,
-    message: { error: 'too_many_attempts' },
-  });
+// Viewer tokens (cams-admin design 2026-11-05, "Brute force"): the per-address
+// limit above, and no bucket for every address together. Such a bucket let
+// anyone fill it from a handful of addresses and lock every viewer out (code
+// review 2026-11-14), the reason the Pi token has none. A viewer token is
+// cav_ + 22 base-62 characters, 131 random bits: nothing to guess even
+// spread over many addresses. Failures across all addresses are counted only
+// to log a flood, once per 15 minutes past the threshold; nobody is refused.
+// The threshold is read per request, so tests can set it.
+const FLOOD_WINDOW_MS = 15 * 60 * 1000;
+let flood = { start: 0, count: 0, logged: false };
+export function noteViewerTokenFailure(now = Date.now()): void {
+  if (now - flood.start >= FLOOD_WINDOW_MS) flood = { start: now, count: 0, logged: false };
+  flood.count += 1;
+  if (!flood.logged && flood.count > intEnv('RATE_LIMIT_VIEWER_TOKEN_FAILURES', 100)) {
+    flood.logged = true;
+    logger.warn({ kind: 'auth', failures: flood.count, windowMin: FLOOD_WINDOW_MS / 60_000 }, 'viewer_token_failures_high');
+  }
 }
 
 // MCP tools' internal calls skip the per-address limits below: they all come
@@ -169,4 +170,5 @@ export function createArchiveRateLimit(kind: 'create' | 'zip'): RateLimitRequest
 
 export function resetRateLimits(): void {
   stores.forEach((store) => store.resetAll());
+  flood = { start: 0, count: 0, logged: false };
 }

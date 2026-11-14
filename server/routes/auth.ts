@@ -4,13 +4,13 @@ import { OAuth2Client } from 'google-auth-library';
 import { expiredSessionKind, SESSION_COOKIE, SESSION_MAX_AGE_MS, signSession, signTokenSession, signViewerTokenSession } from '../session';
 import { membershipsOf, tokenAccount } from '../membership';
 import { configMode, pullSoon } from '../configSource';
-import { createApiRateLimit, createAuthRateLimit, createTokenFailureLimit, createViewerTokenGlobalLimit } from '../middleware/rateLimit';
+import { createApiRateLimit, createAuthRateLimit, createTokenFailureLimit, noteViewerTokenFailure } from '../middleware/rateLimit';
 import { RETURN_COOKIE, rememberReturn, safeReturnPath } from '../middleware/requireAuth';
 import { requireSameOrigin } from '../middleware/requireSameOrigin';
 import { checkState, clearLoginHint, clearState, loginHint, redirectToGoogle, setLoginHint } from '../googleLogin';
 import { cookieOptions, googleLoginEnabled, loginToken, tokenFingerprint, tokenLoginEnabled, tokenUser } from '../loginConfig';
 import { logger } from '../logger';
-import { checkViewerToken, sessionTag, viewerTokenNow } from '../viewerTokens';
+import { checkViewerToken, sessionTag, viewerTokenNow, type ViewerTokenRefusal } from '../viewerTokens';
 
 export const authRouter = Router();
 const authRateLimit = createAuthRateLimit();
@@ -178,7 +178,10 @@ authRouter.post(
       res.status(400).json({ error: 'token_in_url' });
       return;
     }
-    if (!tokenMatches((req.body as { token?: unknown } | undefined)?.token, expected)) {
+    const presented = (req.body as { token?: unknown } | undefined)?.token;
+    if (!tokenMatches(presented, expected)) {
+      // Only a token that was given counts against the address's tries.
+      if (typeof presented === 'string' && presented.length > 0) res.locals.tokenFailed = true;
       logger.warn({ kind: 'auth' }, 'token_login_failed');
       if (form) res.redirect(303, '/signin?login=failed');
       else res.status(401).json({ error: 'invalid_token' });
@@ -196,7 +199,6 @@ authRouter.post(
       else res.status(503).json({ error: 'token_account_ambiguous' });
       return;
     }
-    res.locals.tokenOk = true;
     const acc = configMode() === 'cams-admin' ? t.account.id : undefined;
     res.cookie(SESSION_COOKIE, signTokenSession(tokenUser(), tokenFingerprint(expected), acc), { ...cookieOptions(), maxAge: SESSION_MAX_AGE_MS });
     // No Google renewal for this browser (it would be for another account).
@@ -213,14 +215,13 @@ authRouter.post(
 // --- Viewer tokens (cams-admin design 2026-11-05-viewer-tokens-design §9) ---
 //
 // A token made in cams-admin, from the /token page (pasted, scanned, or the
-// link's fragment). Both POSTs: JSON only, same origin, the failure limits
-// (per address, shared with the token login, and one bucket for all), 4 KiB.
+// link's fragment). Both POSTs: JSON only, same origin, the failure limit
+// (per address, shared with the token login; no bucket for all), 4 KiB.
 // The token is looked up by its fingerprint and never logged; unknown,
 // expired, revoked, a viewer 24 h without cams-admin, and file mode all get
 // the one answer 401 invalid_token. "check" only names the token (the
 // link's confirm step: no silent sign-in); the other one signs in.
 const VIEWER_TOKEN_MAX_BODY = 4096;
-const viewerTokenGlobalLimit = createViewerTokenGlobalLimit();
 // The app's JSON parser (100 KB) leaves these two out: their own one below
 // caps the body at 4 KiB while reading it, so a chunked body (no
 // Content-Length) is held to it too.
@@ -253,19 +254,24 @@ function presentedViewerToken(req: Request, res: Response): { token: unknown } |
   return { token: (req.body as { token?: unknown } | undefined)?.token };
 }
 
-function viewerTokenRefused(res: Response, reason: string): void {
+function viewerTokenRefused(res: Response, reason: ViewerTokenRefusal): void {
+  // Only a well-formed token that isn't (or no longer is) valid counts: not a
+  // bad format, viewer tokens off, or cams-admin out of reach.
+  if (reason === 'unknown' || reason === 'expired') {
+    res.locals.tokenFailed = true;
+    noteViewerTokenFailure();
+  }
   logger.warn({ kind: 'auth', reason }, 'viewer_token_login_failed');
   res.status(401).json({ error: 'invalid_token' });
 }
 
-const viewerTokenGuards = [authRateLimit, requireSameOrigin, tokenFailureLimit, viewerTokenGlobalLimit, viewerTokenBody];
+const viewerTokenGuards = [authRateLimit, requireSameOrigin, tokenFailureLimit, viewerTokenBody];
 
 authRouter.post('/auth/viewer-token/check', ...viewerTokenGuards, (req: Request, res: Response) => {
   const p = presentedViewerToken(req, res);
   if (!p) return;
   const r = checkViewerToken(p.token);
   if (!r.ok) return viewerTokenRefused(res, r.reason);
-  res.locals.tokenOk = true;
   res.set('Cache-Control', 'no-store');
   res.json({ name: r.token.name, expiresAt: r.token.expiresAt });
 });
@@ -275,7 +281,6 @@ authRouter.post('/auth/viewer-token', ...viewerTokenGuards, (req: Request, res: 
   if (!p) return;
   const r = checkViewerToken(p.token);
   if (!r.ok) return viewerTokenRefused(res, r.reason);
-  res.locals.tokenOk = true;
   const t = r.token;
   // One account: in; several: the picker (no account in the cookie yet).
   const acc = t.accounts.length === 1 ? t.accounts[0].id : undefined;

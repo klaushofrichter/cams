@@ -265,12 +265,38 @@ describe('limits', () => {
     expect([r.status, r.body]).toEqual([429, { error: 'too_many_attempts' }]);
   });
 
-  it('one bucket for all addresses (100 by default)', async () => {
+  // Only a well-formed token that doesn't match counts: a malformed request
+  // (bad format, not JSON, token in the URL, too large) or cams-admin being
+  // out of reach spends nothing (code review 2026-11-14).
+  it('per address: malformed requests and an unreachable cams-admin don\'t count', async () => {
+    process.env.RATE_LIMIT_TOKEN_FAILURES = '2';
+    resetRateLimits();
+    for (let i = 0; i < 3; i++) {
+      expect((await post('/auth/viewer-token', { token: 'nope' })).status).toBe(401);
+      expect((await post('/auth/viewer-token/check', { token: 42 })).status).toBe(401);
+      expect((await post(`/auth/viewer-token?t=${TOKEN}`, { token: TOKEN })).status).toBe(400);
+      expect((await post('/auth/viewer-token', { token: TOKEN, pad: 'x'.repeat(5000) })).status).toBe(413);
+      expect((await request(createApp()).post('/auth/viewer-token').set('Origin', ORIGIN).set('Host', '127.0.0.1').type('form').send({ token: TOKEN })).status).toBe(415);
+    }
+    const lastGood = clock.lastGoodAt;
+    clock.lastGoodAt = null; // cams-admin never reached: offline
+    for (let i = 0; i < 3; i++) expect((await post('/auth/viewer-token', { token: 'cav_RouteTestFakeToken9999' })).status).toBe(401);
+    clock.lastGoodAt = lastGood;
+    expect((await post('/auth/viewer-token', { token: TOKEN })).status).toBe(200);
+  });
+
+  // No bucket for all addresses together: it let anyone lock every viewer
+  // out from a few addresses (code review 2026-11-14). A token is 131 random
+  // bits; the per-address limit stays, and a flood of failures is logged.
+  it('no lockout across addresses: many failures are only logged', async () => {
     process.env.RATE_LIMIT_TOKEN_FAILURES = '1000';
     process.env.RATE_LIMIT_VIEWER_TOKEN_FAILURES = '2';
     resetRateLimits();
-    for (let i = 0; i < 2; i++) expect((await post('/auth/viewer-token', { token: 'nope' })).status).toBe(401);
-    expect((await post('/auth/viewer-token/check', { token: TOKEN })).status).toBe(429);
+    const warn = vi.spyOn(logger, 'warn');
+    for (let i = 0; i < 5; i++) expect((await post('/auth/viewer-token', { token: 'cav_RouteTestFakeToken9999' })).status).toBe(401);
+    expect((await post('/auth/viewer-token/check', { token: TOKEN })).status).toBe(200);
+    expect(warn.mock.calls.filter(([, msg]) => msg === 'viewer_token_failures_high')).toHaveLength(1); // once per window
+    warn.mockRestore();
   });
 
   it('a body over 4 KiB: 413', async () => {

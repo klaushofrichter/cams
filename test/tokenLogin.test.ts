@@ -175,6 +175,16 @@ describe('POST /auth/token', () => {
     expect(blocked.body).toEqual({ error: 'too_many_attempts' });
   });
 
+  it('counts only a given token that is wrong, not malformed requests (code review 2026-11-14)', async () => {
+    tokenOnly();
+    const app = createApp();
+    for (let i = 0; i < 12; i++) {
+      expect((await request(app).post(`/auth/token?token=${TOKEN}`).send({ token: TOKEN })).status).toBe(400);
+      expect((await post(app, {})).status).toBe(401);
+    }
+    expect((await post(app)).status).toBe(200);
+  });
+
   it('is behind the auth rate limiter too', async () => {
     tokenOnly();
     const app = createApp();

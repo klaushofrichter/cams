@@ -8,6 +8,7 @@ published as [GitHub releases](https://github.com/klaushofrichter/cams/releases)
 
 ## [Unreleased]
 
+- Signing in with a viewer token can no longer be blocked for everyone by someone trying wrong tokens from a few addresses, and malformed sign-in attempts no longer use up an address's tries.
 - Timeline previews, stills and Vision check pictures are no longer kept in the browser's cache: after signing out nothing stays behind, and a picture of another account's camera with the same short name can't be shown by mistake.
 - Composed clips on iPhone and iPad: seeking past the end of a composed clip's preview now gets the clip's size back, so Safari can keep playing it.
 - Scrubbing a composed clip's preview no longer leaves requests to the cam-proxy running after the browser has moved on.
