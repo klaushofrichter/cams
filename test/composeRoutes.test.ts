@@ -2,6 +2,8 @@
 // modal's calls go to the camera's cam-proxy with its token.
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import request from 'supertest';
+import http from 'http';
+import type { AddressInfo } from 'net';
 import { createApp } from '../server/app';
 import { setCameras } from '../server/cameraRegistry';
 import { getProxyClient, ProxyError, resetProxyClients } from '../server/proxy/client';
@@ -178,6 +180,54 @@ describe('compositions pass-through', () => {
     expect(r.headers['content-range']).toBe('bytes */16');
     expect(r.headers['accept-ranges']).toBe('bytes');
     expect(r.headers['content-type'] ?? '').not.toMatch(/json/);
+  });
+
+  // Code review 2026-11-14: a browser that gives up on a range request
+  // (scrubbing) ends the upstream request too.
+  it('aborts the proxy request when the browser goes away', async () => {
+    fake.composeDelayMs = 0;
+    const { body } = await post('den', { eventId: EVENT, preS: 0, postS: 5, size: 'sd', badge: false });
+    await new Promise((res) => setTimeout(res, 20));
+    const client = getProxyClient(k('den'))!;
+    let signal: AbortSignal | undefined;
+    const asked = new Promise<void>((done) => {
+      vi.spyOn(client, 'open').mockImplementation((_p, _q, init) => {
+        signal = init?.signal;
+        done();
+        return new Promise(() => undefined); // the proxy never answers
+      });
+    });
+    const server = createApp().listen(0);
+    try {
+      const { port } = server.address() as AddressInfo;
+      const req = http.get({ port, path: `/api/cameras/den/compositions/${body.id}/video?inline=1`, headers: { Cookie: auth, Range: 'bytes=0-3' } });
+      req.on('error', () => undefined);
+      await asked;
+      req.destroy();
+      await vi.waitFor(() => expect(signal?.aborted).toBe(true));
+    } finally {
+      server.close();
+    }
+  });
+
+  // Code review 2026-11-14: an error answer is read up to a cap, never whole.
+  it('reads at most a bounded error body from the proxy', async () => {
+    fake.composeDelayMs = 0;
+    const { body } = await post('den', { eventId: EVENT, preS: 0, postS: 5, size: 'sd', badge: false });
+    await new Promise((res) => setTimeout(res, 20));
+    let sent = 0;
+    // 1 MiB of error body, then it never ends.
+    const endless = new ReadableStream<Uint8Array>({
+      pull(c) {
+        if (sent >= 1 << 20) return new Promise(() => undefined);
+        sent += 16_384;
+        c.enqueue(new Uint8Array(16_384));
+      },
+    });
+    vi.spyOn(getProxyClient(k('den'))!, 'open').mockResolvedValue(new Response(endless, { status: 409 }));
+    const r = await request(createApp()).get(`/api/cameras/den/compositions/${body.id}/video`).set('Cookie', auth).timeout(3000);
+    expect(r.status).toBe(502);
+    expect(sent).toBeLessThan(1 << 20);
   });
 
   it('says whether the proxy has a copy of the event, before anything is composed', async () => {
