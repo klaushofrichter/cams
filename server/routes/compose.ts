@@ -2,10 +2,10 @@ import { Router, type Request, type Response } from 'express';
 import { pipeline } from 'stream/promises';
 import { aroundLength, generateMaxS, resultLength, ROLL_LIMIT_S } from '../clipLimits';
 import { logger } from '../logger';
-import { getProxyClient, proxyPath, ProxyError, type ProxyClient } from '../proxy/client';
+import { getProxyClient, proxyPath, type ProxyClient } from '../proxy/client';
 import { CLIP_ID as EVENT, offsetAt, offsetStamp, zoneStamp, type TimeInfo } from '../recordings/clipNames';
 import { getRecordings } from '../recordings/service';
-import { knownCamera, proxyTarget } from './common';
+import { badRequest, knownCamera, proxyFailed, proxyTarget } from './common';
 import type { Principal } from '../middleware/requireAuth';
 import { camsIdOf, type CamKey } from '../fleet';
 import { nodeBody } from '../httpBody';
@@ -20,19 +20,14 @@ function target(req: Request, res: Response) {
   const t = proxyTarget(req, res);
   return t && { ...t, base: proxyPath(t.id, '/compositions') };
 }
-function failed(err: unknown, res: Response) {
-  if (!(err instanceof ProxyError)) throw err;
-  logger.warn({ code: err.code, message: err.message }, 'compose_proxy_failed');
-  if (!res.headersSent) res.status(502).json({ error: 'proxy_unavailable' });
-  else res.destroy();
-}
-// The proxy's status and JSON body, as they are.
-async function relay(res: Response, up: globalThis.Response) {
-  res.status(up.status);
-  const text = await up.text();
+const failed = (err: unknown, res: Response) => proxyFailed(err, res, 'compose_proxy_failed');
+// A proxy answer's status and JSON body (already read), as they are.
+function relayText(res: Response, status: number, text: string) {
+  res.status(status);
   if (text) res.type('application/json').send(text);
   else res.end();
 }
+const relay = async (res: Response, up: globalThis.Response) => relayText(res, up.status, await up.text());
 const jobOk = (req: Request, res: Response) => (JOB.test(String(req.params.job)) ? true : (res.status(400).json({ error: 'invalid' }), false));
 
 // The jobs cams started, per camera, with cams's own copy of the proxy's id:
@@ -88,11 +83,11 @@ composeRouter.post('/api/cameras/:id/compositions', async (req, res) => {
   if (!t) return;
   const b = (req.body ?? {}) as { eventId?: unknown; at?: unknown; preS?: unknown; postS?: unknown; size?: unknown; badge?: unknown; timeZone?: unknown; dryRun?: unknown };
   if (b.at !== undefined) return void (await around(t, b, res, whoOf(res)));
-  if (typeof b.eventId !== 'string' || !EVENT.test(b.eventId)) return void res.status(400).json({ error: 'invalid', detail: 'eventId is required' });
+  if (typeof b.eventId !== 'string' || !EVENT.test(b.eventId)) return badRequest(res, 'eventId is required');
   // Every field checked before the lookup, as around a second; the length
   // with the event's own below.
   const shape = fieldsOk(b);
-  if (shape) return void res.status(400).json({ error: 'invalid', detail: shape });
+  if (shape) return badRequest(res, shape);
   try {
     let clip: { id: number; event: { start: number; end: number } } | null;
     try {
@@ -104,7 +99,7 @@ composeRouter.post('/api/cameras/:id/compositions', async (req, res) => {
     // The dialog's rule and words (server/clipLimits.ts) on the event's own
     // length; the proxy checks again on the same span (its own words).
     const len = resultLength(Math.round((clip.event.end - clip.event.start) / 1000), b.preS as number, b.postS as number, generateMaxS(b.size as string));
-    if (!len.ok) return void res.status(400).json({ error: 'invalid', detail: len.error });
+    if (!len.ok) return badRequest(res, len.error);
     // span: the rolls apply to the event (the SD recording the dialog shows),
     // not to the proxy's FTP copy, which can be longer (2026-10-04: 114 s,
     // pre -100, post 30 was 44 s here and 175 s on the proxy).
@@ -115,9 +110,7 @@ composeRouter.post('/api/cameras/:id/compositions', async (req, res) => {
       if (!job) return void unreadable(t.id, res);
       remember(t.id, job.id as string, whoOf(res));
     }
-    res.status(up.status);
-    if (text) res.type('application/json').send(text);
-    else res.end();
+    relayText(res, up.status, text);
   } catch (err) {
     failed(err, res);
   }
@@ -138,26 +131,22 @@ function fieldsOk(b: { preS?: unknown; postS?: unknown; size?: unknown; badge?: 
   return null;
 }
 async function around(t: { id: CamKey; client: ProxyClient; base: string }, b: { eventId?: unknown; at?: unknown; preS?: unknown; postS?: unknown; size?: unknown; badge?: unknown; timeZone?: unknown; dryRun?: unknown }, res: Response, by: string) {
-  const bad = (detail: string) => void res.status(400).json({ error: 'invalid', detail });
-  if (b.eventId !== undefined) return bad('exactly one of eventId or at');
+  if (b.eventId !== undefined) return badRequest(res, 'exactly one of eventId or at');
   const at = b.at;
-  if (typeof at !== 'number' || !Number.isSafeInteger(at) || at < 0 || at % 1000 !== 0) return bad('at is a whole second (unix ms)');
+  if (typeof at !== 'number' || !Number.isSafeInteger(at) || at < 0 || at % 1000 !== 0) return badRequest(res, 'at is a whole second (unix ms)');
   const now = Date.now();
-  if (at > now) return bad('at is in the future');
-  if (at < now - AT_MAX_AGE_MS) return bad('at is older than the stills and clips kept');
-  if (typeof b.size !== 'string' || !SIZES.includes(b.size)) return bad('size is sd, 360p, 720p or 1080p');
-  if (typeof b.badge !== 'boolean') return bad('badge is true or false');
-  if (b.dryRun !== undefined && typeof b.dryRun !== 'boolean') return bad('dryRun is true or false');
+  if (at > now) return badRequest(res, 'at is in the future');
+  if (at < now - AT_MAX_AGE_MS) return badRequest(res, 'at is older than the stills and clips kept');
+  if (typeof b.size !== 'string' || !SIZES.includes(b.size)) return badRequest(res, 'size is sd, 360p, 720p or 1080p');
+  if (typeof b.badge !== 'boolean') return badRequest(res, 'badge is true or false');
+  if (b.dryRun !== undefined && typeof b.dryRun !== 'boolean') return badRequest(res, 'dryRun is true or false');
   const len = aroundLength(b.preS as number, b.postS as number, b.size);
-  if (!len.ok) return bad(len.error);
+  if (!len.ok) return badRequest(res, len.error);
   const zone = typeof b.timeZone === 'string' && validZone(b.timeZone) ? b.timeZone : undefined;
   try {
     const up = await t.client.open(t.base, undefined, { method: 'POST', body: JSON.stringify({ at, preS: b.preS, postS: b.postS, size: b.size, badge: b.badge, ...(zone ? { timeZone: zone } : {}), ...(b.dryRun ? { dryRun: true } : {}) }) });
     const text = await up.text();
-    if (up.status !== 201) {
-      res.status(up.status);
-      return void (text ? res.type('application/json').send(text) : res.end());
-    }
+    if (up.status !== 201) return relayText(res, up.status, text);
     const job = startedJobOf(text);
     if (!job) return void unreadable(t.id, res);
     remember(t.id, job.id as string, by);
@@ -202,7 +191,7 @@ composeRouter.get('/api/cameras/:id/compositions/available', async (req, res) =>
   const id = knownCamera(req, res);
   if (!id) return;
   const eventId = typeof req.query.eventId === 'string' ? req.query.eventId : '';
-  if (!EVENT.test(eventId)) return void res.status(400).json({ error: 'invalid', detail: 'eventId is required' });
+  if (!EVENT.test(eventId)) return badRequest(res, 'eventId is required');
   if (!getProxyClient(id)) return void res.json({ available: false });
   try {
     res.json({ available: !!(await getRecordings().proxyClipOf(id, eventId)) });

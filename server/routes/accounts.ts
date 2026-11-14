@@ -9,11 +9,10 @@ import { sessionTag, viewerTokenNow, viewerTokens } from '../viewerTokens';
 import { getCamera } from '../cameraRegistry';
 import { configMode, configStatus, reapplyConfig, reportSoon, trustStore } from '../configSource';
 import type { HeldProxy, ProxyTrust, TrustField, TrustValues } from '../admin/trust';
-import { sessionAccount } from './common';
 import { credentialsFileSet, credentialsWritable, setCameraPassword } from '../credentials';
 import { resetClients } from '../reolink/clients';
 import type { CamKey } from '../fleet';
-import { knownCamera, readJson, viaProxyFailed } from './common';
+import { badRequest, knownCamera, readJson, sessionAccount, viaProxyFailed } from './common';
 import { throughProxy } from '../proxy/features';
 import { proxyAdminClient } from '../proxy/cameraCalls';
 import { proxyCameraId } from '../proxy/client';
@@ -113,11 +112,11 @@ accountsRouter.put('/api/cameras/:id/credentials', async (req: Request, res: Res
   if (!key) return;
   const password = (req.body as { password?: unknown } | undefined)?.password;
   if (throughProxy(key)) {
-    if (!validPassword(password)) return void res.status(400).json({ error: 'invalid', detail: 'a password of 1 to 128 characters' });
+    if (!validPassword(password)) return badRequest(res, 'a password of 1 to 128 characters');
     return relayPassword(key, password, req, res);
   }
   if (configMode() !== 'cams-admin') return void res.status(409).json({ error: 'file_mode' });
-  if (!validPassword(password)) return void res.status(400).json({ error: 'invalid', detail: 'a password of 1 to 128 characters' });
+  if (!validPassword(password)) return badRequest(res, 'a password of 1 to 128 characters');
   const cam = getCamera(key)!;
   const user = cam.user;
   // An entry without a user would stop the next start (loadCredentials).
@@ -158,7 +157,7 @@ function heldAction(action: 'confirm' | 'keep') {
     if (!Array.isArray(items) || !items.length || items.length > 256
       || !items.every((i) => i && typeof i === 'object' && typeof i.camsId === 'string' && /^[a-z0-9][a-z0-9-]{0,31}$/.test(i.camsId) && typeof i.digest === 'string' && /^[0-9a-f]{64}$/.test(i.digest))
       || new Set(items.map((i: { camsId: string }) => i.camsId)).size !== items.length) {
-      return void res.status(400).json({ error: 'invalid', detail: 'items is a list of {camsId, digest}, each camera once' });
+      return badRequest(res, 'items is a list of {camsId, digest}, each camera once');
     }
     const account = sessionAccount(req, res).id;
     const store = trustStore();
@@ -193,7 +192,7 @@ function proxyItems(req: Request, res: Response): { proxyId: string; digest: str
   if (!Array.isArray(items) || !items.length || items.length > 64
     || !items.every((i) => i && typeof i === 'object' && isSnapProxyId(i.proxyId) && typeof i.digest === 'string' && /^[0-9a-f]{64}$/.test(i.digest))
     || new Set(items.map((i: { proxyId: string }) => i.proxyId)).size !== items.length) {
-    res.status(400).json({ error: 'invalid', detail: 'items is a list of 1 to 64 {proxyId, digest}, each proxy once' });
+    badRequest(res, 'items is a list of 1 to 64 {proxyId, digest}, each proxy once');
     return null;
   }
   return (items as { proxyId: string; digest: string }[]).map((i) => ({ proxyId: i.proxyId, digest: i.digest }));
