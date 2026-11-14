@@ -3,6 +3,7 @@
   import TimelineStill from './TimelineStill.svelte';
   import { getJson } from '../lib/api';
   import { portal } from '../lib/portal';
+  import { focusables as focusablesIn, trapTab } from '../lib/focusTrap';
   import { formatClock as clock, localDate } from '../lib/recordings';
   import { navigate } from '../lib/router';
   import { historyHref, openHistory } from '../lib/timeline';
@@ -53,7 +54,7 @@
   // when it lands outside while open (issue #113); the badge takes it back on
   // close (VisionBadges).
   let dialogEl: HTMLElement | undefined = $state();
-  const focusables = () => [...(dialogEl?.querySelectorAll<HTMLElement>('button, input:not([type="radio"]), input[type="radio"]:checked, select, a[href]') ?? [])].filter((e) => !e.hasAttribute('disabled'));
+  const focusables = () => focusablesIn(dialogEl, 'button, input:not([type="radio"]), input[type="radio"]:checked, select, a[href]');
   onMount(() => {
     void tick().then(() => (focusables()[0] ?? dialogEl)?.focus());
   });
@@ -66,15 +67,7 @@
   function keepFocus(e: FocusEvent) {
     if (!closing && dialogEl && e.target instanceof Node && !dialogEl.contains(e.target)) (focusables()[0] ?? dialogEl).focus();
   }
-  function trap(e: KeyboardEvent) {
-    if (e.key !== 'Tab') return;
-    const f = focusables();
-    if (!f.length) return;
-    const i = f.indexOf(document.activeElement as HTMLElement);
-    const next = e.shiftKey ? (i <= 0 ? f.length - 1 : i - 1) : i === f.length - 1 ? 0 : i + 1;
-    e.preventDefault();
-    f[next].focus();
-  }
+  const trap = (e: KeyboardEvent) => trapTab(e, focusables);
   // History at the still's second, paused, from the same shared cursor the
   // Timeline's "Open in History" leaves (Klaus, 2026-10-01).
   const historyLink = $derived(still ? historyHref(cameraId, still.stillTs) : '');
