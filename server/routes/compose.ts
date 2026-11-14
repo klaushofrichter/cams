@@ -261,9 +261,13 @@ composeRouter.delete('/api/cameras/:id/compositions/:job', async (req, res) => {
   // for whoever started the job, or an account admin.
   const p = res.locals.principal as Principal;
   if (job.by !== p.email && p.role !== 'admin') return void res.status(403).json({ error: 'forbidden' });
-  started.delete(t.id, job.id);
   try {
-    await relay(res, await t.client.open(`${t.base}/${job.id}`, undefined, { method: 'DELETE' }));
+    const up = await t.client.open(`${t.base}/${job.id}`, undefined, { method: 'DELETE' });
+    // Forgotten only once the proxy cancelled it, or no longer knows it: a
+    // failed cancel leaves a running job cams can still poll, cancel and
+    // archive (code review 2026-11-14).
+    if (up.ok || up.status === 404) started.delete(t.id, job.id);
+    await relay(res, up);
   } catch (err) {
     failed(err, res);
   }

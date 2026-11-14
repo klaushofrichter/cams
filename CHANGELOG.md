@@ -8,6 +8,7 @@ published as [GitHub releases](https://github.com/klaushofrichter/cams/releases)
 
 ## [Unreleased]
 
+- Cancelling a composed clip while the cam-proxy is briefly unreachable no longer loses track of the clip: it can still be followed, cancelled again or archived.
 - A cam-proxy that sends an oversized answer (composed clips, the Archive, camera settings, pan and tilt) now gets a clear "proxy unavailable" instead of the server holding the whole answer in memory.
 - Signing in with a viewer token can no longer be blocked for everyone by someone trying wrong tokens from a few addresses, and malformed sign-in attempts no longer use up an address's tries.
 - Timeline previews, stills and Vision check pictures are no longer kept in the browser's cache: after signing out nothing stays behind, and a picture of another account's camera with the same short name can't be shown by mistake.
