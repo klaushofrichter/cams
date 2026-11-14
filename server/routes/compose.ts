@@ -2,13 +2,13 @@ import { Router, type Request, type Response } from 'express';
 import { pipeline } from 'stream/promises';
 import { aroundLength, generateMaxS, resultLength, ROLL_LIMIT_S } from '../clipLimits';
 import { logger } from '../logger';
-import { getProxyClient, proxyPath, ProxyError, type ProxyClient } from '../proxy/client';
+import { getProxyClient, proxyPath, type ProxyClient } from '../proxy/client';
 import { CLIP_ID as EVENT, offsetAt, offsetStamp, zoneStamp, type TimeInfo } from '../recordings/clipNames';
 import { getRecordings } from '../recordings/service';
-import { badRequest, knownCamera, proxyFailed, proxyTarget } from './common';
+import { badRequest, knownCamera, proxyAnswerText, proxyFailed, proxyTarget } from './common';
 import type { Principal } from '../middleware/requireAuth';
 import { camsIdOf, type CamKey } from '../fleet';
-import { nodeBody, readCapped } from '../httpBody';
+import { nodeBody } from '../httpBody';
 import { JobRegistry } from '../jobRegistry';
 
 // Composed clips (cam-proxy spec 2026-09-28): the Downloads modal's calls,
@@ -30,9 +30,7 @@ function relayText(res: Response, status: number, text: string) {
 }
 // The proxy's answers here are small JSON: a longer one is cut off, never
 // held whole (code review 2026-11-14), and answered as proxy_unavailable.
-const MAX_ANSWER = 64 * 1024;
-const relay = async (res: Response, up: globalThis.Response) =>
-  relayText(res, up.status, (await readCapped(up, MAX_ANSWER, () => new ProxyError('proxy_error', 'the proxy\'s answer is too large', up.status))).toString('utf8'));
+const relay = async (res: Response, up: globalThis.Response) => relayText(res, up.status, await proxyAnswerText(up));
 const jobOk = (req: Request, res: Response) => (JOB.test(String(req.params.job)) ? true : (res.status(400).json({ error: 'invalid' }), false));
 
 // The jobs cams started, per camera, with cams's own copy of the proxy's id:
@@ -97,7 +95,7 @@ composeRouter.post('/api/cameras/:id/compositions', async (req, res) => {
     // not to the proxy's FTP copy, which can be longer (2026-10-04: 114 s,
     // pre -100, post 30 was 44 s here and 175 s on the proxy).
     const up = await t.client.open(t.base, undefined, { method: 'POST', body: JSON.stringify({ clipId: clip.id, span: clip.event, preS: b.preS, postS: b.postS, size: b.size, badge: b.badge, ...(typeof b.timeZone === 'string' ? { timeZone: b.timeZone } : {}) }) });
-    const text = await up.text();
+    const text = await proxyAnswerText(up);
     if (up.status === 201) {
       const job = startedJobOf(text);
       if (!job) return void unreadable(t.id, res);
@@ -138,7 +136,7 @@ async function around(t: { id: CamKey; client: ProxyClient; base: string }, b: {
   const zone = typeof b.timeZone === 'string' && validZone(b.timeZone) ? b.timeZone : undefined;
   try {
     const up = await t.client.open(t.base, undefined, { method: 'POST', body: JSON.stringify({ at, preS: b.preS, postS: b.postS, size: b.size, badge: b.badge, ...(zone ? { timeZone: zone } : {}), ...(b.dryRun ? { dryRun: true } : {}) }) });
-    const text = await up.text();
+    const text = await proxyAnswerText(up);
     if (up.status !== 201) return relayText(res, up.status, text);
     const job = startedJobOf(text);
     if (!job) return void unreadable(t.id, res);

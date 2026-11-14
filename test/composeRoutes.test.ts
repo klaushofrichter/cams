@@ -418,6 +418,17 @@ describe('compositions: who may cancel, malformed answers, every field checked',
     expect([r.status, r.body]).toEqual([502, { error: 'proxy_unavailable', detail: 'the proxy started a job but its answer is unreadable' }]);
   });
 
+  // The proxy's answer is read up to 64 KiB (code review 2026-11-14): a
+  // longer one, a 201 or a refusal, is 502 proxy_unavailable, never held whole.
+  it('an answer over 64 KiB, starting or around a second: 502 proxy_unavailable', async () => {
+    const huge = () => new Response(JSON.stringify({ id: 'J'.repeat(22), pad: 'x'.repeat(70_000) }), { status: 201 });
+    vi.spyOn(getProxyClient(k('den'))!, 'open').mockImplementation(async () => huge());
+    const r = await post('den', { eventId: EVENT, preS: 0, postS: 5, size: 'sd', badge: false });
+    expect([r.status, r.body]).toEqual([502, { error: 'proxy_unavailable' }]);
+    const a = await post('den', { at: Math.floor(Date.now() / 1000) * 1000 - 60_000, preS: 1, postS: 1, size: 'sd', badge: false });
+    expect([a.status, a.body]).toEqual([502, { error: 'proxy_unavailable' }]);
+  });
+
   it('the same around a second', async () => {
     vi.spyOn(getProxyClient(k('den'))!, 'open').mockResolvedValue(new Response('not json', { status: 201 }));
     const r = await post('den', { at: Math.floor(Date.now() / 1000) * 1000 - 60_000, preS: 1, postS: 1, size: 'sd', badge: false });

@@ -426,6 +426,10 @@ archiveRouter.get('/api/archive/:via/items/:id/thumbnail', async (req, res) => {
   }
 });
 
+// The metadata lists every event and still check of the item's window with
+// their objects: far more than one item (300 events with 20 objects each are
+// about 0.5 MB), so its own cap.
+const MAX_METADATA = 4 * 1024 * 1024;
 archiveRouter.get('/api/archive/:via/items/:id/metadata', async (req, res) => {
   const p = proxyOf(req, res);
   const id = p && itemId(req, res);
@@ -433,7 +437,7 @@ archiveRouter.get('/api/archive/:via/items/:id/metadata', async (req, res) => {
   try {
     const up = await p.client.open(`/api/archive/${id}/metadata`);
     if (!up.ok) return void (await passRefusal(up, res));
-    const m = parseMetadata(await readJson(up), p, id);
+    const m = parseMetadata(await readJson(up, MAX_METADATA), p, id);
     if (!m) return void res.status(502).json({ error: 'proxy_unavailable' });
     res.json(m);
   } catch (err) {

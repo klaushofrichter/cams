@@ -5,6 +5,7 @@ import type { Principal } from '../middleware/requireAuth';
 import { logger } from '../logger';
 import { getProxyClient, ProxyError, type ProxyClient } from '../proxy/client';
 import { CameraError } from '../reolink/client';
+import { readCapped } from '../httpBody';
 
 // Helpers shared by the /api/cameras/:id routers.
 
@@ -104,9 +105,17 @@ export function proxyFailed(err: unknown, res: Response, event: string, fields: 
   else res.destroy();
 }
 
-// A proxy answer's JSON body; null when it is empty or not JSON.
-export async function readJson(up: globalThis.Response): Promise<unknown> {
-  const text = await up.text();
+// A proxy answer's body as text (proxyAnswerText), or its JSON (readJson;
+// null when it is empty or not JSON). Read up to
+// `max` bytes (64 KiB: the proxy's single objects and refusals are small),
+// never whole: a longer one throws a ProxyError, which the routes answer as
+// 502 proxy_unavailable like relay() (code review 2026-11-14).
+const MAX_PROXY_ANSWER = 64 * 1024;
+export async function proxyAnswerText(up: globalThis.Response, max = MAX_PROXY_ANSWER): Promise<string> {
+  return (await readCapped(up, max, () => new ProxyError('proxy_error', "the proxy's answer is too large", up.status))).toString('utf8');
+}
+export async function readJson(up: globalThis.Response, max = MAX_PROXY_ANSWER): Promise<unknown> {
+  const text = await proxyAnswerText(up, max);
   try {
     return text ? (JSON.parse(text) as unknown) : null;
   } catch {
