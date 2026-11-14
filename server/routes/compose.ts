@@ -9,6 +9,7 @@ import { badRequest, knownCamera, proxyFailed, proxyTarget } from './common';
 import type { Principal } from '../middleware/requireAuth';
 import { camsIdOf, type CamKey } from '../fleet';
 import { nodeBody } from '../httpBody';
+import { JobRegistry } from '../jobRegistry';
 
 // Composed clips (cam-proxy spec 2026-09-28): the Downloads modal's calls,
 // passed to the camera's cam-proxy with its token.
@@ -36,15 +37,8 @@ const jobOk = (req: Request, res: Response) => (JOB.test(String(req.params.job))
 // counted from the last question about the job.
 // `by`: who started it (the signed-in email; a viewer token's own id-based
 // one): only they or an account admin may cancel it (code review 2026-11-09).
-const started = new Map<string, { id: string; at: number; by: string }>();
-const KEEP_MS = 20 * 60_000;
-const keyOf = (cam: CamKey, job: string) => `${cam}\u0000${job}`;
+const started = new JobRegistry<{ by: string }>(20 * 60_000);
 const whoOf = (res: Response) => (res.locals.principal as Principal).email;
-function remember(cam: CamKey, id: string, by: string) {
-  const t = Date.now();
-  for (const [k, v] of started) if (t - v.at > KEEP_MS) started.delete(k);
-  started.set(keyOf(cam, id), { id, at: t, by });
-}
 // The job id in the proxy's 201, or null when the answer is unreadable
 // (not JSON, or no job id): the job may run, but cams can't follow it.
 function startedJobOf(text: string): Record<string, unknown> | null {
@@ -64,18 +58,13 @@ function unreadable(cam: CamKey, res: Response) {
 // A composition cams started for this camera, by cams's own copy of its id
 // (the Archive button stores it, cam-proxy's archive contract §2); asking
 // keeps it, like a poll.
-export function startedComposition(cam: CamKey, id: string): string | undefined {
-  const entry = started.get(keyOf(cam, id));
-  if (entry) entry.at = Date.now();
-  return entry?.id;
-}
+export const startedComposition = (cam: CamKey, id: string): string | undefined => started.lookup(cam, id)?.id;
 // Each question about a job keeps it (the dialog asks once a minute while a
 // result is open, issue #76).
-function known(cam: CamKey, req: Request, res: Response): string | undefined {
-  const entry = started.get(keyOf(cam, String(req.params.job)));
+function known(cam: CamKey, req: Request, res: Response): { id: string; by: string } | undefined {
+  const entry = started.lookup(cam, String(req.params.job));
   if (!entry) return void res.status(404).json({ error: 'not_found' }), undefined;
-  entry.at = Date.now();
-  return entry.id;
+  return entry;
 }
 
 composeRouter.post('/api/cameras/:id/compositions', async (req, res) => {
@@ -108,7 +97,7 @@ composeRouter.post('/api/cameras/:id/compositions', async (req, res) => {
     if (up.status === 201) {
       const job = startedJobOf(text);
       if (!job) return void unreadable(t.id, res);
-      remember(t.id, job.id as string, whoOf(res));
+      started.remember(t.id, job.id as string, { by: whoOf(res) });
     }
     relayText(res, up.status, text);
   } catch (err) {
@@ -149,7 +138,7 @@ async function around(t: { id: CamKey; client: ProxyClient; base: string }, b: {
     if (up.status !== 201) return relayText(res, up.status, text);
     const job = startedJobOf(text);
     if (!job) return void unreadable(t.id, res);
-    remember(t.id, job.id as string, by);
+    started.remember(t.id, job.id as string, { by });
     res.status(201).json({ ...job, name: `${camsIdOf(t.id)}-${await stampOf(t.id, at, zone)}-around.mp4` });
   } catch (err) {
     failed(err, res);
@@ -207,7 +196,7 @@ composeRouter.get('/api/cameras/:id/compositions/:job', async (req, res) => {
   const job = known(t.id, req, res);
   if (!job) return;
   try {
-    await relay(res, await t.client.open(`${t.base}/${job}`));
+    await relay(res, await t.client.open(`${t.base}/${job.id}`));
   } catch (err) {
     failed(err, res);
   }
@@ -222,7 +211,7 @@ composeRouter.get('/api/cameras/:id/compositions/:job/video', async (req, res) =
   try {
     // Byte ranges pass through: iOS Safari plays a <video> only with them (issue #72).
     const range = req.get('range');
-    const up = await t.client.open(`${t.base}/${job}.mp4`, undefined, { idleMs: 30_000, headers: range && /^bytes=\d*-\d*$/.test(range) ? { Range: range } : {} });
+    const up = await t.client.open(`${t.base}/${job.id}.mp4`, undefined, { idleMs: 30_000, headers: range && /^bytes=\d*-\d*$/.test(range) ? { Range: range } : {} });
     if (!up.ok || !up.body) return void (await relay(res, up));
     const name = typeof req.query.name === 'string' && NAME.test(req.query.name) ? req.query.name : 'composed.mp4';
     res.status(up.status === 206 ? 206 : 200).set({
@@ -250,10 +239,10 @@ composeRouter.delete('/api/cameras/:id/compositions/:job', async (req, res) => {
   // Polling and the result stay open to the account's viewers; cancelling is
   // for whoever started the job, or an account admin.
   const p = res.locals.principal as Principal;
-  if (started.get(keyOf(t.id, job))?.by !== p.email && p.role !== 'admin') return void res.status(403).json({ error: 'forbidden' });
-  started.delete(keyOf(t.id, job));
+  if (job.by !== p.email && p.role !== 'admin') return void res.status(403).json({ error: 'forbidden' });
+  started.delete(t.id, job.id);
   try {
-    await relay(res, await t.client.open(`${t.base}/${job}`, undefined, { method: 'DELETE' }));
+    await relay(res, await t.client.open(`${t.base}/${job.id}`, undefined, { method: 'DELETE' }));
   } catch (err) {
     failed(err, res);
   }
