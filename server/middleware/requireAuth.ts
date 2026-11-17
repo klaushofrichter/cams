@@ -1,5 +1,5 @@
 import { NextFunction, Request, Response } from 'express';
-import { expiredSessionKind, SESSION_COOKIE, sessionExpiry, signViewerTokenSession, verifySession } from '../session';
+import { expiredSessionKind, SESSION_COOKIE, signViewerTokenSession, verifySession, type SessionPayload } from '../session';
 import { configMode, reportSoon } from '../configSource';
 import type { AccountRef, Role } from '../fleet';
 import { membershipsOf, tokenAccount, type Membership } from '../membership';
@@ -19,7 +19,12 @@ const RETURN_MAX_AGE_MS = 10 * 60 * 1000;
 // A4), `viewerToken` its id, name and expiry.
 export interface ViewerTokenInfo { id: string; name: string; expiresAt: number }
 export interface Principal { email: string; via: 'google' | 'token' | 'viewer-token' | 'mcp'; account: AccountRef; role: Role; mcpTokenId?: string; viewerToken?: ViewerTokenInfo }
-export type AuthState = { kind: 'none' } | { kind: 'choose'; email: string; memberships: Membership[]; viewerToken?: ViewerTokenInfo } | { kind: 'ok'; principal: Principal };
+// `viewerSession`: a viewer token's verified session cookie, for its renewal
+// (renewViewerTokenSession), so the cookie is verified once per request.
+export type AuthState =
+  | { kind: 'none' }
+  | { kind: 'choose'; email: string; memberships: Membership[]; viewerToken?: ViewerTokenInfo; viewerSession?: SessionPayload }
+  | { kind: 'ok'; principal: Principal; viewerSession?: SessionPayload };
 
 // A viewer token's accounts, as memberships (by name, like membershipsOf):
 // admin where the account's entry says so, else viewer.
@@ -53,9 +58,9 @@ export function authState(req: Request): AuthState {
     const info = { id: t.id, name: t.name, expiresAt: t.expiresAt };
     const memberships = viewerTokenMemberships(t);
     const chosen = session.acc !== undefined ? memberships.find((m) => m.account.id === session.acc) : memberships.length === 1 ? memberships[0] : undefined;
-    if (chosen) return { kind: 'ok', principal: { email: session.email, via: 'viewer-token', account: chosen.account, role: chosen.role, viewerToken: info } };
+    if (chosen) return { kind: 'ok', principal: { email: session.email, via: 'viewer-token', account: chosen.account, role: chosen.role, viewerToken: info }, viewerSession: session };
     if (session.acc !== undefined) return { kind: 'none' }; // the token no longer has that account
-    return { kind: 'choose', email: session.email, memberships, viewerToken: info };
+    return { kind: 'choose', email: session.email, memberships, viewerToken: info, viewerSession: session };
   }
   if (session.via === 'token') {
     const configured = loginToken();
@@ -130,14 +135,14 @@ export function rememberReturn(res: Response, value: unknown): void {
 // shorter one needs nothing here: authState checks the fleet's expiry on
 // every request. Cams-admin's viewer tokens always have an expiry (1 to 365
 // days); none never expires.
-function renewViewerTokenSession(req: Request, res: Response, state: AuthState): void {
-  const info = state.kind === 'ok' ? state.principal.viewerToken : state.kind === 'choose' ? state.viewerToken : undefined;
-  if (!info) return;
-  const cookie = req.cookies?.[SESSION_COOKIE];
-  const session = typeof cookie === 'string' ? verifySession(cookie) : null;
-  if (!session || session.via !== 'viewer-token' || session.vt !== info.id || !session.tf) return;
-  const exp = sessionExpiry(cookie as string);
-  if (exp === null || Math.floor(info.expiresAt / 1000) <= exp) return;
+// authState already verified the cookie (viewerSession) and looked the token up.
+function renewViewerTokenSession(res: Response, state: AuthState): void {
+  if (state.kind === 'none') return;
+  const info = state.kind === 'ok' ? state.principal.viewerToken : state.viewerToken;
+  const session = state.viewerSession;
+  if (!info || !session || session.vt !== info.id || !session.tf) return;
+  const exp = session.exp;
+  if (exp === undefined || Math.floor(info.expiresAt / 1000) <= exp) return;
   const maxAge = info.expiresAt - viewerTokenNow();
   if (maxAge <= 0) return;
   res.cookie(SESSION_COOKIE, signViewerTokenSession(info.id, session.tf, info.expiresAt, session.acc), { ...cookieOptions(), maxAge });
@@ -153,7 +158,7 @@ export function requireAuthPage(req: Request, res: Response, next: NextFunction)
     res.redirect(302, expiredSessionKind(req.cookies?.[SESSION_COOKIE]) === 'viewer-token' ? '/token' : '/');
     return;
   }
-  renewViewerTokenSession(req, res, state);
+  renewViewerTokenSession(res, state);
   next();
 }
 
@@ -174,7 +179,7 @@ export function requireAuthApi(req: Request, res: Response, next: NextFunction):
     res.status(401).json({ error: 'unauthorized' });
     return;
   }
-  if (!isInternal(req)) renewViewerTokenSession(req, res, state);
+  if (!isInternal(req)) renewViewerTokenSession(res, state);
   if (state.kind === 'choose') {
     if (CHOOSE_OK.has(`${req.method} ${req.baseUrl}${req.path}`)) return next();
     res.status(409).json({ error: 'choose_account' });
