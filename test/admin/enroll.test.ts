@@ -85,6 +85,23 @@ describe('admin-enroll', () => {
     expect(fake.requests).toEqual([]);
   });
 
+  // /simplify 2026-11-17: the answer is read up to 64 KiB, never whole.
+  it('enroll() reads at most 64 KiB of the answer: a longer one is no answer', async () => {
+    let sent = 0;
+    const endless = () =>
+      new ReadableStream<Uint8Array>({
+        pull(c) {
+          sent += 16_384;
+          c.enqueue(new TextEncoder().encode(' '.repeat(16_384)));
+        },
+      });
+    await expect(enroll(fake.url, fake.code, 'test', (async () => new Response(endless(), { status: 403 })) as typeof fetch)).rejects.toThrow('enrollment failed: status_403');
+    expect(sent).toBeLessThan(200_000);
+    sent = 0;
+    await expect(enroll(fake.url, fake.code, 'test', (async () => new Response(endless(), { status: 201 })) as typeof fetch)).rejects.toThrow(/unexpected answer/);
+    expect(sent).toBeLessThan(200_000);
+  });
+
   it('enroll() checks the answer\'s shape', async () => {
     await expect(enroll(fake.url, fake.code, 'test', (async () => new Response(JSON.stringify({ v: 1, instanceId: 'x' }), { status: 201 })) as typeof fetch)).rejects.toThrow(/answer/);
   });
