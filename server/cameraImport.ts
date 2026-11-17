@@ -10,6 +10,7 @@ import { FROM_PROXY, parseCameras, validCameraAddress } from './cameraRegistry';
 import { fingerprintList } from './tls/fingerprint';
 import { pinTransportOk } from './tls/loopback';
 import { fetchPinnedCa, fetchWith, siteCaDispatcher, SiteCaError } from './tls/siteCa';
+import { readCapped } from './httpBody';
 
 export type Secret = string | { env: string } | { file: string };
 
@@ -168,6 +169,9 @@ function tlsOf(v: unknown): ProxyCamera['tls'] {
   return { mode: v.mode.slice(0, 16), servername: typeof v.servername === 'string' && /^[a-z0-9.-]{1,253}$/i.test(v.servername) ? v.servername : null, fingerprint: typeof v.fingerprint === 'string' ? v.fingerprint : null };
 }
 
+// The largest camera list read from a proxy (a few hundred bytes per camera).
+const MAX_LIST = 4 * 1024 * 1024;
+
 // The cameras a proxy serves (GET /api/cameras with its client token). With
 // a pinned site CA: /tls/ca.pem first, checked against the pin, then the
 // list over TLS that trusts only that CA (spec §13.3). The token is sent
@@ -194,8 +198,16 @@ export async function readProxyCameras(p: ImportProxy, o: { timeoutMs?: number }
     }
     if (res.status === 401 || res.status === 403) throw new ImportError(`proxy ${host}: refused the token (${res.status})`);
     if (!res.ok) throw new ImportError(`proxy ${host}: answered ${res.status}`);
+    // Read up to MAX_LIST, never whole (code review 2026-11-17).
+    let body: Buffer;
     try {
-      list = await res.json();
+      body = await readCapped(res, MAX_LIST, () => new ImportError(`proxy ${host}: its camera list is too large`));
+    } catch (err) {
+      if (err instanceof ImportError) throw err;
+      throw new ImportError(`proxy ${host}: its camera list broke off (${(err as Error).name})`);
+    }
+    try {
+      list = JSON.parse(body.toString('utf8'));
     } catch {
       throw new ImportError(`proxy ${host}: its camera list isn't JSON`);
     }

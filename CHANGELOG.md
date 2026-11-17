@@ -17,3 +17,4 @@ published as [GitHub releases](https://github.com/klaushofrichter/cams/releases)
 ### Fixed
 
 - A composed clip played in the browser no longer gets a stray byte-range header on a full answer, which could confuse seeking in Safari (code review 2026-11-17).
+- A cam-proxy answer that is far too large (a list, or the camera list read when generating cameras.json) is now refused with a clear error instead of being read into memory whole (code review 2026-11-17).
