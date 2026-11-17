@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import net from 'net';
 import { ProxyClient, ProxyError } from '../server/proxy/client';
 import { FAKE_TOKEN, JPEG, startFakeProxy, type FakeProxy } from './proxy/fakeProxy';
+import { startEndlessJson } from './helpers/endlessJson';
 
 let fake: FakeProxy | undefined;
 afterEach(async () => {
@@ -19,6 +20,21 @@ const errorOf = async (p: Promise<unknown>) => {
 };
 
 describe('ProxyClient', () => {
+  // Code review 2026-11-17: a JSON answer is read up to a cap (4 MiB: a
+  // day of 1 s still times is about 1.2 MB), never whole.
+  it('refuses a JSON answer over 4 MiB without reading it all', async () => {
+    const big = await startEndlessJson();
+    try {
+      const err = await errorOf(new ProxyClient({ url: big.url, token: FAKE_TOKEN }).json('/api/cameras/den/stills'));
+      expect(err).toBeInstanceOf(ProxyError);
+      expect(err.code).toBe('proxy_error');
+      expect(err.message).toMatch(/too large/);
+      expect(big.sent()).toBeLessThan(32 * 1024 * 1024);
+    } finally {
+      await big.stop();
+    }
+  });
+
   it('reads JSON with the bearer token', async () => {
     fake = await startFakeProxy();
     fake.stills.set('den', new Map([[1000, JPEG], [2000, JPEG]]));
