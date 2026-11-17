@@ -6,6 +6,7 @@ import { supportsCamList } from './cameraList';
 import { verifyGroupCa } from '../tls/groupCa';
 import { activeMembers, groupOf, proxyGroups, remoteIds, type ProxyGroup } from './groups';
 import type { CamKey } from '../fleet';
+import { readCapped } from '../httpBody';
 
 // One upstream subscription to a cam-proxy's event stream (SSE), shared by
 // every cams camera on that proxy (cam-proxy spec 2026-10-05 §12.2). It
@@ -102,7 +103,8 @@ export class ProxyStream extends EventEmitter {
       const res = await this.client.open('/api/stream', { types: this.types.join(','), since: this.lastId, cam: cams.length ? cams.join(',') : undefined }, { signal: abort.signal, idleMs: this.o.idleMs ?? 45_000 });
       if (!res.ok || !res.body) {
         let text = '';
-        if (res.status === 400) text = await res.text().catch(() => '');
+        // A refusal's first line is all that matters: read up to 4 KiB, never whole.
+        if (res.status === 400) text = await readCapped(res, 4096, () => new Error('too large')).then((b) => b.toString('utf8'), () => '');
         else await res.body?.cancel();
         const unknown = /unknown type: ([a-z-]+)/.exec(text)?.[1];
         if (unknown && OPTIONAL.includes(unknown) && this.types.includes(unknown)) {

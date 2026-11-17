@@ -1,13 +1,12 @@
 <!-- web/src/components/StripPlayer.svelte -->
 <script lang="ts">
   import { untrack, type Snippet } from 'svelte';
-  import { isPlainClick } from '../lib/plainClick';
+  import { spaNavigate } from '../lib/plainClick';
   import Icon from './Icon.svelte';
   import ComposeDialog from './ComposeDialog.svelte';
   import { cameraById } from '../lib/stores';
   import { nextChange, sourceAt, type Coverage, type Source } from '../lib/strip';
   import { localDate, orderTriggers, TRIGGER_LABELS, videoUrl, type EventClip } from '../lib/recordings';
-  import { navigate } from '../lib/router';
   import { localClock, timeAgo } from '../lib/clock';
   import { previewAt, tileStyle, type PreviewMinute } from '../lib/timeline';
   import { liveQualityLabel, liveUi } from '../lib/liveUi';
@@ -587,7 +586,7 @@
         {#if timelineHref}
           <!-- This moment in the Timeline: its minute opens with the still (Klaus, 2026-09-30). -->
           · <a data-testid="show-in-timeline" href={timelineHref}
-            onclick={(e) => { if (isPlainClick(e)) { e.preventDefault(); navigate(timelineHref!); } }}>Show in Timeline</a>
+            onclick={(e) => spaNavigate(e, timelineHref!)}>Show in Timeline</a>
         {/if}
       {/if}
     </span>

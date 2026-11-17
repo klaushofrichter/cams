@@ -1,7 +1,7 @@
 // Camera reads of a through-proxy camera (spec §6.1): status, device,
 // snapshot, settings and light come from the proxy; the camera at the
 // configured host is never called.
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { mkdtempSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
@@ -10,7 +10,7 @@ import type { AddressInfo } from 'net';
 import request from 'supertest';
 import { createApp } from '../server/app';
 import { setCameras } from '../server/cameraRegistry';
-import { resetProxyClients } from '../server/proxy/client';
+import { ProxyClient, resetProxyClients } from '../server/proxy/client';
 import { resetProxyCameraCalls } from '../server/proxy/cameraCalls';
 import { CAMERA_CALLS, loadProxyFeatures, noteProxyFeatures } from '../server/proxy/features';
 import { resetClients } from '../server/reolink/clients';
@@ -119,5 +119,16 @@ describe('device, snapshot, settings and light through the proxy', () => {
     fake.offline = true;
     await get('/api/cameras/den/settings').expect(502, { error: 'proxy_unavailable' });
     await get('/api/cameras/den/device').expect(502, { error: 'proxy_unavailable' });
+  });
+
+  // /simplify 2026-11-17: a snapshot refusal is read through readJson, up to 64 KiB.
+  it('answers 502 for a snapshot refusal over 64 KiB', async () => {
+    const big = JSON.stringify({ error: 'camera_offline', pad: 'x'.repeat(70_000) });
+    const open = vi.spyOn(ProxyClient.prototype, 'open').mockResolvedValue(new Response(big, { status: 503 }));
+    try {
+      await get('/api/cameras/den/snapshot.jpg').expect(502, { error: 'proxy_unavailable' });
+    } finally {
+      open.mockRestore();
+    }
   });
 });

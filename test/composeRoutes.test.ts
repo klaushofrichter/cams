@@ -236,6 +236,22 @@ describe('compositions pass-through', () => {
     }
   });
 
+  // /simplify 2026-11-17: compose checks the proxy's headers with archive's
+  // bounded forms (upstreamHeader), so an over-long digit run is not passed.
+  it('drops a Content-Length or Content-Range with more than 15 digits', async () => {
+    fake.composeDelayMs = 0;
+    const { body } = await post('den', { eventId: EVENT, preS: 0, postS: 5, size: 'sd', badge: false });
+    await new Promise((res) => setTimeout(res, 20));
+    const huge = '1'.repeat(16);
+    vi.spyOn(getProxyClient(k('den'))!, 'open').mockResolvedValue(
+      new Response(new Uint8Array(4), { status: 206, headers: { 'Content-Length': huge, 'Content-Range': `bytes 0-3/${huge}` } }),
+    );
+    const r = await request(createApp()).get(`/api/cameras/den/compositions/${body.id}/video?inline=1`).set('Cookie', auth).set('Range', 'bytes=0-3');
+    expect(r.status).toBe(206);
+    expect(r.headers['content-range']).toBeUndefined();
+    expect(r.headers['content-length']).not.toBe(huge);
+  });
+
   // Code review 2026-11-14: an error answer is read up to a cap, never whole.
   it('reads at most a bounded error body from the proxy', async () => {
     fake.composeDelayMs = 0;

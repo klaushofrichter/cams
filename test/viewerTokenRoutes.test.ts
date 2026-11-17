@@ -117,7 +117,7 @@ describe('POST /auth/viewer-token', () => {
     const maxAge = Number(/Max-Age=(\d+)/.exec(set)![1]);
     expect(Math.abs(maxAge - 7 * 24 * 3600)).toBeLessThanOrEqual(2);
     const raw = cookieOf(r).slice(SESSION_COOKIE.length + 1);
-    expect(verifySession(raw)).toEqual({ email: `viewer-token:${ID}`, via: 'viewer-token', vt: ID, tf: sessionTag(viewerTokenFingerprint(TOKEN)), acc: ALPHA });
+    expect(verifySession(raw)).toEqual({ email: `viewer-token:${ID}`, via: 'viewer-token', vt: ID, tf: sessionTag(viewerTokenFingerprint(TOKEN)), acc: ALPHA, exp: expect.any(Number) });
     expect((jwt.decode(raw) as { exp: number }).exp).toBe(Math.floor((now + 7 * 24 * HOUR) / 1000));
     expect(raw).not.toContain(TOKEN);
     const me = await request(createApp()).get('/api/me').set('Cookie', cookieOf(r));
@@ -169,7 +169,7 @@ describe('POST /auth/viewer-token', () => {
     expect(renewed).toMatch(/HttpOnly/);
     const raw = renewed.split(';')[0].slice(SESSION_COOKIE.length + 1);
     expect((jwt.decode(raw) as { exp: number }).exp).toBe(Math.floor(later / 1000));
-    expect(verifySession(raw)).toEqual({ email: `viewer-token:${ID}`, via: 'viewer-token', vt: ID, tf: sessionTag(viewerTokenFingerprint(TOKEN)), acc: ALPHA });
+    expect(verifySession(raw)).toEqual({ email: `viewer-token:${ID}`, via: 'viewer-token', vt: ID, tf: sessionTag(viewerTokenFingerprint(TOKEN)), acc: ALPHA, exp: expect.any(Number) });
     // The renewed cookie is the new one: nothing more to renew.
     expect(sessionCookie(await request(createApp()).get('/api/me').set('Cookie', `${SESSION_COOKIE}=${raw}`))).toBeUndefined();
     // A page visit renews too.
@@ -178,6 +178,17 @@ describe('POST /auth/viewer-token', () => {
     // Shorter: no new cookie; the fleet check ends the session at the new time.
     applyFleet(fleet({ tokenExpires: now + HOUR }));
     expect(sessionCookie(await me())).toBeUndefined();
+  });
+
+  // /simplify 2026-11-17: the renewal reuses authState's verified session,
+  // so a viewer-token request verifies its cookie once, renewed or not.
+  it('verifies the session cookie once per request, also when it renews it', async () => {
+    const c = cookieOf(await post('/auth/viewer-token', { token: TOKEN }));
+    applyFleet(fleet({ tokenExpires: now + 30 * 24 * HOUR }));
+    const verify = vi.spyOn(jwt, 'verify');
+    const r = await request(createApp()).get('/api/me').set('Cookie', c);
+    expect(sessionCookie(r)).toBeDefined();
+    expect(verify).toHaveBeenCalledTimes(1);
   });
 
   it('a token of several accounts, not yet chosen, is renewed too (no account in the cookie)', async () => {

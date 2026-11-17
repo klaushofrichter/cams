@@ -4,6 +4,7 @@
 import { createHash, generateKeyPairSync } from 'crypto';
 import type { AdminKeyFile } from './keyfile';
 import { enrollText, privateFromB64, publicFromB64, signText } from './sign';
+import { readCapped } from '../httpBody';
 
 const CROCKFORD = '0-9A-HJKMNP-TV-Z';
 // Case-insensitive, dashes and spaces dropped, O→0, I/L→1 (as cams-admin).
@@ -62,7 +63,16 @@ export async function enroll(url: string, code: string, camsVersion: string, fet
   } catch {
     throw new EnrollError('unreachable');
   }
-  const text = (await res.text()).slice(0, 65_536);
+  // Read up to 64 KiB, never whole: a longer answer is read as no answer
+  // (its status, or "unexpected answer" for a 201).
+  const tooLarge = new EnrollError('too_large');
+  const text = await readCapped(res, 65_536, () => tooLarge).then(
+    (b) => b.toString('utf8'),
+    (err: unknown) => {
+      if (err === tooLarge) return '';
+      throw err;
+    },
+  );
   let b: Record<string, unknown> = {};
   try {
     b = JSON.parse(text) as Record<string, unknown>;
