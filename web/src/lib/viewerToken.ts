@@ -4,6 +4,7 @@
 // JSON body only, never in a URL.
 
 import { readable } from 'svelte/store';
+import { postToken, TOO_MANY_ATTEMPTS } from './tokenPost';
 
 export const VIEWER_TOKEN_RE = /^cav_[0-9A-Za-z]{22}$/;
 
@@ -47,17 +48,8 @@ export function tokenFromPaste(text: string): string | null {
 
 export function viewerTokenError(status: number): string {
   if (status === 401) return 'This token doesn\'t work here: it may have expired or been revoked.';
-  if (status === 429) return 'Too many attempts. Try again later.';
+  if (status === 429) return TOO_MANY_ATTEMPTS;
   return 'Sign-in failed. Try again.';
-}
-
-async function postToken(path: string, token: string, fetchFn: typeof fetch): Promise<Response> {
-  return fetchFn(path, {
-    method: 'POST',
-    credentials: 'same-origin',
-    headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
-    body: JSON.stringify({ token }),
-  });
 }
 
 // The token's name and expiry (the link's confirm step), or an error to show.

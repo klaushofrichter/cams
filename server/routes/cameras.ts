@@ -119,7 +119,7 @@ camerasRouter.get('/api/cameras/:id/snapshot.jpg', async (req: Request, res: Res
     try {
       const up = await requireProxyClient(id).open(proxyPath(id, '/snapshot.jpg'), { stream: 'main' }, { idleMs: 10_000, signal: gone, timeoutMs: 20_000 });
       if (!up.ok || !up.body) {
-        const body = (await up.json().catch(() => null)) as { error?: unknown } | null;
+        const body = (await readJson(up)) as { error?: unknown } | null;
         return void res.status(up.status === 503 && body?.error === 'camera_offline' ? 503 : 502).json({ error: up.status === 503 && body?.error === 'camera_offline' ? 'camera_offline' : 'proxy_unavailable' });
       }
       res.status(200).set({ 'Content-Type': 'image/jpeg', 'Cache-Control': 'no-store' });

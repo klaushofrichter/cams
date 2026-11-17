@@ -82,6 +82,22 @@ export function viewerGone(res: Response): AbortSignal {
   return ctl.signal;
 }
 
+// A header of a cam-proxy answer, only when it has the expected form `re`
+// (bounded digit runs): anything else is not passed to the browser.
+export const upstreamHeader = (up: globalThis.Response, name: string, re: RegExp): string | undefined => {
+  const v = up.headers.get(name);
+  return v && re.test(v) ? v : undefined;
+};
+
+// A Range past the end of a proxied video: the proxy's 416 as it is, with the
+// size in its Content-Range (bytes */N), so iOS Safari learns the length;
+// never a JSON answer. `extra` adds the route's own headers.
+export async function passUnsatisfiable(up: globalThis.Response, res: Response, extra: Record<string, string> = {}): Promise<void> {
+  await up.body?.cancel().catch(() => undefined);
+  const cr = upstreamHeader(up, 'content-range', /^bytes \*\/\d{1,15}$/);
+  res.status(416).set({ ...extra, ...(cr ? { 'Content-Range': cr } : {}) }).end();
+}
+
 // A request that fails validation: 400 invalid with a detail for the developer.
 export const badRequest = (res: Response, detail: string): void => void res.status(400).json({ error: 'invalid', detail });
 

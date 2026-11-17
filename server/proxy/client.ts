@@ -4,6 +4,7 @@ import type { CamKey } from '../fleet';
 import { proxyEndpoint, secretAllowed } from '../secretGuard';
 import { groupDispatcher, groupTlsFailed } from '../tls/groupCa';
 import { fetchWith, SiteCaError } from '../tls/siteCa';
+import { readCapped } from '../httpBody';
 import { groupOf, type ProxyGroup } from './groups';
 
 // Talks to a camera's cam-proxy with its client token (Bearer). The token
@@ -26,6 +27,10 @@ export class ProxyError extends Error {
 }
 
 type Query = Record<string, string | number | undefined>;
+
+// The largest JSON answer json() reads: the lists are the big ones (a day of
+// still times at 1 s is about 1.2 MB), so 4 MiB, like archive metadata.
+const MAX_JSON = 4 * 1024 * 1024;
 
 export interface ProxyClientOptions {
   timeoutMs?: number;
@@ -149,8 +154,17 @@ export class ProxyClient {
       const ra = res.headers.get('retry-after');
       throw new ProxyError('proxy_error', `cam-proxy ${this.host()} answered ${res.status}`, res.status, upstream, reason, ra && /^\d{1,6}$/.test(ra) ? Number(ra) : undefined);
     }
+    // Read up to MAX_JSON, never whole (code review 2026-11-17). A body that
+    // breaks off is a proxy_error, as it was with res.json().
+    let body: Buffer;
     try {
-      return (await res.json()) as T;
+      body = await readCapped(res, MAX_JSON, () => new ProxyError('proxy_error', `cam-proxy ${this.host()} sent an answer that is too large`, res.status));
+    } catch (err) {
+      if (err instanceof ProxyError) throw err;
+      throw new ProxyError('proxy_error', `cam-proxy ${this.host()} broke off its answer (${(err as Error).name})`, res.status);
+    }
+    try {
+      return JSON.parse(body.toString('utf8')) as T;
     } catch {
       throw new ProxyError('proxy_error', `cam-proxy ${this.host()} sent a body that isn't JSON`, res.status);
     }

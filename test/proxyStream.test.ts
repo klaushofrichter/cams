@@ -123,6 +123,21 @@ describe('ProxyStream (upstream)', () => {
     for (const r of asks()) expect(String(r.query.types).split(',')).toContain('analysis');
   });
 
+  // /simplify 2026-11-17: a 400's body is read up to 4 KiB, never whole; a
+  // longer one is no answer about the type.
+  it('reads at most 4 KiB of a 400 refusal', async () => {
+    const fake = await fakeProxy();
+    const asked: string[] = [];
+    const open = vi.spyOn(ProxyClient.prototype, 'open').mockImplementation(async (_path, query) => {
+      asked.push(String((query as { types?: string } | undefined)?.types));
+      return new Response(`${' '.repeat(8192)}unknown type: analysis`, { status: 400 });
+    });
+    cleanup.push(() => open.mockRestore());
+    stream(fake);
+    await until(() => asked.length >= 2);
+    for (const t of asked) expect(t.split(',')).toContain('analysis');
+  });
+
   it('relays the proxy’s messages and reports up', async () => {
     const fake = await fakeProxy();
     const { s, got, states } = stream(fake);

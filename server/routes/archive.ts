@@ -13,7 +13,7 @@ import { RecordingError } from '../recordings/errors';
 import { getRecordings } from '../recordings/service';
 import { startedComposition } from './compose';
 import { JobRegistry } from '../jobRegistry';
-import { badRequest, knownCamera, proxyFailed, readJson, sessionAccount, viewerGone } from './common';
+import { badRequest, knownCamera, passUnsatisfiable, proxyFailed, readJson, sessionAccount, upstreamHeader, viewerGone } from './common';
 import { relayImage } from './proxy';
 import { nodeBody } from '../httpBody';
 
@@ -367,10 +367,6 @@ async function stream(up: globalThis.Response, req: Request, res: Response): Pro
     throw err;
   }
 }
-const header = (up: globalThis.Response, name: string, re: RegExp) => {
-  const v = up.headers.get(name);
-  return v && re.test(v) ? v : undefined;
-};
 // An attachment name as cam-proxy sends it (contract §4, §5): a quoted ASCII
 // name and maybe an RFC 5987 one. The header as sent and its ASCII name, or
 // undefined when it isn't that form. One check for the video and the ZIP.
@@ -390,20 +386,16 @@ archiveRouter.get('/api/archive/:via/items/:id/video', async (req, res) => {
   const range = req.get('range');
   try {
     const up = await p.client.open(`/api/archive/${id}/video`, download ? { download: 1 } : undefined, { signal: viewerGone(res), idleMs: 30_000, headers: range && /^bytes=\d{0,15}-\d{0,15}$/.test(range) ? { Range: range } : {} });
-    if (up.status === 416) {
-      await up.body?.cancel();
-      const cr = header(up, 'content-range', /^bytes \*\/\d{1,15}$/);
-      return void res.status(416).set(cr ? { 'Content-Range': cr } : {}).end();
-    }
+    if (up.status === 416) return void (await passUnsatisfiable(up, res));
     if ((up.status !== 200 && up.status !== 206) || !up.body) return void (await passRefusal(up, res));
     // no-store like every /api answer: camera media must not stay in the
     // browser cache after logout (seeking works by ranges, not the cache).
     const headers: Record<string, string> = { 'Content-Type': 'video/mp4', 'Accept-Ranges': 'bytes', 'Cache-Control': 'no-store' };
-    const len = header(up, 'content-length', /^\d{1,15}$/);
+    const len = upstreamHeader(up, 'content-length', /^\d{1,15}$/);
     if (len) headers['Content-Length'] = len;
-    const cr = header(up, 'content-range', /^bytes \d{1,15}-\d{1,15}\/\d{1,15}$/);
+    const cr = upstreamHeader(up, 'content-range', /^bytes \d{1,15}-\d{1,15}\/\d{1,15}$/);
     if (cr && up.status === 206) headers['Content-Range'] = cr;
-    const etag = header(up, 'etag', /^(W\/)?"[A-Za-z0-9._:-]{1,128}"$/);
+    const etag = upstreamHeader(up, 'etag', /^(W\/)?"[A-Za-z0-9._:-]{1,128}"$/);
     if (etag) headers.ETag = etag;
     if (download) {
       headers['Content-Disposition'] = attachment(up)?.header ?? `attachment; filename="archive-${id}.mp4"`;
@@ -473,7 +465,7 @@ archiveRouter.get('/api/archive/:via/zip', createArchiveRateLimit('zip'), async 
     const up = await p.client.open('/api/archive/zip', { ids: ids.join(',') }, { signal: viewerGone(res), idleMs: 60_000, timeoutMs: 60_000 });
     if (!up.ok || !up.body) return void (await passRefusal(up, res));
     const headers: Record<string, string> = { 'Content-Type': 'application/zip', 'Content-Disposition': `attachment; filename="${zipName(p, attachment(up)?.name, req.query.cam)}"` };
-    const len = header(up, 'content-length', /^\d{1,15}$/);
+    const len = upstreamHeader(up, 'content-length', /^\d{1,15}$/);
     if (len) headers['Content-Length'] = len;
     res.status(200).set(headers);
     await stream(up, req, res);

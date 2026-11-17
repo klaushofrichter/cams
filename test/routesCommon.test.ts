@@ -2,7 +2,7 @@ import { EventEmitter } from 'events';
 import type { Request, Response } from 'express';
 import { describe, expect, it } from 'vitest';
 import { ProxyError } from '../server/proxy/client';
-import { msRange, readJson, viewerGone } from '../server/routes/common';
+import { msRange, passUnsatisfiable, readJson, upstreamHeader, viewerGone } from '../server/routes/common';
 
 // A response stand-in: only 'close' and writableFinished matter here.
 const fakeRes = (finished: boolean) => Object.assign(new EventEmitter(), { writableFinished: finished }) as unknown as Response;
@@ -58,5 +58,46 @@ describe('readJson', () => {
   });
   it('takes a larger cap where an answer can be large', async () => {
     expect(await readJson(new Response(big(200_000)), 1024 * 1024)).toMatchObject({ pad: expect.any(String) });
+  });
+});
+
+describe('upstreamHeader', () => {
+  const up = new Response(null, { headers: { 'Content-Length': '1234', 'Content-Range': `bytes 0-1/${'9'.repeat(16)}` } });
+  it('gives a header of the expected form, undefined for another or a missing one', () => {
+    expect(upstreamHeader(up, 'content-length', /^\d{1,15}$/)).toBe('1234');
+    expect(upstreamHeader(up, 'content-range', /^bytes \d{1,15}-\d{1,15}\/\d{1,15}$/)).toBeUndefined();
+    expect(upstreamHeader(up, 'etag', /.*/)).toBeUndefined();
+  });
+});
+
+describe('passUnsatisfiable', () => {
+  const run = async (up: globalThis.Response, extra?: Record<string, string>) => {
+    const sent: { status?: number; headers?: Record<string, string>; ended?: boolean } = {};
+    const res = {
+      status(s: number) {
+        sent.status = s;
+        return this;
+      },
+      set(h: Record<string, string>) {
+        sent.headers = h;
+        return this;
+      },
+      end() {
+        sent.ended = true;
+      },
+    } as unknown as Response;
+    await passUnsatisfiable(up, res, extra);
+    return sent;
+  };
+  it('answers 416 with the proxy\'s bytes */N and the route\'s extras, and cancels the body', async () => {
+    let cancelled = false;
+    const body = new ReadableStream({ cancel: () => void (cancelled = true) });
+    const sent = await run(new Response(body, { status: 416, headers: { 'Content-Range': 'bytes */16' } }), { 'Accept-Ranges': 'bytes' });
+    expect(sent).toEqual({ status: 416, headers: { 'Accept-Ranges': 'bytes', 'Content-Range': 'bytes */16' }, ended: true });
+    expect(cancelled).toBe(true);
+  });
+  it('leaves out a Content-Range of another form', async () => {
+    const sent = await run(new Response(null, { status: 416, headers: { 'Content-Range': `bytes */${'1'.repeat(16)}` } }));
+    expect(sent).toEqual({ status: 416, headers: {}, ended: true });
   });
 });

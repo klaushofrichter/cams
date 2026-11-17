@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onDestroy, onMount, tick, untrack } from 'svelte';
-  import { isPlainClick } from '../lib/plainClick';
+  import { spaNavigate } from '../lib/plainClick';
   import Icon from '../components/Icon.svelte';
   import Modal from '../components/Modal.svelte';
   import ArchivePlayer from '../components/ArchivePlayer.svelte';
@@ -8,7 +8,7 @@
   import { getJson } from '../lib/api';
   import { triggerDownload } from '../lib/download';
   import { eventStream } from '../lib/eventStream';
-  import { navigate, route } from '../lib/router';
+  import { route } from '../lib/router';
   import { cameraById, cameras, me } from '../lib/stores';
   import { showsAdminControls } from '../lib/session';
   import {
@@ -185,11 +185,6 @@
     items = items.map((x) => byKey.get(itemKey(x)) ?? x);
     if (playing && byKey.has(itemKey(playing))) playing = byKey.get(itemKey(playing))!;
   }
-  function openVideo(e: MouseEvent, href: string) {
-    if (!isPlainClick(e)) return;
-    e.preventDefault();
-    navigate(href);
-  }
   const proxyNote = (p: ProxyState) => {
     const name = proxyName(p.via);
     return p.error === 'too_old' ? `${name}’s cam-proxy has no Archive yet (an older version).` : `${name}’s cam-proxy didn’t answer; its clips are missing here.`;
@@ -213,7 +208,7 @@
 {#snippet recorded(x: ArchiveItem)}
   {@const href = videoHref(x)}
   {#if href && x.camera && stillRecorded(x, oldest[x.camera])}
-    <a {href} data-testid="archive-recorded" title="Open the recording on the Video page" onclick={(e) => openVideo(e, href)}>{dateTime(x.recordedFrom)}</a>
+    <a {href} data-testid="archive-recorded" title="Open the recording on the Video page" onclick={(e) => spaNavigate(e, href)}>{dateTime(x.recordedFrom)}</a>
   {:else}
     <span data-testid="archive-recorded" title={x.camera ? 'The camera no longer holds this recording (retention); the archived clip is all there is.' : 'cams doesn’t know this camera.'}>{dateTime(x.recordedFrom)}<span class="gone" aria-hidden="true"> ·</span></span>
   {/if}

@@ -1,6 +1,8 @@
 // The start page's sign-in options and the token login's request (spec
 // 2026-10-04-pi-deployment-design).
 
+import { postToken, TOO_MANY_ATTEMPTS } from './tokenPost';
+
 // 'viewer-token': cams-admin's viewer tokens are taken here (/token).
 export type LoginMethod = 'google' | 'token' | 'viewer-token';
 
@@ -23,7 +25,7 @@ export const UNAVAILABLE_MESSAGE = 'Token sign-in has no account here yet (CAMS_
 export function loginErrorMessage(status: number): string {
   if (status === 401) return 'That token is not right.';
   if (status === 503) return UNAVAILABLE_MESSAGE;
-  if (status === 429) return 'Too many attempts. Try again later.';
+  if (status === 429) return TOO_MANY_ATTEMPTS;
   return 'Sign-in failed. Try again.';
 }
 
@@ -31,12 +33,7 @@ export function loginErrorMessage(status: number): string {
 // {redirect} with the session cookie set, or an error status.
 export async function signInWithToken(token: string, fetchFn: typeof fetch = fetch): Promise<{ redirect: string } | { error: string }> {
   try {
-    const res = await fetchFn('/auth/token', {
-      method: 'POST',
-      credentials: 'same-origin',
-      headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
-      body: JSON.stringify({ token }),
-    });
+    const res = await postToken('/auth/token', token, fetchFn);
     if (res.ok) {
       const body = (await res.json().catch(() => null)) as { redirect?: unknown } | null;
       const redirect = typeof body?.redirect === 'string' && body.redirect.startsWith('/') && !body.redirect.startsWith('//') ? body.redirect : '/app/video';

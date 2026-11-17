@@ -11,13 +11,15 @@ export const SESSION_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
 // mode, migration P4); never a role: roles are looked up on every request.
 // `via: 'viewer-token'`: a cams-admin viewer token's session (POST
 // /auth/viewer-token), with `vt` its id and `tf` 16 hex of its fingerprint;
-// its `exp` is the token's expiry, and every request checks the token again.
+// its `exp` is the token's expiry (unix seconds, kept on the payload for the
+// renewal in requireAuth), and every request checks the token again.
 export interface SessionPayload {
   email: string;
   via?: 'token' | 'viewer-token';
   tf?: string;
   vt?: string;
   acc?: string;
+  exp?: number;
 }
 
 function getCookieSecret(): string {
@@ -39,21 +41,14 @@ export function signViewerTokenSession(id: string, tag: string, expiresAt: numbe
   return jwt.sign({ email: viewerTokenUser(id), via: 'viewer-token', vt: id, tf: tag, exp: Math.floor(expiresAt / 1000), ...(acc && { acc }) }, getCookieSecret(), { algorithm: 'HS256' });
 }
 
-// A session's own expiry (unix seconds), read from a cookie value that
-// verifySession already accepted; null when it has none.
-export function sessionExpiry(token: string): number | null {
-  const d = jwt.decode(token);
-  return d && typeof d === 'object' && typeof d.exp === 'number' ? d.exp : null;
-}
-
 function payloadOf(decoded: unknown): SessionPayload | null {
   if (typeof decoded !== 'object' || decoded === null) return null;
-  const d = decoded as { email?: unknown; via?: unknown; tf?: unknown; vt?: unknown; acc?: unknown };
+  const d = decoded as { email?: unknown; via?: unknown; tf?: unknown; vt?: unknown; acc?: unknown; exp?: unknown };
   if (typeof d.email !== 'string') return null;
   const acc = typeof d.acc === 'string' && ACCOUNT_ID_RE.test(d.acc) ? { acc: d.acc } : {};
   if (d.via === 'viewer-token') {
     if (typeof d.vt !== 'string' || !VIEWER_TOKEN_ID_RE.test(d.vt) || typeof d.tf !== 'string' || !SESSION_TAG_RE.test(d.tf) || d.email !== viewerTokenUser(d.vt)) return null;
-    return { email: d.email, via: 'viewer-token', vt: d.vt, tf: d.tf, ...acc };
+    return { email: d.email, via: 'viewer-token', vt: d.vt, tf: d.tf, ...acc, ...(typeof d.exp === 'number' && { exp: d.exp }) };
   }
   if (d.via === 'token') return { email: d.email, via: 'token', ...(typeof d.tf === 'string' && { tf: d.tf }), ...acc };
   return { email: d.email, ...acc };

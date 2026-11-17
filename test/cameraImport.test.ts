@@ -8,6 +8,7 @@ import { join } from 'path';
 import { buildCameras, diffCameras, ImportError, parseImportInput, readProxyCameras, type ImportProxy, type ProxyCamera } from '../server/cameraImport';
 import { certFingerprint } from '../server/tls/fingerprint';
 import { FAKE_TOKEN, startFakeProxy, type FakeProxy } from './proxy/fakeProxy';
+import { startEndlessJson } from './helpers/endlessJson';
 
 const T = 't'.repeat(40), PW = 'camera-password-1';
 const HEX = 'ab'.repeat(32);
@@ -118,6 +119,17 @@ describe('reading a proxy', () => {
   it('stops on an unreachable proxy and on a refused token', async () => {
     await expect(readProxyCameras({ ...proxyIn(await fakeProxy()), url: 'http://127.0.0.1:9' }, { timeoutMs: 1000 })).rejects.toThrow(/^proxy 127\.0\.0\.1:9: unreachable/);
     await expect(readProxyCameras({ ...proxyIn(await fakeProxy()), token: 'x'.repeat(40) })).rejects.toThrow(/^proxy 127\.0\.0\.1:\d+: refused the token \(401\)$/);
+  });
+
+  // Code review 2026-11-17: the camera list is read up to a cap, never whole.
+  it('stops on a camera list over 4 MiB without reading it all', async () => {
+    const big = await startEndlessJson();
+    try {
+      await expect(readProxyCameras({ url: big.url, token: FAKE_TOKEN, cameraUser: 'cams', cameraPassword: PW, prefix: '', cameras: {} })).rejects.toThrow(/^proxy 127\.0\.0\.1:\d+: its camera list is too large$/);
+      expect(big.sent()).toBeLessThan(32 * 1024 * 1024);
+    } finally {
+      await big.stop();
+    }
   });
 
   it('ignores entries that aren’t cameras', async () => {
