@@ -1,6 +1,6 @@
 <script lang="ts">
   import Logo from './Logo.svelte';
-  import { isPlainClick } from '../lib/plainClick';
+  import { spaNavigate } from '../lib/plainClick';
   import Icon from './Icon.svelte';
   import CameraPicker from './CameraPicker.svelte';
   import ThemeToggle from './ThemeToggle.svelte';
@@ -9,7 +9,7 @@
   import AccountMenu from './AccountMenu.svelte';
   import { cameraById, me, drawerOpen, selectedCameraId } from '../lib/stores';
   import { liveStatus } from '../lib/liveStatus';
-  import { VIDEO_PATH, navigate } from '../lib/router';
+  import { VIDEO_PATH } from '../lib/router';
 
   const REPO_URL = 'https://github.com/klaushofrichter/cams';
   const selected = $derived($cameraById($selectedCameraId));
@@ -17,10 +17,7 @@
   // The brand (Klaus, 2026-11-05): the Video page live, on the camera picked,
   // the zoom kept; the menu's Video entry is live from then on (lib/router).
   function goLive(event: MouseEvent) {
-    if (!isPlainClick(event)) return;
-    event.preventDefault();
-    navigate(VIDEO_PATH);
-    drawerOpen.set(false);
+    if (spaNavigate(event, VIDEO_PATH)) drawerOpen.set(false);
   }
 </script>
 
