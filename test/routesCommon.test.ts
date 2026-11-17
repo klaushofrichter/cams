@@ -71,7 +71,7 @@ describe('upstreamHeader', () => {
 });
 
 describe('passUnsatisfiable', () => {
-  const run = async (up: Response, extra?: Record<string, string>) => {
+  const run = async (up: globalThis.Response, extra?: Record<string, string>) => {
     const sent: { status?: number; headers?: Record<string, string>; ended?: boolean } = {};
     const res = {
       status(s: number) {
