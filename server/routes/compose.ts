@@ -219,9 +219,10 @@ composeRouter.get('/api/cameras/:id/compositions/:job/video', async (req, res) =
     const up = await t.client.open(`${t.base}/${job.id}.mp4`, undefined, { idleMs: 30_000, signal: gone, headers: range && /^bytes=\d{0,15}-\d{0,15}$/.test(range) ? { Range: range } : {} });
     // A Range past the end (code review 2026-11-14): passUnsatisfiable.
     if (up.status === 416) return void (await passUnsatisfiable(up, res, { 'Accept-Ranges': 'bytes', 'Cache-Control': 'no-store' }));
-    if (!up.ok || !up.body) return void (await relay(res, up));
+    // Only a 200 or 206 is the video (archive's rule, code review 2026-11-17).
+    if ((up.status !== 200 && up.status !== 206) || !up.body) return void (await relay(res, up));
     const name = typeof req.query.name === 'string' && NAME.test(req.query.name) ? req.query.name : 'composed.mp4';
-    res.status(up.status === 206 ? 206 : 200).set({
+    res.status(up.status).set({
       'Content-Type': 'video/mp4',
       'Accept-Ranges': 'bytes',
       'Cache-Control': 'no-store',
@@ -230,7 +231,9 @@ composeRouter.get('/api/cameras/:id/compositions/:job/video', async (req, res) =
     const len = upstreamHeader(up, 'content-length', /^\d{1,15}$/);
     if (len) res.setHeader('Content-Length', len);
     const cr = upstreamHeader(up, 'content-range', /^bytes \d{1,15}-\d{1,15}\/\d{1,15}$/);
-    if (cr) res.setHeader('Content-Range', cr);
+    // A Content-Range only with a 206: one on a 200 is invalid HTTP and
+    // confuses Safari's seeking (code review 2026-11-17).
+    if (cr && up.status === 206) res.setHeader('Content-Range', cr);
     await pipeline(nodeBody(up), res);
   } catch (err) {
     if (gone.aborted) return; // the browser left; nobody to answer

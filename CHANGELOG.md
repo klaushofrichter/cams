@@ -13,3 +13,7 @@ published as [GitHub releases](https://github.com/klaushofrichter/cams/releases)
 ### Changed
 
 - Internal cleanup (/simplify, 2026-11-17), no visible change: a viewer-token session is checked once per request instead of twice (less work on every page and still refresh), and the last unbounded reads of cam-proxy and cams-admin answers are capped.
+
+### Fixed
+
+- A composed clip played in the browser no longer gets a stray byte-range header on a full answer, which could confuse seeking in Safari (code review 2026-11-17).

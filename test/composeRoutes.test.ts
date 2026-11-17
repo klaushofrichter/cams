@@ -252,6 +252,35 @@ describe('compositions pass-through', () => {
     expect(r.headers['content-length']).not.toBe(huge);
   });
 
+  // Code review 2026-11-17: like archive, a Content-Range only with a 206
+  // (one on a 200 is invalid HTTP and confuses Safari's seeking).
+  it('passes a Content-Range only with a 206, and the 206 as 206', async () => {
+    fake.composeDelayMs = 0;
+    const { body } = await post('den', { eventId: EVENT, preS: 0, postS: 5, size: 'sd', badge: false });
+    await new Promise((res) => setTimeout(res, 20));
+    const open = vi.spyOn(getProxyClient(k('den'))!, 'open');
+    open.mockResolvedValueOnce(new Response(new Uint8Array(4), { status: 200, headers: { 'Content-Length': '4', 'Content-Range': 'bytes 0-3/4' } }));
+    const whole = await request(createApp()).get(`/api/cameras/den/compositions/${body.id}/video?inline=1`).set('Cookie', auth);
+    expect(whole.status).toBe(200);
+    expect(whole.headers['content-range']).toBeUndefined();
+    open.mockResolvedValueOnce(new Response(new Uint8Array(4), { status: 206, headers: { 'Content-Length': '4', 'Content-Range': 'bytes 0-3/16' } }));
+    const part = await request(createApp()).get(`/api/cameras/den/compositions/${body.id}/video?inline=1`).set('Cookie', auth).set('Range', 'bytes=0-3');
+    expect(part.status).toBe(206);
+    expect(part.headers['content-range']).toBe('bytes 0-3/16');
+  });
+
+  // Code review 2026-11-17: an ok answer other than 200 or 206 is not
+  // streamed as a 200 video (archive's rule).
+  it('does not stream an upstream 203 as a 200 video', async () => {
+    fake.composeDelayMs = 0;
+    const { body } = await post('den', { eventId: EVENT, preS: 0, postS: 5, size: 'sd', badge: false });
+    await new Promise((res) => setTimeout(res, 20));
+    vi.spyOn(getProxyClient(k('den'))!, 'open').mockResolvedValue(new Response('{}', { status: 203 }));
+    const r = await request(createApp()).get(`/api/cameras/den/compositions/${body.id}/video?inline=1`).set('Cookie', auth);
+    expect(r.status).not.toBe(200);
+    expect(r.headers['content-type']).not.toBe('video/mp4');
+  });
+
   // Code review 2026-11-14: an error answer is read up to a cap, never whole.
   it('reads at most a bounded error body from the proxy', async () => {
     fake.composeDelayMs = 0;
