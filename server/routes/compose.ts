@@ -5,7 +5,7 @@ import { logger } from '../logger';
 import { getProxyClient, proxyPath, type ProxyClient } from '../proxy/client';
 import { CLIP_ID as EVENT, offsetAt, offsetStamp, zoneStamp, type TimeInfo } from '../recordings/clipNames';
 import { getRecordings } from '../recordings/service';
-import { badRequest, knownCamera, proxyAnswerText, proxyFailed, proxyTarget } from './common';
+import { badRequest, knownCamera, passUnsatisfiable, proxyAnswerText, proxyFailed, proxyTarget, upstreamHeader, viewerGone } from './common';
 import type { Principal } from '../middleware/requireAuth';
 import { camsIdOf, type CamKey } from '../fleet';
 import { nodeBody } from '../httpBody';
@@ -212,18 +212,13 @@ composeRouter.get('/api/cameras/:id/compositions/:job/video', async (req, res) =
   if (!job) return;
   // A browser that gives up on a range (scrubbing) ends the proxy request
   // too, instead of leaving it to wait for headers (code review 2026-11-14).
-  const gone = new AbortController();
-  res.once('close', () => {
-    if (!res.writableFinished) gone.abort();
-  });
+  const gone = viewerGone(res);
   try {
     // Byte ranges pass through: iOS Safari plays a <video> only with them (issue #72).
     const range = req.get('range');
-    const up = await t.client.open(`${t.base}/${job.id}.mp4`, undefined, { idleMs: 30_000, signal: gone.signal, headers: range && /^bytes=\d*-\d*$/.test(range) ? { Range: range } : {} });
-    // A Range past the end: the proxy's 416 as it is, with the size in its
-    // Content-Range (bytes */N), so iOS Safari learns the length (code
-    // review 2026-11-14); never a JSON answer.
-    if (up.status === 416) return void unsatisfiable(res, up);
+    const up = await t.client.open(`${t.base}/${job.id}.mp4`, undefined, { idleMs: 30_000, signal: gone, headers: range && /^bytes=\d{0,15}-\d{0,15}$/.test(range) ? { Range: range } : {} });
+    // A Range past the end (code review 2026-11-14): passUnsatisfiable.
+    if (up.status === 416) return void (await passUnsatisfiable(up, res, { 'Accept-Ranges': 'bytes', 'Cache-Control': 'no-store' }));
     if (!up.ok || !up.body) return void (await relay(res, up));
     const name = typeof req.query.name === 'string' && NAME.test(req.query.name) ? req.query.name : 'composed.mp4';
     res.status(up.status === 206 ? 206 : 200).set({
@@ -232,24 +227,16 @@ composeRouter.get('/api/cameras/:id/compositions/:job/video', async (req, res) =
       'Cache-Control': 'no-store',
       'Content-Disposition': req.query.inline === '1' ? 'inline' : `attachment; filename="${name}"`,
     });
-    const len = up.headers.get('content-length');
-    if (len && /^\d+$/.test(len)) res.setHeader('Content-Length', len);
-    const cr = up.headers.get('content-range');
-    if (cr && /^bytes \d+-\d+\/\d+$/.test(cr)) res.setHeader('Content-Range', cr);
+    const len = upstreamHeader(up, 'content-length', /^\d{1,15}$/);
+    if (len) res.setHeader('Content-Length', len);
+    const cr = upstreamHeader(up, 'content-range', /^bytes \d{1,15}-\d{1,15}\/\d{1,15}$/);
+    if (cr) res.setHeader('Content-Range', cr);
     await pipeline(nodeBody(up), res);
   } catch (err) {
-    if (gone.signal.aborted) return; // the browser left; nobody to answer
+    if (gone.aborted) return; // the browser left; nobody to answer
     failed(err, res);
   }
 });
-
-function unsatisfiable(res: Response, up: globalThis.Response) {
-  void up.body?.cancel().catch(() => undefined);
-  res.status(416).set({ 'Accept-Ranges': 'bytes', 'Cache-Control': 'no-store' });
-  const cr = up.headers.get('content-range');
-  if (cr && /^bytes \*\/\d+$/.test(cr)) res.setHeader('Content-Range', cr);
-  res.end();
-}
 
 composeRouter.delete('/api/cameras/:id/compositions/:job', async (req, res) => {
   if (!jobOk(req, res)) return;
