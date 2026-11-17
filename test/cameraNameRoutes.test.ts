@@ -251,6 +251,16 @@ describe('PUT /api/cameras/:id/name through the proxy', () => {
     expect(res.body).toEqual({ error: 'camera_error' });
   });
 
+  // /simplify 2026-11-17: the proxy's answer is read through readJson, up to 64 KiB.
+  it('answers 502 for a proxy answer over 64 KiB', async () => {
+    const { fake, put } = await setup();
+    fake.nameOverride = { status: 200, body: { name: 'Backyard Left', pad: 'x'.repeat(70_000) } };
+    const res = await put('Backyard Left');
+    expect(res.status).toBe(502);
+    expect(res.body).toEqual({ error: 'proxy_unavailable' });
+    expect(shown('den')).toBe('Den');
+  });
+
   it('answers 502 when the proxy is unreachable', async () => {
     const { fake, put } = await setup();
     fake.offline = true;

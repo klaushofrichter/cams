@@ -10,7 +10,7 @@ import { parseObjects, parseSummary } from '../proxy/analyses';
 import { ProxyError, proxyPath, type ProxyClient } from '../proxy/client';
 import { proxyAdminClient } from '../proxy/cameraCalls';
 import { entryOf, readProxyList, type ProxyCameraEntry } from '../proxy/cameraList';
-import { badRequest, knownCamera, msRange, outId, proxyFailed, proxyTarget } from './common';
+import { badRequest, knownCamera, msRange, outId, proxyFailed, proxyTarget, readJson } from './common';
 import { accountIdOf, type CamKey } from '../fleet';
 import { nodeBody } from '../httpBody';
 import { adminTokenWaiting } from '../configSource';
@@ -102,7 +102,7 @@ proxyRouter.post('/api/cameras/:id/proxy/login-link', async (req: Request, res: 
   if (!info.webUrl) return void res.status(409).json({ error: 'no_login_link' });
   try {
     const r = await proxyAdminClient(id, { timeoutMs: 3000 }).open('/control/login-links', undefined, { method: 'POST' });
-    const body = (await r.json().catch(() => null)) as { code?: unknown } | null;
+    const body = (await readJson(r)) as { code?: unknown } | null;
     if (!r.ok || typeof body?.code !== 'string' || !/^[A-Za-z0-9_-]{8,128}$/.test(body.code)) {
       logger.warn({ cameraId: id, status: r.status }, 'proxy_login_link_refused');
       return void res.status(502).json({ error: 'proxy_unavailable' });

@@ -9,7 +9,7 @@ import { throughProxy } from '../proxy/features';
 import { plausibleName } from '../proxy/names';
 import { CameraError } from '../reolink/client';
 import { requireClient } from '../reolink/clients';
-import { knownCamera } from './common';
+import { knownCamera, readJson } from './common';
 import type { CamKey } from '../fleet';
 
 // Renaming a camera (design camera-name-design.md): the camera stores the
@@ -40,7 +40,11 @@ async function viaProxy(id: CamKey, name: string): Promise<Answer> {
     return { status: 502, body: { error: 'proxy_unavailable' } };
   }
   if (res.ok) {
-    const body = (await res.json().catch(() => null)) as { name?: unknown } | null;
+    // Read up to readJson's cap: a longer answer is as unreadable as a bad one.
+    const body = (await readJson(res).catch((err: unknown) => {
+      if (err instanceof ProxyError) return null;
+      throw err;
+    })) as { name?: unknown } | null;
     if (plausibleName(body?.name)) return { status: 200, body: { name: body.name } };
     logger.warn({ cameraId: id, status: res.status }, 'camera_rename_bad_answer');
     return { status: 502, body: { error: 'proxy_unavailable' } };

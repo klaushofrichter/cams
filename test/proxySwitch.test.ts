@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import http from 'http';
 import type { AddressInfo } from 'net';
 import { promises as fs } from 'fs';
@@ -7,7 +7,7 @@ import { join } from 'path';
 import request from 'supertest';
 import { createApp } from '../server/app';
 import { listCameras, listProxied, setCameras } from '../server/cameraRegistry';
-import { getProxyClient, resetProxyClients } from '../server/proxy/client';
+import { getProxyClient, ProxyClient, resetProxyClients } from '../server/proxy/client';
 import { loadProxyState, proxyEnabled, setProxyEnabled } from '../server/proxyState';
 import { proxyHub, proxyStates, startProxyStream, startProxyStreams, stopProxyStreams } from '../server/proxy/stream';
 import { findProxyClip, openProxyClip } from '../server/recordings/proxyClips';
@@ -248,6 +248,27 @@ describe('POST /api/cameras/:id/proxy/login-link', () => {
   it('never shows the admin token in the camera list', async () => {
     withAdmin();
     expect(JSON.stringify(listCameras(fileAccount().id))).not.toContain(FAKE_ADMIN_TOKEN);
+  });
+
+  // /simplify 2026-11-17: the answer is read through readJson, up to 64 KiB.
+  it('answers 502 for a proxy answer over 64 KiB', async () => {
+    withAdmin();
+    fake.publicUrl = 'https://proxy.example';
+    const big = JSON.stringify({ code: 'fake-code-1', pad: 'x'.repeat(70_000) });
+    const real = ProxyClient.prototype.open;
+    let asked = 0;
+    const open = vi.spyOn(ProxyClient.prototype, 'open').mockImplementation(function (this: ProxyClient, ...args: Parameters<ProxyClient['open']>) {
+      if (args[0] !== '/control/login-links') return real.apply(this, args);
+      asked++;
+      return Promise.resolve(new Response(big, { status: 201 }));
+    });
+    try {
+      const r = await link('den');
+      expect([r.status, r.body]).toEqual([502, { error: 'proxy_unavailable' }]);
+      expect(asked).toBe(1);
+    } finally {
+      open.mockRestore();
+    }
   });
 
   // Issue #69: a public address with a path or a query.
