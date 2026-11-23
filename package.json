@@ -35,7 +35,7 @@
   },
   "devDependencies": {
     "@axe-core/playwright": "^4.14.0",
-    "@playwright/test": "^1.65.0",
+    "@playwright/test": "^1.65.1",
     "@resvg/resvg-js": "^2.6.2",
     "@sveltejs/vite-plugin-svelte": "^7.3.1",
     "@types/cookie-parser": "^1.4.10",
@@ -52,11 +52,11 @@
     "mpegts.js": "^1.8.2",
     "pngjs": "^7.0.0",
     "supertest": "^7.3.2",
-    "svelte": "^5.57.3",
+    "svelte": "^5.58.1",
     "tsx": "^4.23.15",
     "typescript": "^7.0.2",
     "vite": "^8.3.8",
-    "vitest": "^5.1.0",
+    "vitest": "^5.1.1",
     "ws": "^8.23.0"
   }
 }
