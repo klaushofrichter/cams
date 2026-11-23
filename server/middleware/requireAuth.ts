@@ -5,6 +5,7 @@ import type { AccountRef, Role } from '../fleet';
 import { membershipsOf, tokenAccount, type Membership } from '../membership';
 import { internalPrincipal, isInternal } from '../mcp/internal';
 import { cookieOptions, loginToken, tokenFingerprint, tokenLoginEnabled, tokenUser } from '../loginConfig';
+import { safeReturnPath } from '../returnPath';
 import { noteViewerTokenUse, viewerTokenForSession, viewerTokenNow, type ViewerToken } from '../viewerTokens';
 
 export const RETURN_COOKIE = 'return_to';
@@ -104,21 +105,7 @@ export function currentUser(req: Request): Principal | null {
   return s.kind === 'ok' ? s.principal : null;
 }
 
-// Only same-site /app paths: "/app", "/app/...", "/app?...". Anything that a
-// browser could read as another origin ("//x", "/\x", absolute URLs) or that
-// merely starts with the letters ("/apps") is refused. The web app has its
-// own copy (web/src/lib/api.ts), so it never sends one the server drops.
-export function safeReturnPath(value: unknown): string | null {
-  if (typeof value !== 'string') return null;
-  if (!/^\/app(?:[/?#]|$)/.test(value)) return null;
-  if (value.includes('//') || value.includes('\\')) return null;
-  // Browsers drop tabs and newlines from URLs, which could rebuild a "//".
-  if (/[\u0000-\u001f\u007f]/.test(value) || value.length > 2048) return null;
-  // No "." or ".." segments, raw or percent-encoded: /app/../x would leave /app.
-  const path = value.split(/[?#]/)[0];
-  if (path.split('/').some((seg) => /^(\.|%2e){1,2}$/i.test(seg))) return null;
-  return value;
-}
+export { safeReturnPath };
 
 // Where sign-in brings the visitor back to (the callback validates again
 // before use). An unsafe path is ignored, never stored.

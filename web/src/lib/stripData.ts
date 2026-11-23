@@ -48,21 +48,27 @@ export function createStripData(cam: string, proxy: boolean, fetch: Fetch = getJ
     return t !== undefined && (!growing || Date.now() - t < FRESH_MS);
   };
 
-  function loadPreviews(day: string) {
-    const key = `p|${day}`;
-    const [from, to] = dayRange(day);
-    if (!proxy || inflight.has(key) || current(key, to >= Date.now()) || !retryable(key)) return;
+  // One previews or stills request: kept when it answers (unless the strip is
+  // gone), noted as failed otherwise, never asked twice at once.
+  function load<T>(key: string, request: () => Promise<T>, keep: (answer: T) => void) {
     inflight.add(key);
-    Promise.all(splitRange(from, to).map(([a, z]) => fetch<PreviewMinute[]>(`/api/cameras/${enc}/previews?from=${a}&to=${z}`)))
-      .then((parts) => {
+    request()
+      .then((answer) => {
         if (!alive) return;
-        previewDays.set(day, parts.flat());
+        keep(answer);
         fetchedAt.set(key, Date.now());
         failedAt.delete(key);
         bump.update((n) => n + 1);
       })
       .catch(() => failedAt.set(key, Date.now()))
       .finally(() => inflight.delete(key));
+  }
+
+  function loadPreviews(day: string) {
+    const key = `p|${day}`;
+    const [from, to] = dayRange(day);
+    if (!proxy || inflight.has(key) || current(key, to >= Date.now()) || !retryable(key)) return;
+    load(key, () => Promise.all(splitRange(from, to).map(([a, z]) => fetch<PreviewMinute[]>(`/api/cameras/${enc}/previews?from=${a}&to=${z}`))), (parts) => previewDays.set(day, parts.flat()));
   }
 
   function ensure(from: number, to: number) {
@@ -88,17 +94,7 @@ export function createStripData(cam: string, proxy: boolean, fetch: Fetch = getJ
     for (const h of [h0, h0 + HOUR]) {
       const key = `s|${h}`;
       if (inflight.has(key) || current(key, h + HOUR > Date.now()) || !retryable(key)) continue;
-      inflight.add(key);
-      fetch<number[]>(`/api/cameras/${enc}/stills?from=${h}&to=${h + HOUR - 1}`)
-        .then((ts) => {
-          if (!alive) return;
-          stillHours.set(h, stillRuns(ts));
-          fetchedAt.set(key, Date.now());
-          failedAt.delete(key);
-          bump.update((n) => n + 1);
-        })
-        .catch(() => failedAt.set(key, Date.now()))
-        .finally(() => inflight.delete(key));
+      load(key, () => fetch<number[]>(`/api/cameras/${enc}/stills?from=${h}&to=${h + HOUR - 1}`), (ts) => stillHours.set(h, stillRuns(ts)));
     }
   }
 

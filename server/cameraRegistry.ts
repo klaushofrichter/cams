@@ -69,7 +69,7 @@ export interface CameraSummary {
   throughProxy: boolean; // every camera call goes through its cam-proxy (it lists camera-calls); no direct call, no password here
 }
 
-const ID_PATTERN = /^[a-z0-9][a-z0-9-]{0,31}$/;
+export const ID_PATTERN = /^[a-z0-9][a-z0-9-]{0,31}$/;
 const FIELDS = ['id', 'name', 'host', 'user', 'password'] as const;
 
 // The registry comes from the cams-cameras Secret, mounted as a file. A
@@ -392,8 +392,7 @@ export function getCamera(id: CamKey): CameraConfig | undefined {
 export function webUiOf(cam: CameraConfig): { webUiUrl: string | null; webUiNote?: string } {
   if (throughProxy(cam.id)) {
     const a = proxyAddress.get(cam.id);
-    const host = a ? (a.startsWith('[') ? a.slice(0, a.indexOf(']') + 1) : a.split(':')[0]) : null;
-    const url = host ? `https://${host}/` : null;
+    const url = a ? `https://${hostOnly(a)}/` : null;
     return cam.webUiNote ? { webUiUrl: url, webUiNote: cam.webUiNote } : { webUiUrl: url };
   }
   const webUiUrl = cam.webUiUrl !== undefined ? cam.webUiUrl : cam.webUiNote ? null : webUiUrlOf(cam);
@@ -403,9 +402,11 @@ export function webUiOf(cam: CameraConfig): { webUiUrl: string | null; webUiNote
 // The camera's own web UI, by LAN address: it's reachable from the home
 // network only (docs/reolink-api.md, "Camera authentication").
 // A from-proxy camera has none until its address is known.
+// An address without its port (an IPv6 literal keeps its brackets).
+const hostOnly = (address: string): string => (address.startsWith('[') ? address.slice(0, address.indexOf(']') + 1) : address.split(':')[0]);
+
 function webUiUrlOf(cam: CameraConfig): string | null {
   const h = cameraHost(cam.id) ?? (hostFromProxy(cam) ? undefined : cam.host);
   if (!h) return null;
-  const host = h.startsWith('[') ? h.slice(0, h.indexOf(']') + 1) : h.split(':')[0];
-  return `https://${host}/`;
+  return `https://${hostOnly(h)}/`;
 }

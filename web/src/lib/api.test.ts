@@ -5,8 +5,6 @@ import {
   checkSession,
   getJson,
   HttpError,
-  deleteJson,
-  patchJson,
   okStatus,
   putJson,
   requestJson,
@@ -49,7 +47,7 @@ beforeEach(() => {
 });
 afterEach(() => vi.unstubAllGlobals());
 
-describe('safeReturnPath (web copy)', () => {
+describe('safeReturnPath (the server\'s rule, shared)', () => {
   it.each(['/app', '/app/live', '/app/recordings?cam=cam1&panel=history', '/app/timeline#t'])('accepts %s', (p) => expect(safeReturnPath(p)).toBe(p));
   it.each([
     '//evil.example', '/\\evil.example', 'https://evil.example/app', 'javascript:alert(1)', '/apps', '/application', '/app//evil.example',
@@ -200,12 +198,12 @@ describe('several accounts, none chosen (migration P4, R4-13)', () => {
   });
 });
 
-describe('patchJson / deleteJson', () => {
-  it('patchJson sends PATCH with a JSON body; deleteJson sends DELETE without one', async () => {
+describe('requestJson: PATCH and DELETE', () => {
+  it('sends PATCH with a JSON body and DELETE without one', async () => {
     const calls: { url: string; init: RequestInit }[] = [];
     vi.stubGlobal('fetch', vi.fn(async (url: string, init: RequestInit) => (calls.push({ url, init }), init.method === 'DELETE' ? new Response(null, { status: 204 }) : ok({ id: 'p' }))));
-    expect(await patchJson('/api/x/1', { home: true })).toEqual({ status: 200, body: { id: 'p' } });
-    expect(await deleteJson('/api/x/1')).toEqual({ status: 204, body: {} });
+    expect(await requestJson('PATCH', '/api/x/1', { home: true })).toEqual({ status: 200, body: { id: 'p' } });
+    expect(await requestJson('DELETE', '/api/x/1')).toEqual({ status: 204, body: {} });
     expect(calls.map((c) => [c.url, c.init.method, c.init.body])).toEqual([
       ['/api/x/1', 'PATCH', '{"home":true}'],
       ['/api/x/1', 'DELETE', undefined],
