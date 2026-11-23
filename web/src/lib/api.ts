@@ -1,3 +1,5 @@
+import { safeReturnPath } from '../../../server/returnPath';
+
 export class UnauthorizedError extends Error {}
 
 // A refused request, with the server's `error` code when it sent one.
@@ -30,16 +32,8 @@ export const SILENT_KEY = 'cams.silentRenewalAt';
 export const SILENT_GAP_MS = 5 * 60 * 1000;
 const PROBE_GAP_MS = 30 * 1000;
 
-// The web copy of the server's safeReturnPath (server/middleware/requireAuth.ts).
-export function safeReturnPath(value: unknown): string | null {
-  if (typeof value !== 'string') return null;
-  if (!/^\/app(?:[/?#]|$)/.test(value)) return null;
-  if (value.includes('//') || value.includes('\\')) return null;
-  if (/[\u0000-\u001f\u007f]/.test(value) || value.length > 2048) return null;
-  const path = value.split(/[?#]/)[0];
-  if (path.split('/').some((seg) => /^(\.|%2e){1,2}$/i.test(seg))) return null;
-  return value;
-}
+// The server's own rule (server/returnPath.ts), so both always agree.
+export { safeReturnPath };
 
 // Where to go to sign in again: the silent renewal unless one was tried in
 // the last SILENT_GAP_MS (in this tab), else the start page. Without
@@ -179,10 +173,3 @@ export function postJson<T>(url: string, body: unknown): Promise<{ status: numbe
   return requestJson<T>('POST', url, body);
 }
 
-export function patchJson<T>(url: string, body: unknown): Promise<{ status: number; body: T }> {
-  return requestJson<T>('PATCH', url, body);
-}
-
-export function deleteJson<T>(url: string): Promise<{ status: number; body: T }> {
-  return requestJson<T>('DELETE', url);
-}

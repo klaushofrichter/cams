@@ -178,27 +178,13 @@ export class TrustStore {
       const pf = proxyDiffers(confirmed, offered);
       if (!pf.length) return { use: withCamera(confirmed), confirmed: true, held: null };
       const full = withCamera(confirmed);
-      if (move && this.moveAllowed(accountId, full, offered, move)) {
-        this.data.confirmed[key] = offered;
-        delete this.data.keptOld[key];
-        this.data.log.push({ at: Date.now(), email: '', accountId, camsIds: [camsId], action: 'move', moveId: move.moveId });
-        this.save();
-        logger.info({ accountId, camsId, proxyId: move.proxyId, moveId: move.moveId }, 'camera_moved_trusted');
-        return { use: offered, confirmed: true, held: null };
-      }
+      if (move && this.moveAllowed(accountId, full, offered, move)) return this.applyMove(accountId, camsId, offered, move);
       if (move && this.attestedMoveAllowed(accountId, full, offered, move)) return this.applyAttested(accountId, camsId, offered, move, true);
       const h = this.heldOf(key, offered);
       return { use: full, confirmed: true, held: h && { ...h, fields: pf } };
     }
     const fields = differs(confirmed, offered);
-    if (fields.length && move && this.moveAllowed(accountId, confirmed, offered, move)) {
-      this.data.confirmed[key] = offered;
-      delete this.data.keptOld[key];
-      this.data.log.push({ at: Date.now(), email: '', accountId, camsIds: [camsId], action: 'move', moveId: move.moveId });
-      this.save();
-      logger.info({ accountId, camsId, proxyId: move.proxyId, moveId: move.moveId }, 'camera_moved_trusted');
-      return { use: offered, confirmed: true, held: null };
-    }
+    if (fields.length && move && this.moveAllowed(accountId, confirmed, offered, move)) return this.applyMove(accountId, camsId, offered, move);
     if (fields.length && move && this.attestedMoveAllowed(accountId, confirmed, offered, move)) return this.applyAttested(accountId, camsId, offered, move, true);
     if (!fields.length) {
       if (this.data.keptOld[key]) {
@@ -279,6 +265,17 @@ export class TrustStore {
 
   // Confirms the camera (and with rule A trusts the target proxy): one log
   // entry, one save, ids only.
+  // The move rule (M3) applied: the offer is confirmed on the spot.
+  private applyMove(accountId: string, camsId: string, offered: TrustValues, move: MoveContext): { use: TrustValues; confirmed: boolean; held: HeldChange | null } {
+    const key = `${accountId}/${camsId}`;
+    this.data.confirmed[key] = offered;
+    delete this.data.keptOld[key];
+    this.data.log.push({ at: Date.now(), email: '', accountId, camsIds: [camsId], action: 'move', moveId: move.moveId });
+    this.save();
+    logger.info({ accountId, camsId, proxyId: move.proxyId, moveId: move.moveId }, 'camera_moved_trusted');
+    return { use: offered, confirmed: true, held: null };
+  }
+
   private applyAttested(accountId: string, camsId: string, offered: TrustValues, move: MoveContext, trustTarget: boolean): { use: TrustValues; confirmed: boolean; held: HeldChange | null } {
     const key = `${accountId}/${camsId}`;
     if (trustTarget) {
