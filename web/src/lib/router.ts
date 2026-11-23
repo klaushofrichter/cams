@@ -15,6 +15,7 @@ export interface Route {
   panel: Panel;
   params: URLSearchParams;
   legacy: boolean; // a video URL other than /app/video
+  pop: boolean; // reached by Back or Forward (the Video page lands paused there)
 }
 
 export interface NavItem {
@@ -32,14 +33,14 @@ const OTHER_PAGES: Page[] = ['timeline', 'archive', 'settings', 'about', 'accoun
 export function parseRoute(pathname: string, search: string): Route {
   const params = new URLSearchParams(search);
   const segment = pathname.replace(/^\/app\/?/, '').split('/')[0];
-  if ((OTHER_PAGES as string[]).includes(segment)) return { page: segment as Page, panel: 'live', params, legacy: false };
+  if ((OTHER_PAGES as string[]).includes(segment)) return { page: segment as Page, panel: 'live', params, legacy: false, pop: false };
   const positioned = params.has('at') || params.has('date') || params.has('clip');
   // History, Events (2026-09-28) and Downloads (2026-09-29) links: a recording.
-  if (segment === 'recordings') return { page: 'video', panel: 'history', params, legacy: pathname !== VIDEO_PATH };
+  if (segment === 'recordings') return { page: 'video', panel: 'history', params, legacy: pathname !== VIDEO_PATH, pop: false };
   // An old /app/live?at= link (earlier versions wrote them) is a recording too.
-  if (segment === 'live') return { page: 'video', panel: params.has('at') ? 'history' : 'live', params, legacy: true };
+  if (segment === 'live') return { page: 'video', panel: params.has('at') ? 'history' : 'live', params, legacy: true, pop: false };
   // Anything unknown is the video page, never a blank shell.
-  return { page: 'video', panel: positioned && segment === 'video' ? 'history' : 'live', params, legacy: pathname !== VIDEO_PATH };
+  return { page: 'video', panel: positioned && segment === 'video' ? 'history' : 'live', params, legacy: pathname !== VIDEO_PATH, pop: false };
 }
 
 export const NAV_ITEMS: NavItem[] = [
@@ -115,12 +116,12 @@ const idxOf = (state: unknown): number => {
 };
 // The state for an entry pushed on top of the current one.
 export const stateAbove = (extra: Record<string, unknown> = {}): Record<string, unknown> => ({ ...extra, cvIdx: idxOf(history.state) + 1 });
-function sync(): void {
+function sync(pop = false): void {
   shown = location.pathname + location.search;
   shownIdx = idxOf(history.state);
   const r = parseRoute(location.pathname, location.search);
   if (r.page === 'video' && location.pathname === VIDEO_PATH) rememberVideo(shown);
-  store.set(r);
+  store.set({ ...r, pop });
 }
 
 // A page whose URL follows it at most once a second (the Video page) puts
@@ -184,7 +185,7 @@ function onPop(): void {
     return;
   }
   if (carried) history.replaceState(history.state, '', carried);
-  sync();
+  sync(true);
 }
 
 export function initRouter(): () => void {
