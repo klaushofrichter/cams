@@ -6,7 +6,7 @@
 import { promises as fs, readFileSync, statSync } from 'fs';
 import { dirname, isAbsolute, join, resolve } from 'path';
 import type { Dispatcher } from 'undici';
-import { FROM_PROXY, parseCameras, validCameraAddress } from './cameraRegistry';
+import { FROM_PROXY, ID_PATTERN, parseCameras, validCameraAddress } from './cameraRegistry';
 import { fingerprintList } from './tls/fingerprint';
 import { pinTransportOk } from './tls/loopback';
 import { fetchPinnedCa, fetchWith, siteCaDispatcher, SiteCaError } from './tls/siteCa';
@@ -35,7 +35,6 @@ export interface ImportProxy {
   cameras: Record<string, ImportCamera>;
 }
 
-export const ID_PATTERN = /^[a-z0-9][a-z0-9-]{0,31}$/;
 const fail = (path: string, what: string): never => {
   throw new ImportError(`${path}: ${what}`);
 };
