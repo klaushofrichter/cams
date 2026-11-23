@@ -110,10 +110,14 @@
 
   // The route this page reads: frozen while it is kept alive behind another
   // page, so that page's URL (a Timeline day, its camera) never moves it.
-  let vroute = $state(untrack(() => $route));
-  $effect(() => {
+  // Derived, not set by an effect: the effects that write the URL must never
+  // see a page made visible again with the route it was frozen at (Svelte
+  // 5.58 runs them before such an effect could catch up).
+  let frozenRoute = untrack(() => $route);
+  const vroute = $derived.by(() => {
     const r = $route;
-    if (r.page === 'video') vroute = r;
+    if (r.page === 'video') frozenRoute = r;
+    return frozenRoute;
   });
   // A link's zoom (Klaus, 2026-11-05) wins over the saved preference; a URL
   // without one keeps the zoom shown. Before the effects that write the URL,
@@ -518,7 +522,9 @@
       firstPosition = false;
       if (t === null) return;
       if (reportedAt === null || Math.abs(t - reportedAt) >= 1000) {
-        historyView?.jump(t, untrack(() => cursor.play === true));
+        // Back and Forward land paused (HistoryView.jump), whatever the
+        // entry's play=1 says: playing near now would glue to live at once.
+        historyView?.jump(t, untrack(() => cursor.play === true && !vroute.pop));
         land(t);
       } else if (first) land(t);
     });

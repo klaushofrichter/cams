@@ -98,3 +98,24 @@ describe('onBeforeNavigate', () => {
     stop();
   });
 });
+
+describe('a route reached by Back or Forward', () => {
+  // The Video page lands paused there, whatever the entry's play=1 says (a
+  // playing recording near now would glue to live at once, and Back would
+  // bounce back to live).
+  it('is marked as such; a pushed, replaced or first route is not', async () => {
+    const r = await import('./router');
+    const stop = r.initRouter();
+    expect(get(r.route).pop).toBe(false);
+    r.navigate(REC);
+    expect(get(r.route).pop).toBe(false);
+    r.navigate('/app/video');
+    history.back();
+    await new Promise<void>((resolve) => addEventListener('popstate', () => setTimeout(resolve), { once: true }));
+    expect(location.pathname + location.search).toBe(REC);
+    expect(get(r.route).pop).toBe(true);
+    r.replaceRoute('/app/video?cam=den&date=2026-09-27&at=1790552170&zoom=1h');
+    expect(get(r.route).pop).toBe(false);
+    stop();
+  });
+});
