@@ -8,3 +8,4 @@ published as [GitHub releases](https://github.com/klaushofrichter/cams/releases)
 
 ## [Unreleased]
 
+- Settings: a camera behind a proxy whose SD card free space is not read yet (for example not mounted) shows the card size with "used space unknown" instead of a full card.
