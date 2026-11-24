@@ -20,7 +20,7 @@ export interface DeviceInfo {
   firmware: string;
   hardware: string;
   name: string;
-  storage: { totalMb: number; usedMb: number; mounted: boolean } | null;
+  storage: { totalMb: number; usedMb: number | null; mounted: boolean } | null;
   certificate: { subject: string; issuer: string; validTo: string; daysLeft: number } | null;
   webUiUrl: string | null;
   webUiNote?: string;

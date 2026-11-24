@@ -481,7 +481,7 @@
           {/if}
           <dt>Storage</dt>
           <dd data-testid="device-storage">
-            {#if device.storage}{gb(device.storage.usedMb)} of {gb(device.storage.totalMb)} used{#if !device.storage.mounted} (not mounted){/if}{:else}No SD card{/if}
+            {#if device.storage}{#if device.storage.usedMb === null}{gb(device.storage.totalMb)}, used space unknown{:else}{gb(device.storage.usedMb)} of {gb(device.storage.totalMb)} used{/if}{#if !device.storage.mounted} (not mounted){/if}{:else}No SD card{/if}
           </dd>
           <dt>Certificate</dt>
           <dd data-testid="device-cert">
