@@ -191,7 +191,7 @@ settingsRouter.get('/api/cameras/:id/device', async (req, res, next) => {
         firmware: s.firmware ?? '',
         hardware: s.hardware ?? '',
         name: s.name ?? '',
-        storage: s.sd && s.sd.capacityMB !== null ? { totalMb: s.sd.capacityMB, usedMb: s.sd.capacityMB - (s.sd.freeMB ?? 0), mounted: s.sd.mounted } : null,
+        storage: s.sd && s.sd.capacityMB !== null ? { totalMb: s.sd.capacityMB, usedMb: s.sd.freeMB === null ? null : s.sd.capacityMB - s.sd.freeMB, mounted: s.sd.mounted } : null,
         certificate: s.certificate ? { ...s.certificate, daysLeft: Math.floor((Date.parse(s.certificate.validTo) - Date.now()) / 86_400_000) } : null,
         ...webUiOf(cam),
       });

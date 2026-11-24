@@ -8,4 +8,4 @@ published as [GitHub releases](https://github.com/klaushofrichter/cams/releases)
 
 ## [Unreleased]
 
-- Internal cleanup (/simplify, 2026-11-23), no visible change: the rule for the page sign-in returns to is one piece of code for the server and the web app, and a few repeated code blocks and two unused helpers are gone.
+- Settings: a camera behind a proxy whose SD card free space is not read yet (for example not mounted) shows the card size with "used space unknown" instead of a full card.

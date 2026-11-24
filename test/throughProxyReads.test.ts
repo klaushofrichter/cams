@@ -98,6 +98,12 @@ describe('device, snapshot, settings and light through the proxy', () => {
     expect(r.body).toHaveProperty('webUiUrl');
   });
 
+  it('leaves the used space unknown when the proxy has not read the free space', async () => {
+    fake.cameraStatus.set('cam1', fakeStatus({ sd: { present: true, mounted: false, capacityMB: 120000, freeMB: null, checkedAt: Date.now() } }));
+    const r = await get('/api/cameras/den/device').expect(200);
+    expect(r.body.storage).toEqual({ totalMb: 120000, usedMb: null, mounted: false });
+  });
+
   it('streams the proxy\'s snapshot', async () => {
     const r = await get('/api/cameras/den/snapshot.jpg').expect(200);
     expect(r.headers['content-type']).toBe('image/jpeg');
